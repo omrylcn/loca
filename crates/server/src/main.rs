@@ -91,6 +91,8 @@ const WEB_PROFILE: &str = include_str!("../../../web/assets/profile.js");
 const WEB_SIDEBAR: &str = include_str!("../../../web/assets/sidebar.js");
 const WEB_API: &str = include_str!("../../../web/assets/api.js");
 const WEB_APP: &str = include_str!("../../../web/assets/app.js");
+const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
+const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
 const ADMIN_INDEX: &str = include_str!("../../../web/admin.html");
 const ADMIN_CONSOLE_HEADER: &str = "x-loca-console";
 const MAX_HTTP_BODY_BYTES: usize = 64 * 1024;
@@ -307,6 +309,8 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/PRINCIPLES.md", get(principles_tr))
+        .route("/PRINCIPLES.en.md", get(principles_en))
         .route("/assets/:name", get(web_asset))
         .route("/health", get(health))
         .route(
@@ -464,6 +468,25 @@ async fn index() -> impl IntoResponse {
         ],
         Html(WEB_INDEX),
     )
+}
+
+fn principles_document(body: &'static str) -> impl IntoResponse {
+    (
+        [
+            ("content-type", "text/markdown; charset=utf-8"),
+            ("cache-control", "no-store"),
+            ("x-content-type-options", "nosniff"),
+        ],
+        body,
+    )
+}
+
+async fn principles_tr() -> impl IntoResponse {
+    principles_document(PRINCIPLES_TR)
+}
+
+async fn principles_en() -> impl IntoResponse {
+    principles_document(PRINCIPLES_EN)
 }
 
 /// Serve only compile-time embedded browser assets. The allow-list prevents

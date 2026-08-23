@@ -112,6 +112,8 @@ pub(crate) async fn require_membership(
     let path = req.uri().path();
     let public = path == "/"
         || path.starts_with("/assets/")
+        || path == "/PRINCIPLES.md"
+        || path == "/PRINCIPLES.en.md"
         || path == "/health"
         || path == "/sessions"
         || path == "/membership/claim"

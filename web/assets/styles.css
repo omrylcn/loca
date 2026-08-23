@@ -85,6 +85,9 @@
   .side h1 { display: flex; align-items: center; gap: 9px; font-size: 14px; margin: 0;
     height: 56px; padding: 0 16px; border-bottom: 1px solid var(--line);
     letter-spacing: .5px; font-weight: 600; }
+  .brandlink { display: inline-flex; align-items: center; gap: 9px; color: inherit;
+    text-decoration: none; }
+  .brandlink:hover, .brandlink:focus-visible { color: var(--accent2); outline: none; }
   /* logo mark: the table and those around it — * agent above, . human below */
   .mark { width: 13px; height: 13px; border: 1.5px solid var(--accent); border-radius: 3px;
     position: relative; flex: 0 0 auto; margin: 6px 2px; }
