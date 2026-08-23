@@ -97,7 +97,9 @@ test("admin properties use progressive disclosure and mobile navigation", async 
   await page.locator("#sideLocaTab").click();
   await expect(page.locator("#sideLocaTab")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#sideLocaView .online")).toBeVisible();
-  await expect(page.locator("#locaSummary")).toBeHidden();
+  await expect(page.locator("#locaSummary")).toBeVisible();
+  await expect(page.locator("#locaSummary")).toContainText("operator");
+  await expect(page.locator("#locaSummary")).not.toContainText("Purpose");
   await page.locator("#sideBuildingTab").click();
 
   await page.locator("#whoami details.profileaccess summary").click();
@@ -880,7 +882,7 @@ test("the loca sidebar never composes delayed facts from the previous room", asy
   await page.goto("/");
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("sidebar-a"));
-  await expect(page.locator("#locaSummary")).toContainText("sidebar-a-purpose");
+  await expect(page.locator("#locaSummary")).not.toContainText("Purpose");
   await expect(page.locator("#locaSummary")).toContainText("sidebar-a-operator");
   await expect(page.locator("#locaSummary")).toContainText("sidebar-a-lead");
   await expect(page.locator("#locaSummary")).toContainText("Closed");
@@ -907,7 +909,7 @@ test("the loca sidebar never composes delayed facts from the previous room", asy
   await expect(page.locator("#onlineList")).not.toContainText("sidebar-a-away");
 
   releaseB();
-  await expect(page.locator("#locaSummary")).toContainText("sidebar-b-purpose");
+  await expect(page.locator("#locaSummary")).not.toContainText("Purpose");
   await expect(page.locator("#locaSummary")).toContainText("sidebar-b-operator");
   await expect(page.locator("#locaSummary")).toContainText("sidebar-b-lead");
   await expect(page.locator("#locaSummary")).toContainText("Open");

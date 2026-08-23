@@ -192,7 +192,6 @@ function renderLocaSidebar() {
     if (state.sidebarView === "loca") setSidebarView("building");
     return;
   }
-  const activeGoal = isLocaContextReady("goals") && typeof currentGoal === "function" ? currentGoal() : null;
   const assignment = isLocaContextReady("operator") ? state.locaOperator?.appointed : null;
   const inherited = isLocaContextReady("operator") ? state.locaOperator?.inherited_master : null;
   const operator = !isLocaContextReady("operator") ? "Loading…"
@@ -204,13 +203,10 @@ function renderLocaSidebar() {
     ? roles.filter(role => role !== "participant" || roles.length === 1).map(profileRoleLabel).join(" · ")
     : "PARTICIPANT";
   const lifecycle = sidebarLifecycle();
-  const purpose = !isLocaContextReady("goals") ? "Loading…"
-    : activeGoal ? activeGoal.outcome : "No active goal";
   $("locaSummary").innerHTML =
     `<div class="locasummaryhead"><span class="locaglyph">#</span><span><b>${esc(state.room)}</b>` +
       `<small>This Loca · ${esc(lifecycle)}</small></span><span class="lifecycle ${lifecycle.toLowerCase()}">${esc(lifecycle)}</span></div>` +
     `<dl class="locafacts">` +
-      `<div><dt>Purpose</dt><dd>${esc(purpose)}</dd></div>` +
       `<div><dt>Operator</dt><dd>${esc(operator)}${operatorSource ? `<small>${esc(operatorSource)}</small>` : ""}</dd></div>` +
       `<div><dt>Lead</dt><dd>${esc(lead)}</dd></div>` +
       `<div><dt>Your role</dt><dd>${esc(myRole)}</dd></div>` +
