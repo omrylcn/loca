@@ -15,6 +15,7 @@ RUN mkdir -p crates/protocol/src crates/server/src crates/admin/src \
 # Now the real sources (web/index.html is include_str!'d by the server).
 COPY crates crates
 COPY web web
+COPY PRINCIPLES.md PRINCIPLES.en.md ./
 RUN touch crates/server/src/main.rs crates/protocol/src/lib.rs \
  && cargo build --release --locked -p server
 
