@@ -20,7 +20,11 @@ function renderProfile() {
   const box = $("whoami");
   const profile = state.profile;
   if (!profile?.principal) {
-    box.innerHTML = `connected as <b>${esc(state.name)}</b>`;
+    box.innerHTML = `<details class="profilemenu"><summary>` +
+      `<span class="profileidentity"><span class="profileglyph">.</span>` +
+      `<span><b>${esc(state.name)}</b><small>connected as ${esc(state.name)}</small></span></span>` +
+      `<span class="profilechevron" aria-hidden="true">›</span></summary>` +
+      `<div class="profilepanel"><div class="profileempty">Profile is available after you take a seat.</div></div></details>`;
     box.classList.add("on");
     return;
   }
@@ -47,9 +51,12 @@ function renderProfile() {
       `<span><b>${esc(credential.label)}</b><small>${esc(last)}</small></span>` +
       `<span class="credentialstate">${esc(stateText)}${credential.root_recovery ? " · recovery" : ""}</span>${action}</div>`;
   }).join("");
-  box.innerHTML =
-    `<div class="profileidentity"><span class="profileglyph">${principal.kind === "agent" ? "*" : "."}</span>` +
-      `<span><b>${esc(principal.display_name)}</b><small>connected as ${esc(principal.display_name)} · You · ${profileKindLabel(principal.kind)}</small></span></div>` +
+  box.innerHTML = `<details class="profilemenu"><summary aria-label="Open your profile">` +
+    `<span class="profileidentity"><span class="profileglyph">${principal.kind === "agent" ? "*" : "."}</span>` +
+      `<span><b>${esc(principal.display_name)}</b><small>You · ${profileKindLabel(principal.kind)}</small></span></span>` +
+    `<span class="profilechevron" aria-hidden="true">›</span></summary>` +
+    `<div class="profilepanel"><div class="profilepanelhead"><span>Profile</span><small>Identity &amp; access</small></div>` +
+    `<div class="profileconnected">connected as <b>${esc(principal.display_name)}</b> · You · ${profileKindLabel(principal.kind)}</div>` +
     `<div class="profileroles">` +
       `<span><small>Building</small><b class="role building-${esc(profile.building_role)}">${profileRoleLabel(profile.building_role)}</b></span>` +
       `<span><small>This Loca</small><b class="role loca-role">${esc(locaText)}</b>${source ? `<em>${source}</em>` : ""}</span>` +
@@ -60,7 +67,7 @@ function renderProfile() {
       `<div class="credentialcreate"><input id="credentialLabel" maxlength="64" placeholder="New key label, e.g. MacBook" />` +
       `<button type="button" id="credentialCreate">Create key</button></div>` +
       `<div class="credentialsecret hidden" id="credentialSecret" role="status"></div>` +
-    `</details>`;
+    `</details></div></details>`;
   box.classList.add("on");
 }
 
@@ -97,7 +104,11 @@ async function fetchProfile() {
     if (sequence !== profileFetchSequence || room !== state.room) return;
     state.profile = null;
     state.credentials = [];
-    box.innerHTML = `connected as <b>${esc(state.name)}</b>`;
+    box.innerHTML = `<details class="profilemenu"><summary>` +
+      `<span class="profileidentity"><span class="profileglyph">.</span>` +
+      `<span><b>${esc(state.name)}</b><small>connected as ${esc(state.name)}</small></span></span>` +
+      `<span class="profilechevron" aria-hidden="true">›</span></summary>` +
+      `<div class="profilepanel"><div class="profileempty">Profile is unavailable.</div></div></details>`;
     box.classList.add("on");
     markLocaContextReady("profile", room);
     renderLocaSidebar();
@@ -119,6 +130,7 @@ async function createProfileCredential() {
   }
   const created = await response.json();
   await fetchProfile();
+  $("whoami").querySelector("details.profilemenu").open = true;
   $("whoami").querySelector("details.profileaccess").open = true;
   const secret = $("credentialSecret");
   secret.classList.remove("hidden");
@@ -167,4 +179,9 @@ $("whoami").addEventListener("click", event => {
     revoke.dataset.revokeCredential,
     revoke.dataset.current === "1",
   );
+});
+
+document.addEventListener("click", event => {
+  const menu = $("whoami").querySelector("details.profilemenu");
+  if (menu?.open && !$("whoami").contains(event.target)) menu.open = false;
 });
