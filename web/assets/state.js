@@ -191,8 +191,14 @@ function renderRooms() {
         (rm.room === state.room ? " active" : "");
       el.title = rm.archived ? "closed · read-only" : "";
       el.setAttribute("aria-current", rm.room === state.room ? "page" : "false");
-      const pres = (rm.humans || rm.agents)
-        ? `<span class="pres"><span class="h">.${rm.humans || 0}</span> <span class="a">*${rm.agents || 0}</span></span>`
+      const people = Number(rm.humans || 0);
+      const agents = Number(rm.agents || 0);
+      const presenceLabel = [
+        people ? `${people} ${people === 1 ? "person" : "people"}` : "",
+        agents ? `${agents} ${agents === 1 ? "agent" : "agents"}` : "",
+      ].filter(Boolean).join(" · ");
+      const pres = (people || agents)
+        ? `<span class="pres" title="${esc(presenceLabel)}">${esc(presenceLabel)}</span>`
         : `<span class="pres" style="color:var(--dim)">empty</span>`;
       const badge = unread
         ? `<span class="unreadbadge" title="${unread} unread message${unread === 1 ? "" : "s"}">${unread > 99 ? "99+" : unread}</span>`

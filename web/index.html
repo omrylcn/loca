@@ -37,7 +37,7 @@
     </div>
     <div class="sideviewtabs" role="tablist" aria-label="Sidebar views">
       <button id="sideBuildingTab" role="tab" aria-selected="true" aria-controls="sideBuildingView" tabindex="0">Your Locas</button>
-      <button class="hidden" id="sideLocaTab" role="tab" aria-selected="false" aria-controls="sideLocaView" tabindex="-1" disabled>This Loca</button>
+      <button id="sideLocaTab" role="tab" aria-selected="false" aria-controls="sideLocaView" tabindex="-1" disabled>This Loca</button>
     </div>
     <section class="sideview buildingview" id="sideBuildingView" role="tabpanel" aria-labelledby="sideBuildingTab">
       <div class="rooms">
@@ -63,7 +63,7 @@
       </div>
     </section>
     <section class="sideview locaview hidden" id="sideLocaView" role="tabpanel" aria-labelledby="sideLocaTab">
-      <div class="locasummary" id="locaSummary" aria-live="polite"></div>
+      <div class="locasummary hidden" id="locaSummary" aria-live="polite"></div>
       <div class="online">
         <div class="rlabel">AT THE TABLE <span id="onlineCount">0</span></div>
         <div id="onlineList"></div>

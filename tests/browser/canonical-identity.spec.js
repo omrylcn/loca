@@ -91,9 +91,14 @@ test("admin properties use progressive disclosure and mobile navigation", async 
   await expect(page.locator("#whoami")).toContainText("OPERATOR");
   await expect(page.locator("#whoami")).toContainText("Bounded session");
   await expect(page.locator("#sideBuildingTab")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#sideLocaTab")).toBeHidden();
+  await expect(page.locator("#sideLocaTab")).toBeVisible();
   await expect(page.locator("#sideLocaView")).toBeHidden();
   await expect(page.locator("#roomList button.room").first()).toBeVisible();
+  await page.locator("#sideLocaTab").click();
+  await expect(page.locator("#sideLocaTab")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#sideLocaView .online")).toBeVisible();
+  await expect(page.locator("#locaSummary")).toBeHidden();
+  await page.locator("#sideBuildingTab").click();
 
   await page.locator("#whoami details.profileaccess summary").click();
   await page.locator("#credentialLabel").fill("Browser test key");
@@ -151,12 +156,30 @@ test("joining a loca keeps Your Locas visible and opens chat at the latest messa
         sender: "member",
         sender_type: "user",
         text: `history message ${index + 1}`,
-        at: 1_700_000_000_000 + index,
+        ts: 1_700_000_000_000 + index,
       })),
     });
   });
   await expect(page.locator("#sideBuildingTab")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#sideLocaTab")).toBeHidden();
+  await expect(page.locator("#sideLocaTab")).not.toHaveClass(/hidden/);
+  await expect(page.locator("#feed .row").last()).toContainText("history message 80");
+  await page.evaluate(() => {
+    state.attentions = {
+      stale: {
+        id: "attention:latest-message-room:silence:stale",
+        room: "latest-message-room",
+        reason: "room_silence",
+        subject: "August 13 stale reminder",
+        owner: "operator",
+        created_at: 1_600_000_000_000,
+        delivered_at: 1_600_000_000_100,
+        attempt: 1,
+        status: "open",
+      },
+    };
+    rebuildReminderChatProjection();
+  });
+  await expect(page.locator("#feed .row.locareminder")).toHaveCount(0);
   await expect(page.locator("#feed .row").last()).toContainText("history message 80");
   const distanceFromBottom = await page.locator("#feed").evaluate(feed =>
     feed.scrollHeight - feed.scrollTop - feed.clientHeight
@@ -374,9 +397,13 @@ test("goal command, focus, optional tasks, and reminders share one human surface
   }));
   await expect(page.locator("#feed .sysline")).toHaveCount(chatReceiptCount);
 
-  await page.evaluate(() => onFrame({
-    t: "attention",
-    attention: {
+  await page.evaluate(() => {
+    // Isolate reminder projection from the preceding command receipts; stale
+    // reminder ordering against a newer transcript is covered separately.
+    state.msgs = [];
+    onFrame({
+      t: "attention",
+      attention: {
       id: "attention:focus-e2e:goal:receipt",
       reason: "goal_reminder",
       subject: "Goal: public release is independently verified",
@@ -385,8 +412,9 @@ test("goal command, focus, optional tasks, and reminders share one human surface
       delivered_at: 20,
       attempt: 2,
       status: "open",
-    },
-  }));
+      },
+    });
+  });
   const firstReminder = page.locator("#feed .row.locareminder").last();
   await expect(firstReminder.locator(".sender")).toHaveText("loca");
   await expect(firstReminder.locator(".body")).toContainText(
@@ -394,7 +422,7 @@ test("goal command, focus, optional tasks, and reminders share one human surface
   );
   await expect(firstReminder.locator(".mention")).toHaveText("@operator");
   await expect(firstReminder.locator(".sender")).toHaveCSS("color", "rgb(255, 176, 102)");
-  await expect(page.locator("#feed .row.locareminder")).toHaveCount(reminderBubbleCount + 1);
+  await expect(page.locator("#feed .row.locareminder")).toHaveCount(1);
   await expect(page.locator("#feed .sysline")).toHaveCount(chatReceiptCount);
   await expect(page.locator("#reminderHistoryList .reminderhistoryrow").first()).toContainText(
     "@operator · delivered · waiting 15 min · threshold 10 min · next check 5 min · attempt 2",
@@ -414,12 +442,12 @@ test("goal command, focus, optional tasks, and reminders share one human surface
       status: "open",
     },
   }), longGoal);
+  await expect(page.locator("#feed .row.locareminder")).toHaveCount(1);
   await expect(page.locator("#feed .row.locareminder").last().locator(".body")).toContainText("… · waiting 10 min");
   await expect(page.locator("#reminderHistoryList .reminderhistoryrow").first()).toContainText(longGoal);
 
   // The server bounds attempts; the browser also refuses an out-of-policy
   // attempt and deduplicates a replay of the same durable delivery.
-  const boundedCount = await page.locator("#feed .row.locareminder").count();
   await page.evaluate(() => {
     state.settings.care_max_attempts = 2;
     const attemptOne = {
@@ -453,14 +481,14 @@ test("goal command, focus, optional tasks, and reminders share one human surface
       attention: { ...attemptTwo, id: "attention:focus-e2e:silence:attempt-3", attempt: 3 },
     });
   });
-  await expect(page.locator("#feed .row.locareminder")).toHaveCount(boundedCount + 2);
+  await expect(page.locator("#feed .row.locareminder")).toHaveCount(1);
   await expect(page.locator("#feed .row.locareminder").last().locator(".body")).toContainText(
     "@operator, bounded replay reminder",
   );
   await expect(page.locator("#reminderHistoryList")).toContainText("attempt 3");
 
   const boundedBubbles = page.locator("#feed .row.locareminder", { hasText: "bounded replay reminder" });
-  await expect(boundedBubbles).toHaveCount(2);
+  await expect(boundedBubbles).toHaveCount(1);
 
   // A stale frame from another loca is neither rendered nor admitted to this
   // room's Attention projection.
@@ -480,16 +508,16 @@ test("goal command, focus, optional tasks, and reminders share one human surface
   }));
   await expect(page.locator("#feed .row.locareminder", { hasText: "must stay in the other loca" })).toHaveCount(0);
   expect(await page.evaluate(() => state.attentions["attention:other-room:silence:1"])).toBeUndefined();
-  // Reconnect clears the feed, then reconstructs exactly N attempts from the
-  // durable Attention projection instead of trusting the old render set.
+  // Reconnect clears the feed, then reconstructs only the latest actionable
+  // reminder. All attempts remain available in the durable Reminder history.
   await page.evaluate(() => {
     $("feed").innerHTML = "";
     resetReminderChatProjection();
     rebuildReminderChatProjection();
   });
-  await expect(boundedBubbles).toHaveCount(2);
+  await expect(boundedBubbles).toHaveCount(1);
 
-  // A → B → A and a repeated A refresh both rebuild exactly N. Replaying the
+  // A → B → A and a repeated A refresh both rebuild exactly one. Replaying the
   // same live frame afterwards remains a no-op.
   await page.evaluate(() => {
     const roomAAttentions = { ...state.attentions };
@@ -506,7 +534,7 @@ test("goal command, focus, optional tasks, and reminders share one human surface
     onFrame({ t: "attention", attention: attemptTwo });
     onFrame({ t: "attention", attention: attemptTwo });
   });
-  await expect(boundedBubbles).toHaveCount(2);
+  await expect(boundedBubbles).toHaveCount(1);
 
   const goalReceiptCount = await page.locator("#feed .sysline").count();
   await page.evaluate(() => {
@@ -913,15 +941,19 @@ test("personal loca pin order and visibility persist without changing room lifec
   const item = room => page.locator("#roomList .roomitem").filter({
     has: page.locator(".rname", { hasText: room }),
   });
+  const choose = async (room, action) => {
+    await item(room).locator(".roompreftrigger").click();
+    await item(room).locator(`[data-room-preference="${action}"]`).click();
+  };
   const visibleRooms = () => page.locator("#roomList .rname").allTextContents();
-  await item("prefs-a").locator('[data-room-preference="pin"]').click();
-  await item("prefs-c").locator('[data-room-preference="pin"]').click();
-  await item("prefs-c").locator('[data-room-preference="up"]').click();
+  await choose("prefs-a", "pin");
+  await choose("prefs-c", "pin");
+  await choose("prefs-c", "up");
   let names = await visibleRooms();
   expect(names.indexOf("prefs-c")).toBeLessThan(names.indexOf("prefs-a"));
 
   await page.evaluate(() => { window.__roomPreferenceWs = state.ws; });
-  await item("prefs-c").locator('[data-room-preference="hide"]').click();
+  await choose("prefs-c", "hide");
   await expect(item("prefs-c")).toHaveCount(0);
   await expect(page.locator("#hiddenLocas")).toBeVisible();
   await expect(page.locator("#hiddenRoomList")).toContainText("prefs-c");

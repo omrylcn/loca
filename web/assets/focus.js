@@ -46,9 +46,9 @@ async function fetchTasks() {
   if (state.tab === "journal") renderJournal();
 }
 
-// Reminder delivery is durable Attention state. Chat projects each bounded,
-// delivered attempt as a deduplicated `loca` mention; this compact audit keeps
-// the complete lifecycle under Reminders across reconnects.
+// Reminder delivery is durable Attention state. The complete lifecycle stays
+// here; Chat projects only the newest actionable reminder so an audit trail
+// never turns into a wall of repeated messages.
 function renderReminderHistory() {
   const reminders = Object.values(state.attentions)
     .filter(attention => ["goal_reminder", "task_reminder", "wait_overdue", "wait_cycle", "room_silence"].includes(attention.reason))

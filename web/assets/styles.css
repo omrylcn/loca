@@ -48,7 +48,7 @@
   .side > .lobby { flex: 0 0 auto; }
   .side > .rooms { flex: 0 1 auto; min-height: 60px; max-height: 38vh; }
   .side > .online { flex: 1 1 auto; min-height: 150px; max-height: none; }
-  .sideviewtabs { flex: 0 0 auto; display: grid; grid-template-columns: 1fr;
+  .sideviewtabs { flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr;
     gap: 3px; padding: 7px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
   .sideviewtabs button { border: 1px solid transparent; border-radius: 7px; padding: 6px 8px;
     background: transparent; color: var(--muted); font: 700 10px var(--mono); cursor: pointer; }
@@ -209,20 +209,29 @@
   .room:hover { background: var(--panel2); }
   .roomitem { position: relative; display: flex; align-items: center; min-height: 48px;
     border-bottom: 1px solid rgba(255,255,255,.025); }
-  .roomitem .room { flex: 1; min-width: 0; padding-right: 5px; }
-  .roomprefs { flex: 0 0 auto; display: flex; align-items: center; gap: 2px;
-    padding-right: 8px; opacity: 1; }
-  .roompref { width: 28px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 6px;
-    background: transparent; color: var(--muted); font: 700 14px/1 var(--mono); cursor: pointer; }
-  .roompref:hover, .roompref:focus-visible { background: var(--panel2); color: var(--accent2);
-    border-color: var(--line); outline: none; }
-  .roompref.pin { color: var(--warn); }
+  .roomitem .room { flex: 1; min-width: 0; }
+  .roomprefs { position: relative; flex: 0 0 auto; margin-right: 8px; }
+  .roompreftrigger { width: 28px; height: 30px; display: inline-flex; align-items: center;
+    justify-content: center; border: 1px solid transparent; border-radius: 7px; color: var(--muted);
+    font: 700 17px/1 var(--mono); cursor: pointer; list-style: none; user-select: none; }
+  .roompreftrigger::-webkit-details-marker { display: none; }
+  .roompreftrigger:hover, .roompreftrigger:focus-visible, .roomprefs[open] .roompreftrigger {
+    background: var(--panel2); color: var(--txt); border-color: var(--line); outline: none; }
+  .roomprefmenu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 35;
+    width: 136px; padding: 5px; display: grid; gap: 2px; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.48); }
+  .roompref { width: 100%; min-height: 30px; padding: 6px 9px; border: 0; border-radius: 6px;
+    background: transparent; color: var(--muted); text-align: left; font: 600 11px/1.2 var(--mono);
+    cursor: pointer; }
+  .roompref:hover, .roompref:focus-visible { background: rgba(255,255,255,.055); color: var(--txt);
+    outline: none; }
+  .roompref.hide:hover, .roompref.hide:focus-visible { color: var(--bad); }
+  .roompref:disabled { opacity: .45; cursor: not-allowed; }
   .room.active { background: var(--panel2); border-left-color: var(--accent); }
   .room .rrow { display: flex; align-items: baseline; gap: 8px; }
   .room .rname { font-weight: 600; }
   .room .rname::before { content: "# "; color: var(--dim); font-weight: 400; }
-  .room .pres { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
-  .room .pres .h { color: var(--human); } .room .pres .a { color: var(--agent); }
+  .room .pres { margin-left: auto; font-size: 10px; color: var(--muted); white-space: nowrap; }
   .room .rlastrow { display: flex; align-items: center; gap: 7px; min-height: 16px; padding-left: 13px; }
   .room .rlast { flex: 1; min-width: 0; font-size: 11px; color: var(--dim);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -676,7 +685,6 @@
     .sidebackdrop { position: fixed; inset: 0; z-index: 70; border: 0;
       background: rgba(0,0,0,.58); }
     body.sidebar-open:not(.locked) .sidebackdrop { display: block; }
-    .roomprefs { opacity: 1; }
     .mobiletoggle { display: inline-flex; align-items: center; justify-content: center;
       width: 34px; height: 34px; flex: 0 0 auto; background: var(--panel2);
       border: 1px solid var(--line); border-radius: 7px; color: var(--txt); cursor: pointer; }

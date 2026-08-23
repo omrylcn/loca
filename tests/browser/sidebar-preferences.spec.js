@@ -17,8 +17,12 @@ test("unresolved or failed identity never sees or mutates another principal's lo
   const item = room => page.locator("#roomList .roomitem").filter({
     has: page.locator(".rname", { hasText: room }),
   });
-  await item("private-b").locator('[data-room-preference="pin"]').click();
-  await item("private-a").locator('[data-room-preference="hide"]').click();
+  const choose = async (room, action) => {
+    await item(room).locator(".roompreftrigger").click();
+    await item(room).locator(`[data-room-preference="${action}"]`).click();
+  };
+  await choose("private-b", "pin");
+  await choose("private-a", "hide");
   const principalA = await page.evaluate(() => state.principalId);
   const keyA = `loca-room-preferences:${new URL(page.url()).origin}:${principalA}`;
   const storedA = await page.evaluate(key => localStorage.getItem(key), keyA);
@@ -58,7 +62,7 @@ test("unresolved or failed identity never sees or mutates another principal's lo
   await expect(page.locator("#roomList [data-room-preference]").first()).toBeEnabled();
   await expect(item("private-a")).toHaveCount(1);
   await expect(item("private-b")).toHaveCount(1);
-  await item("private-a").locator('[data-room-preference="pin"]').click();
+  await choose("private-a", "pin");
   expect(await page.evaluate(key => localStorage.getItem(key), keyA)).toBe(storedA);
   const keyB = `loca-room-preferences:${new URL(page.url()).origin}:principal-b`;
   expect(JSON.parse(await page.evaluate(key => localStorage.getItem(key), keyB)).pinned).toContain("private-a");

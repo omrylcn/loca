@@ -90,12 +90,26 @@ function resetReminderChatProjection() {
 
 function rebuildReminderChatProjection() {
   resetReminderChatProjection();
-  Object.values(state.attentions)
+  const configuredMax = Number(state.settings?.care_max_attempts);
+  const latest = Object.values(state.attentions)
     .filter(attention => ["goal_reminder", "task_reminder", "wait_overdue", "wait_cycle", "room_silence"]
       .includes(attention.reason))
     .filter(attention => !attention.room || attention.room === state.room)
-    .sort((a, b) => Number(a.created_at || 0) - Number(b.created_at || 0))
-    .forEach(addReminderChatBubble);
+    .filter(attention => attention.status !== "resolved")
+    .filter(attention => attention.delivered_at && attention.owner)
+    .filter(attention => !Number.isFinite(configuredMax) || configuredMax <= 0
+      || Math.max(1, Number(attention.attempt || 1)) <= configuredMax)
+    .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0))[0];
+  // Chat is a conversation, not the Reminder audit log. Keep at most the
+  // newest actionable reminder visible here; retries and completed history
+  // remain durable in Focus > Reminders without flooding the transcript.
+  // A reconnect rebuilds durable reminders after message history. Do not
+  // append an old reminder beneath newer conversation and make an August
+  // receipt look like the latest chat message; its audit remains in Focus.
+  const latestMessageAt = state.msgs.reduce((max, message) =>
+    Math.max(max, Number(message.ts || 0)), 0);
+  const reminderAt = Number(latest?.delivered_at || latest?.created_at || 0);
+  if (latest && reminderAt >= latestMessageAt) addReminderChatBubble(latest);
 }
 
 function reminderLifecycle(attention) {
@@ -275,7 +289,7 @@ function onFrame(f) {
     state.attentions[f.attention.id] = f.attention;
     const isReminder = ["goal_reminder", "task_reminder", "wait_overdue", "wait_cycle", "room_silence"]
       .includes(f.attention.reason);
-    if (isReminder) addReminderChatBubble(f.attention);
+    if (isReminder) rebuildReminderChatProjection();
     renderReminderSettings();
     renderReminderHistory();
   }

@@ -72,15 +72,24 @@ function roomPreferenceButton(action, room, label, text) {
 
 function renderRoomPreferenceActions(room) {
   const prefs = loadRoomPreferences();
-  const actions = document.createElement("span");
+  const actions = document.createElement("details");
   actions.className = "roomprefs";
+  const trigger = document.createElement("summary");
+  trigger.className = "roompreftrigger";
+  trigger.setAttribute("aria-label", `More options for ${room}`);
+  trigger.title = `More options for ${room}`;
+  trigger.textContent = "⋯";
+  const menu = document.createElement("div");
+  menu.className = "roomprefmenu";
+  menu.setAttribute("role", "menu");
   const pinned = prefs.pinned.includes(room);
-  actions.append(
-    roomPreferenceButton("up", room, "Move up", "↑"),
-    roomPreferenceButton("down", room, "Move down", "↓"),
-    roomPreferenceButton("pin", room, pinned ? "Unpin" : "Pin", pinned ? "★" : "☆"),
-    roomPreferenceButton("hide", room, "Hide", "−"),
+  menu.append(
+    roomPreferenceButton("pin", room, pinned ? "Unpin" : "Pin", pinned ? "Unpin" : "Pin"),
+    roomPreferenceButton("up", room, "Move up", "Move up"),
+    roomPreferenceButton("down", room, "Move down", "Move down"),
+    roomPreferenceButton("hide", room, "Hide", "Hide"),
   );
+  actions.append(trigger, menu);
   return actions;
 }
 
@@ -127,6 +136,7 @@ function roomPreferenceClick(event) {
   if (!button) return;
   event.preventDefault();
   event.stopPropagation();
+  button.closest("details")?.removeAttribute("open");
   updateRoomPreference(button.dataset.roomPreference, button.dataset.room);
 }
 
