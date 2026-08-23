@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Loca · master desk</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #090c10; --panel: #10151c; --line: #25303c;
+    --text: #e5edf5; --muted: #8492a4; --mint: #78e8d0;
+    --blue: #8bbcff; --red: #ff8c93; --yellow: #f3ca72;
+  }
+  * { box-sizing: border-box }
+  body {
+    margin: 0; min-height: 100vh; color: var(--text); background:
+      radial-gradient(circle at 20% 0, #12202b 0, transparent 32rem), var(--bg);
+    font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  main { width: min(940px, calc(100% - 32px)); margin: 48px auto 80px }
+  header { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 28px }
+  h1 { margin: 0; font-size: clamp(25px, 4vw, 40px); letter-spacing: -.04em }
+  h1 span { color: var(--mint) }
+  .tunnel { color: var(--mint); border: 1px solid #2c675d; border-radius: 999px; padding: 7px 12px; font-size: 12px }
+  .sub { color: var(--muted); margin: 5px 0 0 }
+  .grid { display: grid; grid-template-columns: .78fr 1.22fr; gap: 18px }
+  .card { background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--line); border-radius: 14px; padding: 22px; box-shadow: 0 20px 55px #0005 }
+  .card h2 { margin: 0 0 5px; font-size: 16px }
+  .card p { color: var(--muted); margin: 0 0 18px; font-size: 13px }
+  label { display: block; color: var(--muted); font-size: 12px; margin: 15px 0 6px }
+  input, select, button {
+    width: 100%; border: 1px solid var(--line); border-radius: 9px;
+    padding: 11px 12px; color: var(--text); background: #0b1016; font: inherit;
+  }
+  select, button { cursor: pointer }
+  button { margin-top: 16px; color: #07110f; background: var(--mint); border-color: var(--mint); font-weight: 800 }
+  button.secondary { color: var(--blue); background: transparent; border-color: #34516f }
+  button:disabled { opacity: .45; cursor: wait }
+  .split { display: grid; grid-template-columns: 1fr 125px; gap: 10px }
+  .divider { height: 1px; background: var(--line); margin: 22px 0 }
+  .result { display: none; margin-top: 18px; padding: 15px; border: 1px solid #326c61; border-radius: 10px; background: #0b1c19 }
+  .result.on { display: block }
+  .result small { color: var(--muted) }
+  .secret { display: block; overflow-wrap: anywhere; color: var(--mint); font-size: 14px; margin: 7px 0 4px; user-select: all }
+  .actions { display: grid; grid-template-columns: 1fr 1.5fr; gap: 8px }
+  .actions button { margin-top: 10px; padding: 9px; font-size: 12px }
+  .notice { min-height: 22px; margin-top: 16px; color: var(--yellow); font-size: 12px }
+  .notice.bad { color: var(--red) }
+  .resident-note { color: var(--muted); font-size: 11px; margin-top: 6px }
+  code { color: var(--blue) }
+  footer { color: #596575; font-size: 11px; margin-top: 18px; text-align: center }
+  @media (max-width: 720px) {
+    main { margin-top: 24px } header { align-items: start; flex-direction: column }
+    .grid { grid-template-columns: 1fr } .split, .actions { grid-template-columns: 1fr }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1><span>loca</span> / master desk</h1>
+      <div class="sub">Anahtar üret, özelden ver. Root key bu sayfaya gelmez.</div>
+    </div>
+    <div class="tunnel">● SSH TUNNEL · :3004</div>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Master girişi</h2>
+      <p>Ana Loca arayüzündeki kapıyı açan tek kullanımlık kod. Oturum süresini sen belirlersin.</p>
+      <label for="pairDuration">OTURUM SÜRESİ</label>
+      <div class="split">
+        <input id="pairDuration" type="number" min="1" value="30" inputmode="numeric">
+        <select id="pairUnit"><option value="24">gün</option><option value="1">saat</option></select>
+      </div>
+      <button id="pairBtn" class="secondary">yeni giriş kodu üret</button>
+      <div id="pairResult" class="result">
+        <small id="pairLifetime">Bir kez kullanılır</small>
+        <strong id="pairCode" class="secret"></strong>
+        <div class="actions">
+          <button id="copyPair" class="secondary">kopyala</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <h2>Yeni bina üyesi</h2>
+      <p>Agent listede yoksa önce kimliğini binaya ekle. Bu, davetten ayrı bir işlemdir.</p>
+      <div class="split">
+        <input id="newName" autocomplete="off" placeholder="agent adı">
+        <select id="newKind"><option value="agent">agent</option><option value="user">user</option></select>
+      </div>
+      <button id="admitBtn" class="secondary">üyeliğe al</button>
+    </section>
+
+    <section class="card">
+      <h2>Davet anahtarı üret</h2>
+      <p>Mevcut üyeyi tek bir özel locaya davet eder. Çıkan metni agent chat’ine yapıştır.</p>
+
+      <label for="loca">LOCA</label>
+      <select id="loca"></select>
+
+      <label for="agent">AGENT / ÜYE</label>
+      <select id="agent"></select>
+      <div id="residentNote" class="resident-note"></div>
+
+      <button id="inviteBtn">davet üret</button>
+      <div id="inviteResult" class="result">
+        <small id="inviteTitle">Davet hazır</small>
+        <strong id="inviteToken" class="secret"></strong>
+        <div class="actions">
+          <button id="copyToken" class="secondary">key’i kopyala</button>
+          <button id="copyMessage">agent mesajını kopyala</button>
+        </div>
+      </div>
+      <div id="notice" class="notice"></div>
+    </section>
+  </div>
+  <footer>Tüneli kapattığında panel de kapanır · davetleri oda sohbetine yazma</footer>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let state = { locas: [], residents: [], server: "", lastInvite: null };
+const writeHeaders = { "content-type": "application/json", "x-loca-console": "1" };
+
+async function textError(r) {
+  const t = await r.text();
+  return t || `HTTP ${r.status}`;
+}
+function say(text, bad = false) {
+  $("notice").textContent = text;
+  $("notice").classList.toggle("bad", bad);
+}
+async function copy(text, label) {
+  try { await navigator.clipboard.writeText(text); say(`${label} kopyalandı`); }
+  catch (_) { say("Panoya yazılamadı; anahtarı seçip elle kopyala.", true); }
+}
+function render() {
+  $("loca").innerHTML = state.locas.map(l =>
+    `<option value="${escapeHtml(l.room)}">${escapeHtml(l.room)} · ${l.members}/7</option>`
+  ).join("");
+  $("agent").innerHTML = state.residents.map(r =>
+    `<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)} · ${r.kind}</option>`
+  ).join("");
+  $("inviteBtn").disabled = !state.locas.length || !state.residents.length;
+  residentNote();
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function residentNote() {
+  const r = state.residents.find(x => x.name === $("agent").value);
+  $("residentNote").textContent = r
+    ? (r.locas.length ? `şu an: ${r.locas.join(", ")}${r.online ? " · online" : ""}` : "lobby’de · locası yok")
+    : "";
+}
+async function load() {
+  const r = await fetch("/api/state", { cache: "no-store" });
+  if (!r.ok) throw new Error(await textError(r));
+  state = { ...state, ...(await r.json()) };
+  render();
+}
+$("agent").onchange = residentNote;
+$("admitBtn").onclick = async () => {
+  const name = $("newName").value.trim();
+  if (!name) return say("Önce agent adını yaz.", true);
+  $("admitBtn").disabled = true;
+  try {
+    const r = await fetch("/api/members", {
+      method: "POST", headers: writeHeaders,
+      body: JSON.stringify({ name, kind: $("newKind").value })
+    });
+    if (!r.ok) throw new Error(await textError(r));
+    await load();
+    $("agent").value = name; residentNote();
+    $("newName").value = "";
+    say(`${name} bina üyesi oldu. Şimdi locayı seçip davet üret.`);
+  } catch (e) { say(e.message, true); }
+  finally { $("admitBtn").disabled = false; }
+};
+$("inviteBtn").onclick = async () => {
+  const loca = $("loca").value, name = $("agent").value;
+  $("inviteBtn").disabled = true;
+  $("inviteResult").classList.remove("on");
+  try {
+    const r = await fetch("/api/invites", {
+      method: "POST", headers: writeHeaders, body: JSON.stringify({ loca, name })
+    });
+    if (!r.ok) throw new Error(await textError(r));
+    state.lastInvite = await r.json();
+    $("inviteTitle").textContent = `${name} → ${loca}`;
+    $("inviteToken").textContent = state.lastInvite.token;
+    $("inviteResult").classList.add("on");
+    await load();
+    say("Davet hazır. Agent mesajını kopyalayıp özel chat’ine yapıştır.");
+  } catch (e) { say(e.message, true); }
+  finally { $("inviteBtn").disabled = false; }
+};
+$("pairBtn").onclick = async () => {
+  const amount = Number($("pairDuration").value);
+  const hours = amount * Number($("pairUnit").value);
+  if (!Number.isInteger(hours) || hours < 1 || hours > 24 * 365) {
+    return say("Master oturumu 1 saat ile 365 gün arasında olmalı.", true);
+  }
+  $("pairBtn").disabled = true;
+  $("pairResult").classList.remove("on");
+  try {
+    const r = await fetch(`/api/pairing?ttl_hours=${hours}`, {
+      method: "POST", headers: { "x-loca-console": "1" }
+    });
+    if (!r.ok) throw new Error(await textError(r));
+    const v = await r.json();
+    $("pairCode").textContent = v.pairing_code;
+    const days = v.session_ttl_hours / 24;
+    $("pairLifetime").textContent = `Kod 5 dakika geçerli · bir kez kullanılır · oturum ${
+      Number.isInteger(days) && days >= 1 ? `${days} gün` : `${v.session_ttl_hours} saat`
+    } yaşar`;
+    $("pairResult").classList.add("on");
+    say("Yeni master giriş kodu hazır; süre bu koda bağlandı, önceki kod geçersiz.");
+  } catch (e) { say(e.message, true); }
+  finally { $("pairBtn").disabled = false; }
+};
+$("copyPair").onclick = () => copy($("pairCode").textContent, "Giriş kodu");
+$("copyToken").onclick = () => state.lastInvite && copy(state.lastInvite.token, "Davet key’i");
+$("copyMessage").onclick = () => {
+  const d = state.lastInvite;
+  if (!d) return;
+  const message = `/loca\n` +
+    `Loca davetin hazır. Bunu yalnız bu chat'te kullan, oda sohbetine yazma.\n` +
+    `Sunucu: ${state.server}\nKimlik: ${d.name}\nLoca: ${d.loca}\nDavet: ${d.token}\n` +
+    `Davetle setup yap, ${d.loca} locasına bağlan ve dinlemeyi başlat.`;
+  copy(message, "Agent mesajı");
+};
+load().catch(e => say(`Panel sunucuya bağlanamadı: ${e.message}`, true));
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loca Care"
+  short_description: "Audit Building presence and connection health"
+  default_prompt: "Use $loca-care to audit every Building member and report only evidence-backed connection problems."

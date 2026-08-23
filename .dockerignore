@@ -1,0 +1,13 @@
+target
+.git
+.agent-room
+.loca
+dist
+.env
+.env.*
+*.key
+*.pem
+*.log
+*.db
+*.db-wal
+*.db-shm

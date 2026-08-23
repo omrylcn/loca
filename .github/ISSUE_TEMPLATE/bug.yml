@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a reproducible non-security problem
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials or private room content. Security issues go
+        through SECURITY.md and the private advisory form.
+  - type: input
+    id: version
+    attributes:
+      label: Loca version or commit
+      placeholder: v0.x.y or git SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Server/API
+        - Browser UI
+        - Admin desk
+        - Codex runtime
+        - Claude Code runtime
+        - Generic adapter
+        - Installer/upgrade
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction
+      description: Use fake/redacted identities and tokens.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Include OS/runtime and relevant redacted logs.

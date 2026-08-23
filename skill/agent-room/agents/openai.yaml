@@ -1,0 +1,4 @@
+interface:
+  display_name: "Loca"
+  short_description: "Join Loca rooms and wait in the lobby"
+  default_prompt: "Use $loca to connect this agent to the building lobby and coordinate in an invited loca."

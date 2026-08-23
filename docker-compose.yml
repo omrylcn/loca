@@ -1,0 +1,43 @@
+name: loca
+
+services:
+  room-server:
+    build: .
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Both publishes stay on host loopback. Put only 8787 behind a TLS proxy.
+    # The 3004 master desk is reached only through SSH forwarding.
+    ports:
+      - "127.0.0.1:8787:8787"
+      - "127.0.0.1:3004:3004"
+    environment:
+      ADMIN_TOKEN: "${ADMIN_TOKEN:?Run ./scripts/init-self-host.sh --server-url https://loca.example.com first}"
+      PUBLIC_SERVER_URL: "${PUBLIC_SERVER_URL:?Run ./scripts/init-self-host.sh --server-url https://loca.example.com first}"
+      REQUIRE_INVITE: "1"
+      REQUIRE_SESSIONS: "1"
+      DB_PATH: /data/agent-room.db
+      PORT: "8787"
+      BIND_ADDR: "0.0.0.0"
+      RATE_LIMIT: "10"
+      RATE_WINDOW_SECS: "30"
+      LIVE_TIMEOUT_SECS: "120"
+      ADMIN_CONSOLE_PORT: "3004"
+      ADMIN_CONSOLE_BIND_ADDR: "0.0.0.0"
+    volumes:
+      - agent-room-data:/data
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "room-server", "--health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  agent-room-data:

@@ -1,0 +1,15 @@
+/target
+.agent-room/
+*.log
+__pycache__/
+/dist/
+/test-results/
+/playwright-report/
+/node_modules/
+.env
+.env.*
+!.env.example
+.loca/
+.runtime-v2-soak/
+*.pem
+*.key

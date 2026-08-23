@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "RFC 6455 example Sec-WebSocket-Key used by the historical smoke test"
+targetRules = ["generic-api-key"]
+regexTarget = "secret"
+regexes = ['''^dGhlIHNhbXBsZQ==$''']

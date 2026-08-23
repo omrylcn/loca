@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Loca · Goal, Reminder, Care</title>
+  <style>
+    :root { color-scheme:dark; --bg:#090d11; --panel:#111820; --line:#2a3744; --ink:#e6eef5; --muted:#8191a1; --mint:#77e6cf; --blue:#83b9ff; --amber:#f3c969 }
+    * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace }
+    main { width:min(1080px,calc(100% - 32px)); margin:36px auto 60px } h1 { font-size:clamp(28px,5vw,50px); margin:0 0 8px; letter-spacing:-.04em } h2 { margin:42px 0 14px; font-size:19px }
+    .lede { color:var(--muted); max-width:800px; font-size:16px } .flow { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin:28px 0 }
+    .card { border:1px solid var(--line); background:var(--panel); border-radius:10px; padding:18px; min-height:145px }.card b { display:block; color:var(--mint); margin-bottom:8px; font-size:17px }.card small { color:var(--muted) }
+    .rule { display:grid; grid-template-columns:180px 1fr; border-top:1px solid var(--line); padding:12px 0; gap:18px }.rule strong { color:var(--blue) } code { color:var(--amber) }
+    .receipt { display:flex; gap:8px; flex-wrap:wrap; margin:18px 0 }.receipt span { border:1px solid var(--line); border-radius:999px; padding:7px 11px; color:var(--muted) }.receipt span:nth-child(-n+4) { color:var(--mint) }
+    .callout { border-left:3px solid var(--amber); background:#17160f; padding:14px 16px; margin:22px 0 } footer { margin-top:48px; color:var(--muted); border-top:1px solid var(--line); padding-top:14px }
+    @media (max-width:760px) { .flow { grid-template-columns:1fr }.card { min-height:0 }.rule { grid-template-columns:1fr; gap:4px } }
+  </style>
+</head>
+<body><main>
+  <p style="color:var(--mint)">LOCA / PUBLIC CONTRACT</p>
+  <h1>Goal is purpose.<br>Reminder is bounded follow-up.<br>Care notices the stall.</h1>
+  <p class="lede">They are connected, but they are not the same system. Loca keeps durable purpose separate from model calls and keeps runtime health separate from a green WebSocket.</p>
+  <section class="flow" aria-label="Goal to care flow">
+    <div class="card"><b>1 · Goal</b>One operator-declared outcome keeps the loca purposeful.<br><small>No inferred work. One active goal.</small></div>
+    <div class="card"><b>2 · Explicit state</b>Optional tasks and waits show concrete progress or dependency.<br><small>Chat remains chat.</small></div>
+    <div class="card"><b>3 · Care reminder</b>A configured server-side condition sees stalled explicit progress.<br><small>One owner, cooldown, bounded context.</small></div>
+    <div class="card"><b>4 · Runtime record</b>The adapter accepts one durable delivery and relays its completed response.<br><small>Receipts are audit, not work.</small></div>
+  </section>
+  <div class="callout"><strong>Important:</strong> A goal never wakes a model by itself. The care scheduler observes configured conditions and sends one reminder through an internal runtime record. A response never completes the goal unless the operator or its explicit all-tasks rule says the outcome is achieved.</div>
+  <h2>What advances time?</h2>
+  <div class="rule"><strong>Goal / task progress</strong><span>Only explicit state changes advance <code>progress_at</code>. Unrelated room messages do not hide a stalled outcome.</span></div>
+  <div class="rule"><strong>Room silence</strong><span>A separate opt-in timer. Quiet conversation and stalled work are intentionally different signals.</span></div>
+  <div class="rule"><strong>Message bundle</strong><span>Up to 4 messages, 5-second quiet window, 15-second hard deadline. History still stores every message separately.</span></div>
+  <h2>One owner, not a wake storm</h2>
+  <div class="rule"><strong>Healthy lead</strong><span>Receives the signal because the lead already sees the full room.</span></div>
+  <div class="rule"><strong>Lead degraded/absent</strong><span>Healthy <code>loca-care</code> receives a privacy-bounded envelope in İye.</span></div>
+  <div class="rule"><strong>No healthy owner</strong><span>The condition remains durable. Attempt counters do not burn into the void.</span></div>
+  <h2>Receipts are not one status</h2>
+  <div class="receipt" aria-label="Runtime milestones"><span>STORED</span><span>ACCEPTED</span><span>FIRST_RESPONSE</span><span>FINAL_RESPONSE</span><span>TURN_COMPLETED</span><span>GOAL_COMPLETED</span></div>
+  <p class="lede">A turn may complete before a final relay succeeds. A final reply may be accepted while the real product goal is still open. Presence is shown independently from both.</p>
+  <h2>Public-release proof</h2>
+  <div class="rule"><strong>Restart</strong><span>Goal, task, wait, care outbox, attention ledger, and cursors remain durable.</span></div>
+  <div class="rule"><strong>Runtime</strong><span>Codex and Claude each prove delivery → wake → reply → ACK, including listener/adapter recovery.</span></div>
+  <div class="rule"><strong>Caretaker</strong><span>The Building audit reports transport and runtime health independently without exposing tokens or private history.</span></div>
+  <footer>Normative text: <a style="color:var(--blue)" href="adr/0002-goal-attention-care.md">ADR 0002</a> · Loca remains conversation infrastructure, not a workflow engine.</footer>
+</main></body></html>

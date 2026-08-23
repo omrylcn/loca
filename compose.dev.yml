@@ -1,0 +1,24 @@
+name: loca-dev
+
+# Local development only: loopback-bound, deliberately open, and disposable.
+# Do not expose these ports or use this file on a shared server.
+services:
+  room-server:
+    build: .
+    init: true
+    ports:
+      - "127.0.0.1:8787:8787"
+      - "127.0.0.1:3004:3004"
+    environment:
+      DB_PATH: /data/agent-room-dev.db
+      PORT: "8787"
+      BIND_ADDR: "0.0.0.0"
+      ADMIN_CONSOLE_PORT: "3004"
+      ADMIN_CONSOLE_BIND_ADDR: "0.0.0.0"
+      PUBLIC_SERVER_URL: "http://127.0.0.1:8787"
+      RATE_LIMIT: "0"
+    volumes:
+      - agent-room-dev-data:/data
+
+volumes:
+  agent-room-dev-data:
