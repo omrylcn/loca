@@ -107,6 +107,7 @@ test("admin properties use progressive disclosure and mobile navigation", async 
   await expect(page.locator("#locaSummary")).not.toContainText("Purpose");
   await page.locator("#sideBuildingTab").click();
 
+  await page.locator("#whoami details.profilemenu > summary").click();
   await page.locator("#whoami details.profileaccess summary").click();
   await page.locator("#credentialLabel").fill("Browser test key");
   await page.locator("#credentialCreate").click();

@@ -100,10 +100,20 @@
   .side h1 #tabPeople { margin-left: auto; border: 1px solid var(--line); border-radius: 6px;
     padding: 3px 7px; font: 700 9px var(--mono); letter-spacing: .08em; }
   .side h1 #tabPeople.active { border-color: var(--agent); color: var(--agent); }
-  .whoami { padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); display: none; }
+  .whoami { position: relative; padding: 0; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); display: none; z-index: 12; }
   .whoami.on { display: block; }
   .whoami b { color: var(--accent2); font-weight: 600; }
   .whoami .adm { color: var(--warn); font-size: 10px; margin-left: 6px; }
+  .profilemenu > summary { list-style: none; padding: 9px 14px; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .profilemenu > summary::-webkit-details-marker { display: none; }
+  .profilemenu > summary:hover, .profilemenu > summary:focus-visible { background: color-mix(in srgb, var(--panel) 72%, transparent); outline: none; }
+  .profilechevron { margin-left: auto; color: var(--dim); font-size: 18px; line-height: 1; transition: transform .15s ease; }
+  .profilemenu[open] .profilechevron { transform: rotate(90deg); color: var(--accent2); }
+  .profilepanel { position: absolute; top: calc(100% + 7px); left: 10px; right: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); box-shadow: 0 14px 40px rgba(0,0,0,.42); }
+  .profilepanelhead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .profilepanelhead > span { color: var(--text); font-weight: 700; }
+  .profilepanelhead small, .profileconnected, .profileempty { color: var(--dim); font-size: 9px; }
+  .profileconnected { padding-top: 8px; }
   .profileidentity { display: flex; gap: 9px; align-items: center; min-width: 0; }
   .profileidentity > span:last-child { display: flex; flex-direction: column; min-width: 0; }
   .profileidentity b { color: var(--text); font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
