@@ -1,4 +1,5 @@
 "use strict";
+let joinedRoomNeedsBottom = false;
 // WebSocket lifecycle, frame dispatch, typing, moderation, and lead control.
 let connOn = false;
 function setStatus(txt, on) {
@@ -121,6 +122,7 @@ function goalChatReceipt(previous, goal) {
 function joinRoom(room) {
   if (state.tab === "people") switchTab("chat");
   state.room = room;
+  joinedRoomNeedsBottom = true;
   resetLocaContext(room);
   state.locaOperator = null;
   state.settings = {};
@@ -129,7 +131,9 @@ function joinRoom(room) {
   state.members = [];
   state.seatedAway = [];
   state.mode = { mode: "free" };
-  setSidebarView("loca");
+  // Loca is chat-first. Keep the room switcher visible after joining so
+  // moving between locas never requires a detour through a detail tab.
+  setSidebarView("building");
   renderLocaSidebar();
   renderProfile();
   renderSettings();
@@ -177,7 +181,7 @@ function openWs() {
     setStatus("connected", true);
     // If the reader is up in history, keep their place through the resync.
     const f = $("feed");
-    keepScroll = nearBottom() ? null : f.scrollTop;
+    keepScroll = joinedRoomNeedsBottom || nearBottom() ? null : f.scrollTop;
     // The server replays full history on (re)connect. Reset the rendered feed
     // AND the dedup set together so history repaints cleanly — messages live in
     // state.msgs, so nothing is lost even if we're on another tab right now.
@@ -204,6 +208,7 @@ function onFrame(f) {
     if (!f.messages.length) addSys("an empty table — nobody has spoken here yet. words wait.");
     if (keepScroll !== null) { $("feed").scrollTop = keepScroll; keepScroll = null; }
     else scrollFeed(true);
+    joinedRoomNeedsBottom = false;
   }
   else if (f.t === "msg") {
     const mine = f.message.sender === state.name;

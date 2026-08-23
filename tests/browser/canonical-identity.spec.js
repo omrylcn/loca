@@ -90,17 +90,10 @@ test("admin properties use progressive disclosure and mobile navigation", async 
   await expect(page.locator("#whoami")).toContainText("MASTER");
   await expect(page.locator("#whoami")).toContainText("OPERATOR");
   await expect(page.locator("#whoami")).toContainText("Bounded session");
-  await expect(page.locator("#sideLocaTab")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("#locaSummary")).toContainText("e2e");
-  await expect(page.locator("#locaSummary")).toContainText("Open");
-  await expect(page.locator("#locaSummary")).toContainText("operator");
-  await expect(page.locator("#sideLocaView .online")).toBeVisible();
-
-  await page.locator("#sideLocaTab").press("ArrowLeft");
   await expect(page.locator("#sideBuildingTab")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#sideLocaTab")).toBeHidden();
+  await expect(page.locator("#sideLocaView")).toBeHidden();
   await expect(page.locator("#roomList button.room").first()).toBeVisible();
-  await page.locator("#sideBuildingTab").press("End");
-  await expect(page.locator("#sideLocaTab")).toHaveAttribute("aria-selected", "true");
 
   await page.locator("#whoami details.profileaccess summary").click();
   await page.locator("#credentialLabel").fill("Browser test key");
@@ -143,6 +136,33 @@ test("admin properties use progressive disclosure and mobile navigation", async 
   await expect(page.locator("#roomList button.room").first()).toBeVisible();
   await page.locator("#sideBackdrop").click({ position: { x: 380, y: 420 } });
   await expect(page.locator("body")).not.toHaveClass(/sidebar-open/);
+});
+
+test("joining a loca keeps Your Locas visible and opens chat at the latest message", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    window.__originalOpenWs = openWs;
+    openWs = () => {};
+    joinRoom("latest-message-room");
+    onFrame({
+      t: "history",
+      messages: Array.from({ length: 80 }, (_, index) => ({
+        id: index + 1,
+        sender: "member",
+        sender_type: "user",
+        text: `history message ${index + 1}`,
+        at: 1_700_000_000_000 + index,
+      })),
+    });
+  });
+  await expect(page.locator("#sideBuildingTab")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#sideLocaTab")).toBeHidden();
+  await expect(page.locator("#feed .row").last()).toContainText("history message 80");
+  const distanceFromBottom = await page.locator("#feed").evaluate(feed =>
+    feed.scrollHeight - feed.scrollTop - feed.clientHeight
+  );
+  expect(distanceFromBottom).toBeLessThan(2);
+  await page.evaluate(() => { openWs = window.__originalOpenWs; });
 });
 
 test("notes render safe Markdown by default and edit the raw source", async ({
