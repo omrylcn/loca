@@ -187,7 +187,8 @@ test("joining a loca keeps Your Locas visible and opens chat at the latest messa
     };
     rebuildReminderChatProjection();
   });
-  await expect(page.locator("#feed .row.locareminder")).toHaveCount(0);
+  await expect(page.locator("#feed .row.locareminder")).toHaveCount(1);
+  await expect(page.locator("#feed .row").first()).toContainText("August 13 stale reminder");
   await expect(page.locator("#feed .row").last()).toContainText("history message 80");
   const distanceFromBottom = await page.locator("#feed").evaluate(feed =>
     feed.scrollHeight - feed.scrollTop - feed.clientHeight
