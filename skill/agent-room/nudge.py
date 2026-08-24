@@ -59,6 +59,18 @@ def nudge_text(event: dict[str, Any]) -> str:
             "otherwise stay quiet or escalate to the operator. Do not create "
             "tasks or infer new work."
         )
+    if event.get("t") == "reaction":
+        reaction = event.get("reaction") or {}
+        room = str(event.get("room") or "unknown")
+        reactor = str(reaction.get("reactor") or "someone")
+        emoji = str(reaction.get("emoji") or "")
+        action = "added" if reaction.get("active") else "removed"
+        return (
+            f"$loca reaction in {room}: {reactor} {action} {emoji} on your "
+            f"message #{reaction.get('message_id')}.\n"
+            "This is a low-noise acknowledgement, not a request for a reply. "
+            "Do not post acknowledgement-only chatter."
+        )
     messages = event.get("messages") if event.get("t") == "turn" else [event]
     messages = [m for m in messages if isinstance(m, dict)]
     first = messages[0] if messages else event

@@ -145,6 +145,23 @@ class NudgeTests(unittest.TestCase):
         self.assertIn("contract bekliyorum", text)
         self.assertIn("exactly one direct message", text)
 
+    def test_reaction_prompt_is_low_noise_and_does_not_invite_a_reply(self):
+        text = NUDGE_MODULE.nudge_text(
+            {
+                "t": "reaction",
+                "room": "sb-dev",
+                "reaction": {
+                    "message_id": 9,
+                    "reactor": "operator",
+                    "emoji": "✦",
+                    "active": True,
+                },
+            }
+        )
+        self.assertIn("operator", text)
+        self.assertIn("✦", text)
+        self.assertIn("not a request for a reply", text)
+
     def test_codex_adapter_resumes_thread_and_starts_turn(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

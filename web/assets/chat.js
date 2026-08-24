@@ -1,4 +1,45 @@
 "use strict";
+const reactionByMessage = new Map();
+const locaReactionSet = ["✓", "✦", "!", "♥"];
+
+function reactionKey(messageId, emoji) { return `${messageId}\u0000${emoji}`; }
+function reactionHtml(messageId) {
+  const marks = locaReactionSet.map(emoji => {
+    const actors = reactionByMessage.get(reactionKey(messageId, emoji)) || [];
+    if (!actors.length) return "";
+    const mine = actors.includes(state.name);
+    return `<button type="button" class="reactionchip${mine ? " mine" : ""}" data-react="${messageId}" data-emoji="${emoji}" title="${esc(actors.join(", "))}">${emoji}<span>${actors.length}</span></button>`;
+  }).join("");
+  return `<div class="reactions" data-reactions="${messageId}">${marks}</div>`;
+}
+function renderMessageReactions(messageId) {
+  const host = document.querySelector(`[data-reactions="${messageId}"]`);
+  if (host) host.outerHTML = reactionHtml(messageId);
+}
+function applyReactionSummary(reaction) {
+  reactionByMessage.set(reactionKey(reaction.message_id, reaction.emoji), reaction.actors || []);
+  renderMessageReactions(reaction.message_id);
+}
+async function fetchReactions() {
+  if (!state.room) return;
+  const room = state.room;
+  const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/reactions`, { headers: adminHeaders({}) });
+  if (!response.ok || room !== state.room) return;
+  reactionByMessage.clear();
+  for (const reaction of await response.json()) applyReactionSummary(reaction);
+}
+async function setReaction(messageId, emoji) {
+  const message = msgById.get(Number(messageId));
+  if (!message || message.sender === state.name) return;
+  const actors = reactionByMessage.get(reactionKey(messageId, emoji)) || [];
+  const active = !actors.includes(state.name);
+  const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(state.room)}/messages/${messageId}/reactions`, {
+    method: "POST",
+    headers: adminHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({ emoji, active, reactor: state.name, reactor_type: "user" }),
+  });
+  if (!response.ok) addSys(`reaction failed: ${await response.text()}`);
+}
 // Safe Markdown rendering and the live chat feed.
 // Notes are durable shared memory, so Markdown is rendered without trusting
 // author-supplied HTML. Only a small, readable subset is supported; every
@@ -214,6 +255,7 @@ function addMsg(m) {
   const time = m.ts ? fmtTime(m.ts) : "";
   const acts = m.id
     ? `<div class="lineacts" role="group" aria-label="Message actions">
+        ${mine ? "" : `<button type="button" data-reactpick="${m.id}" aria-label="React to ${esc(m.sender)}">♡ react</button>`}
         <button type="button" data-reply="${m.id}" aria-label="Reply to ${esc(m.sender)}">↩ reply</button>
         <button type="button" data-mktask="${m.id}" aria-label="Make a task from ${esc(m.sender)}'s message">→ task</button>
       </div>`
@@ -226,7 +268,9 @@ function addMsg(m) {
         <span class="time" title="${esc(fmtFull(m.ts))}">${time}</span>
       </div>${quote}
       <div class="body markdown chatmarkdown">${txt}</div>
-    </div>${acts}`;
+      ${m.id ? reactionHtml(m.id) : ""}
+    </div>${acts}
+    ${m.id && !mine ? `<div class="reactionpicker hidden" data-picker="${m.id}">${locaReactionSet.map(emoji => `<button type="button" data-react="${m.id}" data-emoji="${emoji}">${emoji}</button>`).join("")}</div>` : ""}`;
   if (m.kind === "reminder") {
     const reminderAt = Number(m.ts || 0);
     const newer = Array.from($("feed").querySelectorAll(".row[data-ts]"))

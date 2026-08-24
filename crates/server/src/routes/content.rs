@@ -111,6 +111,66 @@ pub(crate) async fn post_message(
         }
     }
 }
+
+pub(crate) async fn get_reactions(State(hub): State<Hub>, access: RoomAccess) -> impl IntoResponse {
+    Json(hub.reactions(&access.room)).into_response()
+}
+
+pub(crate) async fn set_reaction(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+    Path((_id, message_id)): Path<(String, u64)>,
+    headers: HeaderMap,
+    Json(mut body): Json<protocol::SetMessageReaction>,
+) -> impl IntoResponse {
+    let session = headers.get(SESSION_HEADER).and_then(|v| v.to_str().ok());
+    let identity = hub.session_identity(session);
+    match identity.as_ref() {
+        Some(idy) => {
+            body.reactor = idy.name.clone();
+            body.reactor_type = Some(idy.kind);
+        }
+        None if session.is_some() => {
+            return (StatusCode::UNAUTHORIZED, "invalid session token").into_response()
+        }
+        None if hub.require_sessions() => {
+            return (StatusCode::UNAUTHORIZED, "session token required").into_response()
+        }
+        None => {}
+    }
+    if body.reactor.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "reactor required").into_response();
+    }
+    let principal = identity
+        .as_ref()
+        .and_then(|idy| idy.member.as_ref().map(|m| format!("mb:{m}")))
+        .unwrap_or_else(|| format!("reactor:{}", body.reactor));
+    match hub.set_reaction(
+        &access.room,
+        message_id,
+        &principal,
+        &body.reactor,
+        &body.emoji,
+        body.active,
+    ) {
+        Ok(event) => Json(event).into_response(),
+        Err(hub::ReactionReject::InvalidEmoji) => {
+            (StatusCode::BAD_REQUEST, "unsupported reaction").into_response()
+        }
+        Err(hub::ReactionReject::NotFound) => {
+            (StatusCode::NOT_FOUND, "message not found").into_response()
+        }
+        Err(hub::ReactionReject::OwnMessage) => {
+            (StatusCode::CONFLICT, "cannot react to your own message").into_response()
+        }
+        Err(hub::ReactionReject::ReadOnly) => {
+            (StatusCode::CONFLICT, "this loca is closed — read-only").into_response()
+        }
+        Err(hub::ReactionReject::Storage) => {
+            (StatusCode::SERVICE_UNAVAILABLE, "could not save reaction").into_response()
+        }
+    }
+}
 // ---- notes ----
 
 pub(crate) async fn get_notes(State(hub): State<Hub>, access: RoomAccess) -> impl IntoResponse {

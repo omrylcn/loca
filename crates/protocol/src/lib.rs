@@ -67,6 +67,36 @@ pub struct PostMessage {
     pub op_id: Option<String>,
 }
 
+/// One allowed social mark on a message. Reactions are visible to the loca,
+/// while the live event is directed only to the message owner.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MessageReaction {
+    pub message_id: u64,
+    pub emoji: String,
+    pub actors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetMessageReaction {
+    pub emoji: String,
+    pub active: bool,
+    #[serde(default)]
+    pub reactor: String,
+    #[serde(default)]
+    pub reactor_type: Option<SenderType>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MessageReactionEvent {
+    pub message_id: u64,
+    pub emoji: String,
+    pub actors: Vec<String>,
+    pub owner: String,
+    pub reactor: String,
+    pub active: bool,
+    pub ts: u64,
+}
+
 /// How a room's chat is gated right now. The admin sets this; the server
 /// enforces it hard (unauthorized posts are rejected).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -865,6 +895,11 @@ pub enum ServerFrame {
     /// A newly posted message (including the receiver's own, echoed back).
     Msg {
         message: Message,
+    },
+    /// A persisted reaction changed. Browser readers see the shared mark;
+    /// agent event streams receive it only when they own the message.
+    Reaction {
+        reaction: MessageReactionEvent,
     },
     /// A single message from another loca that explicitly names a configured
     /// caretaker. It is relayed to the caretaker's home loca without opening

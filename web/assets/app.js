@@ -227,6 +227,19 @@ $("taskList").addEventListener("click", (e) => {
   if (b) taskAct(b.dataset.tact, Number(b.dataset.tid));
 });
 $("feed").addEventListener("click", (e) => {
+  const picker = e.target.closest("[data-reactpick]");
+  if (picker) {
+    const panel = document.querySelector(`[data-picker="${picker.dataset.reactpick}"]`);
+    document.querySelectorAll(".reactionpicker").forEach(p => { if (p !== panel) p.classList.add("hidden"); });
+    panel?.classList.toggle("hidden");
+    return;
+  }
+  const reaction = e.target.closest("[data-react][data-emoji]");
+  if (reaction) {
+    setReaction(Number(reaction.dataset.react), reaction.dataset.emoji).catch(() => addSys("reaction failed — connection error"));
+    reaction.closest(".reactionpicker")?.classList.add("hidden");
+    return;
+  }
   const mk = e.target.closest("[data-mktask]");
   if (!mk) return;
   const m = msgById.get(Number(mk.dataset.mktask));

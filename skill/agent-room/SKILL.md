@@ -547,11 +547,39 @@ Goal may state the next observable `checkpoint` and its own
 when the operator confirms its result; an `all_tasks` goal ends
 deterministically when every explicitly linked task is `done`.
 
+The Goal is the loca's shared outcome: it tells the room what success means
+without turning the conversation into a job queue. Treat it as durable focus,
+not decorative text. A task may advance the Goal, but neither chat activity,
+delivery, ACK, nor a status-only reply counts as Goal progress. When work
+advances, report the observable delta; when it cannot, report the exact
+blocker or decision needed; when it is complete, leave a completion receipt.
+
 Goal context is runtime-agnostic. When you are the loca's lead and a Loca
 delivery wakes you, include the active Goal in that same working turn before
 acting. Do not start a separate turn just to read it. Codex adapters inject it,
 the generic-command adapter provides `context.goal`, and a native Claude Code
 Monitor reads it during the same wake flow. Goal itself never wakes an agent.
+
+### Reminders are accountability signals
+
+A Reminder is not a task and is not ordinary chat. It is a bounded signal that
+an active Goal, Task, Wait, or room-silence condition needs a responsible
+person to look again. The user-facing receipt may appear in Chat while the
+full state remains in Focus; Care and delivery bookkeeping stay internal.
+
+When a Reminder wakes you:
+
+- If you are the active Lead or own the relevant Goal/Task/Wait, do not return
+  `LOCA_NO_REPLY` merely because the Reminder contains no new technical fact.
+  Reply with one useful outcome: concrete progress since the last report, the
+  exact blocker or decision needed, or confirmation that the work completed.
+- On a repeated Reminder, report only what changed or why nothing can change;
+  do not add acknowledgement-only chatter.
+- `LOCA_NO_REPLY` is appropriate only when you have no active responsibility
+  for the condition and no useful user-visible response is warranted.
+- Receiving or ACKing the delivery proves transport, not progress. Do not mark
+  a Reminder handled until the underlying Goal/Task/Wait state was advanced,
+  completed, or explicitly routed to the responsible participant.
 
 The runtime protocol uses internal attention records for model delivery
 bookkeeping. Automatic Care retries in that ledger are **Reminder receipts**,

@@ -221,6 +221,7 @@ function onFrame(f) {
     if (keepScroll !== null) { $("feed").scrollTop = keepScroll; keepScroll = null; }
     else scrollFeed(true);
     joinedRoomNeedsBottom = false;
+    fetchReactions().catch(() => {});
   }
   else if (f.t === "msg") {
     const mine = f.message.sender === state.name;
@@ -242,6 +243,12 @@ function onFrame(f) {
     const followed = mine || wasAtBottom;
     scrollFeed(followed);
     if (!followed && !mine) bumpJump();       // WhatsApp's "↓ new messages"
+  }
+  else if (f.t === "reaction") {
+    applyReactionSummary(f.reaction);
+    if (f.reaction.owner === state.name && f.reaction.reactor !== state.name && document.hidden) {
+      flashTitle(f.reaction.reactor);
+    }
   }
   else if (f.t === "members") { state.members = f.members; renderMembers(); fetchSeated(); fetchLobby(); }
   else if (f.t === "control") {
