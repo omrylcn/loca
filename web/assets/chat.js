@@ -180,7 +180,7 @@ function regexEsc(text) {
 }
 
 function addMsg(m) {
-  maybeDayChip(m.ts);
+  if (m.kind !== "reminder") maybeDayChip(m.ts);
   if (m.id) {
     if (state.seen.has(m.id)) return;
     state.seen.add(m.id); if (m.id > state.lastId) state.lastId = m.id;
@@ -196,6 +196,7 @@ function addMsg(m) {
     + (m.kind === "announce" ? " announce" : "")
     + (m.kind === "reminder" ? " locareminder" : "");
   if (m.id) row.dataset.id = m.id;
+  row.dataset.ts = String(Number(m.ts || 0));
   row.dataset.text = (m.sender + " " + m.text).toLowerCase();
 
   // glyphs: * agent · . human — the table shorthand
@@ -226,7 +227,18 @@ function addMsg(m) {
       </div>${quote}
       <div class="body markdown chatmarkdown">${txt}</div>
     </div>${acts}`;
-  $("feed").appendChild(row);
+  if (m.kind === "reminder") {
+    const reminderAt = Number(m.ts || 0);
+    const newer = Array.from($("feed").querySelectorAll(".row[data-ts]"))
+      .find(existing => Number(existing.dataset.ts || 0) > reminderAt);
+    let anchor = newer;
+    if (anchor?.previousElementSibling?.classList.contains("daychip")) {
+      anchor = anchor.previousElementSibling;
+    }
+    $("feed").insertBefore(row, anchor || null);
+  } else {
+    $("feed").appendChild(row);
+  }
 
   // @mention notification: flash the tab title if not focused.
   if (mentionsMe && !mine && document.hidden) flashTitle(m.sender);

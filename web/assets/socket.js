@@ -103,13 +103,11 @@ function rebuildReminderChatProjection() {
   // Chat is a conversation, not the Reminder audit log. Keep at most the
   // newest actionable reminder visible here; retries and completed history
   // remain durable in Focus > Reminders without flooding the transcript.
-  // A reconnect rebuilds durable reminders after message history. Do not
-  // append an old reminder beneath newer conversation and make an August
-  // receipt look like the latest chat message; its audit remains in Focus.
-  const latestMessageAt = state.msgs.reduce((max, message) =>
-    Math.max(max, Number(message.ts || 0)), 0);
-  const reminderAt = Number(latest?.delivered_at || latest?.created_at || 0);
-  if (latest && reminderAt >= latestMessageAt) addReminderChatBubble(latest);
+  // A reconnect rebuilds durable reminders after message history. The newest
+  // actionable receipt must remain visible in Chat even when conversation
+  // continued afterwards; addMsg places an older reminder at its timestamp
+  // instead of falsely appending it as the newest message.
+  if (latest) addReminderChatBubble(latest);
 }
 
 function reminderLifecycle(attention) {
