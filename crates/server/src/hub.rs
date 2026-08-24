@@ -2426,6 +2426,74 @@ impl Hub {
         Ok(msg)
     }
 
+    pub fn reactions(&self, room: &str) -> Vec<protocol::MessageReaction> {
+        self.store.message_reactions(room).unwrap_or_default()
+    }
+
+    pub fn set_reaction(
+        &self,
+        room: &str,
+        message_id: u64,
+        principal: &str,
+        reactor: &str,
+        emoji: &str,
+        active: bool,
+    ) -> Result<protocol::MessageReactionEvent, ReactionReject> {
+        const ALLOWED: [&str; 4] = ["✓", "✦", "!", "♥"];
+        if !ALLOWED.contains(&emoji) {
+            return Err(ReactionReject::InvalidEmoji);
+        }
+        if !self.is_writable(room) {
+            return Err(ReactionReject::ReadOnly);
+        }
+        let owner = self
+            .store
+            .message_owner(room, message_id)
+            .map_err(|_| ReactionReject::Storage)?
+            .or_else(|| {
+                self.rooms
+                    .lock_or_recover()
+                    .get(room)
+                    .and_then(|r| r.history.iter().find(|m| m.id == message_id))
+                    .map(|m| m.sender.clone())
+            })
+            .ok_or(ReactionReject::NotFound)?;
+        if owner == reactor {
+            return Err(ReactionReject::OwnMessage);
+        }
+        let at = (self.now_ms)();
+        let reactions = self
+            .store
+            .set_message_reaction(room, message_id, principal, reactor, emoji, active, at)
+            .map_err(|_| ReactionReject::Storage)?;
+        let actors = reactions
+            .into_iter()
+            .find(|r| r.message_id == message_id && r.emoji == emoji)
+            .map(|r| r.actors)
+            .unwrap_or_else(|| {
+                if active {
+                    vec![reactor.to_string()]
+                } else {
+                    Vec::new()
+                }
+            });
+        let event = protocol::MessageReactionEvent {
+            message_id,
+            emoji: emoji.to_string(),
+            actors,
+            owner,
+            reactor: reactor.to_string(),
+            active,
+            ts: at,
+        };
+        if let Some(r) = self.rooms.lock_or_recover().get(room) {
+            let _ = r.tx.send(ServerFrame::Reaction {
+                reaction: event.clone(),
+            });
+        }
+        Ok(event)
+    }
+
     /// Name (or clear) this loca's lead — an explicit operator action, not a
     /// chat side effect. Mutates settings, persists, broadcasts the new
     /// settings, AND emits an announcement so everyone in the loca learns of it
@@ -3280,6 +3348,15 @@ pub enum PostReject {
     Deleted,
     /// The message could not be persisted — refused rather than broadcast a
     /// line a restart would forget.
+    Storage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReactionReject {
+    InvalidEmoji,
+    NotFound,
+    OwnMessage,
+    ReadOnly,
     Storage,
 }
 

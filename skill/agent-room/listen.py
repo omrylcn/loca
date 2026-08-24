@@ -497,6 +497,8 @@ def delivery_priority(event, identity, is_lead=False):
         return "care_signal"
     if event.get("t") == "task":
         return "explicit_task"
+    if event.get("t") == "reaction":
+        return "direct_user"
     messages = event.get("messages") if event.get("t") == "turn" else [event]
     messages = [message for message in messages if isinstance(message, dict)]
     user_messages = [
@@ -552,6 +554,12 @@ def make_delivery(
                 f"signal room={signal_room!r}"
             )
         delivery_id = f"{room}:care:{care_id}"
+    elif event.get("t") == "reaction":
+        reaction = event.get("reaction") or {}
+        delivery_id = (
+            f"{room}:reaction:{reaction.get('message_id')}:"
+            f"{reaction.get('reactor')}:{reaction.get('emoji')}:{reaction.get('ts')}"
+        )
     elif last_id:
         delivery_id = f"{room}:{last_id}"
     else:
@@ -1017,6 +1025,13 @@ def main():
                                 raise BackfillError(
                                     "care event was persisted locally but server ACK failed"
                                 )
+                        continue
+                    if t == "reaction":
+                        reaction = f.get("reaction") or {}
+                        if str(reaction.get("owner") or "").casefold() == requested_name.casefold():
+                            event = dict(f)
+                            event.setdefault("room", room)
+                            emit(room, event, current_lead)
                         continue
                     if t in ("msg", "turn"):
                         incoming = (

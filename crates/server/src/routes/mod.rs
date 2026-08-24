@@ -20,8 +20,8 @@ pub(crate) use attention::{
     resolve_attention,
 };
 pub(crate) use content::{
-    create_note, delete_note, get_journal, get_note, get_notes, note_history, post_journal,
-    post_message, search_room, update_note,
+    create_note, delete_note, get_journal, get_note, get_notes, get_reactions, note_history,
+    post_journal, post_message, search_room, set_reaction, update_note,
 };
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};
 pub(crate) use membership::{

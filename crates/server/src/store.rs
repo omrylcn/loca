@@ -23,8 +23,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 
 use protocol::{
-    Attention, AttentionStatus, ChatMode, Goal, GoalCompletion, GoalStatus, Invite, Message, Note,
-    RoomSettings, SenderType, Task, TaskStatus, WaitState,
+    Attention, AttentionStatus, ChatMode, Goal, GoalCompletion, GoalStatus, Invite, Message,
+    MessageReaction, Note, RoomSettings, SenderType, Task, TaskStatus, WaitState,
 };
 
 use crate::sync::RecoverMutex;
@@ -127,6 +127,18 @@ impl Store {
                 kind TEXT NOT NULL DEFAULT 'say'
             );
             CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room, id);
+            CREATE TABLE IF NOT EXISTS message_reactions (
+                room TEXT NOT NULL,
+                message_id INTEGER NOT NULL,
+                principal TEXT NOT NULL,
+                reactor TEXT NOT NULL,
+                emoji TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (room, message_id, principal, emoji),
+                FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS message_reactions_room
+                ON message_reactions(room, message_id);
             CREATE TABLE IF NOT EXISTS notes (
                 room TEXT NOT NULL,
                 key TEXT NOT NULL,

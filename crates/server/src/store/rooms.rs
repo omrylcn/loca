@@ -10,6 +10,7 @@ impl Store {
         };
         const TABLES: &[&str] = &[
             "messages",
+            "message_reactions",
             "notes",
             "note_revisions",
             "tasks",

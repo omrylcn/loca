@@ -1,6 +1,95 @@
 use super::*;
 
 impl Store {
+    pub fn message_owner(&self, room: &str, message_id: u64) -> rusqlite::Result<Option<String>> {
+        let Some(c) = self.conn() else {
+            return Ok(None);
+        };
+        c.query_row(
+            "SELECT sender FROM messages WHERE room = ?1 AND id = ?2",
+            params![room, message_id],
+            |row| row.get(0),
+        )
+        .optional()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_message_reaction(
+        &self,
+        room: &str,
+        message_id: u64,
+        principal: &str,
+        reactor: &str,
+        emoji: &str,
+        active: bool,
+        at: u64,
+    ) -> rusqlite::Result<Vec<MessageReaction>> {
+        let Some(mut c) = self.conn() else {
+            return Ok(Vec::new());
+        };
+        let tx = c.transaction()?;
+        if active {
+            tx.execute(
+                "INSERT OR IGNORE INTO message_reactions
+                 (room, message_id, principal, reactor, emoji, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![room, message_id, principal, reactor, emoji, at],
+            )?;
+        } else {
+            tx.execute(
+                "DELETE FROM message_reactions
+                 WHERE room = ?1 AND message_id = ?2 AND principal = ?3 AND emoji = ?4",
+                params![room, message_id, principal, emoji],
+            )?;
+        }
+        let result = Self::read_message_reactions(&tx, room, Some(message_id))?;
+        tx.commit()?;
+        Ok(result)
+    }
+
+    pub fn message_reactions(&self, room: &str) -> rusqlite::Result<Vec<MessageReaction>> {
+        let Some(c) = self.conn() else {
+            return Ok(Vec::new());
+        };
+        Self::read_message_reactions(&c, room, None)
+    }
+
+    fn read_message_reactions(
+        c: &Connection,
+        room: &str,
+        message_id: Option<u64>,
+    ) -> rusqlite::Result<Vec<MessageReaction>> {
+        let mut stmt = c.prepare(
+            "SELECT message_id, emoji, reactor FROM message_reactions
+             WHERE room = ?1 AND (?2 IS NULL OR message_id = ?2)
+             ORDER BY message_id, emoji, created_at, reactor",
+        )?;
+        let rows = stmt.query_map(params![room, message_id], |row| {
+            Ok((
+                row.get::<_, u64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        let mut grouped: Vec<MessageReaction> = Vec::new();
+        for row in rows {
+            let (mid, emoji, actor) = row?;
+            if let Some(last) = grouped
+                .last_mut()
+                .filter(|r| r.message_id == mid && r.emoji == emoji)
+            {
+                last.actors.push(actor);
+            } else {
+                grouped.push(MessageReaction {
+                    message_id: mid,
+                    emoji,
+                    actors: vec![actor],
+                });
+            }
+        }
+        Ok(grouped)
+    }
+
     /// Persist a message. Returns the DB result so the caller can refuse to
     /// broadcast something that never landed on disk (PRINCIPLES: "mesaj
     /// kaybolmaz"). Memory-only mode (no connection) is NOT a failure — there

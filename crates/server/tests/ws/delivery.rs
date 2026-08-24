@@ -112,6 +112,74 @@ async fn reply_to_and_typing_flow() {
 }
 
 #[tokio::test]
+async fn reactions_are_whitelisted_persisted_and_directed_to_message_owner() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir
+        .path()
+        .join("reactions.db")
+        .to_string_lossy()
+        .into_owned();
+    let (port, _guard) = spawn_server_env("", &[("DB_PATH", db)]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let mut owner = connect_ws(port, "general", "author", "agent").await;
+    let mut reader = connect_ws(port, "general", "reader", "user").await;
+
+    let message: Value = client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({ "sender": "author", "sender_type": "agent", "text": "landed" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let message_id = message["id"].as_u64().unwrap();
+
+    let changed = client.post(format!("{base}/rooms/general/messages/{message_id}/reactions"))
+        .json(&serde_json::json!({ "emoji": "✦", "active": true, "reactor": "reader", "reactor_type": "user" }))
+        .send().await.unwrap();
+    assert_eq!(changed.status(), 200);
+
+    let is_reaction = |v: &Value| v["t"] == "reaction" && v["reaction"]["message_id"] == message_id;
+    let owner_frame = wait_for(&mut owner, is_reaction).await;
+    assert_eq!(owner_frame["reaction"]["owner"], "author");
+    assert_eq!(owner_frame["reaction"]["actors"][0], "reader");
+    wait_for(&mut reader, is_reaction).await;
+
+    let saved: Vec<Value> = client
+        .get(format!("{base}/rooms/general/reactions"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0]["emoji"], "✦");
+
+    let bad = client
+        .post(format!(
+            "{base}/rooms/general/messages/{message_id}/reactions"
+        ))
+        .json(&serde_json::json!({ "emoji": "🔥", "active": true, "reactor": "reader" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad.status(), 400);
+
+    let own = client
+        .post(format!(
+            "{base}/rooms/general/messages/{message_id}/reactions"
+        ))
+        .json(&serde_json::json!({ "emoji": "✓", "active": true, "reactor": "author" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(own.status(), 409);
+}
+
+#[tokio::test]
 async fn filter_msg_suppresses_noise_but_delivers_messages() {
     let (port, _guard) = spawn_server().await;
     let base = format!("http://127.0.0.1:{port}");

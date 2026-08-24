@@ -418,6 +418,21 @@ class ListenerDeliveryTests(unittest.TestCase):
             "loca-care",
             "https://loca.example",
         )
+        reaction = LISTENER.make_delivery(
+            "sb-dev",
+            {
+                "t": "reaction",
+                "reaction": {
+                    "message_id": 9,
+                    "owner": "lead-engineer",
+                    "reactor": "operator",
+                    "emoji": "✦",
+                    "ts": 123,
+                },
+            },
+            "lead-engineer",
+            "https://loca.example",
+        )
         self.assertEqual(direct["protocol_version"], "1")
         self.assertEqual(direct["identity"], "lead-engineer")
         self.assertEqual(direct["server"], "https://loca.example")
@@ -426,6 +441,10 @@ class ListenerDeliveryTests(unittest.TestCase):
         self.assertEqual(task["priority"], "explicit_task")
         self.assertEqual(lead_room["priority"], "lead_room")
         self.assertEqual(care["priority"], "care_signal")
+        self.assertEqual(reaction["priority"], "direct_user")
+        self.assertEqual(
+            reaction["delivery_id"], "sb-dev:reaction:9:operator:✦:123"
+        )
         self.assertEqual(
             care["delivery_id"], "sb-dev:care:sb-dev:WaitCycle:10:1"
         )

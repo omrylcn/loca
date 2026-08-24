@@ -354,6 +354,11 @@ async fn main() {
         )
         .route("/rooms", get(list_rooms))
         .route("/rooms/:id/messages", get(get_messages).post(post_message))
+        .route("/rooms/:id/reactions", get(get_reactions))
+        .route(
+            "/rooms/:id/messages/:message_id/reactions",
+            axum::routing::post(set_reaction),
+        )
         .route("/rooms/:id/members", get(get_members))
         .route("/rooms/:id/mode", get(get_mode).put(set_mode))
         .route("/rooms/:id/lead", axum::routing::post(set_lead))
@@ -1122,6 +1127,7 @@ async fn ws_session(
                     // bypass the conversational queue and arrive immediately.
                     if events_only {
                         let allowed = matches!(frame, ServerFrame::Msg { .. })
+                            || matches!(&frame, ServerFrame::Reaction { reaction } if reaction.owner == name)
                             || (filter == WsFilter::Mentions
                                 && matches!(
                                     frame,
