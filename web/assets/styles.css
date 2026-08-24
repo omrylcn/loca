@@ -453,7 +453,7 @@
   .reactionchip { border: 1px solid var(--line); border-radius: 12px; background: var(--panel2);
     color: var(--muted); padding: 1px 7px; font: 12px var(--mono); cursor: pointer; }
   .reactionchip span { margin-left: 3px; font-size: 10px; }
-  .reactionchip.mine { border-color: var(--accent); color: var(--accent); }
+  .reactionchip.mine { border-color: var(--dim); color: var(--muted); background: var(--panel); }
   .reactionpicker { align-self: flex-start; display: flex; gap: 3px; margin: 3px 0 0 5px;
     padding: 4px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel2);
     box-shadow: 0 6px 18px rgba(0,0,0,.35); }
