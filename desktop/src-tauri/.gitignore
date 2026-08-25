@@ -1,0 +1,4 @@
+target/
+gen/
+# room-server binary staged by the release workflow (host flavor); never committed
+binaries/

@@ -360,8 +360,11 @@ document.addEventListener("visibilitychange", () => {
 
 // Start behind the door; /health tells us whether a key is even needed.
 setLocked(true);
-// Default server = where this page is served from.
-$("server").value = location.origin;
+// Default server = where this page is served from. A host that wraps this UI
+// (e.g. the desktop shell) can inject window.__LOCA_DEFAULT_SERVER__ at
+// document-start to point the first connect at a different server; in a plain
+// browser that global is undefined and this falls back to the page origin.
+$("server").value = window.__LOCA_DEFAULT_SERVER__ || location.origin;
 // Retake a remembered seat (auto-reload / next visit): no click needed.
 try {
   const seat = JSON.parse(localStorage.getItem("loca-seat") || "null");

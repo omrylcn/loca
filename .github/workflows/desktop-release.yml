@@ -1,0 +1,119 @@
+# Desktop Release — unsigned installers for the optional Loca desktop app.
+# Triggers only on `desktop-v*` tags, separate from server release `v*` tags.
+#
+# Race-safe by construction: ONE `create-release` job makes a single draft
+# release; the matrix build jobs upload INTO it via `releaseId` (no six jobs
+# racing to create/patch the same release); a final `publish` job un-drafts it.
+#
+# This open-source pipeline intentionally uses no signing/notarization secrets.
+# Release notes and the README clearly label its artifacts as unsigned.
+
+name: Desktop Release
+
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.mk.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create a single draft release
+        id: mk
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: process.env.GITHUB_REF_NAME,
+              name: `Loca Desktop ${process.env.GITHUB_REF_NAME}`,
+              body: 'Unsigned community builds. Your operating system may show an unverified developer warning.',
+              draft: true,
+              prerelease: false,
+              generate_release_notes: true,
+            });
+            core.setOutput('release_id', data.id);
+
+  build:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # flavor "client" = wrapper (connects to a hosted server)
+          # flavor "host"   = standalone (bundles + boots room-server)
+          - { os: ubuntu-22.04, flavor: client }
+          - { os: ubuntu-22.04, flavor: host }
+          - { os: windows-latest, flavor: client }
+          - { os: windows-latest, flavor: host }
+          - { os: macos-latest, flavor: client }
+          - { os: macos-latest, flavor: host }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Linux system deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev
+
+      # The host flavor bundles room-server. Build it, then STAGE it into
+      # desktop/src-tauri/binaries/ (its native name) — that fixed dir is what
+      # tauri.standalone.conf.json's `binaries/room-server*` glob bundles, so the
+      # resource path is identical on every OS (Windows keeps the .exe).
+      - name: Build + stage room-server (host flavor only)
+        if: matrix.flavor == 'host'
+        shell: bash
+        run: |
+          cargo build -p server --release --locked
+          mkdir -p desktop/src-tauri/binaries
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/release/room-server.exe desktop/src-tauri/binaries/
+          else
+            cp target/release/room-server desktop/src-tauri/binaries/
+          fi
+
+      - name: Build + upload installers
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: desktop
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          # client -> default config; host -> standalone config + bundled-server
+          # feature. loca-dev: confirm tauri-cli forwards --features to cargo here;
+          # if not, split into a separate `cargo tauri build` step per flavor.
+          args: >-
+            ${{ matrix.flavor == 'host'
+              && '--features bundled-server --config src-tauri/tauri.standalone.conf.json'
+              || '' }}
+
+  publish:
+    needs: [create-release, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release (un-draft)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: ${{ needs.create-release.outputs.release_id }},
+              draft: false,
+            });

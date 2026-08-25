@@ -38,7 +38,14 @@ async function setReaction(messageId, emoji) {
     headers: adminHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ emoji, active, reactor: state.name, reactor_type: "user" }),
   });
-  if (!response.ok) addSys(`reaction failed: ${await response.text()}`);
+  if (!response.ok) {
+    addSys(`reaction failed: ${await response.text()}`);
+    return;
+  }
+  // Render the server-confirmed summary immediately. Previously the UI waited
+  // only for the WebSocket echo, so a delayed/missed echo made a successful
+  // reaction look as if nothing happened. A later WS frame is idempotent.
+  applyReactionSummary(await response.json());
 }
 // Safe Markdown rendering and the live chat feed.
 // Notes are durable shared memory, so Markdown is rendered without trusting
