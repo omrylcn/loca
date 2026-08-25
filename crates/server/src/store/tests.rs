@@ -391,3 +391,47 @@ fn admission_stock_mints_consumes_once_and_ignores_expired() {
     assert_eq!(store.admission_stock_counts(100), (4, 0));
     assert!(store.consume_admission_right("agentE", 100).is_none());
 }
+
+#[test]
+fn join_request_claim_is_exactly_once_and_bootstrap_is_one_time() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(Some(directory.path().join("jr.db").to_str().expect("path")))
+        .expect("open");
+
+    store
+        .create_join_request("jr_1", "sekret", "bot", "agent", 100)
+        .expect("create");
+    // Only the matching secret can see the request; a wrong one learns nothing.
+    assert!(store.join_request_view("jr_1", "wrong").is_none());
+    let (status, name, ready) = store.join_request_view("jr_1", "sekret").expect("view");
+    assert_eq!((status.as_str(), name.as_str(), ready), ("pending", "bot", false));
+    assert_eq!(store.list_pending_join_requests().len(), 1);
+
+    // Claiming for approval is exactly-once: the first wins, the second gets None.
+    assert_eq!(
+        store.claim_join_request_for_approval("jr_1").as_deref(),
+        Some("bot")
+    );
+    assert!(store.claim_join_request_for_approval("jr_1").is_none());
+
+    // After finalising, the mb_ is delivered exactly once via bootstrap.
+    store
+        .finalize_join_request_approval("jr_1", "mb_xyz", "master", 200)
+        .expect("finalize");
+    assert_eq!(
+        store
+            .claim_join_request_bootstrap("jr_1", "sekret", 300)
+            .as_deref(),
+        Some("mb_xyz")
+    );
+    assert!(store
+        .claim_join_request_bootstrap("jr_1", "sekret", 301)
+        .is_none());
+
+    // Deny is one-shot too: a pending request denies once, then no longer.
+    store
+        .create_join_request("jr_2", "s2", "bot2", "agent", 100)
+        .expect("create2");
+    assert!(store.deny_join_request("jr_2", "master", 200));
+    assert!(!store.deny_join_request("jr_2", "master", 201));
+}

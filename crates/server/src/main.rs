@@ -322,6 +322,23 @@ async fn main() {
             "/admission-stock",
             get(get_admission_stock_route).post(create_admission_stock_route),
         )
+        .route(
+            "/join-requests",
+            get(list_join_requests_route).post(create_join_request_route),
+        )
+        .route("/join-requests/:id", get(get_join_request_route))
+        .route(
+            "/join-requests/:id/approve",
+            axum::routing::post(approve_join_request_route),
+        )
+        .route(
+            "/join-requests/:id/deny",
+            axum::routing::post(deny_join_request_route),
+        )
+        .route(
+            "/join-requests/:id/bootstrap",
+            axum::routing::post(bootstrap_join_request_route),
+        )
         .route("/whoami", get(whoami))
         .route("/profile", get(profile_view))
         .route(

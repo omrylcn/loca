@@ -374,6 +374,28 @@ impl Store {
             );
             CREATE INDEX IF NOT EXISTS admission_stock_available
                 ON admission_stock(consumed_at, expires_at);
+            -- Join requests: an outside agent asks to join the Building and picks
+            -- its own name. The request grants NOTHING until a Master/Smaster
+            -- approves it, which consumes one admission-stock right and issues a
+            -- Lobby membership (mb_). The mb_ is delivered exactly once via the
+            -- bootstrap endpoint, never in the pollable status. `secret_hash` is
+            -- the hash of the caller's request-secret (the plaintext never lands
+            -- here), so only the requester can poll or bootstrap their request.
+            CREATE TABLE IF NOT EXISTS join_requests (
+                id TEXT PRIMARY KEY,
+                secret_hash TEXT NOT NULL,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL
+                    CHECK (status IN ('pending', 'approving', 'approved', 'denied')),
+                created_at INTEGER NOT NULL,
+                decided_at INTEGER,
+                decided_by TEXT,
+                mb_token TEXT,
+                bootstrap_delivered_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS join_requests_pending
+                ON join_requests(status, created_at);
             "#,
         )?;
         // Older databases predate message kinds; adding the column is a no-op
@@ -557,6 +579,159 @@ impl Store {
             )
             .ok()?;
         (changed == 1).then_some(id)
+    }
+
+    /// Record a new pending join request. The caller's request-secret is stored
+    /// only as a hash, so only the requester (who holds the plaintext) can later
+    /// poll or bootstrap it.
+    pub fn create_join_request(
+        &self,
+        id: &str,
+        secret: &str,
+        name: &str,
+        kind: &str,
+        created_at: u64,
+    ) -> rusqlite::Result<()> {
+        let Some(c) = self.conn() else { return Ok(()) };
+        c.execute(
+            "INSERT INTO join_requests (id, secret_hash, name, kind, status, created_at) \
+             VALUES (?1, ?2, ?3, ?4, 'pending', ?5)",
+            params![id, secret_hash(secret), name, kind, created_at],
+        )
+        .map(|_| ())
+    }
+
+    /// `(status, name, bootstrap_ready)` if `id` + `secret` match; otherwise None
+    /// (a caller learns nothing about a request that is not theirs).
+    pub fn join_request_view(&self, id: &str, secret: &str) -> Option<(String, String, bool)> {
+        let c = self.conn()?;
+        c.query_row(
+            "SELECT status, name, \
+                    (mb_token IS NOT NULL AND bootstrap_delivered_at IS NULL) \
+             FROM join_requests WHERE id = ?1 AND secret_hash = ?2",
+            params![id, secret_hash(secret)],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, bool>(2)?,
+                ))
+            },
+        )
+        .ok()
+    }
+
+    /// Pending requests for the Master review list (id, name, kind, created_at);
+    /// never any secret or token.
+    pub fn list_pending_join_requests(&self) -> Vec<(String, String, String, u64)> {
+        let Some(c) = self.conn() else { return Vec::new() };
+        let Ok(mut stmt) = c.prepare(
+            "SELECT id, name, kind, created_at FROM join_requests \
+             WHERE status = 'pending' ORDER BY created_at, id",
+        ) else {
+            return Vec::new();
+        };
+        let Ok(rows) = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, u64>(3)?,
+            ))
+        }) else {
+            return Vec::new();
+        };
+        rows.flatten().collect()
+    }
+
+    /// Atomically claim a pending request for approval (pending -> approving),
+    /// returning its `name`. Only the FIRST caller wins — the `WHERE
+    /// status='pending'` gate means a repeated/racing approve gets None, so
+    /// admission stock is consumed at most once per request.
+    pub fn claim_join_request_for_approval(&self, id: &str) -> Option<String> {
+        let c = self.conn()?;
+        let changed = c
+            .execute(
+                "UPDATE join_requests SET status = 'approving' \
+                 WHERE id = ?1 AND status = 'pending'",
+                params![id],
+            )
+            .ok()?;
+        if changed != 1 {
+            return None;
+        }
+        c.query_row(
+            "SELECT name FROM join_requests WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .ok()
+    }
+
+    /// Finalise a claimed approval: attach the issued mb_ and mark approved.
+    pub fn finalize_join_request_approval(
+        &self,
+        id: &str,
+        mb_token: &str,
+        decided_by: &str,
+        decided_at: u64,
+    ) -> rusqlite::Result<()> {
+        let Some(c) = self.conn() else { return Ok(()) };
+        c.execute(
+            "UPDATE join_requests \
+             SET status = 'approved', mb_token = ?2, decided_by = ?3, decided_at = ?4 \
+             WHERE id = ?1 AND status = 'approving'",
+            params![id, mb_token, decided_by, decided_at],
+        )
+        .map(|_| ())
+    }
+
+    /// Release a claimed request back to pending (e.g. no stock was available),
+    /// so the Master can retry after replenishing.
+    pub fn release_join_request_claim(&self, id: &str) {
+        if let Some(c) = self.conn() {
+            let _ = c.execute(
+                "UPDATE join_requests SET status = 'pending' \
+                 WHERE id = ?1 AND status = 'approving'",
+                params![id],
+            );
+        }
+    }
+
+    /// Deny a pending request. Returns true iff it was pending (now denied).
+    pub fn deny_join_request(&self, id: &str, decided_by: &str, decided_at: u64) -> bool {
+        let Some(c) = self.conn() else { return false };
+        c.execute(
+            "UPDATE join_requests SET status = 'denied', decided_by = ?2, decided_at = ?3 \
+             WHERE id = ?1 AND status = 'pending'",
+            params![id, decided_by, decided_at],
+        )
+        .map(|n| n == 1)
+        .unwrap_or(false)
+    }
+
+    /// Deliver the issued mb_ EXACTLY ONCE: only if approved, not-yet-delivered,
+    /// and the secret matches. Marks it delivered so a second call returns None —
+    /// the credential never sits in a repeatable/pollable response.
+    pub fn claim_join_request_bootstrap(&self, id: &str, secret: &str, now: u64) -> Option<String> {
+        let c = self.conn()?;
+        let mb: String = c
+            .query_row(
+                "SELECT mb_token FROM join_requests \
+                 WHERE id = ?1 AND secret_hash = ?2 AND status = 'approved' \
+                   AND mb_token IS NOT NULL AND bootstrap_delivered_at IS NULL",
+                params![id, secret_hash(secret)],
+                |r| r.get(0),
+            )
+            .ok()?;
+        let changed = c
+            .execute(
+                "UPDATE join_requests SET bootstrap_delivered_at = ?2 \
+                 WHERE id = ?1 AND bootstrap_delivered_at IS NULL",
+                params![id, now],
+            )
+            .ok()?;
+        (changed == 1).then_some(mb)
     }
 
     pub fn is_persistent(&self) -> bool {

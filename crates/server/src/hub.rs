@@ -1800,6 +1800,83 @@ impl Hub {
         self.store.consume_admission_right(name, (self.now_ms)())
     }
 
+    /// Max undecided join requests at once — a DoS guard on the authless create
+    /// endpoint (a full per-source rate-limiter is a documented hardening
+    /// follow-up). A request grants no authority, so the only abuse is table
+    /// growth, which this bounds.
+    const MAX_PENDING_JOIN_REQUESTS: usize = 200;
+
+    /// An outside agent asks to join, picking its own name. Returns
+    /// `(request_id, request_secret)`, or None if the pending backlog is full.
+    /// The plaintext secret is produced exactly once here and only its hash is
+    /// stored, so only the requester can poll or bootstrap it. Grants NOTHING
+    /// until a Master approves.
+    pub fn create_join_request(&self, name: &str, kind: &str) -> Option<(String, String)> {
+        if self.store.list_pending_join_requests().len() >= Self::MAX_PENDING_JOIN_REQUESTS {
+            return None;
+        }
+        let id = Self::secure_token("jr_", 12);
+        let secret = Self::secure_token("jrs_", 24);
+        let _ = self
+            .store
+            .create_join_request(&id, &secret, name, kind, (self.now_ms)());
+        Some((id, secret))
+    }
+
+    /// Poll a join request with its secret: `(status, name, bootstrap_ready)`.
+    pub fn join_request_view(&self, id: &str, secret: &str) -> Option<(String, String, bool)> {
+        self.store.join_request_view(id, secret)
+    }
+
+    /// The Master's pending-request review list.
+    pub fn list_pending_join_requests(&self) -> Vec<(String, String, String, u64)> {
+        self.store.list_pending_join_requests()
+    }
+
+    /// Approve a pending join request (Master action). EXACTLY-ONCE: atomically
+    /// claims the request first; a repeated or racing approve that finds it
+    /// already decided returns `Approve::AlreadyDecided` and consumes NO stock.
+    /// On a fresh claim it consumes one admission-stock right and issues a Lobby
+    /// membership (`mb_`, kind `agent` per the model) bound to the requested name;
+    /// if the stock is empty it releases the claim and returns `Approve::NoStock`.
+    pub fn approve_join_request(&self, id: &str, by: &str) -> Approve {
+        let Some(name) = self.store.claim_join_request_for_approval(id) else {
+            return Approve::AlreadyDecided;
+        };
+        if self.consume_admission_right(&name).is_none() {
+            self.store.release_join_request_claim(id);
+            return Approve::NoStock;
+        }
+        // admit_member is idempotent by name (returns the existing mb_ if any),
+        // so it never double-mints a membership.
+        match self.admit_member(&name, "agent", by) {
+            Ok(member) => {
+                let _ = self.store.finalize_join_request_approval(
+                    id,
+                    &member.token,
+                    by,
+                    (self.now_ms)(),
+                );
+                Approve::Approved
+            }
+            Err(_) => {
+                self.store.release_join_request_claim(id);
+                Approve::Failed
+            }
+        }
+    }
+
+    /// Deny a pending join request (Master action). True iff it was pending.
+    pub fn deny_join_request(&self, id: &str, by: &str) -> bool {
+        self.store.deny_join_request(id, by, (self.now_ms)())
+    }
+
+    /// Deliver an approved request's `mb_` exactly once (requester bootstrap).
+    pub fn claim_join_request_bootstrap(&self, id: &str, secret: &str) -> Option<String> {
+        self.store
+            .claim_join_request_bootstrap(id, secret, (self.now_ms)())
+    }
+
     /// Same, but taken with a davet: the session is confined to the davet's
     /// loca AND its identity comes from the davet's member — the session is
     /// proof of who the davet seats, not of whatever name the request body
@@ -3460,6 +3537,22 @@ fn default_now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Outcome of approving a join request.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Approve {
+    /// A fresh approval: stock consumed, Lobby membership issued.
+    Approved,
+    /// The request was already approved/denied/being-decided — a no-op that
+    /// consumes no additional stock (idempotent re-approve).
+    AlreadyDecided,
+    /// No admission stock is available; the claim was released so the Master can
+    /// retry after replenishing.
+    NoStock,
+    /// The membership could not be issued after the stock was consumed (rare);
+    /// the claim was released for retry.
+    Failed,
 }
 
 #[cfg(test)]

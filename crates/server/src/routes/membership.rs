@@ -592,6 +592,162 @@ pub(crate) async fn get_admission_stock_route(
     Json(serde_json::json!({ "total": total, "available": available })).into_response()
 }
 
+#[derive(serde::Deserialize)]
+pub(crate) struct CreateJoinRequest {
+    name: String,
+    kind: Option<String>,
+}
+
+fn valid_agent_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// POST /join-requests — an outside agent requests to join and names itself.
+/// AUTHLESS and grants nothing; returns {request_id, request_secret}. The secret
+/// is shown exactly once and is required to poll/bootstrap; a full pending
+/// backlog yields 429.
+pub(crate) async fn create_join_request_route(
+    State(hub): State<Hub>,
+    Json(body): Json<CreateJoinRequest>,
+) -> impl IntoResponse {
+    let name = body.name.trim();
+    if !valid_agent_name(name) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "name must be 1-64 ASCII letters, digits, dot, dash, or underscore",
+        )
+            .into_response();
+    }
+    let kind = match body.kind.as_deref() {
+        None | Some("agent") => "agent",
+        Some("user") => "user",
+        Some(_) => return (StatusCode::BAD_REQUEST, "kind must be 'agent' or 'user'").into_response(),
+    };
+    match hub.create_join_request(name, kind) {
+        Some((request_id, request_secret)) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({ "request_id": request_id, "request_secret": request_secret })),
+        )
+            .into_response(),
+        None => (
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many pending join requests — try again later",
+        )
+            .into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct JoinRequestSecret {
+    secret: String,
+}
+
+/// GET /join-requests/:id?secret=... — the requester polls their status. Never
+/// carries the mb_ credential; `bootstrap_ready` signals when to call bootstrap.
+pub(crate) async fn get_join_request_route(
+    State(hub): State<Hub>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(q): Query<JoinRequestSecret>,
+) -> impl IntoResponse {
+    match hub.join_request_view(&id, &q.secret) {
+        Some((status, _name, bootstrap_ready)) => Json(
+            serde_json::json!({ "status": status, "bootstrap_ready": bootstrap_ready }),
+        )
+        .into_response(),
+        None => (StatusCode::NOT_FOUND, "unknown request or secret").into_response(),
+    }
+}
+
+/// POST /join-requests/:id/bootstrap?secret=... — deliver the approved mb_ ONCE.
+pub(crate) async fn bootstrap_join_request_route(
+    State(hub): State<Hub>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(q): Query<JoinRequestSecret>,
+) -> impl IntoResponse {
+    match hub.claim_join_request_bootstrap(&id, &q.secret) {
+        Some(mb) => (StatusCode::CREATED, Json(serde_json::json!({ "davet": mb }))).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            "not approved, already delivered, or bad secret",
+        )
+            .into_response(),
+    }
+}
+
+/// GET /join-requests — the Master's pending-request review list.
+pub(crate) async fn list_join_requests_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !is_master_req(&hub, &headers) {
+        return (StatusCode::UNAUTHORIZED, "master required").into_response();
+    }
+    let pending: Vec<_> = hub
+        .list_pending_join_requests()
+        .into_iter()
+        .map(|(id, name, kind, created_at)| {
+            serde_json::json!({ "id": id, "name": name, "kind": kind, "created_at": created_at })
+        })
+        .collect();
+    Json(serde_json::json!({ "pending": pending })).into_response()
+}
+
+/// POST /join-requests/:id/approve — Master consumes one stock right and issues
+/// the Lobby membership. Exactly-once: a repeat approve is a no-op.
+pub(crate) async fn approve_join_request_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if !is_master_req(&hub, &headers) {
+        return (StatusCode::UNAUTHORIZED, "master required").into_response();
+    }
+    let by = hub
+        .smaster_name(admin_token_of(&headers))
+        .map(|n| format!("smaster:{n}"))
+        .unwrap_or_else(|| "master".into());
+    match hub.approve_join_request(&id, &by) {
+        crate::hub::Approve::Approved => {
+            (StatusCode::OK, Json(serde_json::json!({ "status": "approved" }))).into_response()
+        }
+        crate::hub::Approve::AlreadyDecided => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "already_decided" })),
+        )
+            .into_response(),
+        crate::hub::Approve::NoStock => (
+            StatusCode::CONFLICT,
+            "no admission stock — mint more with POST /admission-stock",
+        )
+            .into_response(),
+        crate::hub::Approve::Failed => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not issue membership — try again",
+        )
+            .into_response(),
+    }
+}
+
+/// POST /join-requests/:id/deny — Master denies a pending request.
+pub(crate) async fn deny_join_request_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if !is_master_req(&hub, &headers) {
+        return (StatusCode::UNAUTHORIZED, "master required").into_response();
+    }
+    if hub.deny_join_request(&id, "master") {
+        (StatusCode::OK, Json(serde_json::json!({ "status": "denied" }))).into_response()
+    } else {
+        (StatusCode::CONFLICT, "request is not pending").into_response()
+    }
+}
+
 pub(crate) async fn delete_session_route(
     State(hub): State<Hub>,
     headers: HeaderMap,
