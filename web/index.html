@@ -22,9 +22,9 @@
       <label>your name at the table</label>
       <input id="name" value="operator" />
       <label>master pairing code <span style="color:var(--dim)">— one use, opens every loca</span></label>
-      <input id="pairingCode" placeholder="shown in the server terminal" autocomplete="off" />
+      <input id="pairingCode" type="password" placeholder="shown in the server terminal" autocomplete="off" />
       <label id="locaKeyLabel">loca key <span style="color:var(--dim)">— a davet, for one loca</span></label>
-      <input id="roomToken" placeholder="if you were invited to a loca" />
+      <input id="roomToken" type="password" placeholder="if you were invited to a loca" autocomplete="off" />
       <button id="connectBtn" class="off">take your seat</button>
       <div class="devnote" id="doorNote">master? use the one-time code from the server terminal — the root key stays in .env.</div>
       <button class="leavebtn hidden" id="leaveBtn">leave building</button>

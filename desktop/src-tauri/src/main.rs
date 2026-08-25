@@ -189,6 +189,21 @@ mod standalone {
     // straight into it.
     const LOCAL_ROOM: &str = "iye";
 
+    fn canonical_host_seat() -> String {
+        format!(
+            "{{\"name\":\"{LOCAL_NAME}\",\"roomToken\":\"\",\"room\":\"{LOCAL_ROOM}\"}}"
+        )
+    }
+
+    fn provision_host<M, W>(mut mint_master: M, mut write_seat: W) -> Result<(), String>
+    where
+        M: FnMut() -> Result<(), String>,
+        W: FnMut(&str) -> Result<(), String>,
+    {
+        mint_master()?;
+        write_seat(&canonical_host_seat())
+    }
+
     // Holds the child (so the run-loop can stop it on exit) + the local base URL
     // (so the host_add_agent command can mint credentials against it). Managed
     // as Tauri state.
@@ -418,29 +433,26 @@ mod standalone {
         false
     }
 
-    // First-run provisioning: if there is no seat yet, admit the local user and
-    // issue a davet, then store the seat EXACTLY as the web UI expects
-    // (loca-seat = {name, roomToken, room}, per web/assets/api.js) so it
-    // auto-connects. Idempotent by the seat's presence — never re-admits on a
-    // later launch. Verified flow: POST /members -> POST /rooms/<room>/invites ->
-    // the UI does /sessions with the davet.
+    // Host provisioning is authoritative on every launch. A previous install
+    // may have left a davet-backed loca-seat in the OS keychain while its local
+    // database was removed. Reusing that stale seat makes the Host choose the
+    // davet before its freshly minted Master session and fall back to the door.
+    // Always replace it with the canonical Host seat: iye navigation with no
+    // davet. Identity and authority come exclusively from the derived Master
+    // session below; the raw admin token never reaches the webview.
     pub fn provision_if_needed(base: &str) -> Result<(), String> {
-        // The owner of the local server is its MASTER — refresh the admin session
-        // on every launch so master survives restart/expiry (loca-dev contract).
-        provision_master_session(base)?;
-        if let Ok(Some(seat)) = super::kc_read("loca-seat") {
-            if !seat.is_empty() {
-                return Ok(()); // seat already set on a previous launch
-            }
-        }
-        // The seat carries only the home loca (iye) with an EMPTY davet, so the
-        // app auto-connects to iye while the admin session — not a davet — is the
-        // identity (kind=human, building_role=master).
-        let seat =
-            format!("{{\"name\":\"{LOCAL_NAME}\",\"roomToken\":\"\",\"room\":\"{LOCAL_ROOM}\"}}");
-        super::kc_entry("loca-seat")?
-            .set_password(&seat)
-            .map_err(|e| e.to_string())
+        provision_host(
+            // The owner of the local server is its MASTER — refresh the admin
+            // session on every launch so master survives restart/expiry.
+            || provision_master_session(base),
+            // The seat carries only iye with an EMPTY davet. This write is
+            // unconditional so a stale keychain seat cannot win after reinstall.
+            |seat| {
+                super::kc_entry("loca-seat")?
+                    .set_password(seat)
+                    .map_err(|e| e.to_string())
+            },
+        )
     }
 
     // Mint a time-limited admin session from the raw ADMIN_TOKEN and store it as
@@ -499,6 +511,41 @@ mod standalone {
                     let _ = child.kill();
                     let _ = child.wait();
                 }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[test]
+        fn host_provisioning_overwrites_a_stale_davet_seat() {
+            for initial in [
+                r#"{"name":"you","roomToken":"dv_stale","room":"old"}"#,
+                r#"{"name":"you","roomToken":"","room":"iye"}"#,
+            ] {
+                let stored = std::cell::RefCell::new(initial.to_string());
+                let mut minted = 0;
+                let mut writes = 0;
+                super::provision_host(
+                    || {
+                        minted += 1;
+                        Ok(())
+                    },
+                    |seat| {
+                        writes += 1;
+                        *stored.borrow_mut() = seat.to_string();
+                        Ok(())
+                    },
+                )
+                .expect("host provisioning");
+
+                assert_eq!(minted, 1, "Master session refreshes on every launch");
+                assert_eq!(writes, 1, "Host seat is authoritative on every launch");
+                let seat: serde_json::Value =
+                    serde_json::from_str(&stored.borrow()).expect("valid seat JSON");
+                assert_eq!(seat["name"], "you");
+                assert_eq!(seat["room"], "iye");
+                assert_eq!(seat["roomToken"], "", "no stale davet can be selected");
             }
         }
     }
