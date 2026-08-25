@@ -368,8 +368,17 @@ mod standalone {
             .env("REQUIRE_SESSIONS", "1") // closed: posting needs a server-derived session
             .env("PUBLIC_SERVER_URL", &base)
             .env("LOCA_AGENT_ROOM", LOCAL_ROOM) // home loca = iye
-            .env("LOCA_MASTER_NAME", "Master") // first Host owner is the Building Master
             .env("RESERVED_LOCA", LOCAL_ROOM) // iye is reserved: not deletable/renamable
+            // The one Master principal's display name: the Host owner is the
+            // Master, not the lesser per-loca "operator". room-server reads this
+            // in ensure_master_principal (sealed + verified end-to-end via
+            // desktop/smoke/host_smoke.sh), so the admin session — and the whole
+            // UI — shows a real Master identity. Honors an outer LOCA_MASTER_NAME
+            // if the owner set one; else "Master".
+            .env(
+                "LOCA_MASTER_NAME",
+                std::env::var("LOCA_MASTER_NAME").unwrap_or_else(|_| "Master".into()),
+            )
             // The bundled UI runs from the Tauri origin, not 127.0.0.1, so REST is
             // cross-origin: allow the EXACT Tauri origins, never "*". (loca-dev to
             // confirm the exact Origin the webview sends per target platform.)
