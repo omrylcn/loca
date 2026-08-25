@@ -27,6 +27,10 @@
       <input id="roomToken" type="password" placeholder="if you were invited to a loca" autocomplete="off" />
       <button id="connectBtn" class="off">take your seat</button>
       <div class="devnote" id="doorNote">master? use the one-time code from the server terminal — the root key stays in .env.</div>
+      <div class="joinreq">
+        <button id="joinRequestBtn" class="off" type="button">request to join (no key)</button>
+        <div class="devnote" id="joinRequestStatus" role="status" aria-live="polite"></div>
+      </div>
       <button class="leavebtn hidden" id="leaveBtn">leave building</button>
       <div class="leaveconfirm hidden" id="leaveConfirm">
         Leave the Building? Your loca sessions on this browser will close.
@@ -314,5 +318,6 @@
 <script src="/assets/sidebar.js"></script>
 <script src="/assets/api.js"></script>
 <script src="/assets/app.js"></script>
+<script src="/assets/joinrequest.js"></script>
 </body>
 </html>
