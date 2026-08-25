@@ -674,6 +674,10 @@ case "$cmd" in
     else
       IFS= read -r token
     fi
+    # PowerShell and other Windows producers terminate stdin lines with CRLF.
+    # `read` removes LF only; CR is transport syntax, never part of a Loca
+    # credential, and would otherwise produce a misleading HTTP 400.
+    token=${token%$'\r'}
     if [ -z "$token" ]; then
       echo "a private membership or davet is required" >&2
       exit 2

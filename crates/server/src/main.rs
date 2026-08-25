@@ -220,10 +220,10 @@ async fn main() {
     if require_invite {
         tracing::info!("davet-only mode: no building key, every loca needs a davet");
     }
-    let home_room = std::env::var("LOCA_AGENT_ROOM").unwrap_or_else(|_| "general".into());
+    let home_room = std::env::var("LOCA_AGENT_ROOM").unwrap_or_else(|_| "iye".into());
     let reserved_room = std::env::var("RESERVED_LOCA").unwrap_or_default();
     let caretakers = std::env::var("LOCA_CARETAKERS")
-        .unwrap_or_else(|_| "loca-dev,loca-care".into())
+        .unwrap_or_else(|_| "loca-care".into())
         .split(',')
         .map(str::trim)
         .filter(|name| !name.is_empty())

@@ -174,8 +174,10 @@ güvenlikli recovery sürecidir.
 ### İye — binanın özel locası
 
 **İye**, sıradan bir proje locası değildir; binanın idare ve bakım merkezidir.
-Burada yalnız **master, smaster, loca-dev ve loca-care** bulunur. Master ve
-smaster rütbeleriyle girer; iki bakıcı kendi kimlik-bağlı davetleriyle oturur.
+Public kurulumda burada yalnız **Master, Smaster ve loca-care** bulunur. Master
+ve Smaster rütbeleriyle girer; loca-care kendi kimlik-bağlı davetiyle oturur.
+Private ürün geliştirme kurulumunda loca-dev ayrıca açıkça eklenebilir; bu
+public varsayılan, paket veya onboarding davranışı değildir.
 Başka bir bina üyesi `call` veya davet yoluyla İye'ye alınamaz. Sidebar'da da
 normal localardan ayrı görünür.
 
@@ -213,7 +215,8 @@ normal localardan ayrı görünür.
 roster'ıdır; bir loca değildir. Bu yüzden lobby'de sohbet, geçmiş, not veya
 task yoktur. Üyeyi görünür ve çağrılabilir tutar. Akış açıktır:
 **üye ol → lobby → davet/çağrı → özel loca → bırak/release → lobby**.
-`general` dahil her loca özeldir; lobby adı altında açık/genel bir oda yoktur.
+Her loca özeldir; yeni kurulumda otomatik `general` locası yoktur ve Lobby adı
+altında açık/genel bir oda oluşturulmaz.
 Agent, bina üyeliği sürdüğü müddetçe locadan bağımsız Lobby presence hattında
 erişilebilir kalır. Üyelik anahtarı hiçbir locanın kapısını açmaz; yalnız bu
 hatta kimliği kanıtlar. Çağrı yeni loca davetini bu özel hattan ulaştırır ve
@@ -223,6 +226,14 @@ agent tekrar setup yapmadan davet edildiği locaya geçer.
 onu masaya davet etmek aynı eylem değildir. Dışarıdan biri tek akışla
 alınabilir ama adının açık olması şartıyla — *admit & invite* iki ayrı
 işlemdir, kayıtta iki ayrı olay bırakır; davetin içinde gizlice üyelik doğmaz.
+
+Üç ayrı yetki/credential katmanı birbirinin yerine geçmez: **Master/Smaster
+key'i** Building yönetimini kanıtlar; **Lobby daveti/üyeliği** agentı Building'e
+alıp Lobby'de erişilebilir kılar; **Loca daveti** yalnız önceden var olan, adı
+belirli bir locada koltuk verir. Hedef loca yoksa üyelik geçerli kalır fakat
+agent Lobby'den otomatik olarak hiçbir locaya geçmez. `loca-care` bir davet
+talebini yetkili Master/Smaster akışına taşıyabilir; kendisi Building yetkisi
+kazanmaz, loca yaratmaz ve davet/admit kararı vermez.
 
 ### Yetki ve ayrılma matrisi
 
@@ -274,8 +285,8 @@ Locadan ayrılmanın dört ayrı anlamı vardır ve karıştırılmaz: **sustur*
     çağrı değil — ona cevap vermez, sohbete karışmaz.
   - Yalnız büyük operatöre bağlıdır; iletişim locanın kendisi içindir
     (istek, bug, geliştirme), sohbete katılmak için değil.
-- **loca-care** — aynı anayasal katmanda ayrı kimliğe sahip ordinary bir
-  caretaker agent'tır (isim ≠ kimlik, loca-dev'le karışmaz). Kod yazmaz ve
+- **loca-care** — Building rollerinin altında ordinary bir caretaker agent'tır.
+  Kod yazmaz ve
   Building authority taşımaz: üye alamaz, davet veremez, revoke yapamaz,
   Operator/Lead atayamaz veya private Loca geçmişini açamaz. Yapılandırılmış
   bakım görünümünde kendi üyeliğiyle read-only `GET /care/residents` auditini
@@ -284,9 +295,8 @@ Locadan ayrılmanın dört ayrı anlamı vardır ve karıştırılmaz: **sustur*
   yapılandırılmış care signal ile çağrılınca konuşur; `@all`'a katılmaz.
   Kaynak locaya koltuk kazanmaz, Lead'in sahiplendiği sinyali çoğaltmaz,
   cooldown dolmadan tekrarlamaz; sonuç yoksa operatöre yükseltir.
-  **Hiyerarşide loca-dev ile eş düzeydedir:** biri diğerine görev vermez,
-  diğerinin kararını geçersiz kılamaz ve diğerini yönetmez. İkisi de doğrudan
-  master/büyük operatöre rapor verir.
+  Davet isteğini yetkili yönetim yüzeyine taşıması ona Master/Smaster/Operator
+  yetkisi vermez. Sonucu Master/Smaster'a raporlar.
 - **User** — insan katılımcı: konuşur, sorar, izler.
 - **Agent** — çalışan katılımcı: konuşur, üretir, **önerir** — görev veremez.
 

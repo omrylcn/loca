@@ -92,7 +92,7 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
   *Runtime-pending (loca-dev):* the actual notification display/permission
   (Linux works without a prompt; macOS needs one).
 - **Faz 5 — Standalone flavor (option 3), CLOSED-door:** ✅ **Linux GO** (loca-dev
-  run-review, 2026-08-24): the Host opened, auto-connected to `general` as `you`,
+  run-review, 2026-08-24): the Host opened, auto-connected to its private `iye` loca as `you`,
   booted its sidecar on a dynamic `127.0.0.1` port (no `0.0.0.0`), used separate
   standalone app-data/SQLite, and cleaned up the child process + port on close —
   startup lock, provisioning, and resource bundle all verified at real runtime.
@@ -111,7 +111,7 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
   - **First-run provisioning** — admit the local user + issue a davet, store the
     seat exactly as the web UI reads it (`loca-seat = {name, roomToken, room}`),
     so it auto-connects. Idempotent by the seat's presence. Verified flow:
-    `POST /members` → `POST /rooms/general/invites` → UI does `POST /sessions`.
+    `POST /members` → `POST /rooms/iye/invites` → UI does `POST /sessions`.
   - **CORS** — `CORS_ALLOW_ORIGIN` set to the exact Tauri origins (never `*`),
     because the bundled UI runs from the Tauri origin, not `127.0.0.1`.
   - **Bound to `127.0.0.1` only, never `0.0.0.0`.** Persistent SQLite under the

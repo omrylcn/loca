@@ -423,8 +423,13 @@ impl Hub {
             reserved_room,
             caretakers,
         } = config;
+        let master_name = std::env::var("LOCA_MASTER_NAME")
+            .ok()
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "Master".into());
         store
-            .ensure_master_principal(&admin_token, "operator", default_now_ms())
+            .ensure_master_principal(&admin_token, &master_name, default_now_ms())
             .expect("bootstrap Master principal");
         let (lobby_tx, _) = broadcast::channel(BROADCAST_CAP);
         let pairing_now = default_now_ms();

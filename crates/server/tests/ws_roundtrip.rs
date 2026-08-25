@@ -561,7 +561,7 @@ async fn profile_credentials_are_principal_bound_one_time_and_live_revocable() {
         .json()
         .await
         .unwrap();
-    assert_eq!(session_response["name"], "operator");
+    assert_eq!(session_response["name"], "Master");
     assert_eq!(session_response["admin"], true);
     let session = session_response["session_token"].as_str().unwrap();
 

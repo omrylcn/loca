@@ -22,6 +22,9 @@ def _load_credentials_module():
     for path in candidates:
         if not path.is_file():
             continue
+        base_dir = str(path.parent)
+        if base_dir not in sys.path:
+            sys.path.insert(0, base_dir)
         spec = importlib.util.spec_from_file_location("loca_credentials", path)
         if spec is None or spec.loader is None:
             continue

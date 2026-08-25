@@ -142,6 +142,33 @@ fn notify(app: tauri::AppHandle, payload: NotifyPayload) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// Finding 1 fix: the in-app "Add agent" flow for the Host. The webview passes a
+// name + kind; the Host mints a membership + davet against its local server and
+// returns ONLY the davet (+ the ready-to-paste server URL). The ADMIN_TOKEN
+// never crosses to the webview — it stays in the keychain, read Rust-side.
+// Available only in the standalone Host build; the client build returns an error.
+#[tauri::command]
+fn host_add_agent(
+    _app: tauri::AppHandle,
+    _name: String,
+    _kind: String,
+    _target: Option<String>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(feature = "bundled-server")]
+    {
+        use tauri::Manager;
+        let state = _app
+            .try_state::<standalone::ServerProc>()
+            .ok_or_else(|| "local server is not running".to_string())?;
+        let base = state.base.clone();
+        standalone::add_agent(&base, &_name, &_kind, _target.as_deref())
+    }
+    #[cfg(not(feature = "bundled-server"))]
+    {
+        Err("adding agents is only available in the standalone Host build".to_string())
+    }
+}
+
 // ── Option 3 (standalone flavor): bundled room-server sidecar ────────────────
 // Only compiled with `--features bundled-server`. Boots a LOCAL, CLOSED-door
 // room-server on 127.0.0.1 at launch, provisions the user's own seat, and points
@@ -156,12 +183,120 @@ mod standalone {
     use tauri::Manager;
 
     const ADMIN_KEY: &str = "loca-local-admin"; // keychain entry for the local master token
-    const LOCAL_NAME: &str = "you"; // the local member the app provisions
-    const LOCAL_ROOM: &str = "general"; // the home loca (auto-ensured by the server)
+    const LOCAL_NAME: &str = "you"; // seat label for the Host's own Master session
+    // The fixed private home loca present in every install: the Master (this
+    // Host's owner) + this install's loca-care, and no one else. The app opens
+    // straight into it.
+    const LOCAL_ROOM: &str = "iye";
 
-    // Holds the child so the run-loop can stop it on exit. Managed as Tauri state.
+    // Holds the child (so the run-loop can stop it on exit) + the local base URL
+    // (so the host_add_agent command can mint credentials against it). Managed
+    // as Tauri state.
     pub struct ServerProc {
         pub child: Mutex<Option<Child>>,
+        pub base: String,
+    }
+
+    // Onboard an agent the Host Master names, following the three credential
+    // layers (operator's model, iye 2026-08-25):
+    //   * a **Lobby davet** (the mb_ membership) admits the agent to the Building
+    //     and leaves it waiting in the Lobby until it is called; and
+    //   * a **Loca davet** (a dv_) seats it in one EXISTING loca.
+    // If a target loca is named but does not exist, the agent keeps ONLY the
+    // Lobby davet and waits in the Lobby — the Host never auto-creates a loca to
+    // satisfy an invite, and never changes the target. ONLY the davet (mb_ or
+    // dv_) is returned to the webview; the ADMIN_TOKEN never leaves Rust. The
+    // admit endpoint is Master-only server-side, so a plain agent (loca-care)
+    // cannot reach this — it can only ASK the Master to run it.
+    pub fn add_agent(
+        base: &str,
+        name: &str,
+        kind: &str,
+        target_loca: Option<&str>,
+    ) -> Result<serde_json::Value, String> {
+        let name = name.trim();
+        if name.is_empty()
+            || name.len() > 64
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+        {
+            return Err("agent name must be 1-64 ASCII letters, digits, dot, dash, or underscore".into());
+        }
+        let kind = if kind == "user" { "user" } else { "agent" };
+        let admin = local_admin_token()?;
+        let body = serde_json::json!({"name": name, "kind": kind}).to_string();
+        // Layer 2 — Lobby davet: admit to the Building. The returned mb_ token IS
+        // the Lobby davet (the agent waits online in the Lobby until called).
+        let member_resp = post_json(&format!("{base}/members"), &admin, &body)
+            .map_err(|e| format!("admit: {e}"))?;
+        let lobby_davet = json_field(&member_resp, "token")
+            .ok_or_else(|| format!("admit returned no token: {member_resp}"))?;
+        // Layer 3 — Loca davet: only when a real, existing loca is named.
+        // NOTE (verified against room-server): the server mints a davet even for
+        // a loca that does NOT exist (POST /rooms/<ghost>/invites -> 200 dv_), so
+        // we MUST pre-check existence — otherwise a typo'd name seats the agent
+        // in a phantom loca instead of the Lobby.
+        if let Some(room) = target_loca.map(str::trim).filter(|r| !r.is_empty()) {
+            if room.len() > 64
+                || !room
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            {
+                return Err("loca name must be 1-64 ASCII letters, digits, dot, dash, or underscore".into());
+            }
+            // iye is the reserved home loca (Master + loca-care only). The server
+            // refuses to seat anyone else there; keep the agent in the Lobby with
+            // an honest message rather than surfacing the reserved-loca error.
+            if room.eq_ignore_ascii_case(LOCAL_ROOM) && name != "loca-care" {
+                return Ok(serde_json::json!({
+                    "name": name, "layer": "lobby", "room": room, "reserved": true,
+                    "davet": lobby_davet, "server": base,
+                }));
+            }
+            if loca_exists(base, &admin, room)? {
+                let davet_resp = post_json(&format!("{base}/rooms/{room}/invites"), &admin, &body)
+                    .map_err(|e| format!("invite: {e}"))?;
+                let davet = json_field(&davet_resp, "token")
+                    .ok_or_else(|| format!("invite returned no token: {davet_resp}"))?;
+                return Ok(serde_json::json!({
+                    "name": name, "layer": "loca", "room": room,
+                    "davet": davet, "server": base,
+                }));
+            }
+            // Named but absent -> Lobby only. Never auto-create the loca.
+            return Ok(serde_json::json!({
+                "name": name, "layer": "lobby", "room": room, "absent": true,
+                "davet": lobby_davet, "server": base,
+            }));
+        }
+        // No target -> Lobby davet.
+        Ok(serde_json::json!({
+            "name": name, "layer": "lobby",
+            "davet": lobby_davet, "server": base,
+        }))
+    }
+
+    // Does a loca with this exact name exist on the local server? Uses the admin
+    // token (which never leaves Rust) to read the room list. A read failure is an
+    // error (fail-closed: we do not fabricate a loca davet against an unknown
+    // room); an unknown room is a clean `false`, so the agent stays in the Lobby.
+    fn loca_exists(base: &str, admin: &str, room: &str) -> Result<bool, String> {
+        let resp = ureq::get(&format!("{base}/rooms"))
+            .set("x-admin-token", admin)
+            .timeout(Duration::from_secs(5))
+            .call()
+            .map_err(|e| format!("list rooms: {e}"))?
+            .into_string()
+            .map_err(|e| e.to_string())?;
+        let v: serde_json::Value =
+            serde_json::from_str(&resp).map_err(|e| format!("parse rooms: {e}"))?;
+        Ok(v.as_array()
+            .map(|arr| {
+                arr.iter()
+                    .any(|r| r.get("room").and_then(|x| x.as_str()) == Some(room))
+            })
+            .unwrap_or(false))
     }
 
     // Ask the OS for a free loopback port, then release it for the child to bind.
@@ -224,19 +359,31 @@ mod standalone {
         let port = free_port()?;
         let base = format!("http://127.0.0.1:{port}");
         let admin = local_admin_token()?;
-        let child = Command::new(&bin)
-            .env("BIND_ADDR", "127.0.0.1") // SECURITY: localhost only, never 0.0.0.0
+        let mut cmd = Command::new(&bin);
+        cmd.env("BIND_ADDR", "127.0.0.1") // SECURITY: localhost only, never 0.0.0.0
             .env("PORT", port.to_string()) // dynamic: never a fixed, occupiable port
             .env("DB_PATH", &db) // persistent across restarts
             .env("ADMIN_TOKEN", &admin) // closed: admin actions need the token
             .env("REQUIRE_INVITE", "1") // closed: every loca needs a davet
             .env("REQUIRE_SESSIONS", "1") // closed: posting needs a server-derived session
             .env("PUBLIC_SERVER_URL", &base)
-            .env("LOCA_AGENT_ROOM", LOCAL_ROOM)
+            .env("LOCA_AGENT_ROOM", LOCAL_ROOM) // home loca = iye
+            .env("LOCA_MASTER_NAME", "Master") // first Host owner is the Building Master
+            .env("RESERVED_LOCA", LOCAL_ROOM) // iye is reserved: not deletable/renamable
             // The bundled UI runs from the Tauri origin, not 127.0.0.1, so REST is
             // cross-origin: allow the EXACT Tauri origins, never "*". (loca-dev to
             // confirm the exact Origin the webview sends per target platform.)
-            .env("CORS_ALLOW_ORIGIN", "tauri://localhost,http://tauri.localhost")
+            .env("CORS_ALLOW_ORIGIN", "tauri://localhost,http://tauri.localhost");
+        // Windows: the room-server is a console binary; without this it pops a
+        // separate terminal window next to the app. CREATE_NO_WINDOW keeps the
+        // sidecar headless so the user sees only the app.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let child = cmd
             .spawn()
             .map_err(|e| format!("spawn {}: {e}", bin.display()))?;
         Ok((child, base))
@@ -269,25 +416,52 @@ mod standalone {
     // later launch. Verified flow: POST /members -> POST /rooms/<room>/invites ->
     // the UI does /sessions with the davet.
     pub fn provision_if_needed(base: &str) -> Result<(), String> {
+        // The owner of the local server is its MASTER — refresh the admin session
+        // on every launch so master survives restart/expiry (loca-dev contract).
+        provision_master_session(base)?;
         if let Ok(Some(seat)) = super::kc_read("loca-seat") {
             if !seat.is_empty() {
-                return Ok(()); // already provisioned on a previous launch
+                return Ok(()); // seat already set on a previous launch
             }
         }
-        let admin = local_admin_token()?;
-        let body = format!("{{\"name\":\"{LOCAL_NAME}\",\"kind\":\"user\"}}");
-        // admit to the building (its own request/audit event)
-        post_json(&format!("{base}/members"), &admin, &body).map_err(|e| format!("admit: {e}"))?;
-        // issue a davet for the home loca
-        let davet_resp = post_json(&format!("{base}/rooms/{LOCAL_ROOM}/invites"), &admin, &body)
-            .map_err(|e| format!("invite: {e}"))?;
-        let davet = json_field(&davet_resp, "token")
-            .ok_or_else(|| format!("invite returned no token: {davet_resp}"))?;
-        let seat = format!(
-            "{{\"name\":\"{LOCAL_NAME}\",\"roomToken\":\"{davet}\",\"room\":\"{LOCAL_ROOM}\"}}"
-        );
+        // The seat carries only the home loca (iye) with an EMPTY davet, so the
+        // app auto-connects to iye while the admin session — not a davet — is the
+        // identity (kind=human, building_role=master).
+        let seat =
+            format!("{{\"name\":\"{LOCAL_NAME}\",\"roomToken\":\"\",\"room\":\"{LOCAL_ROOM}\"}}");
         super::kc_entry("loca-seat")?
             .set_password(&seat)
+            .map_err(|e| e.to_string())
+    }
+
+    // Mint a time-limited admin session from the raw ADMIN_TOKEN and store it as
+    // loca-admin-session (the UI reads it via state.js and opens master surfaces:
+    // Lobby, This Loca/Call, master desk, Add agent). The raw token never leaves
+    // Rust; only the derived session (revocable, expiring) reaches the webview.
+    pub fn provision_master_session(base: &str) -> Result<(), String> {
+        let admin = local_admin_token()?;
+        let resp = post_json(
+            &format!("{base}/sessions"),
+            &admin,
+            &format!("{{\"name\":\"{LOCAL_NAME}\",\"kind\":\"user\"}}"),
+        )
+        .map_err(|e| format!("mint admin session: {e}"))?;
+        let v: serde_json::Value =
+            serde_json::from_str(&resp).map_err(|e| format!("parse session: {e}"))?;
+        let token = v
+            .get("session_token")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| format!("no session_token in {resp}"))?;
+        let name = v.get("name").and_then(|n| n.as_str()).unwrap_or(LOCAL_NAME);
+        // expires_at may be null (no expiry) -> a far-future stamp the UI accepts.
+        let expires = v
+            .get("expires_at")
+            .and_then(|e| e.as_i64())
+            .unwrap_or(4_102_444_800_000);
+        let admin_session =
+            format!("{{\"token\":\"{token}\",\"expiresAt\":{expires},\"name\":\"{name}\"}}");
+        super::kc_entry("loca-admin-session")?
+            .set_password(&admin_session)
             .map_err(|e| e.to_string())
     }
 
@@ -428,10 +602,75 @@ const NOTIFY_SHIM: &str = r#"
 })();
 "#;
 
+// Host-only "Add agent" panel. Injected by the desktop shell — it does NOT fork
+// the shared web UI. It encodes the operator's three-layer model directly: as
+// the Master, you either admit an agent to the Building (a Lobby davet — it
+// waits until called) or invite it straight into an EXISTING loca (a Loca
+// davet). Naming a loca that doesn't exist yet keeps the agent in the Lobby.
+// Only the resulting davet is shown; the ADMIN_TOKEN never reaches here.
+const HOST_SHIM: &str = r##"
+(function () {
+  try {
+    if (!window.__LOCA_HOST__) return;
+    function invoke() { var t = window.__TAURI__; return (t && t.core && t.core.invoke) || (t && t.invoke); }
+    window.addEventListener("load", function () {
+      try {
+        var bar = document.createElement("div");
+        bar.style.cssText = "position:fixed;right:14px;bottom:14px;z-index:99999;font:13px system-ui,sans-serif";
+        bar.innerHTML =
+          '<button id="_lc_add" style="padding:8px 12px;border-radius:8px;border:0;background:#2ee6c8;color:#04201b;cursor:pointer;font-weight:600">+ Add agent</button>' +
+          '<div id="_lc_box" style="display:none;margin-top:8px;width:340px;background:#0b0e12;color:#e8eef2;border:1px solid #2ee6c8;border-radius:10px;padding:12px">' +
+          '<div style="margin-bottom:6px;font-weight:600">Onboard an agent</div>' +
+          '<div style="margin-bottom:8px;color:#8b97a2;font-size:12px">You are the Master here. Admit an agent to the Building (it waits in the Lobby), or invite it straight into an existing loca.</div>' +
+          '<input id="_lc_name" placeholder="agent name, e.g. loca-care" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #2a3138;background:#10141a;color:#e8eef2"/>' +
+          '<input id="_lc_room" placeholder="invite to loca (blank = Lobby)" style="margin-top:6px;width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid #2a3138;background:#10141a;color:#e8eef2"/>' +
+          '<button id="_lc_go" style="margin-top:8px;padding:6px 10px;border-radius:6px;border:0;background:#2ee6c8;color:#04201b;cursor:pointer;font-weight:600">Create davet</button>' +
+          '<pre id="_lc_out" style="display:none;white-space:pre-wrap;word-break:break-all;margin-top:8px;background:#10141a;padding:8px;border-radius:6px;font-size:12px"></pre></div>';
+        document.body.appendChild(bar);
+        var box = bar.querySelector("#_lc_box"), out = bar.querySelector("#_lc_out");
+        bar.querySelector("#_lc_add").addEventListener("click", function () {
+          box.style.display = box.style.display === "none" ? "block" : "none";
+        });
+        bar.querySelector("#_lc_go").addEventListener("click", function () {
+          var name = (bar.querySelector("#_lc_name").value || "").trim();
+          var room = (bar.querySelector("#_lc_room").value || "").trim();
+          if (!name) return;
+          var fn = invoke(); if (!fn) return;
+          fn("host_add_agent", { name: name, kind: "agent", target: room || null }).then(function (r) {
+            out.style.display = "block";
+            var setup = "connect.sh setup " + r.server + " " + r.name;
+            var head, tail = "";
+            if (r.layer === "loca") {
+              head = 'Agent "' + r.name + '" invited to loca "' + r.room + '" — it joins that loca directly.';
+            } else if (r.reserved) {
+              head = '"' + r.room + '" is the reserved home loca (Master + loca-care only), so "' + r.name + '" was admitted to the Building and waits in the Lobby.';
+              tail = "\n\nCall it into one of your own locas from This Loca > + call.";
+            } else if (r.absent) {
+              head = 'Loca "' + r.room + '" does not exist yet, so "' + r.name + '" was admitted to the Building and waits in the Lobby.';
+              tail = "\n\nCall it into a loca later from This Loca > + call.";
+            } else {
+              head = 'Agent "' + r.name + '" admitted to the Building — it waits in the Lobby until you call it into a loca.';
+              tail = "\n\nCall it in later from This Loca > + call.";
+            }
+            out.textContent = head + "\n\nOn its machine, install both skills, then run:\n\n" + setup + "\n\nPaste this davet at the hidden prompt:\n" + r.davet + tail;
+          }).catch(function (e) { out.style.display = "block"; out.textContent = "Failed: " + e; });
+        });
+      } catch (e) {}
+    });
+  } catch (e) { /* never let the shim break the app */ }
+})();
+"##;
+
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .invoke_handler(tauri::generate_handler![kc_set, kc_get, kc_delete, notify])
+        .invoke_handler(tauri::generate_handler![
+            kc_set,
+            kc_get,
+            kc_delete,
+            notify,
+            host_add_agent
+        ])
         .setup(|app| {
             // Standalone flavor: boot the local room-server BEFORE the window,
             // wait for it, and provision the user's seat so the UI connects to a
@@ -451,6 +690,7 @@ fn main() {
                     }
                     app.manage(standalone::ServerProc {
                         child: std::sync::Mutex::new(Some(child)),
+                        base: base.clone(),
                     });
                     Some(base)
                 }
@@ -491,10 +731,16 @@ fn main() {
             let lock_server = "true";
             #[cfg(not(feature = "bundled-server"))]
             let lock_server = "false";
+            // Standalone flavor exposes the in-app "Add agent" affordance.
+            #[cfg(feature = "bundled-server")]
+            let is_host = "true";
+            #[cfg(not(feature = "bundled-server"))]
+            let is_host = "false";
             let init = format!(
-                "window.__LOCA_LOCK_SERVER__ = {lock_server};\n\
+                "window.__LOCA_HOST__ = {is_host};\n\
+                 window.__LOCA_LOCK_SERVER__ = {lock_server};\n\
                  window.__LOCA_DEFAULT_SERVER__ = {default_server};\n\
-                 window.__LOCA_KC_BOOT__ = {boot_json};\n{KEYCHAIN_SHIM}\n{SERVER_SHIM}\n{NOTIFY_SHIM}"
+                 window.__LOCA_KC_BOOT__ = {boot_json};\n{KEYCHAIN_SHIM}\n{SERVER_SHIM}\n{NOTIFY_SHIM}\n{HOST_SHIM}"
             );
 
             WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
