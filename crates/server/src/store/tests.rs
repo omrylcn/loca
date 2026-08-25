@@ -423,18 +423,53 @@ fn join_request_claim_is_exactly_once_and_bootstrap_is_one_time() {
     );
     assert!(store.claim_join_request_for_approval("jr_1").is_none());
 
-    // After finalising, the mb_ is delivered exactly once via bootstrap.
-    store
-        .finalize_join_request_approval("jr_1", "mb_xyz", "master", 200)
-        .expect("finalize");
+    // Atomic finalise inserts the new member + marks approved; the mb_ is then
+    // delivered exactly once via bootstrap.
+    let m1 = protocol::Membership {
+        token: "mb_bot".to_string(),
+        name: "bot".to_string(),
+        kind: "agent".to_string(),
+        joined_at: 200,
+        admitted_by: "master".to_string(),
+    };
+    assert_eq!(
+        store.finalize_join_request_with_new_member("jr_1", &m1, 200),
+        super::JoinFinalize::Committed
+    );
     assert_eq!(
         store
             .claim_join_request_bootstrap("jr_1", "sekret", 300)
             .as_deref(),
-        Some("mb_xyz")
+        Some("mb_bot")
     );
     assert!(store
         .claim_join_request_bootstrap("jr_1", "sekret", 301)
+        .is_none());
+
+    // Name-collision (identity-takeover race) fix: a second request for a name
+    // that is now a member is refused NameTaken at finalise — no second member is
+    // inserted and the request is never approved (so no foreign mb_ is delivered).
+    store
+        .create_join_request("jr_3", "s3", "bot", "agent", 100)
+        .expect("create3");
+    assert_eq!(
+        store.claim_join_request_for_approval("jr_3"),
+        Some(("bot".to_string(), "agent".to_string()))
+    );
+    let m2 = protocol::Membership {
+        token: "mb_impostor".to_string(),
+        name: "bot".to_string(),
+        kind: "agent".to_string(),
+        joined_at: 200,
+        admitted_by: "master".to_string(),
+    };
+    assert_eq!(
+        store.finalize_join_request_with_new_member("jr_3", &m2, 200),
+        super::JoinFinalize::NameTaken
+    );
+    // jr_3 stayed unapproved: bootstrap yields nothing (no credential handed out).
+    assert!(store
+        .claim_join_request_bootstrap("jr_3", "s3", 400)
         .is_none());
 
     // Deny is one-shot too: a pending request denies once, then no longer.

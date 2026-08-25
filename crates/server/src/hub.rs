@@ -205,10 +205,10 @@ pub struct Hub {
     /// admin session it will mint. The root key stays in the server's
     /// environment; the browser exchanges this stand-in.
     admin_pairing: Arc<Mutex<AdminPairing>>,
-    // Recent /join-requests create timestamps (ms) for a global sliding-window
-    // rate-limit — an interim DoS guard on the authless create endpoint until
-    // per-source (peer IP / X-Forwarded-For) limiting is wired.
-    join_create_times: Arc<Mutex<Vec<u64>>>,
+    // Per-source (peer IP) recent /join-requests create timestamps (ms) for a
+    // sliding-window rate-limit — a single abusive source is throttled without
+    // affecting anyone else (review re-blocker #3).
+    join_create_times: Arc<Mutex<std::collections::HashMap<std::net::IpAddr, Vec<u64>>>>,
     /// When true, posting requires a valid session token: `sender` can no
     /// longer be spoofed via the request body (PRODUCTION.md Aşama 0).
     require_sessions: bool,
@@ -456,7 +456,7 @@ impl Hub {
                 session_ttl_ms: Self::ADMIN_SESSION_TTL_MS,
                 expires_at_ms: pairing_now.saturating_add(Self::ADMIN_PAIRING_TTL_MS),
             })),
-            join_create_times: Arc::new(Mutex::new(Vec::new())),
+            join_create_times: Arc::new(Mutex::new(std::collections::HashMap::new())),
             require_sessions,
             require_invite,
             invites: Arc::new(Mutex::new(HashMap::new())),
@@ -1813,14 +1813,19 @@ impl Hub {
     const JOIN_CREATE_WINDOW_MS: u64 = 60_000;
     const JOIN_CREATE_MAX_IN_WINDOW: usize = 30;
 
-    /// Global sliding-window limit on join-request creation — an interim DoS
-    /// guard on the authless create endpoint (review blocker #5) until per-source
-    /// (peer IP / X-Forwarded-For) limiting is wired. Returns true, and records
-    /// the attempt, when a create is allowed now.
-    fn join_request_rate_ok(&self) -> bool {
+    /// Per-source (peer IP) sliding-window limit on join-request creation (review
+    /// re-blocker #3): one abusive source is throttled on its own bucket without
+    /// affecting anyone else. Returns true, and records the attempt, when a create
+    /// is allowed for `ip`. Empty buckets are reaped so the map cannot grow
+    /// unbounded.
+    fn join_request_rate_ok(&self, ip: std::net::IpAddr) -> bool {
         let now = (self.now_ms)();
-        let mut times = self.join_create_times.lock_or_recover();
-        times.retain(|&t| now.saturating_sub(t) < Self::JOIN_CREATE_WINDOW_MS);
+        let mut by_ip = self.join_create_times.lock_or_recover();
+        by_ip.retain(|_, times| {
+            times.retain(|&t| now.saturating_sub(t) < Self::JOIN_CREATE_WINDOW_MS);
+            !times.is_empty()
+        });
+        let times = by_ip.entry(ip).or_default();
         if times.len() >= Self::JOIN_CREATE_MAX_IN_WINDOW {
             return false;
         }
@@ -1832,10 +1837,16 @@ impl Hub {
     /// is produced exactly once here and only its hash is stored, so only the
     /// requester can poll or bootstrap it. Grants NOTHING until a Master approves.
     /// The name must be free — neither an existing member nor an already-pending
-    /// request — which (with the approve-time re-check) closes the identity
-    /// takeover and the two-same-name race (review blocker #1).
-    pub fn create_join_request(&self, name: &str, kind: &str) -> JoinRequestCreate {
-        if !self.join_request_rate_ok() {
+    /// request — which (with the approve-time atomic re-check) closes the identity
+    /// takeover and the two-same-name race (review blocker #1). Rate-limited per
+    /// source IP.
+    pub fn create_join_request(
+        &self,
+        name: &str,
+        kind: &str,
+        ip: std::net::IpAddr,
+    ) -> JoinRequestCreate {
+        if !self.join_request_rate_ok(ip) {
             return JoinRequestCreate::BacklogFull;
         }
         if self.member_by_name(name).is_some() || self.store.has_pending_join_request_named(name) {
@@ -1891,24 +1902,38 @@ impl Hub {
         };
         // Preserve the requested kind (review blocker #3): a user stays a user.
         let kind = if kind == "user" { "user" } else { "agent" };
-        // `admit_member` still returns an existing member if one appeared in the
-        // tiny window since the check above (two same-name requests racing); the
-        // create-time uniqueness check below closes that, and if it ever did
-        // return a foreign member we would refund rather than leak it.
-        match self.admit_member(&name, kind, by) {
-            Ok(member) => {
-                let _ = self.store.finalize_join_request_approval(
-                    id,
-                    &member.token,
-                    by,
-                    (self.now_ms)(),
-                );
+        // Mint a FRESH Lobby membership for this request and hand it to the store
+        // to insert + finalize ATOMICALLY (re-review #1/#2). We never call the
+        // idempotent `admit_member`, so a foreign `mb_` can never be returned, and
+        // the name check + member insert + request finalize cannot be interleaved
+        // or half-applied. On any failure the consumed right is refunded and the
+        // claim released.
+        let member = protocol::Membership {
+            token: self.new_invite_token().replacen("dv_", "mb_", 1),
+            name: name.clone(),
+            kind: kind.to_string(),
+            joined_at: (self.now_ms)(),
+            admitted_by: by.to_string(),
+        };
+        match self
+            .store
+            .finalize_join_request_with_new_member(id, &member, (self.now_ms)())
+        {
+            crate::store::JoinFinalize::Committed => {
+                // Mirror the committed DB row into the in-memory member cache.
+                self.members
+                    .lock_or_recover()
+                    .insert(member.token.clone(), member);
                 Approve::Approved
             }
-            Err(_) => {
-                // COMPENSATING ROLLBACK (review blocker #4): refund the consumed
-                // right and release the claim, so a failed approve burns no stock
-                // and a retry can still succeed.
+            crate::store::JoinFinalize::NameTaken => {
+                self.store.refund_admission_right(&right_id);
+                self.store.release_join_request_claim(id);
+                Approve::NameTaken
+            }
+            crate::store::JoinFinalize::Failed => {
+                // COMPENSATING ROLLBACK (re-review #2/#4): nothing was committed,
+                // so refund the right and release the claim for a clean retry.
                 self.store.refund_admission_right(&right_id);
                 self.store.release_join_request_claim(id);
                 Approve::Failed

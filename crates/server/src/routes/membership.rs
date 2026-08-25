@@ -606,12 +606,36 @@ fn valid_agent_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
+/// Best-effort client IP for the per-source join-request rate-limit. Behind our
+/// single trusted reverse proxy (nginx on prod) the true client is the RIGHTMOST
+/// `X-Forwarded-For` entry — nginx appends the real peer, so any earlier entries
+/// are client-supplied and untrusted. With no proxy header we fall back to the
+/// TCP peer. Without this, prod (where every peer is the nginx loopback) would
+/// collapse the per-source limiter back into a global one (review re-blocker #3).
+fn client_ip(headers: &HeaderMap, peer: std::net::SocketAddr) -> std::net::IpAddr {
+    if let Some(xff) = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(ip) = xff
+            .split(',')
+            .rev()
+            .find_map(|s| s.trim().parse::<std::net::IpAddr>().ok())
+        {
+            return ip;
+        }
+    }
+    peer.ip()
+}
+
 /// POST /join-requests — an outside agent requests to join and names itself.
 /// AUTHLESS and grants nothing; returns {request_id, request_secret}. The secret
 /// is shown exactly once and is required to poll/bootstrap; a full pending
 /// backlog yields 429.
 pub(crate) async fn create_join_request_route(
     State(hub): State<Hub>,
+    axum::extract::ConnectInfo(peer): axum::extract::ConnectInfo<std::net::SocketAddr>,
+    headers: HeaderMap,
     Json(body): Json<CreateJoinRequest>,
 ) -> impl IntoResponse {
     let name = body.name.trim();
@@ -627,7 +651,7 @@ pub(crate) async fn create_join_request_route(
         Some("user") => "user",
         Some(_) => return (StatusCode::BAD_REQUEST, "kind must be 'agent' or 'user'").into_response(),
     };
-    match hub.create_join_request(name, kind) {
+    match hub.create_join_request(name, kind, client_ip(&headers, peer)) {
         crate::hub::JoinRequestCreate::Created {
             request_id,
             request_secret,

@@ -469,7 +469,14 @@ async fn main() {
     tracing::info!("room-server listening on http://{addr}  (web client at /)");
 
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
-    axum::serve(listener, app).await.expect("serve");
+    // `into_make_service_with_connect_info` exposes the peer address so the
+    // authless join-request create endpoint can rate-limit per source IP.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .expect("serve");
 }
 
 /// Serve the web client with no-store so browsers never run a stale UI after a

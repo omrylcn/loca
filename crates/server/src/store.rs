@@ -695,22 +695,76 @@ impl Store {
         .ok()
     }
 
-    /// Finalise a claimed approval: attach the issued mb_ and mark approved.
-    pub fn finalize_join_request_approval(
+    /// Finalise a claimed approval ATOMICALLY, in one transaction: verify the
+    /// name is still free, insert the NEW member, and mark the request approved
+    /// with the issued token. Either all three land or none do — closing both the
+    /// check-then-admit takeover race (review re-blocker #1: the single conn
+    /// Mutex means no `/members` insert can slip between the name check and the
+    /// insert) and the partial-approve hole (re-blocker #2: a failed finalize
+    /// rolls the member back instead of leaving the request stuck in `approving`
+    /// with stock already burned). It NEVER returns an existing member, so a
+    /// foreign `mb_` can never be handed out.
+    pub fn finalize_join_request_with_new_member(
         &self,
-        id: &str,
-        mb_token: &str,
-        decided_by: &str,
-        decided_at: u64,
-    ) -> rusqlite::Result<()> {
-        let Some(c) = self.conn() else { return Ok(()) };
-        c.execute(
+        request_id: &str,
+        member: &protocol::Membership,
+        now: u64,
+    ) -> JoinFinalize {
+        let Some(mut c) = self.conn() else {
+            return JoinFinalize::Failed;
+        };
+        let tx = match c.transaction() {
+            Ok(tx) => tx,
+            Err(_) => return JoinFinalize::Failed,
+        };
+        // The single conn Mutex is held for the whole transaction, so no other
+        // member insert can commit between this check and the insert below.
+        let name_taken = tx
+            .query_row(
+                "SELECT 1 FROM members WHERE name = ?1 AND revoked_at IS NULL LIMIT 1",
+                params![member.name],
+                |_| Ok(()),
+            )
+            .is_ok();
+        if name_taken {
+            let _ = tx.rollback();
+            return JoinFinalize::NameTaken;
+        }
+        if tx
+            .execute(
+                "INSERT INTO members (token, name, kind, joined_at, admitted_by, revoked_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+                params![
+                    member.token,
+                    member.name,
+                    member.kind,
+                    member.joined_at,
+                    member.admitted_by
+                ],
+            )
+            .is_err()
+        {
+            let _ = tx.rollback();
+            return JoinFinalize::Failed;
+        }
+        match tx.execute(
             "UPDATE join_requests \
              SET status = 'approved', mb_token = ?2, decided_by = ?3, decided_at = ?4 \
              WHERE id = ?1 AND status = 'approving'",
-            params![id, mb_token, decided_by, decided_at],
-        )
-        .map(|_| ())
+            params![request_id, member.token, member.admitted_by, now],
+        ) {
+            Ok(1) => {
+                if tx.commit().is_ok() {
+                    JoinFinalize::Committed
+                } else {
+                    JoinFinalize::Failed
+                }
+            }
+            _ => {
+                let _ = tx.rollback();
+                JoinFinalize::Failed
+            }
+        }
     }
 
     /// Release a claimed request back to pending (e.g. no stock was available),
@@ -768,6 +822,17 @@ impl Store {
     fn conn(&self) -> Option<std::sync::MutexGuard<'_, Connection>> {
         self.conn.as_ref().map(|m| m.lock_or_recover())
     }
+}
+
+/// Outcome of atomically finalising a join-request approval.
+#[derive(Debug, PartialEq, Eq)]
+pub enum JoinFinalize {
+    /// The new member was inserted and the request marked approved.
+    Committed,
+    /// The name became a member before the insert — nothing changed.
+    NameTaken,
+    /// A DB error rolled the whole transaction back — nothing changed.
+    Failed,
 }
 
 pub(crate) fn hashed_id(prefix: &str, value: &str) -> String {
