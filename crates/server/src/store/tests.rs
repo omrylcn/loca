@@ -362,46 +362,85 @@ fn admission_stock_mints_consumes_once_and_ignores_expired() {
     let path = directory.path().join("admission.db");
     let store = Store::open(Some(path.to_str().expect("db path"))).expect("open");
 
-    // A Master pre-mints 3 rights that expire at t=1000.
-    let ids: Vec<String> = (0..3).map(|i| format!("adm_test_{i}")).collect();
+    // A Master pre-mints 2 rights that expire at t=1000. Consumption is exercised
+    // through the real consumer — `approve_join_request_atomic` — so the stock
+    // semantics are tested on the path that actually runs in production.
     assert_eq!(
         store
-            .mint_admission_rights(&ids, "pr_master", 10, 1000)
+            .mint_admission_rights(&["adm_0".into(), "adm_1".into()], "pr_master", 10, 1000)
             .expect("mint"),
-        3
+        2
     );
-    assert_eq!(store.admission_stock_counts(100), (3, 3));
+    assert_eq!(store.admission_stock_counts(100), (2, 2));
 
-    // Consuming claims exactly one available right and returns its id.
-    let claimed = store.consume_admission_right("agentA", 100).expect("claimed");
-    assert!(ids.contains(&claimed));
-    assert_eq!(store.admission_stock_counts(100), (3, 2));
-    // Refund (compensating rollback for a failed approve) restores availability,
-    // and a retry can consume again — no right is burned.
-    store.refund_admission_right(&claimed);
-    assert_eq!(store.admission_stock_counts(100), (3, 3));
-    assert!(store.consume_admission_right("agentA", 100).is_some());
-    assert_eq!(store.admission_stock_counts(100), (3, 2));
+    // Each approval consumes exactly one available right.
+    store
+        .create_join_request("jr_a", "sa", "agentA", "agent", 100)
+        .expect("a");
+    assert!(matches!(
+        store.approve_join_request_atomic("jr_a", "mb_a", "master", 100),
+        super::ApproveTxn::Committed(_)
+    ));
+    assert_eq!(store.admission_stock_counts(100), (2, 1));
 
-    // Drain the rest, then the empty stock yields None (never a phantom right).
-    assert!(store.consume_admission_right("agentB", 100).is_some());
-    assert!(store.consume_admission_right("agentC", 100).is_some());
-    assert_eq!(store.admission_stock_counts(100), (3, 0));
-    assert!(store.consume_admission_right("agentD", 100).is_none());
+    store
+        .create_join_request("jr_b", "sb", "agentB", "agent", 100)
+        .expect("b");
+    assert!(matches!(
+        store.approve_join_request_atomic("jr_b", "mb_b", "master", 100),
+        super::ApproveTxn::Committed(_)
+    ));
+    assert_eq!(store.admission_stock_counts(100), (2, 0));
+
+    // Stock drained -> the next approval is refused NoStock, consumes nothing,
+    // and leaves the request PENDING (no stranded `approving`, retryable).
+    store
+        .create_join_request("jr_c", "sc", "agentC", "agent", 100)
+        .expect("c");
+    assert!(matches!(
+        store.approve_join_request_atomic("jr_c", "mb_c", "master", 100),
+        super::ApproveTxn::NoStock
+    ));
+    assert_eq!(store.admission_stock_counts(100), (2, 0));
+    assert!(store.claim_join_request_bootstrap("jr_c", "sc", 150).is_none());
+    // After replenishing, the same still-pending request approves cleanly.
+    assert_eq!(
+        store
+            .mint_admission_rights(&["adm_2".into()], "pr_master", 10, 1000)
+            .expect("mint2"),
+        1
+    );
+    assert!(matches!(
+        store.approve_join_request_atomic("jr_c", "mb_c", "master", 120),
+        super::ApproveTxn::Committed(_)
+    ));
 
     // An already-expired right is stored but is never available or consumable.
-    store
-        .mint_admission_rights(&["adm_expired".to_string()], "pr_master", 10, 50)
-        .expect("mint expired");
+    assert_eq!(
+        store
+            .mint_admission_rights(&["adm_exp".into()], "pr_master", 10, 50)
+            .expect("mint expired"),
+        1
+    );
     assert_eq!(store.admission_stock_counts(100), (4, 0));
-    assert!(store.consume_admission_right("agentE", 100).is_none());
+    store
+        .create_join_request("jr_e", "se", "agentE", "agent", 100)
+        .expect("e");
+    assert!(matches!(
+        store.approve_join_request_atomic("jr_e", "mb_e", "master", 100),
+        super::ApproveTxn::NoStock
+    ));
 }
 
 #[test]
-fn join_request_claim_is_exactly_once_and_bootstrap_is_one_time() {
+fn join_request_approve_is_exactly_once_and_bootstrap_is_one_time() {
     let directory = tempfile::tempdir().expect("tempdir");
     let store = Store::open(Some(directory.path().join("jr.db").to_str().expect("path")))
         .expect("open");
+    // Stock for the approvals below.
+    store
+        .mint_admission_rights(&["adm_0".into(), "adm_1".into()], "pr_master", 10, 10_000)
+        .expect("mint");
 
     store
         .create_join_request("jr_1", "sekret", "bot", "agent", 100)
@@ -415,27 +454,25 @@ fn join_request_claim_is_exactly_once_and_bootstrap_is_one_time() {
     assert!(store.has_pending_join_request_named("bot"));
     assert!(!store.has_pending_join_request_named("someone-else"));
 
-    // Claiming for approval is exactly-once: the first wins (name, kind), the
-    // second gets None.
-    assert_eq!(
-        store.claim_join_request_for_approval("jr_1"),
-        Some(("bot".to_string(), "agent".to_string()))
-    );
-    assert!(store.claim_join_request_for_approval("jr_1").is_none());
-
-    // Atomic finalise inserts the new member + marks approved; the mb_ is then
-    // delivered exactly once via bootstrap.
-    let m1 = protocol::Membership {
-        token: "mb_bot".to_string(),
-        name: "bot".to_string(),
-        kind: "agent".to_string(),
-        joined_at: 200,
-        admitted_by: "master".to_string(),
+    // Approve is exactly-once and ATOMIC: the first commits (consumes one right,
+    // inserts member `bot`, marks approved, returns the fresh membership); a
+    // second approve of the same id is AlreadyDecided and consumes no more stock.
+    let out = store.approve_join_request_atomic("jr_1", "mb_bot", "master", 200);
+    let super::ApproveTxn::Committed(m) = out else {
+        panic!("expected Committed, got {out:?}");
     };
     assert_eq!(
-        store.finalize_join_request_with_new_member("jr_1", &m1, 200),
-        super::JoinFinalize::Committed
+        (m.token.as_str(), m.name.as_str(), m.kind.as_str()),
+        ("mb_bot", "bot", "agent")
     );
+    assert_eq!(store.admission_stock_counts(200), (2, 1));
+    assert!(matches!(
+        store.approve_join_request_atomic("jr_1", "mb_again", "master", 201),
+        super::ApproveTxn::AlreadyDecided
+    ));
+    assert_eq!(store.admission_stock_counts(200), (2, 1)); // no extra consume
+
+    // The mb_ is delivered exactly once via bootstrap.
     assert_eq!(
         store
             .claim_join_request_bootstrap("jr_1", "sekret", 300)
@@ -446,31 +483,22 @@ fn join_request_claim_is_exactly_once_and_bootstrap_is_one_time() {
         .claim_join_request_bootstrap("jr_1", "sekret", 301)
         .is_none());
 
-    // Name-collision (identity-takeover race) fix: a second request for a name
-    // that is now a member is refused NameTaken at finalise — no second member is
-    // inserted and the request is never approved (so no foreign mb_ is delivered).
+    // Name-collision (identity-takeover fix): a second request for a name that is
+    // now a live member is refused NameTaken — no second member is inserted, no
+    // stock is consumed, the request stays pending, and no foreign mb_ leaks.
     store
         .create_join_request("jr_3", "s3", "bot", "agent", 100)
         .expect("create3");
-    assert_eq!(
-        store.claim_join_request_for_approval("jr_3"),
-        Some(("bot".to_string(), "agent".to_string()))
-    );
-    let m2 = protocol::Membership {
-        token: "mb_impostor".to_string(),
-        name: "bot".to_string(),
-        kind: "agent".to_string(),
-        joined_at: 200,
-        admitted_by: "master".to_string(),
-    };
-    assert_eq!(
-        store.finalize_join_request_with_new_member("jr_3", &m2, 200),
-        super::JoinFinalize::NameTaken
-    );
-    // jr_3 stayed unapproved: bootstrap yields nothing (no credential handed out).
+    assert!(matches!(
+        store.approve_join_request_atomic("jr_3", "mb_impostor", "master", 200),
+        super::ApproveTxn::NameTaken
+    ));
+    assert_eq!(store.admission_stock_counts(200), (2, 1)); // unchanged
     assert!(store
         .claim_join_request_bootstrap("jr_3", "s3", 400)
         .is_none());
+    let (status3, _, _) = store.join_request_view("jr_3", "s3").expect("view3");
+    assert_eq!(status3, "pending");
 
     // Deny is one-shot too: a pending request denies once, then no longer.
     store

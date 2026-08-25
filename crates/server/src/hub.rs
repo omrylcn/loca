@@ -1797,14 +1797,6 @@ impl Hub {
         self.store.admission_stock_counts((self.now_ms)())
     }
 
-    /// Claim exactly one available admission right for `name`. The join-request
-    /// approve step calls this before issuing the Lobby membership; `None` means
-    /// the stock is empty/expired and approval must be refused (ask the Master to
-    /// replenish). Returns only the consumed right's id — never a credential.
-    pub fn consume_admission_right(&self, name: &str) -> Option<String> {
-        self.store.consume_admission_right(name, (self.now_ms)())
-    }
-
     /// Max undecided join requests at once — a DoS guard on the authless create
     /// endpoint (a full per-source rate-limiter is a documented hardening
     /// follow-up). A request grants no authority, so the only abuse is table
@@ -1883,61 +1875,31 @@ impl Hub {
     /// membership (`mb_`, kind `agent` per the model) bound to the requested name;
     /// if the stock is empty it releases the claim and returns `Approve::NoStock`.
     pub fn approve_join_request(&self, id: &str, by: &str) -> Approve {
-        let Some((name, kind)) = self.store.claim_join_request_for_approval(id) else {
-            return Approve::AlreadyDecided;
-        };
-        // IDENTITY-TAKEOVER GUARD (review blocker #1): a request must NEVER be
-        // approved into a name that already belongs to a Building member —
-        // `admit_member` would return that member's existing `mb_`, and bootstrap
-        // would then hand the requester someone else's credential. Reject and
-        // release the claim; no stock is consumed.
-        if self.member_by_name(&name).is_some() {
-            self.store.release_join_request_claim(id);
-            return Approve::NameTaken;
-        }
-        // Consume exactly one admission right for this agent.
-        let Some(right_id) = self.consume_admission_right(&name) else {
-            self.store.release_join_request_claim(id);
-            return Approve::NoStock;
-        };
-        // Preserve the requested kind (review blocker #3): a user stays a user.
-        let kind = if kind == "user" { "user" } else { "agent" };
-        // Mint a FRESH Lobby membership for this request and hand it to the store
-        // to insert + finalize ATOMICALLY (re-review #1/#2). We never call the
-        // idempotent `admit_member`, so a foreign `mb_` can never be returned, and
-        // the name check + member insert + request finalize cannot be interleaved
-        // or half-applied. On any failure the consumed right is refunded and the
-        // claim released.
-        let member = protocol::Membership {
-            token: self.new_invite_token().replacen("dv_", "mb_", 1),
-            name: name.clone(),
-            kind: kind.to_string(),
-            joined_at: (self.now_ms)(),
-            admitted_by: by.to_string(),
-        };
+        // The ENTIRE approval — pending-guard, name-free check, stock consume,
+        // member insert, request-finalize — happens in ONE store transaction
+        // (`approve_join_request_atomic`). This closes the identity-takeover race
+        // (no `/members` create can slip between the name check and the insert:
+        // the single conn Mutex is held throughout) AND removes every partial
+        // state: a failure at any step leaves the request pending, the name free,
+        // and the stock intact — so there is no compensating refund/release to
+        // orchestrate here, and no way to strand a request or burn a right.
+        // We only mint the fresh `mb_` token up front (needs the Hub's CSPRNG).
+        let mb_token = self.new_invite_token().replacen("dv_", "mb_", 1);
         match self
             .store
-            .finalize_join_request_with_new_member(id, &member, (self.now_ms)())
+            .approve_join_request_atomic(id, &mb_token, by, (self.now_ms)())
         {
-            crate::store::JoinFinalize::Committed => {
+            crate::store::ApproveTxn::Committed(member) => {
                 // Mirror the committed DB row into the in-memory member cache.
                 self.members
                     .lock_or_recover()
                     .insert(member.token.clone(), member);
                 Approve::Approved
             }
-            crate::store::JoinFinalize::NameTaken => {
-                self.store.refund_admission_right(&right_id);
-                self.store.release_join_request_claim(id);
-                Approve::NameTaken
-            }
-            crate::store::JoinFinalize::Failed => {
-                // COMPENSATING ROLLBACK (re-review #2/#4): nothing was committed,
-                // so refund the right and release the claim for a clean retry.
-                self.store.refund_admission_right(&right_id);
-                self.store.release_join_request_claim(id);
-                Approve::Failed
-            }
+            crate::store::ApproveTxn::AlreadyDecided => Approve::AlreadyDecided,
+            crate::store::ApproveTxn::NameTaken => Approve::NameTaken,
+            crate::store::ApproveTxn::NoStock => Approve::NoStock,
+            crate::store::ApproveTxn::Failed => Approve::Failed,
         }
     }
 

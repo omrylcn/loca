@@ -555,45 +555,6 @@ impl Store {
         (total, available)
     }
 
-    /// Atomically claim exactly one available right (oldest first), marking it
-    /// consumed by `name`. Returns its id, or None if the stock is empty/expired.
-    /// The single `Mutex<Connection>` serialises access, so the SELECT + UPDATE
-    /// pair cannot interleave with another consume; the `consumed_at IS NULL`
-    /// guard on the write keeps it safe even so.
-    pub fn consume_admission_right(&self, name: &str, now: u64) -> Option<String> {
-        let c = self.conn()?;
-        let id: String = c
-            .query_row(
-                "SELECT id FROM admission_stock \
-                 WHERE consumed_at IS NULL AND expires_at > ?1 \
-                 ORDER BY created_at, id LIMIT 1",
-                params![now],
-                |r| r.get(0),
-            )
-            .ok()?;
-        let changed = c
-            .execute(
-                "UPDATE admission_stock SET consumed_at = ?1, consumed_by_name = ?2 \
-                 WHERE id = ?3 AND consumed_at IS NULL",
-                params![now, name, id],
-            )
-            .ok()?;
-        (changed == 1).then_some(id)
-    }
-
-    /// Un-consume a right — the compensating rollback used when an approval fails
-    /// AFTER the stock was consumed, so a failed approve never burns a right and
-    /// a retry does not consume a second one.
-    pub fn refund_admission_right(&self, right_id: &str) {
-        if let Some(c) = self.conn() {
-            let _ = c.execute(
-                "UPDATE admission_stock SET consumed_at = NULL, consumed_by_name = NULL \
-                 WHERE id = ?1",
-                params![right_id],
-            );
-        }
-    }
-
     /// Record a new pending join request. The caller's request-secret is stored
     /// only as a hash, so only the requester (who holds the plaintext) can later
     /// poll or bootstrap it.
@@ -671,111 +632,145 @@ impl Store {
         .is_ok()
     }
 
-    /// Atomically claim a pending request for approval (pending -> approving),
-    /// returning its `(name, kind)`. Only the FIRST caller wins — the `WHERE
-    /// status='pending'` gate means a repeated/racing approve gets None, so
-    /// admission stock is consumed at most once per request.
-    pub fn claim_join_request_for_approval(&self, id: &str) -> Option<(String, String)> {
-        let c = self.conn()?;
-        let changed = c
-            .execute(
-                "UPDATE join_requests SET status = 'approving' \
-                 WHERE id = ?1 AND status = 'pending'",
-                params![id],
-            )
-            .ok()?;
-        if changed != 1 {
-            return None;
-        }
-        c.query_row(
-            "SELECT name, kind FROM join_requests WHERE id = ?1",
-            params![id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-        )
-        .ok()
-    }
-
-    /// Finalise a claimed approval ATOMICALLY, in one transaction: verify the
-    /// name is still free, insert the NEW member, and mark the request approved
-    /// with the issued token. Either all three land or none do — closing both the
-    /// check-then-admit takeover race (review re-blocker #1: the single conn
-    /// Mutex means no `/members` insert can slip between the name check and the
-    /// insert) and the partial-approve hole (re-blocker #2: a failed finalize
-    /// rolls the member back instead of leaving the request stuck in `approving`
-    /// with stock already burned). It NEVER returns an existing member, so a
-    /// foreign `mb_` can never be handed out.
-    pub fn finalize_join_request_with_new_member(
+    /// Approve a pending join request as ONE transaction: guard that it is still
+    /// pending, verify the name is free, consume exactly one available admission
+    /// right, insert the new Lobby member, and mark the request approved carrying
+    /// its `mb_`. Because the single `Mutex<Connection>` is held for the whole
+    /// transaction nothing can interleave (no `/members` insert slips between the
+    /// name check and the member insert), and because it is one commit there is
+    /// NO partial state: a crash or any failed step leaves the request `pending`,
+    /// the name free, and the stock intact — no leaked right, no request stranded
+    /// in an intermediate `approving` state (which `claim` used to make
+    /// unrecoverable). It never touches an existing member, so a foreign `mb_`
+    /// can never be handed out. Returns the created Membership so the caller can
+    /// mirror it into the in-memory roster.
+    pub fn approve_join_request_atomic(
         &self,
         request_id: &str,
-        member: &protocol::Membership,
+        mb_token: &str,
+        by: &str,
         now: u64,
-    ) -> JoinFinalize {
+    ) -> ApproveTxn {
         let Some(mut c) = self.conn() else {
-            return JoinFinalize::Failed;
+            return ApproveTxn::Failed;
         };
         let tx = match c.transaction() {
             Ok(tx) => tx,
-            Err(_) => return JoinFinalize::Failed,
+            Err(_) => return ApproveTxn::Failed,
         };
-        // The single conn Mutex is held for the whole transaction, so no other
-        // member insert can commit between this check and the insert below.
-        let name_taken = tx
+
+        // 1) The request must still be pending. Flip it to `approving` INSIDE the
+        //    txn so a concurrent approve of the same id finds nothing to claim;
+        //    the flip is invisible outside the transaction and is undone by any
+        //    rollback below, so no durable `approving` state is ever observable.
+        match tx.execute(
+            "UPDATE join_requests SET status = 'approving' \
+             WHERE id = ?1 AND status = 'pending'",
+            params![request_id],
+        ) {
+            Ok(1) => {}
+            Ok(_) => {
+                let _ = tx.rollback();
+                return ApproveTxn::AlreadyDecided;
+            }
+            Err(_) => {
+                let _ = tx.rollback();
+                return ApproveTxn::Failed;
+            }
+        }
+
+        // The requester's chosen name + kind (immutable since creation).
+        let (name, kind): (String, String) = match tx.query_row(
+            "SELECT name, kind FROM join_requests WHERE id = ?1",
+            params![request_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ) {
+            Ok(v) => v,
+            Err(_) => {
+                let _ = tx.rollback();
+                return ApproveTxn::Failed;
+            }
+        };
+
+        // 2) The name must be free. Checked and inserted under the same held
+        //    connection, so no `/members` create can slip in between.
+        if tx
             .query_row(
                 "SELECT 1 FROM members WHERE name = ?1 AND revoked_at IS NULL LIMIT 1",
-                params![member.name],
+                params![name],
                 |_| Ok(()),
             )
-            .is_ok();
-        if name_taken {
-            let _ = tx.rollback();
-            return JoinFinalize::NameTaken;
+            .is_ok()
+        {
+            let _ = tx.rollback(); // undoes the 'approving' flip -> back to pending
+            return ApproveTxn::NameTaken;
         }
+
+        // 3) Consume exactly one available, unexpired admission right (oldest
+        //    first). The `consumed_at IS NULL` guard keeps the write single-use.
+        let right_id: String = match tx.query_row(
+            "SELECT id FROM admission_stock \
+             WHERE consumed_at IS NULL AND expires_at > ?1 \
+             ORDER BY created_at, id LIMIT 1",
+            params![now],
+            |r| r.get(0),
+        ) {
+            Ok(id) => id,
+            Err(_) => {
+                let _ = tx.rollback();
+                return ApproveTxn::NoStock;
+            }
+        };
+        match tx.execute(
+            "UPDATE admission_stock SET consumed_at = ?1, consumed_by_name = ?2 \
+             WHERE id = ?3 AND consumed_at IS NULL",
+            params![now, name, right_id],
+        ) {
+            Ok(1) => {}
+            _ => {
+                let _ = tx.rollback();
+                return ApproveTxn::NoStock;
+            }
+        }
+
+        // 4) Insert the fresh Lobby member.
         if tx
             .execute(
                 "INSERT INTO members (token, name, kind, joined_at, admitted_by, revoked_at) \
                  VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
-                params![
-                    member.token,
-                    member.name,
-                    member.kind,
-                    member.joined_at,
-                    member.admitted_by
-                ],
+                params![mb_token, name, kind, now, by],
             )
             .is_err()
         {
             let _ = tx.rollback();
-            return JoinFinalize::Failed;
+            return ApproveTxn::Failed;
         }
-        match tx.execute(
-            "UPDATE join_requests \
-             SET status = 'approved', mb_token = ?2, decided_by = ?3, decided_at = ?4 \
-             WHERE id = ?1 AND status = 'approving'",
-            params![request_id, member.token, member.admitted_by, now],
-        ) {
-            Ok(1) => {
-                if tx.commit().is_ok() {
-                    JoinFinalize::Committed
-                } else {
-                    JoinFinalize::Failed
-                }
-            }
-            _ => {
-                let _ = tx.rollback();
-                JoinFinalize::Failed
-            }
-        }
-    }
 
-    /// Release a claimed request back to pending (e.g. no stock was available),
-    /// so the Master can retry after replenishing.
-    pub fn release_join_request_claim(&self, id: &str) {
-        if let Some(c) = self.conn() {
-            let _ = c.execute(
-                "UPDATE join_requests SET status = 'pending' \
+        // 5) Mark the request approved, carrying the mb_ for one-time bootstrap.
+        //    (Split from the commit so the guard never moves `tx`.)
+        if !matches!(
+            tx.execute(
+                "UPDATE join_requests \
+                 SET status = 'approved', mb_token = ?2, decided_by = ?3, decided_at = ?4 \
                  WHERE id = ?1 AND status = 'approving'",
-                params![id],
-            );
+                params![request_id, mb_token, by, now],
+            ),
+            Ok(1)
+        ) {
+            let _ = tx.rollback();
+            return ApproveTxn::Failed;
+        }
+        if tx.commit().is_ok() {
+            ApproveTxn::Committed(protocol::Membership {
+                token: mb_token.to_string(),
+                name,
+                kind,
+                joined_at: now,
+                admitted_by: by.to_string(),
+            })
+        } else {
+            // commit failed — nothing is persisted; the request stays pending.
+            ApproveTxn::Failed
         }
     }
 
@@ -824,13 +819,21 @@ impl Store {
     }
 }
 
-/// Outcome of atomically finalising a join-request approval.
-#[derive(Debug, PartialEq, Eq)]
-pub enum JoinFinalize {
-    /// The new member was inserted and the request marked approved.
-    Committed,
-    /// The name became a member before the insert — nothing changed.
+/// Outcome of atomically approving a join request (single transaction).
+#[derive(Debug)]
+pub enum ApproveTxn {
+    /// Stock consumed, Lobby member inserted, request approved. Carries the new
+    /// membership so the caller can mirror it into the in-memory roster.
+    Committed(protocol::Membership),
+    /// The request was no longer pending (already approved/denied, or a racing
+    /// approve won) — nothing changed and no stock was consumed.
+    AlreadyDecided,
+    /// The requested name already belongs to a live member — refused, and the
+    /// request is left pending. No stock consumed.
     NameTaken,
+    /// No available (unexpired) admission right — request left pending so the
+    /// Master can retry after minting more. No stock consumed.
+    NoStock,
     /// A DB error rolled the whole transaction back — nothing changed.
     Failed,
 }
