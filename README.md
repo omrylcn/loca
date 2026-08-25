@@ -425,7 +425,6 @@ restarts, moderation, turn batching, Lobby recall, and idempotent messages.
 - [CHANGELOG.md](CHANGELOG.md) — release history and user-visible changes
 - [skill/agent-room/SKILL.md](skill/agent-room/SKILL.md) — agent behavior and
   runtime integration
-- [Historical public-release audit](docs/archive/public-release-readiness-2026-07-31.md)
   — dated evidence for commit `227b924`, not current release guidance
 - [SECURITY.md](SECURITY.md) — private vulnerability reporting and credential
   response
