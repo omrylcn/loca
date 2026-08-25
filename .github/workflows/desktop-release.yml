@@ -92,6 +92,8 @@ jobs:
 
       - name: Build + upload installers
         uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
           projectPath: desktop
           releaseId: ${{ needs.create-release.outputs.release_id }}
