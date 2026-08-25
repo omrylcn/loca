@@ -1,5 +1,34 @@
 const { test, expect } = require("@playwright/test");
 
+test("a confirmed reaction renders without waiting for its websocket echo", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    state.name = "operator";
+    state.room = "e2e";
+    addMsg({ id: 9101, sender: "alice", sender_type: "user", text: "react here", ts: Date.now() });
+
+    const originalFetch = window.fetch;
+    window.fetch = async () => new Response(JSON.stringify({
+      message_id: 9101,
+      emoji: "✓",
+      actors: ["operator"],
+      owner: "alice",
+      reactor: "operator",
+      active: true,
+      ts: Date.now(),
+    }), { status: 200, headers: { "content-type": "application/json" } });
+    try {
+      await setReaction(9101, "✓");
+    } finally {
+      window.fetch = originalFetch;
+    }
+  });
+
+  const chip = page.locator('[data-reactions="9101"] .reactionchip.mine');
+  await expect(chip).toContainText("✓");
+  await expect(chip.locator("span")).toHaveText("1");
+});
+
 test("a davet controls identity and ambiguous retry stays exactly once", async ({
   page,
   request,
@@ -455,8 +484,9 @@ test("goal command, focus, optional tasks, and reminders share one human surface
   await expect(page.locator("#feed .row.locareminder").last().locator(".body")).toContainText("… · waiting 10 min");
   await expect(page.locator("#reminderHistoryList .reminderhistoryrow").first()).toContainText(longGoal);
 
-  // The server bounds attempts; the browser also refuses an out-of-policy
-  // attempt and deduplicates a replay of the same durable delivery.
+  // The server bounds new attempts. If a later/escalated delivery nevertheless
+  // exists, Chat must still show that newest actionable receipt instead of
+  // deleting the old bubble and filtering the replacement into invisibility.
   await page.evaluate(() => {
     state.settings.care_max_attempts = 2;
     const attemptOne = {
@@ -487,17 +517,24 @@ test("goal command, focus, optional tasks, and reminders share one human surface
     onFrame({ t: "attention", attention: attemptTwo });
     onFrame({
       t: "attention",
-      attention: { ...attemptTwo, id: "attention:focus-e2e:silence:attempt-3", attempt: 3 },
+      attention: {
+        ...attemptTwo,
+        id: "attention:focus-e2e:silence:attempt-3",
+        subject: "latest escalated reminder",
+        created_at: 65,
+        delivered_at: 70,
+        attempt: 3,
+      },
     });
   });
   await expect(page.locator("#feed .row.locareminder")).toHaveCount(1);
   await expect(page.locator("#feed .row.locareminder").last().locator(".body")).toContainText(
-    "@operator, bounded replay reminder",
+    "@operator, latest escalated reminder",
   );
   await expect(page.locator("#reminderHistoryList")).toContainText("attempt 3");
 
-  const boundedBubbles = page.locator("#feed .row.locareminder", { hasText: "bounded replay reminder" });
-  await expect(boundedBubbles).toHaveCount(1);
+  const latestReminderBubble = page.locator("#feed .row.locareminder", { hasText: "latest escalated reminder" });
+  await expect(latestReminderBubble).toHaveCount(1);
 
   // A stale frame from another loca is neither rendered nor admitted to this
   // room's Attention projection.
@@ -524,7 +561,7 @@ test("goal command, focus, optional tasks, and reminders share one human surface
     resetReminderChatProjection();
     rebuildReminderChatProjection();
   });
-  await expect(boundedBubbles).toHaveCount(1);
+  await expect(latestReminderBubble).toHaveCount(1);
 
   // A → B → A and a repeated A refresh both rebuild exactly one. Replaying the
   // same live frame afterwards remains a no-op.
@@ -543,7 +580,7 @@ test("goal command, focus, optional tasks, and reminders share one human surface
     onFrame({ t: "attention", attention: attemptTwo });
     onFrame({ t: "attention", attention: attemptTwo });
   });
-  await expect(boundedBubbles).toHaveCount(1);
+  await expect(latestReminderBubble).toHaveCount(1);
 
   const goalReceiptCount = await page.locator("#feed .sysline").count();
   await page.evaluate(() => {

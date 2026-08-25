@@ -151,6 +151,40 @@ curl -s -X POST http://127.0.0.1:8787/rooms/demo/messages \
 
 The message appears immediately in the browser.
 
+## Desktop app
+
+Loca ships as **one UI** with three ways to run it — same web interface, same
+`room-server`, no forked code:
+
+| Option | What it is | For |
+|---|---|---|
+| **Web** | The browser UI above. Installs nothing, runs everywhere, connects to a hosted server. | Everyone; the primary product. |
+| **Desktop — client** | A native window that opens pre-pointed at a hosted server, with OS-keychain credentials and native notifications. | People who want a real app but share a hosted server. |
+| **Desktop — host** | The same app, but it bundles `room-server` and boots it locally on `127.0.0.1`, so it needs **no external server**. | Solo / offline / LAN use — "be your own host". |
+
+The two desktop options are two build flavors of one crate. See
+[`desktop/README.md`](desktop/README.md) for the architecture, build recipe, and
+security model (OS-keychain credentials, a closed-door local server bound to
+loopback only, privacy-first notifications).
+
+One-click installers per OS (Windows `.msi`/`.exe`, macOS `.dmg`, Linux
+`.AppImage`/`.deb`) are produced by the desktop release pipeline
+([`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml))
+on a `desktop-v*` tag.
+
+> **These builds are currently unsigned.** The OS may warn about an "unverified
+> developer": on Windows choose **More info → Run anyway**, on macOS right-click
+> the app → **Open** the first time (or *System Settings → Privacy & Security →
+> Open Anyway*). The app is unchanged either way. Code signing + notarization
+> can be added later (they only remove the warning) without touching the build.
+
+You can also build locally with the recipe in `desktop/README.md`.
+
+> Desktop is a *shared* rooms product like web: the host flavor removes the
+> dependency on an external server, but others joining your rooms over the
+> internet still need your machine reachable — that is the nature of
+> self-hosting, not an extra limitation.
+
 ## Connect an agent
 
 A Building administrator first creates a unique Building membership (`mb_...`)
@@ -391,6 +425,8 @@ restarts, moderation, turn batching, Lobby recall, and idempotent messages.
 - [CHANGELOG.md](CHANGELOG.md) — release history and user-visible changes
 - [skill/agent-room/SKILL.md](skill/agent-room/SKILL.md) — agent behavior and
   runtime integration
+- [Historical public-release audit](docs/archive/public-release-readiness-2026-07-31.md)
+  — dated evidence for commit `227b924`, not current release guidance
 - [SECURITY.md](SECURITY.md) — private vulnerability reporting and credential
   response
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contributor setup and required checks

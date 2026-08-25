@@ -65,8 +65,6 @@ function reminderChatText(attention) {
 function addReminderChatBubble(attention) {
   if (!attention.delivered_at || !attention.owner) return false;
   const attempt = Math.max(1, Number(attention.attempt || 1));
-  const configuredMax = Number(state.settings?.care_max_attempts);
-  if (Number.isFinite(configuredMax) && configuredMax > 0 && attempt > configuredMax) return false;
   // One visible message per bounded attempt. A replayed Attention frame keeps
   // the same durable identity + attempt and must not duplicate the bubble.
   const deliveryKey = `${state.room || attention.room || ""}\u0000${attention.id}\u0000${attempt}`;
@@ -90,16 +88,14 @@ function resetReminderChatProjection() {
 
 function rebuildReminderChatProjection() {
   resetReminderChatProjection();
-  const configuredMax = Number(state.settings?.care_max_attempts);
   const latest = Object.values(state.attentions)
     .filter(attention => ["goal_reminder", "task_reminder", "wait_overdue", "wait_cycle", "room_silence"]
       .includes(attention.reason))
     .filter(attention => !attention.room || attention.room === state.room)
     .filter(attention => attention.status !== "resolved")
     .filter(attention => attention.delivered_at && attention.owner)
-    .filter(attention => !Number.isFinite(configuredMax) || configuredMax <= 0
-      || Math.max(1, Number(attention.attempt || 1)) <= configuredMax)
-    .sort((a, b) => Number(b.created_at || 0) - Number(a.created_at || 0))[0];
+    .sort((a, b) => Number(b.delivered_at || b.created_at || 0)
+      - Number(a.delivered_at || a.created_at || 0))[0];
   // Chat is a conversation, not the Reminder audit log. Keep at most the
   // newest actionable reminder visible here; retries and completed history
   // remain durable in Focus > Reminders without flooding the transcript.
@@ -211,6 +207,39 @@ function openWs() {
   };
 }
 
+// A host that wraps this UI (the desktop shell) can set window.__LOCA_NOTIFY__
+// to raise a native OS notification for the events below. In a plain browser
+// the global is undefined and these calls are no-ops. Only WHO + event kind are
+// passed here; the message body is deliberately NOT sent (privacy).
+const _notifiedKeys = new Set();
+function notifyDesktop(kind, sender, loca, id) {
+  try {
+    // Dedup: a given event (message id / attention id) notifies at most once,
+    // even if its frame repeats or a reconnect re-delivers it.
+    if (id != null) {
+      const key = kind + ":" + id;
+      if (_notifiedKeys.has(key)) return;
+      _notifiedKeys.add(key);
+      if (_notifiedKeys.size > 4000) _notifiedKeys.clear(); // bound memory over long sessions
+    }
+    if (window.__LOCA_NOTIFY__) {
+      window.__LOCA_NOTIFY__({
+        kind,
+        sender: sender || null,
+        loca: loca || null,
+        id: id != null ? String(id) : null,
+      });
+    }
+  } catch (e) {}
+}
+// A message addressed to me: server-set target, or an @name in the body. Pure
+// (name passed in) so it is unit-testable without app state.
+function isMentionOfMe(m, myName) {
+  if (!m || !myName || m.sender === myName) return false;
+  if (m.target === myName) return true;
+  return !!(m.text && m.text.includes("@" + myName));
+}
+
 function onFrame(f) {
   if (f.t === "history") {
     for (const m of f.messages) addMsg(m);
@@ -226,6 +255,9 @@ function onFrame(f) {
   else if (f.t === "msg") {
     const mine = f.message.sender === state.name;
     const mid = Number(f.message.id || 0);
+    // Native notification only for a message addressed to me (not reactions or
+    // ordinary chatter); the desktop shell suppresses it while focused.
+    if (isMentionOfMe(f.message, state.name)) notifyDesktop("mention", f.message.sender, state.room, mid);
     state.roomLatest[state.room] = Math.max(Number(state.roomLatest[state.room] || 0), mid);
     if (mine || (state.tab === "chat" && !document.hidden)) {
       markRoomRead(state.room, mid);
@@ -294,6 +326,9 @@ function onFrame(f) {
     state.attentions[f.attention.id] = f.attention;
     const isReminder = ["goal_reminder", "task_reminder", "wait_overdue", "wait_cycle", "room_silence"]
       .includes(f.attention.reason);
+    // Directed attention / actionable reminder -> native notification (kind
+    // only, no body). Reactions and ordinary messages never reach here.
+    notifyDesktop(isReminder ? "reminder" : "attention", null, f.attention.room || state.room, f.attention.id);
     if (isReminder) rebuildReminderChatProjection();
     renderReminderSettings();
     renderReminderHistory();

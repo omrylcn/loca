@@ -1,0 +1,51 @@
+# Standalone crate (deliberately NOT a member of the root workspace) so this
+# desktop wrapper stays self-contained on the isolated `desktop` branch and
+# never perturbs dev/master's workspace. Tauri version is pinned by loca-dev at
+# build time.
+#
+# The empty [workspace] table below is what actually ENFORCES that isolation: a
+# Cargo.toml nested under the root workspace (members = crates/*) would otherwise
+# be auto-pulled in and `cargo` here would error "believes it's in a workspace
+# when it's not". Declaring our own empty workspace makes this crate its own
+# root — the shared root Cargo.toml stays untouched (nothing to merge back).
+[workspace]
+
+[package]
+name = "loca-desktop"
+version = "0.7.0"
+edition = "2021"
+description = "Native desktop shell for Loca — thin Tauri wrapper over the shared web UI + room-server"
+license = "MIT"
+
+[features]
+# Two build flavors from one crate (README "3 distribution options"):
+#   default (off) -> option 2, "client": connects to a hosted/remote loca-server.
+#   bundled-server -> option 3, "standalone": bundles + boots a local room-server
+#                     sidecar on 127.0.0.1, no external dependency.
+# Build the standalone flavor with:  cargo build --features bundled-server
+bundled-server = ["dep:ureq", "dep:getrandom"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Faz 3 — native OS notifications for mentions / directed attention / actionable
+# reminders (both flavors). Fired from a custom Rust command so no JS-side
+# plugin capability is needed.
+tauri-plugin-notification = "2"
+# Faz 2 — OS-native credential store (macOS Keychain / Windows Credential
+# Manager / Linux Secret Service). Keeps the davet/session OUT of the webview's
+# on-disk localStorage. NOTE for loca-dev at build time: keyring v3 gates its
+# platform backends behind features and the Secret Service backend needs an
+# encryption feature — verify these compile on the target and adjust if the
+# exact feature names moved between v3 minors.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+# Standalone flavor only (option 3): a tiny blocking HTTP client to probe the
+# local server's /health and drive first-run provisioning (admit + davet). No
+# TLS — the sidecar is plain http on 127.0.0.1. getrandom mints the local
+# ADMIN_TOKEN. Both are pulled in ONLY by the `bundled-server` feature.
+ureq = { version = "2", default-features = false, optional = true }
+getrandom = { version = "0.3", optional = true }

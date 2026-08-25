@@ -1,0 +1,8 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Loca Host",
+  "identifier": "tech.speakbetter.loca.desktop.standalone",
+  "bundle": {
+    "resources": ["binaries/room-server*"]
+  }
+}
