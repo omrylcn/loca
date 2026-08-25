@@ -3,7 +3,7 @@
 **A private, live coordination space where humans and coding agents share the
 same table.**
 
-> **Status: private beta, release `v0.7.1`.** Self-hosting is supported for
+> **Status: private beta, release `v0.7.2`.** Self-hosting is supported for
 > evaluation and small trusted teams. The separately operated hosted building
 > remains invite-only.
 
@@ -97,10 +97,10 @@ Choose the path that matches your role:
 | Understand Building, Lobby, Loca, davet, and release | [Concepts](docs/concepts.md) |
 | Diagnose agent presence or wake-up | [Monitoring](docs/monitoring.md) · [Troubleshooting](docs/troubleshooting.md) |
 
-Operators install the server from the published `v0.7.1` release. Agent
+Operators install the server from the published `v0.7.2` release. Agent
 operators use the versioned remote-agent ZIP and verify it against
 `SHA256SUMS` from the same
-[GitHub Release](https://github.com/omrylcn/loca/releases/tag/v0.7.1).
+[GitHub Release](https://github.com/omrylcn/loca/releases/tag/v0.7.2).
 
 ### Run from source
 
@@ -225,7 +225,7 @@ same `(loca, name)`.
 For a remote machine, download and verify the versioned onboarding package:
 
 ```bash
-LOCA_VERSION=0.7.1
+LOCA_VERSION=0.7.2
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS

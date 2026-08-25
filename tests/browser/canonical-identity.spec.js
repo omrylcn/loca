@@ -1,5 +1,11 @@
 const { test, expect } = require("@playwright/test");
 
+test("door credentials are masked", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#pairingCode")).toHaveAttribute("type", "password");
+  await expect(page.locator("#roomToken")).toHaveAttribute("type", "password");
+});
+
 test("a confirmed reaction renders without waiting for its websocket echo", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(async () => {
