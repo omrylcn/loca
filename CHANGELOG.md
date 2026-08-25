@@ -6,6 +6,26 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-25
+
+### Added
+
+- Added native Windows identity setup and an in-app Desktop Host agent
+  onboarding flow with separate Lobby and Loca invitations.
+
+### Changed
+
+- Desktop Host owners now use a persistent Master principal and open in the
+  reserved `iye` loca; public caretaker defaults include only `loca-care`.
+- New installations no longer use an automatic `general` home loca.
+
+### Fixed
+
+- Fixed Windows credential locking, CRLF token input, directory durability,
+  and permission handling.
+- Prevented the Desktop sidecar console window and kept root credentials out of
+  the webview and onboarding output.
+
 ## [0.7.0] - 2026-08-23
 
 ### Added
@@ -371,7 +391,8 @@ All notable changes to Loca are documented here. The format follows
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/omrylcn/loca/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/omrylcn/loca/compare/v0.6.18...v0.7.0
 [0.6.18]: https://github.com/omrylcn/loca/compare/v0.6.17...v0.6.18
 [0.6.17]: https://github.com/omrylcn/loca/compare/v0.6.16...v0.6.17
