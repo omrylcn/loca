@@ -1849,9 +1849,13 @@ impl Hub {
         }
         let request_id = Self::secure_token("jr_", 12);
         let request_secret = Self::secure_token("jrs_", 24);
-        let _ = self
-            .store
-            .create_join_request(&request_id, &request_secret, name, kind, (self.now_ms)());
+        let _ = self.store.create_join_request(
+            &request_id,
+            &request_secret,
+            name,
+            kind,
+            (self.now_ms)(),
+        );
         JoinRequestCreate::Created {
             request_id,
             request_secret,

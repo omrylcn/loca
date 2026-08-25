@@ -402,7 +402,9 @@ fn admission_stock_mints_consumes_once_and_ignores_expired() {
         super::ApproveTxn::NoStock
     ));
     assert_eq!(store.admission_stock_counts(100), (2, 0));
-    assert!(store.claim_join_request_bootstrap("jr_c", "sc", 150).is_none());
+    assert!(store
+        .claim_join_request_bootstrap("jr_c", "sc", 150)
+        .is_none());
     // After replenishing, the same still-pending request approves cleanly.
     assert_eq!(
         store
@@ -435,8 +437,8 @@ fn admission_stock_mints_consumes_once_and_ignores_expired() {
 #[test]
 fn join_request_approve_is_exactly_once_and_bootstrap_is_one_time() {
     let directory = tempfile::tempdir().expect("tempdir");
-    let store = Store::open(Some(directory.path().join("jr.db").to_str().expect("path")))
-        .expect("open");
+    let store =
+        Store::open(Some(directory.path().join("jr.db").to_str().expect("path"))).expect("open");
     // Stock for the approvals below.
     store
         .mint_admission_rights(&["adm_0".into(), "adm_1".into()], "pr_master", 10, 10_000)
@@ -448,7 +450,10 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_one_time() {
     // Only the matching secret can see the request; a wrong one learns nothing.
     assert!(store.join_request_view("jr_1", "wrong").is_none());
     let (status, name, ready) = store.join_request_view("jr_1", "sekret").expect("view");
-    assert_eq!((status.as_str(), name.as_str(), ready), ("pending", "bot", false));
+    assert_eq!(
+        (status.as_str(), name.as_str(), ready),
+        ("pending", "bot", false)
+    );
     assert_eq!(store.list_pending_join_requests().len(), 1);
     // A live request reserves its name (uniqueness guard for the takeover fix).
     assert!(store.has_pending_join_request_named("bot"));

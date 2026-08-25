@@ -613,10 +613,7 @@ fn valid_agent_name(name: &str) -> bool {
 /// TCP peer. Without this, prod (where every peer is the nginx loopback) would
 /// collapse the per-source limiter back into a global one (review re-blocker #3).
 fn client_ip(headers: &HeaderMap, peer: std::net::SocketAddr) -> std::net::IpAddr {
-    if let Some(xff) = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-    {
+    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
         if let Some(ip) = xff
             .split(',')
             .rev()
@@ -649,7 +646,9 @@ pub(crate) async fn create_join_request_route(
     let kind = match body.kind.as_deref() {
         None | Some("agent") => "agent",
         Some("user") => "user",
-        Some(_) => return (StatusCode::BAD_REQUEST, "kind must be 'agent' or 'user'").into_response(),
+        Some(_) => {
+            return (StatusCode::BAD_REQUEST, "kind must be 'agent' or 'user'").into_response()
+        }
     };
     match hub.create_join_request(name, kind, client_ip(&headers, peer)) {
         crate::hub::JoinRequestCreate::Created {
@@ -691,10 +690,10 @@ pub(crate) async fn get_join_request_route(
         return (StatusCode::UNAUTHORIZED, "x-join-secret header required").into_response();
     };
     match hub.join_request_view(&id, secret) {
-        Some((status, _name, bootstrap_ready)) => Json(
-            serde_json::json!({ "status": status, "bootstrap_ready": bootstrap_ready }),
-        )
-        .into_response(),
+        Some((status, _name, bootstrap_ready)) => {
+            Json(serde_json::json!({ "status": status, "bootstrap_ready": bootstrap_ready }))
+                .into_response()
+        }
         None => (StatusCode::NOT_FOUND, "unknown request or secret").into_response(),
     }
 }
@@ -710,7 +709,11 @@ pub(crate) async fn bootstrap_join_request_route(
         return (StatusCode::UNAUTHORIZED, "x-join-secret header required").into_response();
     };
     match hub.claim_join_request_bootstrap(&id, secret) {
-        Some(mb) => (StatusCode::CREATED, Json(serde_json::json!({ "davet": mb }))).into_response(),
+        Some(mb) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({ "davet": mb })),
+        )
+            .into_response(),
         None => (
             StatusCode::NOT_FOUND,
             "not approved, already delivered, or bad secret",
@@ -752,9 +755,11 @@ pub(crate) async fn approve_join_request_route(
         .map(|n| format!("smaster:{n}"))
         .unwrap_or_else(|| "master".into());
     match hub.approve_join_request(&id, &by) {
-        crate::hub::Approve::Approved => {
-            (StatusCode::OK, Json(serde_json::json!({ "status": "approved" }))).into_response()
-        }
+        crate::hub::Approve::Approved => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "approved" })),
+        )
+            .into_response(),
         crate::hub::Approve::AlreadyDecided => (
             StatusCode::OK,
             Json(serde_json::json!({ "status": "already_decided" })),
@@ -788,7 +793,11 @@ pub(crate) async fn deny_join_request_route(
         return (StatusCode::UNAUTHORIZED, "master required").into_response();
     }
     if hub.deny_join_request(&id, "master") {
-        (StatusCode::OK, Json(serde_json::json!({ "status": "denied" }))).into_response()
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "denied" })),
+        )
+            .into_response()
     } else {
         (StatusCode::CONFLICT, "request is not pending").into_response()
     }

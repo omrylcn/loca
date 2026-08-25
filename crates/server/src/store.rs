@@ -524,7 +524,9 @@ impl Store {
         created_at: u64,
         expires_at: u64,
     ) -> rusqlite::Result<usize> {
-        let Some(mut c) = self.conn() else { return Ok(0) };
+        let Some(mut c) = self.conn() else {
+            return Ok(0);
+        };
         let tx = c.transaction()?;
         let mut inserted = 0usize;
         for id in ids {
@@ -598,7 +600,9 @@ impl Store {
     /// Pending requests for the Master review list (id, name, kind, created_at);
     /// never any secret or token.
     pub fn list_pending_join_requests(&self) -> Vec<(String, String, String, u64)> {
-        let Some(c) = self.conn() else { return Vec::new() };
+        let Some(c) = self.conn() else {
+            return Vec::new();
+        };
         let Ok(mut stmt) = c.prepare(
             "SELECT id, name, kind, created_at FROM join_requests \
              WHERE status = 'pending' ORDER BY created_at, id",
