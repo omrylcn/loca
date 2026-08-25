@@ -132,7 +132,7 @@ test("admin properties use progressive disclosure and mobile navigation", async 
   await expect(page.locator("#sideLocaTab")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#sideLocaView .online")).toBeVisible();
   await expect(page.locator("#locaSummary")).toBeVisible();
-  await expect(page.locator("#locaSummary")).toContainText("operator");
+  await expect(page.locator("#locaSummary")).toContainText("Master");
   await expect(page.locator("#locaSummary")).not.toContainText("Purpose");
   await page.locator("#sideBuildingTab").click();
 
