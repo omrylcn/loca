@@ -373,9 +373,14 @@ fn admission_stock_mints_consumes_once_and_ignores_expired() {
     assert_eq!(store.admission_stock_counts(100), (3, 3));
 
     // Consuming claims exactly one available right and returns its id.
-    let claimed = store.consume_admission_right("agentA", 100);
-    assert!(claimed.is_some());
-    assert!(ids.contains(&claimed.unwrap()));
+    let claimed = store.consume_admission_right("agentA", 100).expect("claimed");
+    assert!(ids.contains(&claimed));
+    assert_eq!(store.admission_stock_counts(100), (3, 2));
+    // Refund (compensating rollback for a failed approve) restores availability,
+    // and a retry can consume again — no right is burned.
+    store.refund_admission_right(&claimed);
+    assert_eq!(store.admission_stock_counts(100), (3, 3));
+    assert!(store.consume_admission_right("agentA", 100).is_some());
     assert_eq!(store.admission_stock_counts(100), (3, 2));
 
     // Drain the rest, then the empty stock yields None (never a phantom right).
@@ -406,11 +411,15 @@ fn join_request_claim_is_exactly_once_and_bootstrap_is_one_time() {
     let (status, name, ready) = store.join_request_view("jr_1", "sekret").expect("view");
     assert_eq!((status.as_str(), name.as_str(), ready), ("pending", "bot", false));
     assert_eq!(store.list_pending_join_requests().len(), 1);
+    // A live request reserves its name (uniqueness guard for the takeover fix).
+    assert!(store.has_pending_join_request_named("bot"));
+    assert!(!store.has_pending_join_request_named("someone-else"));
 
-    // Claiming for approval is exactly-once: the first wins, the second gets None.
+    // Claiming for approval is exactly-once: the first wins (name, kind), the
+    // second gets None.
     assert_eq!(
-        store.claim_join_request_for_approval("jr_1").as_deref(),
-        Some("bot")
+        store.claim_join_request_for_approval("jr_1"),
+        Some(("bot".to_string(), "agent".to_string()))
     );
     assert!(store.claim_join_request_for_approval("jr_1").is_none());
 

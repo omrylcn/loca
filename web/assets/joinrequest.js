@@ -76,11 +76,8 @@
     poll = setInterval(async function () {
       try {
         var r = await fetch(
-          server +
-            "/join-requests/" +
-            encodeURIComponent(id) +
-            "?secret=" +
-            encodeURIComponent(secret)
+          server + "/join-requests/" + encodeURIComponent(id),
+          { headers: { "x-join-secret": secret } }
         );
         if (r.status === 404) {
           setStatus("this request is no longer valid");
@@ -108,12 +105,8 @@
     setStatus("approved — collecting your key…");
     try {
       var r = await fetch(
-        server +
-          "/join-requests/" +
-          encodeURIComponent(id) +
-          "/bootstrap?secret=" +
-          encodeURIComponent(secret),
-        { method: "POST" }
+        server + "/join-requests/" + encodeURIComponent(id) + "/bootstrap",
+        { method: "POST", headers: { "x-join-secret": secret } }
       );
       if (!r.ok) {
         setStatus("could not collect the key: " + (await r.text()));

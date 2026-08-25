@@ -628,12 +628,20 @@ pub(crate) async fn create_join_request_route(
         Some(_) => return (StatusCode::BAD_REQUEST, "kind must be 'agent' or 'user'").into_response(),
     };
     match hub.create_join_request(name, kind) {
-        Some((request_id, request_secret)) => (
+        crate::hub::JoinRequestCreate::Created {
+            request_id,
+            request_secret,
+        } => (
             StatusCode::CREATED,
             Json(serde_json::json!({ "request_id": request_id, "request_secret": request_secret })),
         )
             .into_response(),
-        None => (
+        crate::hub::JoinRequestCreate::NameTaken => (
+            StatusCode::CONFLICT,
+            "that name already exists — choose another",
+        )
+            .into_response(),
+        crate::hub::JoinRequestCreate::BacklogFull => (
             StatusCode::TOO_MANY_REQUESTS,
             "too many pending join requests — try again later",
         )
@@ -641,19 +649,24 @@ pub(crate) async fn create_join_request_route(
     }
 }
 
-#[derive(serde::Deserialize)]
-pub(crate) struct JoinRequestSecret {
-    secret: String,
+/// The per-request secret rides in the `x-join-secret` header, NEVER the query
+/// string (which leaks into URLs, access logs, and browser history) — review
+/// blocker #2.
+fn join_secret_of(headers: &HeaderMap) -> Option<&str> {
+    headers.get("x-join-secret").and_then(|v| v.to_str().ok())
 }
 
-/// GET /join-requests/:id?secret=... — the requester polls their status. Never
-/// carries the mb_ credential; `bootstrap_ready` signals when to call bootstrap.
+/// GET /join-requests/:id — the requester polls its status (secret in header).
+/// Never carries the mb_ credential; `bootstrap_ready` signals when to bootstrap.
 pub(crate) async fn get_join_request_route(
     State(hub): State<Hub>,
     axum::extract::Path(id): axum::extract::Path<String>,
-    Query(q): Query<JoinRequestSecret>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    match hub.join_request_view(&id, &q.secret) {
+    let Some(secret) = join_secret_of(&headers) else {
+        return (StatusCode::UNAUTHORIZED, "x-join-secret header required").into_response();
+    };
+    match hub.join_request_view(&id, secret) {
         Some((status, _name, bootstrap_ready)) => Json(
             serde_json::json!({ "status": status, "bootstrap_ready": bootstrap_ready }),
         )
@@ -662,13 +675,17 @@ pub(crate) async fn get_join_request_route(
     }
 }
 
-/// POST /join-requests/:id/bootstrap?secret=... — deliver the approved mb_ ONCE.
+/// POST /join-requests/:id/bootstrap — deliver the approved mb_ ONCE (secret in
+/// the `x-join-secret` header).
 pub(crate) async fn bootstrap_join_request_route(
     State(hub): State<Hub>,
     axum::extract::Path(id): axum::extract::Path<String>,
-    Query(q): Query<JoinRequestSecret>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    match hub.claim_join_request_bootstrap(&id, &q.secret) {
+    let Some(secret) = join_secret_of(&headers) else {
+        return (StatusCode::UNAUTHORIZED, "x-join-secret header required").into_response();
+    };
+    match hub.claim_join_request_bootstrap(&id, secret) {
         Some(mb) => (StatusCode::CREATED, Json(serde_json::json!({ "davet": mb }))).into_response(),
         None => (
             StatusCode::NOT_FOUND,
@@ -717,6 +734,11 @@ pub(crate) async fn approve_join_request_route(
         crate::hub::Approve::AlreadyDecided => (
             StatusCode::OK,
             Json(serde_json::json!({ "status": "already_decided" })),
+        )
+            .into_response(),
+        crate::hub::Approve::NameTaken => (
+            StatusCode::CONFLICT,
+            "that name already belongs to a member — request refused",
         )
             .into_response(),
         crate::hub::Approve::NoStock => (

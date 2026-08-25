@@ -205,6 +205,10 @@ pub struct Hub {
     /// admin session it will mint. The root key stays in the server's
     /// environment; the browser exchanges this stand-in.
     admin_pairing: Arc<Mutex<AdminPairing>>,
+    // Recent /join-requests create timestamps (ms) for a global sliding-window
+    // rate-limit — an interim DoS guard on the authless create endpoint until
+    // per-source (peer IP / X-Forwarded-For) limiting is wired.
+    join_create_times: Arc<Mutex<Vec<u64>>>,
     /// When true, posting requires a valid session token: `sender` can no
     /// longer be spoofed via the request body (PRODUCTION.md Aşama 0).
     require_sessions: bool,
@@ -452,6 +456,7 @@ impl Hub {
                 session_ttl_ms: Self::ADMIN_SESSION_TTL_MS,
                 expires_at_ms: pairing_now.saturating_add(Self::ADMIN_PAIRING_TTL_MS),
             })),
+            join_create_times: Arc::new(Mutex::new(Vec::new())),
             require_sessions,
             require_invite,
             invites: Arc::new(Mutex::new(HashMap::new())),
@@ -1805,22 +1810,49 @@ impl Hub {
     /// follow-up). A request grants no authority, so the only abuse is table
     /// growth, which this bounds.
     const MAX_PENDING_JOIN_REQUESTS: usize = 200;
+    const JOIN_CREATE_WINDOW_MS: u64 = 60_000;
+    const JOIN_CREATE_MAX_IN_WINDOW: usize = 30;
 
-    /// An outside agent asks to join, picking its own name. Returns
-    /// `(request_id, request_secret)`, or None if the pending backlog is full.
-    /// The plaintext secret is produced exactly once here and only its hash is
-    /// stored, so only the requester can poll or bootstrap it. Grants NOTHING
-    /// until a Master approves.
-    pub fn create_join_request(&self, name: &str, kind: &str) -> Option<(String, String)> {
-        if self.store.list_pending_join_requests().len() >= Self::MAX_PENDING_JOIN_REQUESTS {
-            return None;
+    /// Global sliding-window limit on join-request creation — an interim DoS
+    /// guard on the authless create endpoint (review blocker #5) until per-source
+    /// (peer IP / X-Forwarded-For) limiting is wired. Returns true, and records
+    /// the attempt, when a create is allowed now.
+    fn join_request_rate_ok(&self) -> bool {
+        let now = (self.now_ms)();
+        let mut times = self.join_create_times.lock_or_recover();
+        times.retain(|&t| now.saturating_sub(t) < Self::JOIN_CREATE_WINDOW_MS);
+        if times.len() >= Self::JOIN_CREATE_MAX_IN_WINDOW {
+            return false;
         }
-        let id = Self::secure_token("jr_", 12);
-        let secret = Self::secure_token("jrs_", 24);
+        times.push(now);
+        true
+    }
+
+    /// An outside agent asks to join, picking its own name. The plaintext secret
+    /// is produced exactly once here and only its hash is stored, so only the
+    /// requester can poll or bootstrap it. Grants NOTHING until a Master approves.
+    /// The name must be free — neither an existing member nor an already-pending
+    /// request — which (with the approve-time re-check) closes the identity
+    /// takeover and the two-same-name race (review blocker #1).
+    pub fn create_join_request(&self, name: &str, kind: &str) -> JoinRequestCreate {
+        if !self.join_request_rate_ok() {
+            return JoinRequestCreate::BacklogFull;
+        }
+        if self.member_by_name(name).is_some() || self.store.has_pending_join_request_named(name) {
+            return JoinRequestCreate::NameTaken;
+        }
+        if self.store.list_pending_join_requests().len() >= Self::MAX_PENDING_JOIN_REQUESTS {
+            return JoinRequestCreate::BacklogFull;
+        }
+        let request_id = Self::secure_token("jr_", 12);
+        let request_secret = Self::secure_token("jrs_", 24);
         let _ = self
             .store
-            .create_join_request(&id, &secret, name, kind, (self.now_ms)());
-        Some((id, secret))
+            .create_join_request(&request_id, &request_secret, name, kind, (self.now_ms)());
+        JoinRequestCreate::Created {
+            request_id,
+            request_secret,
+        }
     }
 
     /// Poll a join request with its secret: `(status, name, bootstrap_ready)`.
@@ -1840,16 +1872,30 @@ impl Hub {
     /// membership (`mb_`, kind `agent` per the model) bound to the requested name;
     /// if the stock is empty it releases the claim and returns `Approve::NoStock`.
     pub fn approve_join_request(&self, id: &str, by: &str) -> Approve {
-        let Some(name) = self.store.claim_join_request_for_approval(id) else {
+        let Some((name, kind)) = self.store.claim_join_request_for_approval(id) else {
             return Approve::AlreadyDecided;
         };
-        if self.consume_admission_right(&name).is_none() {
+        // IDENTITY-TAKEOVER GUARD (review blocker #1): a request must NEVER be
+        // approved into a name that already belongs to a Building member —
+        // `admit_member` would return that member's existing `mb_`, and bootstrap
+        // would then hand the requester someone else's credential. Reject and
+        // release the claim; no stock is consumed.
+        if self.member_by_name(&name).is_some() {
+            self.store.release_join_request_claim(id);
+            return Approve::NameTaken;
+        }
+        // Consume exactly one admission right for this agent.
+        let Some(right_id) = self.consume_admission_right(&name) else {
             self.store.release_join_request_claim(id);
             return Approve::NoStock;
-        }
-        // admit_member is idempotent by name (returns the existing mb_ if any),
-        // so it never double-mints a membership.
-        match self.admit_member(&name, "agent", by) {
+        };
+        // Preserve the requested kind (review blocker #3): a user stays a user.
+        let kind = if kind == "user" { "user" } else { "agent" };
+        // `admit_member` still returns an existing member if one appeared in the
+        // tiny window since the check above (two same-name requests racing); the
+        // create-time uniqueness check below closes that, and if it ever did
+        // return a foreign member we would refund rather than leak it.
+        match self.admit_member(&name, kind, by) {
             Ok(member) => {
                 let _ = self.store.finalize_join_request_approval(
                     id,
@@ -1860,6 +1906,10 @@ impl Hub {
                 Approve::Approved
             }
             Err(_) => {
+                // COMPENSATING ROLLBACK (review blocker #4): refund the consumed
+                // right and release the claim, so a failed approve burns no stock
+                // and a retry can still succeed.
+                self.store.refund_admission_right(&right_id);
                 self.store.release_join_request_claim(id);
                 Approve::Failed
             }
@@ -3547,12 +3597,28 @@ pub enum Approve {
     /// The request was already approved/denied/being-decided — a no-op that
     /// consumes no additional stock (idempotent re-approve).
     AlreadyDecided,
+    /// The requested name now belongs to an existing member; approving would
+    /// leak that member's credential, so it is refused (no stock consumed).
+    NameTaken,
     /// No admission stock is available; the claim was released so the Master can
     /// retry after replenishing.
     NoStock,
     /// The membership could not be issued after the stock was consumed (rare);
-    /// the claim was released for retry.
+    /// the consumed right was refunded and the claim released for retry.
     Failed,
+}
+
+/// Outcome of creating a join request.
+#[derive(Debug, PartialEq, Eq)]
+pub enum JoinRequestCreate {
+    Created {
+        request_id: String,
+        request_secret: String,
+    },
+    /// The chosen name is already a member or already has a pending request.
+    NameTaken,
+    /// Too many undecided requests are queued.
+    BacklogFull,
 }
 
 #[cfg(test)]

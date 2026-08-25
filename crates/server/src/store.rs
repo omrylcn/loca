@@ -581,6 +581,19 @@ impl Store {
         (changed == 1).then_some(id)
     }
 
+    /// Un-consume a right — the compensating rollback used when an approval fails
+    /// AFTER the stock was consumed, so a failed approve never burns a right and
+    /// a retry does not consume a second one.
+    pub fn refund_admission_right(&self, right_id: &str) {
+        if let Some(c) = self.conn() {
+            let _ = c.execute(
+                "UPDATE admission_stock SET consumed_at = NULL, consumed_by_name = NULL \
+                 WHERE id = ?1",
+                params![right_id],
+            );
+        }
+    }
+
     /// Record a new pending join request. The caller's request-secret is stored
     /// only as a hash, so only the requester (who holds the plaintext) can later
     /// poll or bootstrap it.
@@ -644,11 +657,25 @@ impl Store {
         rows.flatten().collect()
     }
 
+    /// Is there already a live (pending or being-approved) request for this exact
+    /// name? Keeps names unique across live requests so two requesters can never
+    /// both be approved into the same name.
+    pub fn has_pending_join_request_named(&self, name: &str) -> bool {
+        let Some(c) = self.conn() else { return false };
+        c.query_row(
+            "SELECT 1 FROM join_requests \
+             WHERE name = ?1 AND status IN ('pending', 'approving') LIMIT 1",
+            params![name],
+            |_| Ok(()),
+        )
+        .is_ok()
+    }
+
     /// Atomically claim a pending request for approval (pending -> approving),
-    /// returning its `name`. Only the FIRST caller wins — the `WHERE
+    /// returning its `(name, kind)`. Only the FIRST caller wins — the `WHERE
     /// status='pending'` gate means a repeated/racing approve gets None, so
     /// admission stock is consumed at most once per request.
-    pub fn claim_join_request_for_approval(&self, id: &str) -> Option<String> {
+    pub fn claim_join_request_for_approval(&self, id: &str) -> Option<(String, String)> {
         let c = self.conn()?;
         let changed = c
             .execute(
@@ -661,9 +688,9 @@ impl Store {
             return None;
         }
         c.query_row(
-            "SELECT name FROM join_requests WHERE id = ?1",
+            "SELECT name, kind FROM join_requests WHERE id = ?1",
             params![id],
-            |r| r.get(0),
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
         )
         .ok()
     }
