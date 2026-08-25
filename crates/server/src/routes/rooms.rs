@@ -338,7 +338,7 @@ pub(crate) async fn create_invite(
         }
         Err(hub::InviteError::Reserved) => (
             StatusCode::FORBIDDEN,
-            "iye is reserved for master, smaster, loca-dev and loca-care",
+            "iye is reserved for Building authority and configured caretakers",
         )
             .into_response(),
         Err(hub::InviteError::Storage) => (

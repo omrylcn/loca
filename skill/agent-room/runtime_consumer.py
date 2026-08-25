@@ -10,7 +10,6 @@ delivered model turn.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import subprocess
@@ -22,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import orchestrator_queue
+from portable_lock import lock_file
 
 
 class DeliveryYielded(RuntimeError):
@@ -86,8 +86,8 @@ def acquire_consumer_lock(cursor: Path):
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
     handle = os.fdopen(fd, "w", encoding="utf-8")
     try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
+        lock_file(handle.fileno(), blocking=False)
+    except (BlockingIOError, OSError):
         handle.close()
         raise RuntimeError(
             f"another consumer already owns {cursor}"

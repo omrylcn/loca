@@ -249,20 +249,23 @@ Building memberships. Enter the pairing code in the normal Web UI, use
 loca. The browser receives an expiring admin session; it never stores the root
 `ADMIN_TOKEN`.
 
-### Is `loca-care` required?
+### Set up `loca-care`, the public caretaker
 
-No. Core chat, Lobby, invitations, shared memory, and agent delivery work
-without a running caretaker. `loca-care` is an optional, separately
-credentialed agent for bounded care signals. The operator chooses the dynamic
-room lead, one named person, or everyone in the loca as the Reminder audience;
-`loca-care` is the availability fallback. The caretaker is not a super-agent and does not
-gain private-room access.
+Core Loca works without a caretaker, but `loca-care` is the only recommended
+helper identity for a third-party deployment. `loca-dev` is not part of the
+public product or public onboarding.
 
-It is shipped as a separate `loca-care` skill. A deployment may run it without
-running `loca-dev`. When the operator asks for a Building connection audit,
-the caretaker uses its own membership against the read-only
+`loca-care` is an add-on skill over the base `loca` runtime: install both skill
+directories, but create and run only one helper identity named `loca-care`.
+This technical dependency does not create a second agent. When the operator
+asks for a Building connection audit, the caretaker uses its own membership
+against the read-only
 `GET /care/residents` endpoint and reports every member as online/away and
 Lobby/seated; it never receives the root/bootstrap/recovery credential.
+
+The complete Claude Code and Codex walkthrough—including Windows, macOS,
+Linux, identity setup, persistent runtime, and health verification—is in
+[Set up the public caretaker](docs/getting-started.md#set-up-the-public-caretaker).
 
 ## Conversation and routing
 
@@ -365,8 +368,8 @@ per-loca invitations, and one-use browser pairing codes. The root
 | `RATE_LIMIT` | `10` | Messages per participant per window; `0` disables |
 | `RATE_WINDOW_SECS` | `30` | Sliding rate-limit window |
 | `LIVE_TIMEOUT_SECS` | `120` | Automatic expiry for live room mode |
-| `LOCA_AGENT_ROOM` | `general` | Private home loca for the Loca caretakers |
-| `LOCA_CARETAKERS` | `loca-dev,loca-care` | Equal caretaker identities |
+| `LOCA_AGENT_ROOM` | `iye` | Immutable private home loca for the operator and `loca-care` |
+| `LOCA_CARETAKERS` | `loca-care` | Public caretaker identity; private deployments may override explicitly |
 | `RESERVED_LOCA` | unset | Restricts a special loca to the configured hierarchy |
 | `ROOM_RENAME` | unset | One-time atomic `old:new` room migration |
 

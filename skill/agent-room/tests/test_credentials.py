@@ -927,6 +927,32 @@ exit 1
             self.assertIn("server is required", result.stderr)
             self.assertNotIn("loca.speakbetter.tech", result.stdout + result.stderr)
 
+    def test_update_json_uses_the_atomic_credential_writer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            identity = Path(tmp) / "worker.env"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SKILL_DIR / "credentials.py"),
+                    "update-json",
+                    str(identity),
+                ],
+                input=json.dumps(
+                    {
+                        "ROOM_SERVER_URL": "https://loca.example",
+                        "LOCA_NAME": "worker",
+                        "LOCA_MEMBERSHIP": "mb_private",
+                    }
+                ),
+                text=True,
+                capture_output=True,
+                timeout=5,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            saved = identity.read_text(encoding="utf-8")
+            self.assertIn("LOCA_NAME=worker", saved)
+            self.assertIn("LOCA_MEMBERSHIP=mb_private", saved)
+
 
 if __name__ == "__main__":
     unittest.main()

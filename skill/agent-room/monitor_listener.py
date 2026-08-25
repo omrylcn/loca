@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import signal
@@ -14,6 +13,8 @@ from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
+
+from portable_lock import lock_file
 
 
 def timestamp() -> str:
@@ -111,8 +112,8 @@ def main() -> int:
     lock_fd = os.open(args.lock, os.O_WRONLY | os.O_CREAT, 0o600)
     os.chmod(args.lock, 0o600)
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
+        lock_file(lock_fd, blocking=False)
+    except (BlockingIOError, OSError):
         with open_private(args.log) as log:
             append_log(log, "duplicate monitor supervisor refused")
         emit_terminal_error(args.name, "duplicate monitor supervisor")

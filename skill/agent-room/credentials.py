@@ -9,12 +9,14 @@ to any other origin) because a caller supplied the wrong URL.
 """
 
 import argparse
-import fcntl
+import json
 import os
 import re
 import sys
 import tempfile
 from urllib.parse import urlparse
+
+from portable_lock import lock_file
 
 
 class CredentialError(RuntimeError):
@@ -82,7 +84,7 @@ def update_env_values(path, updates):
     temp_path = None
     try:
         os.chmod(lock_path, 0o600)
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        lock_file(lock_fd)
         try:
             with open(path, encoding="utf-8") as handle:
                 existing = handle.read().splitlines()
@@ -114,7 +116,10 @@ def update_env_values(path, updates):
         fd, temp_path = tempfile.mkstemp(
             prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=parent
         )
-        os.fchmod(fd, 0o600)
+        # fchmod is Unix-only. Windows keeps this file inside the user's
+        # profile; the atomic replace and local ACL remain authoritative.
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write("\n".join(kept))
             if kept:
@@ -124,11 +129,16 @@ def update_env_values(path, updates):
         os.replace(temp_path, path)
         temp_path = None
         os.chmod(path, 0o600)
-        directory_fd = os.open(parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        # POSIX permits opening/fsyncing a directory to make the rename durable.
+        # Windows rejects directory file descriptors even after the file was
+        # successfully replaced, which previously reported a false permission
+        # failure after writing a complete identity.
+        if os.name != "nt":
+            directory_fd = os.open(parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     finally:
         if temp_path:
             try:
@@ -141,23 +151,30 @@ def update_env_values(path, updates):
 def _main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "command", choices=("update",), help="read NUL-separated key/value pairs"
+        "command",
+        choices=("update", "update-json"),
+        help="read NUL-separated key/value pairs or one JSON object",
     )
     parser.add_argument("path", help="identity env file to update")
     args = parser.parse_args()
-    raw = sys.stdin.buffer.read().split(b"\0")
-    if raw and raw[-1] == b"":
-        raw.pop()
-    if len(raw) % 2:
-        parser.error("update input must contain NUL-separated key/value pairs")
-    updates = {}
     try:
-        for index in range(0, len(raw), 2):
-            key = raw[index].decode("utf-8")
-            value = raw[index + 1].decode("utf-8")
-            updates[key] = value if value else None
+        if args.command == "update-json":
+            updates = json.load(sys.stdin)
+            if not isinstance(updates, dict):
+                raise CredentialError("update-json input must be one object")
+        else:
+            raw = sys.stdin.buffer.read().split(b"\0")
+            if raw and raw[-1] == b"":
+                raw.pop()
+            if len(raw) % 2:
+                parser.error("update input must contain NUL-separated key/value pairs")
+            updates = {}
+            for index in range(0, len(raw), 2):
+                key = raw[index].decode("utf-8")
+                value = raw[index + 1].decode("utf-8")
+                updates[key] = value if value else None
         update_env_values(args.path, updates)
-    except (CredentialError, UnicodeDecodeError, OSError) as error:
+    except (CredentialError, UnicodeDecodeError, json.JSONDecodeError, OSError) as error:
         print(f"credential update failed: {error}", file=sys.stderr)
         return 2
     return 0

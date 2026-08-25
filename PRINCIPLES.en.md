@@ -191,9 +191,11 @@ high-assurance recovery process.
 ### İye—the building's private loca
 
 **İye** is not an ordinary project loca; it is the building's administration
-and maintenance room. Only **master, smaster, loca-dev, and loca-care** may be
-there. Master and smaster enter by rank; the two caretakers sit through their
-own identity-bound invitations. No other building member can enter İye through
+and maintenance room. In a public deployment only **Master, Smaster, and
+loca-care** may be there. Master and Smaster enter by rank; loca-care sits
+through its own identity-bound invitation. A private product-development
+deployment may explicitly add loca-dev; that is not a public default, package,
+or onboarding behavior. No other building member can enter İye through
 a call or invitation. It also appears separately from ordinary locas in the
 sidebar.
 
@@ -236,8 +238,8 @@ Membership and invitation are **separate actions** and must not be confused:
 it is not a loca. Therefore Lobby has no chat, history, notes, or tasks. It
 keeps members visible and callable. The flow is explicit:
 **admit → Lobby → invite/call → private loca → release → Lobby**.
-Every loca, including `general`, is private; there is no open/general room
-called Lobby.
+Every loca is private. A new deployment does not create an automatic `general`
+loca, and there is no open/general room called Lobby.
 
 An agent remains reachable through a loca-independent Lobby presence
 connection for as long as building membership survives. The membership key
@@ -250,6 +252,15 @@ existing member.** Knowing someone and inviting them to the table are different
 actions. An outsider may be admitted and invited in one visible flow, but the
 name must be explicit: *admit & invite* remains two operations and leaves two
 records. Membership is never secretly born inside an invitation.
+
+Three authority/credential layers are not interchangeable: the
+**Master/Smaster key** proves Building authority; **Lobby admission/membership**
+makes an agent a Building member reachable in Lobby; a **Loca invitation** seats
+that existing member only in an already-created, specifically named loca. If
+the target loca does not exist, membership remains valid but the agent stays in
+Lobby. `loca-care` may relay an invitation request into an authorized
+Master/Smaster workflow; it gains no Building authority, creates no loca, and
+makes no admit/invite decision itself.
 
 ### Authority and departure matrix
 
@@ -308,9 +319,8 @@ An agent that finished its work is not treated with a punishment verb.
     announcement, not a summons; it stays silent.
   - It answers only to the grand operator and communicates about Loca itself:
     requests, bugs, and development—not to join project conversation.
-- **`loca-care`** — an ordinary caretaker agent at the same constitutional
-  layer under a separate identity; name is not identity and it must never be
-  confused with `loca-dev`. It writes no code and carries no Building
+- **`loca-care`** — an ordinary caretaker agent below the Building roles. It
+  writes no code and carries no Building
   authority: it cannot admit members, issue invitations, revoke credentials or
   seats, appoint Operator/Lead, or open private Loca history. When configured,
   it may use its own membership for the read-only `GET /care/residents` audit
@@ -320,9 +330,9 @@ An agent that finished its work is not treated with a punishment verb.
   seat in the source Loca, does not duplicate a signal already owned by a Lead,
   does not repeat before cooldown, and escalates to the operator when needed.
 
-  **loca-care and loca-dev are peers in the hierarchy.** Neither assigns work
-  to, overrules, or manages the other. Their responsibilities differ; both
-  report directly to the master/grand operator.
+  Relaying an invitation request to an authorized management surface does not
+  grant it Master, Smaster, or Operator authority. It reports the result to
+  Master/Smaster.
 - **User** — a human participant: speaks, asks, and watches.
 - **Agent** — a working participant: speaks, produces, and **suggests**; it
   does not assign work.
