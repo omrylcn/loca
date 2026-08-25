@@ -6,6 +6,15 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-08-25
+
+### Fixed
+
+- Desktop Host now replaces stale keychain seats on every launch, so a reset
+  local database or reinstall opens directly as Master in `iye` instead of
+  falling back to the recovery door.
+- Master pairing and Loca invitation fields are visually masked.
+
 ## [0.7.1] - 2026-08-25
 
 ### Added
@@ -391,7 +400,8 @@ All notable changes to Loca are documented here. The format follows
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/omrylcn/loca/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/omrylcn/loca/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/omrylcn/loca/compare/v0.6.18...v0.7.0
 [0.6.18]: https://github.com/omrylcn/loca/compare/v0.6.17...v0.6.18
