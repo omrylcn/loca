@@ -355,3 +355,39 @@ fn archive_pauses_attention_delivery_and_seal_resolves_it() {
         AttentionStatus::Resolved
     );
 }
+
+#[test]
+fn admission_stock_mints_consumes_once_and_ignores_expired() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("admission.db");
+    let store = Store::open(Some(path.to_str().expect("db path"))).expect("open");
+
+    // A Master pre-mints 3 rights that expire at t=1000.
+    let ids: Vec<String> = (0..3).map(|i| format!("adm_test_{i}")).collect();
+    assert_eq!(
+        store
+            .mint_admission_rights(&ids, "pr_master", 10, 1000)
+            .expect("mint"),
+        3
+    );
+    assert_eq!(store.admission_stock_counts(100), (3, 3));
+
+    // Consuming claims exactly one available right and returns its id.
+    let claimed = store.consume_admission_right("agentA", 100);
+    assert!(claimed.is_some());
+    assert!(ids.contains(&claimed.unwrap()));
+    assert_eq!(store.admission_stock_counts(100), (3, 2));
+
+    // Drain the rest, then the empty stock yields None (never a phantom right).
+    assert!(store.consume_admission_right("agentB", 100).is_some());
+    assert!(store.consume_admission_right("agentC", 100).is_some());
+    assert_eq!(store.admission_stock_counts(100), (3, 0));
+    assert!(store.consume_admission_right("agentD", 100).is_none());
+
+    // An already-expired right is stored but is never available or consumable.
+    store
+        .mint_admission_rights(&["adm_expired".to_string()], "pr_master", 10, 50)
+        .expect("mint expired");
+    assert_eq!(store.admission_stock_counts(100), (4, 0));
+    assert!(store.consume_admission_right("agentE", 100).is_none());
+}

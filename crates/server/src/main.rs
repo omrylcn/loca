@@ -318,6 +318,10 @@ async fn main() {
             axum::routing::post(create_session_route).delete(delete_session_route),
         )
         .route("/pairings", axum::routing::post(create_pairing_route))
+        .route(
+            "/admission-stock",
+            get(get_admission_stock_route).post(create_admission_stock_route),
+        )
         .route("/whoami", get(whoami))
         .route("/profile", get(profile_view))
         .route(

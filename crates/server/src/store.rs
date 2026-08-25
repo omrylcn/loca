@@ -360,6 +360,20 @@ impl Store {
                 ON room_operator_assignments(room) WHERE revoked_at IS NULL;
             CREATE INDEX IF NOT EXISTS room_operator_history
                 ON room_operator_assignments(room, appointed_at, id);
+            -- Admission stock: a Master pre-mints N single-use, time-limited
+            -- Lobby-admission rights. loca-care distributes them; the join-request
+            -- approve step consumes exactly one per admitted agent. Each row is one
+            -- right; consumed_at / consumed_by_name mark its single, final use.
+            CREATE TABLE IF NOT EXISTS admission_stock (
+                id TEXT PRIMARY KEY,
+                minted_by TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                consumed_at INTEGER,
+                consumed_by_name TEXT
+            );
+            CREATE INDEX IF NOT EXISTS admission_stock_available
+                ON admission_stock(consumed_at, expires_at);
             "#,
         )?;
         // Older databases predate message kinds; adding the column is a no-op
@@ -474,6 +488,75 @@ impl Store {
         Ok(Store {
             conn: Some(Mutex::new(conn)),
         })
+    }
+
+    /// Insert one admission-stock row per pre-generated right id (a Master
+    /// pre-minting a batch of single-use Lobby-admission rights). All-or-nothing
+    /// in one transaction, and returns the number of rows actually inserted so
+    /// the caller reports a truthful `minted` count (never the merely-requested
+    /// one) even if the batch is rolled back.
+    pub fn mint_admission_rights(
+        &self,
+        ids: &[String],
+        minted_by: &str,
+        created_at: u64,
+        expires_at: u64,
+    ) -> rusqlite::Result<usize> {
+        let Some(mut c) = self.conn() else { return Ok(0) };
+        let tx = c.transaction()?;
+        let mut inserted = 0usize;
+        for id in ids {
+            inserted += tx.execute(
+                "INSERT INTO admission_stock (id, minted_by, created_at, expires_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![id, minted_by, created_at, expires_at],
+            )?;
+        }
+        tx.commit()?;
+        Ok(inserted)
+    }
+
+    /// `(total_ever, available_now)` where available = unconsumed AND unexpired.
+    pub fn admission_stock_counts(&self, now: u64) -> (u64, u64) {
+        let Some(c) = self.conn() else { return (0, 0) };
+        let total: u64 = c
+            .query_row("SELECT count(*) FROM admission_stock", [], |r| r.get(0))
+            .unwrap_or(0);
+        let available: u64 = c
+            .query_row(
+                "SELECT count(*) FROM admission_stock \
+                 WHERE consumed_at IS NULL AND expires_at > ?1",
+                params![now],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        (total, available)
+    }
+
+    /// Atomically claim exactly one available right (oldest first), marking it
+    /// consumed by `name`. Returns its id, or None if the stock is empty/expired.
+    /// The single `Mutex<Connection>` serialises access, so the SELECT + UPDATE
+    /// pair cannot interleave with another consume; the `consumed_at IS NULL`
+    /// guard on the write keeps it safe even so.
+    pub fn consume_admission_right(&self, name: &str, now: u64) -> Option<String> {
+        let c = self.conn()?;
+        let id: String = c
+            .query_row(
+                "SELECT id FROM admission_stock \
+                 WHERE consumed_at IS NULL AND expires_at > ?1 \
+                 ORDER BY created_at, id LIMIT 1",
+                params![now],
+                |r| r.get(0),
+            )
+            .ok()?;
+        let changed = c
+            .execute(
+                "UPDATE admission_stock SET consumed_at = ?1, consumed_by_name = ?2 \
+                 WHERE id = ?3 AND consumed_at IS NULL",
+                params![now, name, id],
+            )
+            .ok()?;
+        (changed == 1).then_some(id)
     }
 
     pub fn is_persistent(&self) -> bool {

@@ -535,6 +535,63 @@ pub(crate) async fn create_pairing_route(
         None => (StatusCode::CONFLICT, "ADMIN_TOKEN is not configured").into_response(),
     }
 }
+#[derive(serde::Deserialize)]
+pub(crate) struct MintAdmissionStock {
+    count: u32,
+    ttl_hours: Option<u64>,
+}
+
+fn admission_ttl_ms(ttl_hours: Option<u64>) -> Result<u64, &'static str> {
+    let hours = ttl_hours.unwrap_or(24);
+    let ms = hours
+        .checked_mul(60 * 60 * 1000)
+        .ok_or("ttl_hours is too large")?;
+    // Bound the lifetime to 1 hour .. 90 days.
+    if !(60 * 60 * 1000..=90 * 24 * 60 * 60 * 1000).contains(&ms) {
+        return Err("ttl_hours must be between 1 and 2160 (90 days)");
+    }
+    Ok(ms)
+}
+
+/// POST /admission-stock — a Master pre-mints a batch of single-use,
+/// time-limited Lobby-admission rights that loca-care later hands out. Only the
+/// resulting counts are returned; the right tokens never leave the server (they
+/// are delivered one-at-a-time when the join-request approve step consumes one).
+pub(crate) async fn create_admission_stock_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    Json(body): Json<MintAdmissionStock>,
+) -> impl IntoResponse {
+    if !is_master_req(&hub, &headers) {
+        return (StatusCode::UNAUTHORIZED, "master required").into_response();
+    }
+    if body.count == 0 || body.count > 100 {
+        return (StatusCode::BAD_REQUEST, "count must be between 1 and 100").into_response();
+    }
+    let ttl_ms = match admission_ttl_ms(body.ttl_hours) {
+        Ok(ms) => ms,
+        Err(message) => return (StatusCode::BAD_REQUEST, message).into_response(),
+    };
+    let (minted, total, available) = hub.mint_admission_stock(body.count, ttl_ms);
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "minted": minted, "total": total, "available": available })),
+    )
+        .into_response()
+}
+
+/// GET /admission-stock — the Master's remaining admission capacity.
+pub(crate) async fn get_admission_stock_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !is_master_req(&hub, &headers) {
+        return (StatusCode::UNAUTHORIZED, "master required").into_response();
+    }
+    let (total, available) = hub.admission_stock_summary();
+    Json(serde_json::json!({ "total": total, "available": available })).into_response()
+}
+
 pub(crate) async fn delete_session_route(
     State(hub): State<Hub>,
     headers: HeaderMap,

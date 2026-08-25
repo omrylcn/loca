@@ -1764,6 +1764,42 @@ impl Hub {
         Some(session_ttl_ms)
     }
 
+    /// A Master pre-mints `count` single-use, time-limited Lobby-admission
+    /// rights. Returns `(total_ever, available_now)`. Master authority is
+    /// enforced at the route (`is_master_req`); `minted_by` is the Master
+    /// principal. The right ids are server-generated CSPRNG tokens and are NOT
+    /// returned — a right is delivered only when the join-request approve step
+    /// consumes it.
+    pub fn mint_admission_stock(&self, count: u32, ttl_ms: u64) -> (u64, u64, u64) {
+        let now = (self.now_ms)();
+        let expires_at = now.saturating_add(ttl_ms);
+        let minted_by = self
+            .store
+            .active_master_principal()
+            .map(|principal| principal.id)
+            .unwrap_or_else(|| "master".to_string());
+        let ids: Vec<String> = (0..count).map(|_| Self::secure_token("adm_", 24)).collect();
+        let minted = self
+            .store
+            .mint_admission_rights(&ids, &minted_by, now, expires_at)
+            .unwrap_or(0) as u64;
+        let (total, available) = self.store.admission_stock_counts(now);
+        (minted, total, available)
+    }
+
+    /// `(total_ever, available_now)` admission-stock summary for the Master view.
+    pub fn admission_stock_summary(&self) -> (u64, u64) {
+        self.store.admission_stock_counts((self.now_ms)())
+    }
+
+    /// Claim exactly one available admission right for `name`. The join-request
+    /// approve step calls this before issuing the Lobby membership; `None` means
+    /// the stock is empty/expired and approval must be refused (ask the Master to
+    /// replenish). Returns only the consumed right's id — never a credential.
+    pub fn consume_admission_right(&self, name: &str) -> Option<String> {
+        self.store.consume_admission_right(name, (self.now_ms)())
+    }
+
     /// Same, but taken with a davet: the session is confined to the davet's
     /// loca AND its identity comes from the davet's member — the session is
     /// proof of who the davet seats, not of whatever name the request body

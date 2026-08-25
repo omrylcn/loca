@@ -25,8 +25,9 @@ pub(crate) use content::{
 };
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};
 pub(crate) use membership::{
-    admit_member, caretaker_residents, claim_membership, create_pairing_route,
-    create_profile_credential_route, create_session_route, create_smaster, delete_session_route,
+    admit_member, caretaker_residents, claim_membership, create_admission_stock_route,
+    create_pairing_route, create_profile_credential_route, create_session_route, create_smaster,
+    delete_session_route, get_admission_stock_route,
     list_members, list_profile_credentials, list_profiles, list_residents, list_smasters,
     pairing_ttl_ms, profile_view, revoke_member_route, revoke_profile_credential_route,
     revoke_smaster_route, whoami,
