@@ -616,3 +616,41 @@ fn main() {
         }
     });
 }
+
+#[cfg(test)]
+mod admin_token_boundary {
+    use super::*;
+
+    // The Host's local ADMIN_TOKEN lives in the OS keychain under this key
+    // (standalone::ADMIN_KEY). The raw master token must stay in Rust/keychain and
+    // NEVER cross to the webview, the process argv, chat, or logs. These tests
+    // fence the webview boundary directly: the admin-token key is NOT among the
+    // values mirrored into the injected boot cache (KC_KEYS), and the two
+    // webview-facing keychain commands refuse it — so a compromised webview can
+    // neither read nor plant it. (argv: the token is handed to the child via
+    // Command::env, never an argument; chat/log: the desktop never posts or
+    // eprintln!s the token — both verifiable by inspection of spawn()/the shims.)
+    const ADMIN_TOKEN_KEY: &str = "loca-local-admin"; // must match standalone::ADMIN_KEY
+
+    #[test]
+    fn admin_token_key_is_not_mirrored_into_the_webview() {
+        assert!(
+            !KC_KEYS.contains(&ADMIN_TOKEN_KEY),
+            "the raw admin token key must never be injected into the webview boot cache"
+        );
+    }
+
+    #[test]
+    fn webview_cannot_read_the_admin_token() {
+        // kc_get serves only KC_KEYS; any other key (incl. the admin token) returns
+        // None at the guard, without ever touching the keychain.
+        assert!(kc_get(ADMIN_TOKEN_KEY.to_string()).unwrap().is_none());
+    }
+
+    #[test]
+    fn webview_cannot_write_the_admin_token() {
+        // kc_set refuses any key outside KC_KEYS, so the webview cannot smuggle the
+        // admin token (or any unknown key) into the keychain.
+        assert!(kc_set(ADMIN_TOKEN_KEY.to_string(), "attacker".to_string()).is_err());
+    }
+}
