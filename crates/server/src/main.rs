@@ -293,6 +293,19 @@ async fn main() {
             .route("/api/members", axum::routing::post(admin_console_admit))
             .route("/api/invites", axum::routing::post(admin_console_invite))
             .route("/api/pairing", axum::routing::post(admin_console_pairing))
+            .route("/api/join-requests", get(admin_console_join_requests))
+            .route(
+                "/api/join-requests/:id/approve",
+                axum::routing::post(admin_console_approve_join_request),
+            )
+            .route(
+                "/api/join-requests/:id/deny",
+                axum::routing::post(admin_console_deny_join_request),
+            )
+            .route(
+                "/api/admission-stock",
+                axum::routing::post(admin_console_mint_stock),
+            )
             .with_state(hub.clone());
         let admin_listener = tokio::net::TcpListener::bind(admin_addr)
             .await
@@ -718,6 +731,113 @@ async fn admin_console_pairing(
             .into_response(),
         None => (StatusCode::CONFLICT, "ADMIN_TOKEN is not configured").into_response(),
     }
+}
+
+/// Master desk: pending join requests + the current admission-stock summary in a
+/// single read, so the console renders the approval queue and the stock gauge
+/// from one poll. Read-only (the console port is loopback/SSH-forwarded).
+async fn admin_console_join_requests(State(hub): State<Hub>) -> impl IntoResponse {
+    let pending: Vec<_> = hub
+        .list_pending_join_requests()
+        .into_iter()
+        .map(|(id, name, kind, created_at)| {
+            serde_json::json!({ "id": id, "name": name, "kind": kind, "created_at": created_at })
+        })
+        .collect();
+    let (total, available) = hub.admission_stock_summary();
+    Json(serde_json::json!({
+        "pending": pending,
+        "stock": { "total": total, "available": available },
+    }))
+    .into_response()
+}
+
+/// Master desk: approve a pending join request. Consumes exactly one admission
+/// right and issues the Lobby membership atomically (see `approve_join_request`).
+async fn admin_console_approve_join_request(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if !admin_console_write_allowed(&headers) {
+        return (StatusCode::FORBIDDEN, "master desk request required").into_response();
+    }
+    match hub.approve_join_request(&id, "master-console") {
+        crate::hub::Approve::Approved => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "approved" })),
+        )
+            .into_response(),
+        crate::hub::Approve::AlreadyDecided => {
+            (StatusCode::CONFLICT, "already decided").into_response()
+        }
+        crate::hub::Approve::NameTaken => (
+            StatusCode::CONFLICT,
+            "that name already exists — choose another",
+        )
+            .into_response(),
+        crate::hub::Approve::NoStock => {
+            (StatusCode::CONFLICT, "no admission stock — mint some first").into_response()
+        }
+        crate::hub::Approve::Failed => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not approve — try again",
+        )
+            .into_response(),
+    }
+}
+
+/// Master desk: deny a pending join request.
+async fn admin_console_deny_join_request(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if !admin_console_write_allowed(&headers) {
+        return (StatusCode::FORBIDDEN, "master desk request required").into_response();
+    }
+    if hub.deny_join_request(&id, "master-console") {
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({ "status": "denied" })),
+        )
+            .into_response()
+    } else {
+        (StatusCode::CONFLICT, "already decided or not found").into_response()
+    }
+}
+
+/// Master desk: pre-mint single-use, time-limited admission rights (each one is
+/// consumed by exactly one approval). ttl_hours defaults to 24, bounded 1..2160.
+async fn admin_console_mint_stock(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    if !admin_console_write_allowed(&headers) {
+        return (StatusCode::FORBIDDEN, "master desk request required").into_response();
+    }
+    let count = body.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
+    if count == 0 || count > 100 {
+        return (StatusCode::BAD_REQUEST, "count must be between 1 and 100").into_response();
+    }
+    let hours = body.get("ttl_hours").and_then(|v| v.as_u64()).unwrap_or(24);
+    let Some(ttl_ms) = hours.checked_mul(60 * 60 * 1000) else {
+        return (StatusCode::BAD_REQUEST, "ttl_hours is too large").into_response();
+    };
+    if !(60 * 60 * 1000..=90 * 24 * 60 * 60 * 1000).contains(&ttl_ms) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "ttl_hours must be between 1 and 2160 (90 days)",
+        )
+            .into_response();
+    }
+    let (minted, total, available) = hub.mint_admission_stock(count as u32, ttl_ms);
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "minted": minted, "total": total, "available": available })),
+    )
+        .into_response()
 }
 
 /// Health + boot epoch + whether a room token is required. Clients poll this to

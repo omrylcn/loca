@@ -6,6 +6,18 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-08-26
+
+### Added
+
+- The Master Desk now lists pending join requests, approves or denies them, and
+  shows or mints admission stock without requiring direct API calls.
+
+### Fixed
+
+- Workspace and Desktop lockfile package versions now remain aligned with the
+  release version for reproducible `--locked` builds.
+
 ## [0.8.0] - 2026-08-26
 
 ### Added
