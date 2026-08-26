@@ -755,3 +755,23 @@
 .jrnotice { color: var(--accent); font-size: 11px; min-height: 1em; margin-top: 6px; }
 .jrerr { color: #f0a; font-size: 11px; padding: 6px 0; }
 .jrstale { color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-bottom: 4px; }
+
+/* Getting Started overlay — first-open guide + reopen via ? Help. */
+.gsoverlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.gsoverlay.hidden { display: none; }
+.gsbackdrop { position: absolute; inset: 0; border: 0; padding: 0; background: rgba(3,5,8,.66); cursor: default; }
+.gscard { position: relative; width: min(520px, 94vw); max-height: 90vh; overflow-y: auto; padding: 22px 24px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel2); box-shadow: 0 24px 70px rgba(0,0,0,.5); }
+.gsclose { position: absolute; top: 12px; right: 12px; border: 0; background: transparent; color: var(--dim); font-size: 16px; line-height: 1; padding: 4px; cursor: pointer; }
+.gsclose:hover { color: var(--txt); }
+.gsmark { margin-bottom: 8px; }
+.gscard h2 { margin: 0 0 4px; font-size: 18px; color: var(--txt); letter-spacing: .01em; }
+.gslede { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
+.gssteps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
+.gssteps li { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.gssteps li b { color: var(--txt); font-weight: 600; }
+.gssteps li::marker { color: var(--accent); font-weight: 700; }
+.gsfoot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.gshint { color: var(--dim); font-size: 10px; }
+.gshint b { color: var(--accent2); }
+.gsgot { border: 1px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent2); font-size: 12px; font-weight: 600; padding: 8px 18px; cursor: pointer; }
+.gsgot:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }

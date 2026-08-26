@@ -47,6 +47,16 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("memory.js", "text/javascript", "function renderNotes("),
         ("api.js", "text/javascript", "async function send()"),
         ("app.js", "text/javascript", "refreshRooms();"),
+        (
+            "joinrequest.js",
+            "text/javascript",
+            "async function startJoinRequest",
+        ),
+        (
+            "getstarted.js",
+            "text/javascript",
+            "window.openGettingStarted",
+        ),
     ];
     for (name, content_type, marker) in assets {
         assert!(
@@ -82,6 +92,37 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             Some("nosniff")
         );
         assert!(response.text().await.unwrap().contains(marker), "{name}");
+    }
+
+    // Exhaustive fence for the referenced-but-unserved class: joinrequest.js
+    // once 404'd on prod because it was referenced in the shell yet missing
+    // from the asset allow-list. Derive the list FROM the shell so no future
+    // asset can be referenced without also being served.
+    let mut referenced: Vec<String> = Vec::new();
+    for piece in shell_body.split("/assets/").skip(1) {
+        let name: String = piece
+            .chars()
+            .take_while(|c| !matches!(c, '"' | '\'' | '?' | '#') && !c.is_whitespace())
+            .collect();
+        if !name.is_empty() && !referenced.iter().any(|existing| existing == &name) {
+            referenced.push(name);
+        }
+    }
+    assert!(
+        referenced.iter().any(|name| name == "joinrequest.js"),
+        "test sanity: the shell should reference joinrequest.js"
+    );
+    for name in &referenced {
+        let response = client
+            .get(format!("{base}/assets/{name}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::OK,
+            "the shell references /assets/{name} but the server does not serve it"
+        );
     }
     assert_eq!(
         client

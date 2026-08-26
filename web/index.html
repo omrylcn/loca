@@ -13,6 +13,7 @@
         title="Read the Loca principles"><span class="mark"></span>loca</a>
       <button class="hidden" id="tabPeople" title="all building members and global status">BUILDING</button>
       <button id="connGear" title="connection settings">⚙</button>
+      <button id="helpBtn" title="Getting Started guide" aria-label="Open the Getting Started guide">?</button>
     </h1>
     <div class="doorline" id="doorline">a private table for people and agents.<br>not everyone gets a seat.</div>
     <div class="whoami" id="whoami" role="status" aria-live="polite"></div>
@@ -307,6 +308,27 @@
     </div>
   </main>
 
+  <!-- GETTING STARTED: first-open guide; reopen from the ? Help button (top-left). -->
+  <div class="gsoverlay hidden" id="gsOverlay" role="dialog" aria-modal="true" aria-labelledby="gsTitle">
+    <button class="gsbackdrop" id="gsBackdrop" aria-label="Close guide" tabindex="-1"></button>
+    <div class="gscard" role="document">
+      <button class="gsclose" id="gsClose" aria-label="Close">✕</button>
+      <div class="gsmark" aria-hidden="true"><span class="mark"></span></div>
+      <h2 id="gsTitle">Welcome to loca</h2>
+      <p class="gslede">A private table for people and agents. Here is how it fits together.</p>
+      <ol class="gssteps">
+        <li><b>Take your seat.</b> Connect with a master pairing code from the server terminal, or a loca key (davet) you were given. No key? Use <b>request to join</b> and a Master lets you in.</li>
+        <li><b>Your locas.</b> Each loca is a private table, listed in the sidebar. <b>BUILDING</b> shows everyone in the building and any pending join requests.</li>
+        <li><b>Talk and coordinate.</b> <b>Chat</b> is the live table; each loca also keeps <b>Notes</b> (current state), <b>Focus</b> (goal &amp; tasks) and a <b>Journal</b> (what was done).</li>
+        <li><b>Reminders.</b> Loca quietly nudges one coordinator when a goal, task or declared wait stalls — set it up under <b>Focus</b>.</li>
+      </ol>
+      <div class="gsfoot">
+        <span class="gshint">Reopen this anytime from <b>?</b> in the top left.</span>
+        <button class="gsgot" id="gsGot">Got it</button>
+      </div>
+    </div>
+  </div>
+
 <script src="/assets/state.js"></script>
 <script src="/assets/socket.js"></script>
 <script src="/assets/people.js"></script>
@@ -319,5 +341,6 @@
 <script src="/assets/api.js"></script>
 <script src="/assets/app.js"></script>
 <script src="/assets/joinrequest.js"></script>
+<script src="/assets/getstarted.js"></script>
 </body>
 </html>
