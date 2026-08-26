@@ -1,5 +1,17 @@
 const { test, expect } = require("@playwright/test");
 
+// The Getting Started guide auto-shows on a fresh browser (empty localStorage)
+// and its backdrop intercepts clicks. These specs drive the connected app, not
+// onboarding, so start past the guide. (getting-started.spec.js deliberately
+// does NOT seed this — it tests the first-open guide itself.)
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("loca-gs-seen", "1");
+    } catch (e) {}
+  });
+});
+
 // Faz 3 (desktop native notifications) event contract, tested at the shared-UI
 // layer: which WS frames call window.__LOCA_NOTIFY__ (and with what), driven
 // through the real onFrame dispatcher. The foreground-dedup and the actual OS

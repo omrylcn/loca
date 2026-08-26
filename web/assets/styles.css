@@ -33,6 +33,9 @@
   body.locked .rooms, body.locked .newroom, body.locked .online, body.locked .whoami,
   body.locked .sideviewtabs, body.locked .sideview { display: none; }
   body.locked .side h1 button { display: none; }
+  /* ...but a first-time Host arrives at the locked door — keep the Getting
+     Started "?" reachable there so the guide can be reopened before connecting. */
+  body.locked .side h1 #helpBtn { display: inline-block; }
   body.locked .conn { border-bottom: 0; padding: 14px 18px 18px; }
   .doorline { padding: 0 18px 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
   body:not(.locked) .doorline { display: none; }

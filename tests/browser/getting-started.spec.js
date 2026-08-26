@@ -13,7 +13,11 @@ test("first open shows the guide once; 'Got it' dismisses it and it stays dismis
   const gs = page.locator("#gsOverlay");
   await expect(gs).toBeVisible();
   await expect(gs).toContainText("Welcome to loca");
-  await expect(gs).toContainText("Take your seat");
+  // Content fence: the acceptance-contract items must actually be in the guide.
+  await expect(gs).toContainText("You host the building");
+  await expect(gs).toContainText("Claude Code or Codex");
+  await expect(gs).toContainText("loca-care");
+  await expect(gs).toContainText("Care");
 
   // Dismiss with "Got it" -> hidden and remembered.
   await page.locator("#gsGot").click();
