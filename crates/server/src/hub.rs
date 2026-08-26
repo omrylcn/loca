@@ -1870,7 +1870,7 @@ impl Hub {
 
     /// Post a visible "<name> wants to join" announcement into the home loca so
     /// the request surfaces in the main app (not only the admin desk). Persisted
-    /// + broadcast, addressed to the lead (falling back to `all`) so a filtered
+    /// and broadcast, addressed to the lead (falling back to `all`) so a filtered
     /// runtime wakes. Never carries any secret — just the requested name/kind.
     fn announce_join_request(&self, name: &str, kind: &str) {
         let room = self.home_room.as_ref().clone();
