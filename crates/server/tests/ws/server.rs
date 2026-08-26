@@ -151,7 +151,18 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         .get("content-type")
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("text/markdown")));
-    assert!(doc.text().await.unwrap().contains("Getting started"));
+    let doc_body = doc.text().await.unwrap();
+    assert!(doc_body.contains("Getting started"));
+    // Lock the linked doc to the current version + main-app join flow: it once
+    // pinned v0.7.0 and taught the old master-desk membership admission.
+    assert!(
+        !doc_body.contains("0.7.0"),
+        "getting-started doc must not reference the stale 0.7.0 release"
+    );
+    assert!(
+        doc_body.contains("request to join"),
+        "getting-started doc must describe the current join-request admission"
+    );
 
     let oversized = serde_json::json!({
         "sender": "operator",
