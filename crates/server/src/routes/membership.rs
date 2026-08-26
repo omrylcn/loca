@@ -562,8 +562,8 @@ pub(crate) async fn create_admission_stock_route(
     headers: HeaderMap,
     Json(body): Json<MintAdmissionStock>,
 ) -> impl IntoResponse {
-    if !is_master_req(&hub, &headers) {
-        return (StatusCode::UNAUTHORIZED, "master required").into_response();
+    if !is_admin_req(&hub, &headers) {
+        return (StatusCode::UNAUTHORIZED, "building admin required").into_response();
     }
     if body.count == 0 || body.count > 100 {
         return (StatusCode::BAD_REQUEST, "count must be between 1 and 100").into_response();
@@ -585,8 +585,8 @@ pub(crate) async fn get_admission_stock_route(
     State(hub): State<Hub>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !is_master_req(&hub, &headers) {
-        return (StatusCode::UNAUTHORIZED, "master required").into_response();
+    if !is_admin_req(&hub, &headers) {
+        return (StatusCode::UNAUTHORIZED, "building admin required").into_response();
     }
     let (total, available) = hub.admission_stock_summary();
     Json(serde_json::json!({ "total": total, "available": available })).into_response()
@@ -737,8 +737,8 @@ pub(crate) async fn list_join_requests_route(
     State(hub): State<Hub>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !is_master_req(&hub, &headers) {
-        return (StatusCode::UNAUTHORIZED, "master required").into_response();
+    if !is_admin_req(&hub, &headers) {
+        return (StatusCode::UNAUTHORIZED, "building admin required").into_response();
     }
     let pending: Vec<_> = hub
         .list_pending_join_requests()
@@ -757,8 +757,8 @@ pub(crate) async fn approve_join_request_route(
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    if !is_master_req(&hub, &headers) {
-        return (StatusCode::UNAUTHORIZED, "master required").into_response();
+    if !is_admin_req(&hub, &headers) {
+        return (StatusCode::UNAUTHORIZED, "building admin required").into_response();
     }
     let by = hub
         .smaster_name(admin_token_of(&headers))
@@ -799,8 +799,8 @@ pub(crate) async fn deny_join_request_route(
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    if !is_master_req(&hub, &headers) {
-        return (StatusCode::UNAUTHORIZED, "master required").into_response();
+    if !is_admin_req(&hub, &headers) {
+        return (StatusCode::UNAUTHORIZED, "building admin required").into_response();
     }
     // Record WHICH authority denied, matching the approve route's audit trail.
     let by = hub

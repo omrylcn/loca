@@ -521,3 +521,38 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_one_time() {
     assert!(store.deny_join_request("jr_2", "master", 200));
     assert!(!store.deny_join_request("jr_2", "master", 201));
 }
+
+#[test]
+fn approve_records_the_deciding_authority_for_audit() {
+    // The approving authority is written to `decided_by`, so a Smaster approval
+    // is auditable as `smaster:<name>` (the route computes that; here we lock
+    // that the store faithfully records whatever authority approved).
+    let directory = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(Some(
+        directory.path().join("audit.db").to_str().expect("path"),
+    ))
+    .expect("open");
+    store
+        .mint_admission_rights(&["adm_0".into()], "pr_master", 10, 10_000)
+        .expect("mint");
+    store
+        .create_join_request("jr_a", "sa", "guest", "agent", 100)
+        .expect("create");
+    assert!(matches!(
+        store.approve_join_request_atomic("jr_a", "mb_g", "smaster:deputy", 200),
+        super::ApproveTxn::Committed(_)
+    ));
+    let decided_by: String = store
+        .conn()
+        .expect("persistent store")
+        .query_row(
+            "SELECT decided_by FROM join_requests WHERE id = ?1",
+            ["jr_a"],
+            |r| r.get(0),
+        )
+        .expect("decided_by");
+    assert_eq!(
+        decided_by, "smaster:deputy",
+        "the approving authority is recorded for audit"
+    );
+}

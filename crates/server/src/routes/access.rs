@@ -119,9 +119,10 @@ pub(crate) async fn require_membership(
         || path == "/membership/claim"
         // Join requests are authless BY DESIGN: an outsider creates one, polls it,
         // and bootstraps the issued mb_ with only the per-request secret — none of
-        // which is a Building credential. The Master-only sub-routes (GET list,
-        // approve, deny) still enforce `is_master_req` inside their handlers, so
-        // waving the whole prefix past this blanket membership gate is safe.
+        // which is a Building credential. The admin-only sub-routes (GET list,
+        // approve, deny) still enforce `is_admin_req` (Master or Smaster) inside
+        // their handlers, so waving the whole prefix past this membership gate is
+        // safe.
         || path.starts_with("/join-requests")
         || path.starts_with("/ws")
         || path.starts_with("/lobby/ws");

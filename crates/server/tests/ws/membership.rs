@@ -989,3 +989,141 @@ async fn whoami_recognizes_a_member() {
     assert_eq!(who["kind"], "member");
     assert_eq!(who["name"], "cyber");
 }
+
+/// Admissions are a building-admin act, not master-only: a Smaster can list and
+/// act on join requests and mint admission stock, exactly as they can admit
+/// members. The approve route already records `smaster:{name}`, so the auth
+/// check must accept a Smaster (was wrongly `is_master_req`, now `is_admin_req`).
+#[tokio::test]
+async fn smaster_can_manage_join_requests_and_stock() {
+    // Join requests live in the store (not the in-memory member cache), so this
+    // needs a real connection — the default no-DB_PATH server is a no-op store.
+    let (port, _guard) = spawn_server_env("MASTER", &[("DB_PATH", ":memory:".into())]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    // The Master appoints a Smaster.
+    let sm: Value = client
+        .post(format!("{base}/smasters"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "name": "deputy" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let sm_token = sm["token"].as_str().unwrap();
+
+    // The Smaster can read the pending list — 401 back when it was master-only.
+    let list = client
+        .get(format!("{base}/join-requests"))
+        .header("x-admin-token", sm_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        list.status(),
+        200,
+        "a smaster must be able to list join requests"
+    );
+
+    // …and mint admission stock.
+    let mint = client
+        .post(format!("{base}/admission-stock"))
+        .header("x-admin-token", sm_token)
+        .json(&serde_json::json!({ "count": 1 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        mint.status(),
+        201,
+        "a smaster must be able to mint admission stock"
+    );
+
+    // The Smaster can APPROVE: an outside agent requests, the smaster approves,
+    // and the single minted right is consumed EXACTLY once.
+    let created: Value = client
+        .post(format!("{base}/join-requests"))
+        .json(&serde_json::json!({ "name": "guest", "kind": "agent" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let jr_id = created["request_id"].as_str().unwrap();
+    let approve = client
+        .post(format!("{base}/join-requests/{jr_id}/approve"))
+        .header("x-admin-token", sm_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(approve.status(), 200, "a smaster must be able to approve");
+    let stock: Value = client
+        .get(format!("{base}/admission-stock"))
+        .header("x-admin-token", sm_token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        stock["available"], 0,
+        "approve consumes the one minted right exactly once"
+    );
+
+    // …and DENY a second request.
+    let created2: Value = client
+        .post(format!("{base}/join-requests"))
+        .json(&serde_json::json!({ "name": "guest2", "kind": "agent" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let jr2 = created2["request_id"].as_str().unwrap();
+    let deny = client
+        .post(format!("{base}/join-requests/{jr2}/deny"))
+        .header("x-admin-token", sm_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(deny.status(), 200, "a smaster must be able to deny");
+
+    // Neither the approved nor the denied request remains pending.
+    let pending: Value = client
+        .get(format!("{base}/join-requests"))
+        .header("x-admin-token", sm_token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let names: Vec<&str> = pending["pending"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        !names.contains(&"guest") && !names.contains(&"guest2"),
+        "approved and denied requests leave the pending list"
+    );
+
+    // A non-admin (no credential) is still refused at the handler.
+    let anon = client
+        .get(format!("{base}/join-requests"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        anon.status(),
+        401,
+        "a non-admin must not read join requests"
+    );
+}
