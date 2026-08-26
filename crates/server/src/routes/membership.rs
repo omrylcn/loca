@@ -792,7 +792,12 @@ pub(crate) async fn deny_join_request_route(
     if !is_master_req(&hub, &headers) {
         return (StatusCode::UNAUTHORIZED, "master required").into_response();
     }
-    if hub.deny_join_request(&id, "master") {
+    // Record WHICH authority denied, matching the approve route's audit trail.
+    let by = hub
+        .smaster_name(admin_token_of(&headers))
+        .map(|n| format!("smaster:{n}"))
+        .unwrap_or_else(|| "master".into());
+    if hub.deny_join_request(&id, &by) {
         (
             StatusCode::OK,
             Json(serde_json::json!({ "status": "denied" })),

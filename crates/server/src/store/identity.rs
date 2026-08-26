@@ -758,7 +758,12 @@ impl Store {
     }
 }
 
-fn insert_principal_credential(
+/// Register a `members`/`smasters` row's identity in the identity-v2
+/// principals + credentials tables. `add_member` calls this; the join-request
+/// atomic approve (in the parent module) calls it too, so an approve-issued
+/// `mb_` authenticates immediately on a persistent store instead of only after
+/// the next restart-time migration. `pub(super)` so `store.rs` can reuse it.
+pub(super) fn insert_principal_credential(
     tx: &rusqlite::Transaction<'_>,
     role: &str,
     token: &str,

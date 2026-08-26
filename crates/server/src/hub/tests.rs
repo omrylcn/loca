@@ -1854,3 +1854,66 @@ fn join_request_rate_limit_is_per_source_not_global() {
         JoinRequestCreate::Created { .. }
     ));
 }
+
+#[test]
+fn approve_issued_membership_authenticates_on_a_persistent_store() {
+    use super::{Approve, JoinRequestCreate};
+    let _clock = TEST_CLOCK_LOCK.lock().expect("clock lock");
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("lobby-auth.db");
+    // A PERSISTENT (file-backed) store: the Lobby authenticates through the
+    // credentials table here, NOT the in-memory cache (which only backs a
+    // non-persistent store), so this is the configuration that caught the bug.
+    let store = Arc::new(Store::open(Some(path.to_str().expect("db path"))).expect("store"));
+    store
+        .ensure_master_principal("MASTER", "operator", 1)
+        .expect("master");
+    let mut hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        store,
+        RoomSettings::default(),
+        1,
+    );
+    hub.now_ms = test_now_ms;
+    TEST_NOW.store(1_000, Ordering::Relaxed);
+
+    // Master mints one right; an outside agent requests to join.
+    hub.mint_admission_stock(1, 3_600_000);
+    let ip: std::net::IpAddr = "10.0.0.5".parse().unwrap();
+    let JoinRequestCreate::Created {
+        request_id,
+        request_secret,
+    } = hub.create_join_request("newbie", "agent", ip)
+    else {
+        panic!("expected Created");
+    };
+
+    // Master approves; the agent bootstraps its mb_ exactly once.
+    assert!(matches!(
+        hub.approve_join_request(&request_id, "operator"),
+        Approve::Approved
+    ));
+    let mb = hub
+        .claim_join_request_bootstrap(&request_id, &request_secret)
+        .expect("bootstrap yields the mb_");
+    assert!(mb.starts_with("mb_"));
+
+    // REGRESSION GUARD (review blocker): the approve-issued mb_ must AUTHENTICATE
+    // immediately at the Lobby entry point on a persistent store. `member_for_credential`
+    // resolves through the credentials table here — RED before the fix (approve wrote
+    // only the `members` row, so this returned None -> the joining agent got 401
+    // until an unrelated server restart backfilled the credential).
+    let member = hub
+        .member_for_credential(Some(&mb))
+        .expect("approve-issued mb_ must authenticate immediately on a persistent store");
+    assert_eq!(member.name, "newbie");
+    assert_eq!(member.kind, "agent");
+}

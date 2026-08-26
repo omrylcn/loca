@@ -3591,11 +3591,12 @@ pub enum Approve {
     /// The requested name now belongs to an existing member; approving would
     /// leak that member's credential, so it is refused (no stock consumed).
     NameTaken,
-    /// No admission stock is available; the claim was released so the Master can
-    /// retry after replenishing.
+    /// No admission stock is available; the transaction rolled back, so the
+    /// request stays pending and no right is consumed — the Master can retry
+    /// after replenishing.
     NoStock,
-    /// The membership could not be issued after the stock was consumed (rare);
-    /// the consumed right was refunded and the claim released for retry.
+    /// A DB error rolled the whole approval back (rare); nothing was persisted —
+    /// no member, no consumed right — and the request stays pending for retry.
     Failed,
 }
 

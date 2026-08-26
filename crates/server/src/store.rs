@@ -737,7 +737,12 @@ impl Store {
             }
         }
 
-        // 4) Insert the fresh Lobby member.
+        // 4) Insert the fresh Lobby member — into `members` AND the identity-v2
+        //    principals/credentials tables (exactly what `add_member` does), so
+        //    the issued `mb_` authenticates IMMEDIATELY on a persistent store.
+        //    Writing only `members` here made the credential resolve only after
+        //    the next restart-time migration, so a freshly-approved agent got
+        //    401 at the Lobby until a restart (review blocker).
         if tx
             .execute(
                 "INSERT INTO members (token, name, kind, joined_at, admitted_by, revoked_at) \
@@ -745,6 +750,20 @@ impl Store {
                 params![mb_token, name, kind, now, by],
             )
             .is_err()
+        {
+            let _ = tx.rollback();
+            return ApproveTxn::Failed;
+        }
+        if identity::insert_principal_credential(
+            &tx,
+            "member",
+            mb_token,
+            &name,
+            &kind,
+            now,
+            "Member access",
+        )
+        .is_err()
         {
             let _ = tx.rollback();
             return ApproveTxn::Failed;

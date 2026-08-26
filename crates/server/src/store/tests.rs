@@ -471,6 +471,15 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_one_time() {
         ("mb_bot", "bot", "agent")
     );
     assert_eq!(store.admission_stock_counts(200), (2, 1));
+    // The issued mb_ must AUTHENTICATE immediately on this persistent (file-backed)
+    // store: approve writes the identity-v2 principal+credential rows too, not just
+    // the `members` row, so the Lobby credential lookup resolves NOW rather than
+    // only after the next restart-time migration. RED before the fix (approve wrote
+    // only `members`, so this was None until a restart).
+    let cred = store
+        .principal_for_credential("mb_bot")
+        .expect("approve-issued mb_ must resolve as a live credential on a persistent store");
+    assert_eq!(cred.role, super::BuildingRole::Member);
     assert!(matches!(
         store.approve_join_request_atomic("jr_1", "mb_again", "master", 201),
         super::ApproveTxn::AlreadyDecided
