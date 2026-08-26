@@ -360,6 +360,42 @@ impl Store {
                 ON room_operator_assignments(room) WHERE revoked_at IS NULL;
             CREATE INDEX IF NOT EXISTS room_operator_history
                 ON room_operator_assignments(room, appointed_at, id);
+            -- Admission stock: a Master pre-mints N single-use, time-limited
+            -- Lobby-admission rights. loca-care distributes them; the join-request
+            -- approve step consumes exactly one per admitted agent. Each row is one
+            -- right; consumed_at / consumed_by_name mark its single, final use.
+            CREATE TABLE IF NOT EXISTS admission_stock (
+                id TEXT PRIMARY KEY,
+                minted_by TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                consumed_at INTEGER,
+                consumed_by_name TEXT
+            );
+            CREATE INDEX IF NOT EXISTS admission_stock_available
+                ON admission_stock(consumed_at, expires_at);
+            -- Join requests: an outside agent asks to join the Building and picks
+            -- its own name. The request grants NOTHING until a Master/Smaster
+            -- approves it, which consumes one admission-stock right and issues a
+            -- Lobby membership (mb_). The mb_ is delivered exactly once via the
+            -- bootstrap endpoint, never in the pollable status. `secret_hash` is
+            -- the hash of the caller's request-secret (the plaintext never lands
+            -- here), so only the requester can poll or bootstrap their request.
+            CREATE TABLE IF NOT EXISTS join_requests (
+                id TEXT PRIMARY KEY,
+                secret_hash TEXT NOT NULL,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL
+                    CHECK (status IN ('pending', 'approving', 'approved', 'denied')),
+                created_at INTEGER NOT NULL,
+                decided_at INTEGER,
+                decided_by TEXT,
+                mb_token TEXT,
+                bootstrap_delivered_at INTEGER
+            );
+            CREATE INDEX IF NOT EXISTS join_requests_pending
+                ON join_requests(status, created_at);
             "#,
         )?;
         // Older databases predate message kinds; adding the column is a no-op
@@ -476,6 +512,327 @@ impl Store {
         })
     }
 
+    /// Insert one admission-stock row per pre-generated right id (a Master
+    /// pre-minting a batch of single-use Lobby-admission rights). All-or-nothing
+    /// in one transaction, and returns the number of rows actually inserted so
+    /// the caller reports a truthful `minted` count (never the merely-requested
+    /// one) even if the batch is rolled back.
+    pub fn mint_admission_rights(
+        &self,
+        ids: &[String],
+        minted_by: &str,
+        created_at: u64,
+        expires_at: u64,
+    ) -> rusqlite::Result<usize> {
+        let Some(mut c) = self.conn() else {
+            return Ok(0);
+        };
+        let tx = c.transaction()?;
+        let mut inserted = 0usize;
+        for id in ids {
+            inserted += tx.execute(
+                "INSERT INTO admission_stock (id, minted_by, created_at, expires_at)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![id, minted_by, created_at, expires_at],
+            )?;
+        }
+        tx.commit()?;
+        Ok(inserted)
+    }
+
+    /// `(total_ever, available_now)` where available = unconsumed AND unexpired.
+    pub fn admission_stock_counts(&self, now: u64) -> (u64, u64) {
+        let Some(c) = self.conn() else { return (0, 0) };
+        let total: u64 = c
+            .query_row("SELECT count(*) FROM admission_stock", [], |r| r.get(0))
+            .unwrap_or(0);
+        let available: u64 = c
+            .query_row(
+                "SELECT count(*) FROM admission_stock \
+                 WHERE consumed_at IS NULL AND expires_at > ?1",
+                params![now],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        (total, available)
+    }
+
+    /// Record a new pending join request. The caller's request-secret is stored
+    /// only as a hash, so only the requester (who holds the plaintext) can later
+    /// poll or bootstrap it.
+    pub fn create_join_request(
+        &self,
+        id: &str,
+        secret: &str,
+        name: &str,
+        kind: &str,
+        created_at: u64,
+    ) -> rusqlite::Result<()> {
+        let Some(c) = self.conn() else { return Ok(()) };
+        c.execute(
+            "INSERT INTO join_requests (id, secret_hash, name, kind, status, created_at) \
+             VALUES (?1, ?2, ?3, ?4, 'pending', ?5)",
+            params![id, secret_hash(secret), name, kind, created_at],
+        )
+        .map(|_| ())
+    }
+
+    /// `(status, name, bootstrap_ready)` if `id` + `secret` match; otherwise None
+    /// (a caller learns nothing about a request that is not theirs).
+    pub fn join_request_view(&self, id: &str, secret: &str) -> Option<(String, String, bool)> {
+        let c = self.conn()?;
+        c.query_row(
+            "SELECT status, name, \
+                    (mb_token IS NOT NULL AND bootstrap_delivered_at IS NULL) \
+             FROM join_requests WHERE id = ?1 AND secret_hash = ?2",
+            params![id, secret_hash(secret)],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, bool>(2)?,
+                ))
+            },
+        )
+        .ok()
+    }
+
+    /// Pending requests for the Master review list (id, name, kind, created_at);
+    /// never any secret or token.
+    pub fn list_pending_join_requests(&self) -> Vec<(String, String, String, u64)> {
+        let Some(c) = self.conn() else {
+            return Vec::new();
+        };
+        let Ok(mut stmt) = c.prepare(
+            "SELECT id, name, kind, created_at FROM join_requests \
+             WHERE status = 'pending' ORDER BY created_at, id",
+        ) else {
+            return Vec::new();
+        };
+        let Ok(rows) = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, u64>(3)?,
+            ))
+        }) else {
+            return Vec::new();
+        };
+        rows.flatten().collect()
+    }
+
+    /// Is there already a live (pending or being-approved) request for this exact
+    /// name? Keeps names unique across live requests so two requesters can never
+    /// both be approved into the same name.
+    pub fn has_pending_join_request_named(&self, name: &str) -> bool {
+        let Some(c) = self.conn() else { return false };
+        c.query_row(
+            "SELECT 1 FROM join_requests \
+             WHERE name = ?1 AND status IN ('pending', 'approving') LIMIT 1",
+            params![name],
+            |_| Ok(()),
+        )
+        .is_ok()
+    }
+
+    /// Approve a pending join request as ONE transaction: guard that it is still
+    /// pending, verify the name is free, consume exactly one available admission
+    /// right, insert the new Lobby member, and mark the request approved carrying
+    /// its `mb_`. Because the single `Mutex<Connection>` is held for the whole
+    /// transaction nothing can interleave (no `/members` insert slips between the
+    /// name check and the member insert), and because it is one commit there is
+    /// NO partial state: a crash or any failed step leaves the request `pending`,
+    /// the name free, and the stock intact — no leaked right, no request stranded
+    /// in an intermediate `approving` state (which `claim` used to make
+    /// unrecoverable). It never touches an existing member, so a foreign `mb_`
+    /// can never be handed out. Returns the created Membership so the caller can
+    /// mirror it into the in-memory roster.
+    pub fn approve_join_request_atomic(
+        &self,
+        request_id: &str,
+        mb_token: &str,
+        by: &str,
+        now: u64,
+    ) -> ApproveTxn {
+        let Some(mut c) = self.conn() else {
+            return ApproveTxn::Failed;
+        };
+        let tx = match c.transaction() {
+            Ok(tx) => tx,
+            Err(_) => return ApproveTxn::Failed,
+        };
+
+        // 1) The request must still be pending. Flip it to `approving` INSIDE the
+        //    txn so a concurrent approve of the same id finds nothing to claim;
+        //    the flip is invisible outside the transaction and is undone by any
+        //    rollback below, so no durable `approving` state is ever observable.
+        match tx.execute(
+            "UPDATE join_requests SET status = 'approving' \
+             WHERE id = ?1 AND status = 'pending'",
+            params![request_id],
+        ) {
+            Ok(1) => {}
+            Ok(_) => {
+                let _ = tx.rollback();
+                return ApproveTxn::AlreadyDecided;
+            }
+            Err(_) => {
+                let _ = tx.rollback();
+                return ApproveTxn::Failed;
+            }
+        }
+
+        // The requester's chosen name + kind (immutable since creation).
+        let (name, kind): (String, String) = match tx.query_row(
+            "SELECT name, kind FROM join_requests WHERE id = ?1",
+            params![request_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ) {
+            Ok(v) => v,
+            Err(_) => {
+                let _ = tx.rollback();
+                return ApproveTxn::Failed;
+            }
+        };
+
+        // 2) The name must be free. Checked and inserted under the same held
+        //    connection, so no `/members` create can slip in between.
+        if tx
+            .query_row(
+                "SELECT 1 FROM members WHERE name = ?1 AND revoked_at IS NULL LIMIT 1",
+                params![name],
+                |_| Ok(()),
+            )
+            .is_ok()
+        {
+            let _ = tx.rollback(); // undoes the 'approving' flip -> back to pending
+            return ApproveTxn::NameTaken;
+        }
+
+        // 3) Consume exactly one available, unexpired admission right (oldest
+        //    first). The `consumed_at IS NULL` guard keeps the write single-use.
+        let right_id: String = match tx.query_row(
+            "SELECT id FROM admission_stock \
+             WHERE consumed_at IS NULL AND expires_at > ?1 \
+             ORDER BY created_at, id LIMIT 1",
+            params![now],
+            |r| r.get(0),
+        ) {
+            Ok(id) => id,
+            Err(_) => {
+                let _ = tx.rollback();
+                return ApproveTxn::NoStock;
+            }
+        };
+        match tx.execute(
+            "UPDATE admission_stock SET consumed_at = ?1, consumed_by_name = ?2 \
+             WHERE id = ?3 AND consumed_at IS NULL",
+            params![now, name, right_id],
+        ) {
+            Ok(1) => {}
+            _ => {
+                let _ = tx.rollback();
+                return ApproveTxn::NoStock;
+            }
+        }
+
+        // 4) Insert the fresh Lobby member — into `members` AND the identity-v2
+        //    principals/credentials tables (exactly what `add_member` does), so
+        //    the issued `mb_` authenticates IMMEDIATELY on a persistent store.
+        //    Writing only `members` here made the credential resolve only after
+        //    the next restart-time migration, so a freshly-approved agent got
+        //    401 at the Lobby until a restart (review blocker).
+        if tx
+            .execute(
+                "INSERT INTO members (token, name, kind, joined_at, admitted_by, revoked_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+                params![mb_token, name, kind, now, by],
+            )
+            .is_err()
+        {
+            let _ = tx.rollback();
+            return ApproveTxn::Failed;
+        }
+        if identity::insert_principal_credential(
+            &tx,
+            "member",
+            mb_token,
+            &name,
+            &kind,
+            now,
+            "Member access",
+        )
+        .is_err()
+        {
+            let _ = tx.rollback();
+            return ApproveTxn::Failed;
+        }
+
+        // 5) Mark the request approved, carrying the mb_ for one-time bootstrap.
+        //    (Split from the commit so the guard never moves `tx`.)
+        if !matches!(
+            tx.execute(
+                "UPDATE join_requests \
+                 SET status = 'approved', mb_token = ?2, decided_by = ?3, decided_at = ?4 \
+                 WHERE id = ?1 AND status = 'approving'",
+                params![request_id, mb_token, by, now],
+            ),
+            Ok(1)
+        ) {
+            let _ = tx.rollback();
+            return ApproveTxn::Failed;
+        }
+        if tx.commit().is_ok() {
+            ApproveTxn::Committed(protocol::Membership {
+                token: mb_token.to_string(),
+                name,
+                kind,
+                joined_at: now,
+                admitted_by: by.to_string(),
+            })
+        } else {
+            // commit failed — nothing is persisted; the request stays pending.
+            ApproveTxn::Failed
+        }
+    }
+
+    /// Deny a pending request. Returns true iff it was pending (now denied).
+    pub fn deny_join_request(&self, id: &str, decided_by: &str, decided_at: u64) -> bool {
+        let Some(c) = self.conn() else { return false };
+        c.execute(
+            "UPDATE join_requests SET status = 'denied', decided_by = ?2, decided_at = ?3 \
+             WHERE id = ?1 AND status = 'pending'",
+            params![id, decided_by, decided_at],
+        )
+        .map(|n| n == 1)
+        .unwrap_or(false)
+    }
+
+    /// Deliver the issued mb_ EXACTLY ONCE: only if approved, not-yet-delivered,
+    /// and the secret matches. Marks it delivered so a second call returns None —
+    /// the credential never sits in a repeatable/pollable response.
+    pub fn claim_join_request_bootstrap(&self, id: &str, secret: &str, now: u64) -> Option<String> {
+        let c = self.conn()?;
+        let mb: String = c
+            .query_row(
+                "SELECT mb_token FROM join_requests \
+                 WHERE id = ?1 AND secret_hash = ?2 AND status = 'approved' \
+                   AND mb_token IS NOT NULL AND bootstrap_delivered_at IS NULL",
+                params![id, secret_hash(secret)],
+                |r| r.get(0),
+            )
+            .ok()?;
+        let changed = c
+            .execute(
+                "UPDATE join_requests SET bootstrap_delivered_at = ?2 \
+                 WHERE id = ?1 AND bootstrap_delivered_at IS NULL",
+                params![id, now],
+            )
+            .ok()?;
+        (changed == 1).then_some(mb)
+    }
+
     pub fn is_persistent(&self) -> bool {
         self.conn.is_some()
     }
@@ -483,6 +840,25 @@ impl Store {
     fn conn(&self) -> Option<std::sync::MutexGuard<'_, Connection>> {
         self.conn.as_ref().map(|m| m.lock_or_recover())
     }
+}
+
+/// Outcome of atomically approving a join request (single transaction).
+#[derive(Debug)]
+pub enum ApproveTxn {
+    /// Stock consumed, Lobby member inserted, request approved. Carries the new
+    /// membership so the caller can mirror it into the in-memory roster.
+    Committed(protocol::Membership),
+    /// The request was no longer pending (already approved/denied, or a racing
+    /// approve won) — nothing changed and no stock was consumed.
+    AlreadyDecided,
+    /// The requested name already belongs to a live member — refused, and the
+    /// request is left pending. No stock consumed.
+    NameTaken,
+    /// No available (unexpired) admission right — request left pending so the
+    /// Master can retry after minting more. No stock consumed.
+    NoStock,
+    /// A DB error rolled the whole transaction back — nothing changed.
+    Failed,
 }
 
 pub(crate) fn hashed_id(prefix: &str, value: &str) -> String {

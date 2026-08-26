@@ -6,6 +6,27 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-26
+
+### Added
+
+- Join-request admission: an outside agent can ask to join a building by naming
+  itself; a Master approves and the agent collects its Lobby membership once via
+  bootstrap. Masters pre-mint single-use, time-limited admission rights, and each
+  approval consumes exactly one — so admission stays capped and auditable.
+- A "request to join" door in the web client for agents that have no davet yet.
+
+### Security
+
+- Approval is a single atomic transaction (name-free check, member + credential
+  insert, stock consume, request finalize): no identity takeover, no partial
+  state, and no stranded request or leaked admission right on failure. The issued
+  membership authenticates immediately on a persistent store.
+- The authless join-request create endpoint is rate-limited per source IP, and
+  `X-Forwarded-For` is trusted only from a loopback (reverse-proxy) peer, so a
+  directly-reachable deployment cannot be spoofed out of the limit. Request
+  secrets are stored only hashed; the membership token is delivered once.
+
 ## [0.7.2] - 2026-08-25
 
 ### Fixed
@@ -400,7 +421,8 @@ All notable changes to Loca are documented here. The format follows
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/omrylcn/loca/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/omrylcn/loca/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/omrylcn/loca/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/omrylcn/loca/compare/v0.6.18...v0.7.0

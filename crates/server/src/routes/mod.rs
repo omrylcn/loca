@@ -25,11 +25,13 @@ pub(crate) use content::{
 };
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};
 pub(crate) use membership::{
-    admit_member, caretaker_residents, claim_membership, create_pairing_route,
-    create_profile_credential_route, create_session_route, create_smaster, delete_session_route,
-    list_members, list_profile_credentials, list_profiles, list_residents, list_smasters,
-    pairing_ttl_ms, profile_view, revoke_member_route, revoke_profile_credential_route,
-    revoke_smaster_route, whoami,
+    admit_member, approve_join_request_route, bootstrap_join_request_route, caretaker_residents,
+    claim_membership, create_admission_stock_route, create_join_request_route,
+    create_pairing_route, create_profile_credential_route, create_session_route, create_smaster,
+    delete_session_route, deny_join_request_route, get_admission_stock_route,
+    get_join_request_route, list_join_requests_route, list_members, list_profile_credentials,
+    list_profiles, list_residents, list_smasters, pairing_ttl_ms, profile_view,
+    revoke_member_route, revoke_profile_credential_route, revoke_smaster_route, whoami,
 };
 pub(crate) use rooms::{
     actor_of, appoint_loca_operator_route, create_invite, delete_room, get_loca_operator,

@@ -318,6 +318,27 @@ async fn main() {
             axum::routing::post(create_session_route).delete(delete_session_route),
         )
         .route("/pairings", axum::routing::post(create_pairing_route))
+        .route(
+            "/admission-stock",
+            get(get_admission_stock_route).post(create_admission_stock_route),
+        )
+        .route(
+            "/join-requests",
+            get(list_join_requests_route).post(create_join_request_route),
+        )
+        .route("/join-requests/:id", get(get_join_request_route))
+        .route(
+            "/join-requests/:id/approve",
+            axum::routing::post(approve_join_request_route),
+        )
+        .route(
+            "/join-requests/:id/deny",
+            axum::routing::post(deny_join_request_route),
+        )
+        .route(
+            "/join-requests/:id/bootstrap",
+            axum::routing::post(bootstrap_join_request_route),
+        )
         .route("/whoami", get(whoami))
         .route("/profile", get(profile_view))
         .route(
@@ -448,7 +469,14 @@ async fn main() {
     tracing::info!("room-server listening on http://{addr}  (web client at /)");
 
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
-    axum::serve(listener, app).await.expect("serve");
+    // `into_make_service_with_connect_info` exposes the peer address so the
+    // authless join-request create endpoint can rate-limit per source IP.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .expect("serve");
 }
 
 /// Serve the web client with no-store so browsers never run a stale UI after a

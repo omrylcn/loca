@@ -205,6 +205,10 @@ pub struct Hub {
     /// admin session it will mint. The root key stays in the server's
     /// environment; the browser exchanges this stand-in.
     admin_pairing: Arc<Mutex<AdminPairing>>,
+    // Per-source (peer IP) recent /join-requests create timestamps (ms) for a
+    // sliding-window rate-limit — a single abusive source is throttled without
+    // affecting anyone else (review re-blocker #3).
+    join_create_times: Arc<Mutex<std::collections::HashMap<std::net::IpAddr, Vec<u64>>>>,
     /// When true, posting requires a valid session token: `sender` can no
     /// longer be spoofed via the request body (PRODUCTION.md Aşama 0).
     require_sessions: bool,
@@ -452,6 +456,7 @@ impl Hub {
                 session_ttl_ms: Self::ADMIN_SESSION_TTL_MS,
                 expires_at_ms: pairing_now.saturating_add(Self::ADMIN_PAIRING_TTL_MS),
             })),
+            join_create_times: Arc::new(Mutex::new(std::collections::HashMap::new())),
             require_sessions,
             require_invite,
             invites: Arc::new(Mutex::new(HashMap::new())),
@@ -1762,6 +1767,155 @@ impl Hub {
         };
         tracing::info!("master browser paired; next one-use pairing code is ready");
         Some(session_ttl_ms)
+    }
+
+    /// A Master pre-mints `count` single-use, time-limited Lobby-admission
+    /// rights. Returns `(total_ever, available_now)`. Master authority is
+    /// enforced at the route (`is_master_req`); `minted_by` is the Master
+    /// principal. The right ids are server-generated CSPRNG tokens and are NOT
+    /// returned — a right is delivered only when the join-request approve step
+    /// consumes it.
+    pub fn mint_admission_stock(&self, count: u32, ttl_ms: u64) -> (u64, u64, u64) {
+        let now = (self.now_ms)();
+        let expires_at = now.saturating_add(ttl_ms);
+        let minted_by = self
+            .store
+            .active_master_principal()
+            .map(|principal| principal.id)
+            .unwrap_or_else(|| "master".to_string());
+        let ids: Vec<String> = (0..count).map(|_| Self::secure_token("adm_", 24)).collect();
+        let minted = self
+            .store
+            .mint_admission_rights(&ids, &minted_by, now, expires_at)
+            .unwrap_or(0) as u64;
+        let (total, available) = self.store.admission_stock_counts(now);
+        (minted, total, available)
+    }
+
+    /// `(total_ever, available_now)` admission-stock summary for the Master view.
+    pub fn admission_stock_summary(&self) -> (u64, u64) {
+        self.store.admission_stock_counts((self.now_ms)())
+    }
+
+    /// Max undecided join requests at once — a DoS guard on the authless create
+    /// endpoint (a full per-source rate-limiter is a documented hardening
+    /// follow-up). A request grants no authority, so the only abuse is table
+    /// growth, which this bounds.
+    const MAX_PENDING_JOIN_REQUESTS: usize = 200;
+    const JOIN_CREATE_WINDOW_MS: u64 = 60_000;
+    const JOIN_CREATE_MAX_IN_WINDOW: usize = 30;
+
+    /// Per-source (peer IP) sliding-window limit on join-request creation (review
+    /// re-blocker #3): one abusive source is throttled on its own bucket without
+    /// affecting anyone else. Returns true, and records the attempt, when a create
+    /// is allowed for `ip`. Empty buckets are reaped so the map cannot grow
+    /// unbounded.
+    fn join_request_rate_ok(&self, ip: std::net::IpAddr) -> bool {
+        let now = (self.now_ms)();
+        let mut by_ip = self.join_create_times.lock_or_recover();
+        by_ip.retain(|_, times| {
+            times.retain(|&t| now.saturating_sub(t) < Self::JOIN_CREATE_WINDOW_MS);
+            !times.is_empty()
+        });
+        let times = by_ip.entry(ip).or_default();
+        if times.len() >= Self::JOIN_CREATE_MAX_IN_WINDOW {
+            return false;
+        }
+        times.push(now);
+        true
+    }
+
+    /// An outside agent asks to join, picking its own name. The plaintext secret
+    /// is produced exactly once here and only its hash is stored, so only the
+    /// requester can poll or bootstrap it. Grants NOTHING until a Master approves.
+    /// The name must be free — neither an existing member nor an already-pending
+    /// request — which (with the approve-time atomic re-check) closes the identity
+    /// takeover and the two-same-name race (review blocker #1). Rate-limited per
+    /// source IP.
+    pub fn create_join_request(
+        &self,
+        name: &str,
+        kind: &str,
+        ip: std::net::IpAddr,
+    ) -> JoinRequestCreate {
+        if !self.join_request_rate_ok(ip) {
+            return JoinRequestCreate::BacklogFull;
+        }
+        if self.member_by_name(name).is_some() || self.store.has_pending_join_request_named(name) {
+            return JoinRequestCreate::NameTaken;
+        }
+        if self.store.list_pending_join_requests().len() >= Self::MAX_PENDING_JOIN_REQUESTS {
+            return JoinRequestCreate::BacklogFull;
+        }
+        let request_id = Self::secure_token("jr_", 12);
+        let request_secret = Self::secure_token("jrs_", 24);
+        let _ = self.store.create_join_request(
+            &request_id,
+            &request_secret,
+            name,
+            kind,
+            (self.now_ms)(),
+        );
+        JoinRequestCreate::Created {
+            request_id,
+            request_secret,
+        }
+    }
+
+    /// Poll a join request with its secret: `(status, name, bootstrap_ready)`.
+    pub fn join_request_view(&self, id: &str, secret: &str) -> Option<(String, String, bool)> {
+        self.store.join_request_view(id, secret)
+    }
+
+    /// The Master's pending-request review list.
+    pub fn list_pending_join_requests(&self) -> Vec<(String, String, String, u64)> {
+        self.store.list_pending_join_requests()
+    }
+
+    /// Approve a pending join request (Master action). EXACTLY-ONCE: atomically
+    /// claims the request first; a repeated or racing approve that finds it
+    /// already decided returns `Approve::AlreadyDecided` and consumes NO stock.
+    /// On a fresh claim it consumes one admission-stock right and issues a Lobby
+    /// membership (`mb_`, kind `agent` per the model) bound to the requested name;
+    /// if the stock is empty it releases the claim and returns `Approve::NoStock`.
+    pub fn approve_join_request(&self, id: &str, by: &str) -> Approve {
+        // The ENTIRE approval — pending-guard, name-free check, stock consume,
+        // member insert, request-finalize — happens in ONE store transaction
+        // (`approve_join_request_atomic`). This closes the identity-takeover race
+        // (no `/members` create can slip between the name check and the insert:
+        // the single conn Mutex is held throughout) AND removes every partial
+        // state: a failure at any step leaves the request pending, the name free,
+        // and the stock intact — so there is no compensating refund/release to
+        // orchestrate here, and no way to strand a request or burn a right.
+        // We only mint the fresh `mb_` token up front (needs the Hub's CSPRNG).
+        let mb_token = self.new_invite_token().replacen("dv_", "mb_", 1);
+        match self
+            .store
+            .approve_join_request_atomic(id, &mb_token, by, (self.now_ms)())
+        {
+            crate::store::ApproveTxn::Committed(member) => {
+                // Mirror the committed DB row into the in-memory member cache.
+                self.members
+                    .lock_or_recover()
+                    .insert(member.token.clone(), member);
+                Approve::Approved
+            }
+            crate::store::ApproveTxn::AlreadyDecided => Approve::AlreadyDecided,
+            crate::store::ApproveTxn::NameTaken => Approve::NameTaken,
+            crate::store::ApproveTxn::NoStock => Approve::NoStock,
+            crate::store::ApproveTxn::Failed => Approve::Failed,
+        }
+    }
+
+    /// Deny a pending join request (Master action). True iff it was pending.
+    pub fn deny_join_request(&self, id: &str, by: &str) -> bool {
+        self.store.deny_join_request(id, by, (self.now_ms)())
+    }
+
+    /// Deliver an approved request's `mb_` exactly once (requester bootstrap).
+    pub fn claim_join_request_bootstrap(&self, id: &str, secret: &str) -> Option<String> {
+        self.store
+            .claim_join_request_bootstrap(id, secret, (self.now_ms)())
     }
 
     /// Same, but taken with a davet: the session is confined to the davet's
@@ -3424,6 +3578,39 @@ fn default_now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// Outcome of approving a join request.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Approve {
+    /// A fresh approval: stock consumed, Lobby membership issued.
+    Approved,
+    /// The request was already approved/denied/being-decided — a no-op that
+    /// consumes no additional stock (idempotent re-approve).
+    AlreadyDecided,
+    /// The requested name now belongs to an existing member; approving would
+    /// leak that member's credential, so it is refused (no stock consumed).
+    NameTaken,
+    /// No admission stock is available; the transaction rolled back, so the
+    /// request stays pending and no right is consumed — the Master can retry
+    /// after replenishing.
+    NoStock,
+    /// A DB error rolled the whole approval back (rare); nothing was persisted —
+    /// no member, no consumed right — and the request stays pending for retry.
+    Failed,
+}
+
+/// Outcome of creating a join request.
+#[derive(Debug, PartialEq, Eq)]
+pub enum JoinRequestCreate {
+    Created {
+        request_id: String,
+        request_secret: String,
+    },
+    /// The chosen name is already a member or already has a pending request.
+    NameTaken,
+    /// Too many undecided requests are queued.
+    BacklogFull,
 }
 
 #[cfg(test)]
