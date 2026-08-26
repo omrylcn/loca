@@ -1935,8 +1935,10 @@ fn join_request_is_announced_visibly_in_the_home_loca_without_leaking_the_secret
         RoomSettings::default(),
         1,
     );
-    // The home loca must exist (a member present) for the announce to post.
-    assert!(hub.join("iye", "member:master", "master", SenderType::User, 1));
+    // Deliberately do NOT join the home loca first: this covers the review
+    // blocker where `iye` is not yet in memory. The announce must STILL surface
+    // (create must never silently drop it), so create_join_request materialises
+    // the home loca and posts regardless.
     let ip: std::net::IpAddr = "10.0.0.1".parse().unwrap();
     let out = hub.create_join_request("visitor", "agent", ip);
     let JoinRequestCreate::Created { request_secret, .. } = out else {

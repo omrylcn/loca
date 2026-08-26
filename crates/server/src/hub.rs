@@ -1875,11 +1875,16 @@ impl Hub {
     fn announce_join_request(&self, name: &str, kind: &str) {
         let room = self.home_room.as_ref().clone();
         let mut rooms = self.rooms.lock_or_recover();
-        let Some(existing) = rooms.get(&room) else {
-            return;
-        };
-        let mode = existing.mode.clone();
-        let settings = existing.settings.clone();
+        // Never silently drop the announce (review blocker): if the home loca is
+        // not in memory yet, use defaults and let `room_mut` materialise it — the
+        // same shape `set_lead` uses. And persist BEST-EFFORT: even if the DB
+        // write fails, still push to history + broadcast so the request always
+        // surfaces live. The request row already exists; the only job here is to
+        // make it visible, and that must not be conditional.
+        let (mode, settings) = rooms
+            .get(&room)
+            .map(|r| (r.mode.clone(), r.settings.clone()))
+            .unwrap_or_else(|| (ChatMode::Free, self.default_settings.clone()));
         let target = settings.lead.clone().or_else(|| Some("all".into()));
         let msg = Message {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
@@ -1892,13 +1897,9 @@ impl Hub {
             kind: protocol::MessageKind::Announce,
             ts: (self.now_ms)(),
         };
-        if self
+        let _ = self
             .store
-            .insert_message_with_room(&msg, &mode, &settings, None)
-            .is_err()
-        {
-            return;
-        }
+            .insert_message_with_room(&msg, &mode, &settings, None);
         let r = Self::room_mut(&mut rooms, &room, &self.default_settings);
         r.history.push(msg.clone());
         let _ = r.tx.send(ServerFrame::Msg { message: msg });
