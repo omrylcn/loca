@@ -606,20 +606,30 @@ fn valid_agent_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
-/// Best-effort client IP for the per-source join-request rate-limit. Behind our
-/// single trusted reverse proxy (nginx on prod) the true client is the RIGHTMOST
-/// `X-Forwarded-For` entry — nginx appends the real peer, so any earlier entries
-/// are client-supplied and untrusted. With no proxy header we fall back to the
-/// TCP peer. Without this, prod (where every peer is the nginx loopback) would
-/// collapse the per-source limiter back into a global one (review re-blocker #3).
+/// Client IP for the per-source join-request rate-limit — SECURE BY DEFAULT.
+///
+/// `X-Forwarded-For` is honored ONLY when the direct TCP peer is itself a trusted
+/// proxy, which by default means loopback: prod binds room-server to loopback
+/// behind nginx, and nginx appends the real client as the RIGHTMOST XFF entry, so
+/// that entry is the true client. When the peer is NOT loopback — a direct or
+/// internet-facing self-host with no proxy, or an attacker reaching the server
+/// directly — the header is entirely client-controlled, so honoring it would let
+/// one source forge a fresh IP per request and slip its own bucket (evading the
+/// limit) or reuse a victim's IP (framing them). So for a non-loopback peer we
+/// bucket by the real TCP peer, which the client cannot spoof. A remote/non-loopback
+/// trusted proxy would need an explicit trusted-CIDR config (documented follow-up);
+/// the loopback default already covers the prod deployment and every no-proxy
+/// self-host safely.
 fn client_ip(headers: &HeaderMap, peer: std::net::SocketAddr) -> std::net::IpAddr {
-    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-        if let Some(ip) = xff
-            .split(',')
-            .rev()
-            .find_map(|s| s.trim().parse::<std::net::IpAddr>().ok())
-        {
-            return ip;
+    if peer.ip().is_loopback() {
+        if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+            if let Some(ip) = xff
+                .split(',')
+                .rev()
+                .find_map(|s| s.trim().parse::<std::net::IpAddr>().ok())
+            {
+                return ip;
+            }
         }
     }
     peer.ip()
@@ -823,5 +833,56 @@ pub(crate) async fn delete_session_route(
             "could not revoke the session — try again",
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headers_with_xff(xff: Option<&str>) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        if let Some(v) = xff {
+            h.insert("x-forwarded-for", v.parse().expect("valid header value"));
+        }
+        h
+    }
+
+    #[test]
+    fn client_ip_trusts_x_forwarded_for_only_from_a_loopback_peer() {
+        let ip = |s: &str| s.parse::<std::net::IpAddr>().expect("ip");
+        let sock = |s: &str| s.parse::<std::net::SocketAddr>().expect("sock");
+
+        // A DIRECT (non-loopback) peer sending a spoofed XFF must NOT escape its
+        // bucket: the header is ignored and we bucket by the real TCP peer.
+        assert_eq!(
+            client_ip(&headers_with_xff(Some("1.2.3.4")), sock("203.0.113.9:5000")),
+            ip("203.0.113.9"),
+            "a non-loopback peer's X-Forwarded-For must be ignored (no bypass)"
+        );
+        // Even a whole forged chain from a direct peer is ignored.
+        assert_eq!(
+            client_ip(
+                &headers_with_xff(Some("10.0.0.1, 8.8.8.8")),
+                sock("198.51.100.7:443")
+            ),
+            ip("198.51.100.7")
+        );
+
+        // A LOOPBACK peer is our trusted reverse proxy (nginx): honor the RIGHTMOST
+        // XFF entry, which nginx set to the real client.
+        assert_eq!(
+            client_ip(
+                &headers_with_xff(Some("9.9.9.9, 5.6.7.8")),
+                sock("127.0.0.1:5000")
+            ),
+            ip("5.6.7.8"),
+            "behind the loopback proxy the rightmost XFF entry is the real client"
+        );
+        // Loopback peer with no XFF falls back to the peer itself.
+        assert_eq!(
+            client_ip(&headers_with_xff(None), sock("127.0.0.1:5000")),
+            ip("127.0.0.1")
+        );
     }
 }
