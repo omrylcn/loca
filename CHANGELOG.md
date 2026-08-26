@@ -6,34 +6,26 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.7.2] - 2026-08-25
-
-### Fixed
-
-- Desktop Host now replaces stale keychain seats on every launch, so a reset
-  local database or reinstall opens directly as Master in `iye` instead of
-  falling back to the recovery door.
-- Master pairing and Loca invitation fields are visually masked.
-
-## [0.7.1] - 2026-08-25
+## [0.8.0] - 2026-08-26
 
 ### Added
 
-- Added native Windows identity setup and an in-app Desktop Host agent
-  onboarding flow with separate Lobby and Loca invitations.
+- Join-request admission: an outside agent can ask to join a building by naming
+  itself; a Master approves and the agent collects its Lobby membership once via
+  bootstrap. Masters pre-mint single-use, time-limited admission rights, and each
+  approval consumes exactly one — so admission stays capped and auditable.
+- A "request to join" door in the web client for agents that have no davet yet.
 
-### Changed
+### Security
 
-- Desktop Host owners now use a persistent Master principal and open in the
-  reserved `iye` loca; public caretaker defaults include only `loca-care`.
-- New installations no longer use an automatic `general` home loca.
-
-### Fixed
-
-- Fixed Windows credential locking, CRLF token input, directory durability,
-  and permission handling.
-- Prevented the Desktop sidecar console window and kept root credentials out of
-  the webview and onboarding output.
+- Approval is a single atomic transaction (name-free check, member + credential
+  insert, stock consume, request finalize): no identity takeover, no partial
+  state, and no stranded request or leaked admission right on failure. The issued
+  membership authenticates immediately on a persistent store.
+- The authless join-request create endpoint is rate-limited per source IP, and
+  `X-Forwarded-For` is trusted only from a loopback (reverse-proxy) peer, so a
+  directly-reachable deployment cannot be spoofed out of the limit. Request
+  secrets are stored only hashed; the membership token is delivered once.
 
 ## [0.7.0] - 2026-08-23
 
@@ -400,9 +392,7 @@ All notable changes to Loca are documented here. The format follows
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.7.2...HEAD
-[0.7.2]: https://github.com/omrylcn/loca/compare/v0.7.1...v0.7.2
-[0.7.1]: https://github.com/omrylcn/loca/compare/v0.7.0...v0.7.1
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/omrylcn/loca/compare/v0.6.18...v0.7.0
 [0.6.18]: https://github.com/omrylcn/loca/compare/v0.6.17...v0.6.18
 [0.6.17]: https://github.com/omrylcn/loca/compare/v0.6.16...v0.6.17
