@@ -91,8 +91,11 @@ const WEB_PROFILE: &str = include_str!("../../../web/assets/profile.js");
 const WEB_SIDEBAR: &str = include_str!("../../../web/assets/sidebar.js");
 const WEB_API: &str = include_str!("../../../web/assets/api.js");
 const WEB_APP: &str = include_str!("../../../web/assets/app.js");
+const WEB_JOINREQUEST: &str = include_str!("../../../web/assets/joinrequest.js");
+const WEB_GETSTARTED: &str = include_str!("../../../web/assets/getstarted.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
+const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
 const ADMIN_INDEX: &str = include_str!("../../../web/admin.html");
 const ADMIN_CONSOLE_HEADER: &str = "x-loca-console";
 const MAX_HTTP_BODY_BYTES: usize = 64 * 1024;
@@ -324,6 +327,7 @@ async fn main() {
         .route("/", get(index))
         .route("/PRINCIPLES.md", get(principles_tr))
         .route("/PRINCIPLES.en.md", get(principles_en))
+        .route("/docs/getting-started.md", get(getting_started_doc))
         .route("/assets/:name", get(web_asset))
         .route("/health", get(health))
         .route(
@@ -535,6 +539,13 @@ async fn principles_en() -> impl IntoResponse {
     principles_document(PRINCIPLES_EN)
 }
 
+/// The Getting Started guide links here for the full, actionable setup
+/// walkthrough (self-host, Claude Code / Codex skill install). Served locally
+/// so the guide never depends on a third-party host; contains no credential.
+async fn getting_started_doc() -> impl IntoResponse {
+    principles_document(GETTING_STARTED_DOC)
+}
+
 /// Serve only compile-time embedded browser assets. The allow-list prevents
 /// this route from becoming a filesystem server, while `include_str!` keeps a
 /// deployed binary self-contained and makes missing assets a compile failure.
@@ -553,6 +564,8 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "sidebar.js" => Some(("text/javascript; charset=utf-8", WEB_SIDEBAR)),
         "api.js" => Some(("text/javascript; charset=utf-8", WEB_API)),
         "app.js" => Some(("text/javascript; charset=utf-8", WEB_APP)),
+        "joinrequest.js" => Some(("text/javascript; charset=utf-8", WEB_JOINREQUEST)),
+        "getstarted.js" => Some(("text/javascript; charset=utf-8", WEB_GETSTARTED)),
         _ => None,
     };
     match asset {

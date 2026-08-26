@@ -1,5 +1,17 @@
 const { test, expect } = require("@playwright/test");
 
+// The Getting Started guide auto-shows on a fresh browser (empty localStorage)
+// and its backdrop intercepts clicks. These specs drive the connected app, not
+// onboarding, so start past the guide. (getting-started.spec.js deliberately
+// does NOT seed this — it tests the first-open guide itself.)
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("loca-gs-seen", "1");
+    } catch (e) {}
+  });
+});
+
 // Piece 1+2 acceptance at the shared Web UI (same code the Desktop wrapper
 // loads, so this pins Web + Host parity): an outside agent's join request is
 // visible in the MAIN app and a Master approves it there — not in the hidden

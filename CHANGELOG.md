@@ -6,6 +6,18 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-08-26
+
+### Added
+
+- Audience-aware Getting Started guide for Desktop Host and self-hosted Master, reopenable from Help, with Claude Code/Codex setup and care-health guidance.
+- Client-safe general Help view and a served local Getting Started document.
+
+### Fixed
+
+- Serve the referenced `joinrequest.js` asset so the request-to-join button works.
+- Add regression coverage for shell-referenced assets, onboarding, Host/client parity, and current admission documentation.
+
 ## [0.8.2] - 2026-08-26
 
 ### Added

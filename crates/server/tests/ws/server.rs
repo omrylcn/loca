@@ -47,6 +47,16 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("memory.js", "text/javascript", "function renderNotes("),
         ("api.js", "text/javascript", "async function send()"),
         ("app.js", "text/javascript", "refreshRooms();"),
+        (
+            "joinrequest.js",
+            "text/javascript",
+            "async function startJoinRequest",
+        ),
+        (
+            "getstarted.js",
+            "text/javascript",
+            "window.openGettingStarted",
+        ),
     ];
     for (name, content_type, marker) in assets {
         assert!(
@@ -83,6 +93,37 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         );
         assert!(response.text().await.unwrap().contains(marker), "{name}");
     }
+
+    // Exhaustive fence for the referenced-but-unserved class: joinrequest.js
+    // once 404'd on prod because it was referenced in the shell yet missing
+    // from the asset allow-list. Derive the list FROM the shell so no future
+    // asset can be referenced without also being served.
+    let mut referenced: Vec<String> = Vec::new();
+    for piece in shell_body.split("/assets/").skip(1) {
+        let name: String = piece
+            .chars()
+            .take_while(|c| !matches!(c, '"' | '\'' | '?' | '#') && !c.is_whitespace())
+            .collect();
+        if !name.is_empty() && !referenced.iter().any(|existing| existing == &name) {
+            referenced.push(name);
+        }
+    }
+    assert!(
+        referenced.iter().any(|name| name == "joinrequest.js"),
+        "test sanity: the shell should reference joinrequest.js"
+    );
+    for name in &referenced {
+        let response = client
+            .get(format!("{base}/assets/{name}"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::OK,
+            "the shell references /assets/{name} but the server does not serve it"
+        );
+    }
     assert_eq!(
         client
             .get(format!("{base}/assets/not-present.js"))
@@ -91,6 +132,36 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             .unwrap()
             .status(),
         reqwest::StatusCode::NOT_FOUND
+    );
+
+    // The Getting Started guide links the locally-served setup walkthrough; it
+    // must actually serve (same referenced-but-unserved class as joinrequest.js).
+    assert!(
+        shell_body.contains("/docs/getting-started.md"),
+        "the guide should link the local getting-started doc"
+    );
+    let doc = client
+        .get(format!("{base}/docs/getting-started.md"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(doc.status(), reqwest::StatusCode::OK);
+    assert!(doc
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/markdown")));
+    let doc_body = doc.text().await.unwrap();
+    assert!(doc_body.contains("Getting started"));
+    // Lock the linked doc to the current version + main-app join flow: it once
+    // pinned v0.7.0 and taught the old master-desk membership admission.
+    assert!(
+        !doc_body.contains("0.7.0"),
+        "getting-started doc must not reference the stale 0.7.0 release"
+    );
+    assert!(
+        doc_body.contains("request to join"),
+        "getting-started doc must describe the current join-request admission"
     );
 
     let oversized = serde_json::json!({

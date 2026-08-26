@@ -1,5 +1,17 @@
 const { test, expect } = require("@playwright/test");
 
+// The Getting Started guide auto-shows on a fresh browser (empty localStorage)
+// and its backdrop intercepts clicks. These specs drive the connected app, not
+// onboarding, so start past the guide. (getting-started.spec.js deliberately
+// does NOT seed this — it tests the first-open guide itself.)
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("loca-gs-seen", "1");
+    } catch (e) {}
+  });
+});
+
 // The persistent "Add agent" affordance (where the Master live-minted a davet)
 // was removed in favour of the agent-initiated join-request model. It lived
 // only as a desktop-injected shim (HOST_SHIM -> a floating "#_lc_add" button +
