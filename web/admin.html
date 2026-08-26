@@ -47,6 +47,10 @@
   .notice { min-height: 22px; margin-top: 16px; color: var(--yellow); font-size: 12px }
   .notice.bad { color: var(--red) }
   .resident-note { color: var(--muted); font-size: 11px; margin-top: 6px }
+  #joinList { margin-top: 12px }
+  .join-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line) }
+  .join-row .actions { display: flex; gap: 8px; margin: 0 }
+  .join-row .actions button { margin: 0; padding: 7px 12px; font-size: 12px; width: auto }
   code { color: var(--blue) }
   footer { color: #596575; font-size: 11px; margin-top: 18px; text-align: center }
   @media (max-width: 720px) {
@@ -115,6 +119,18 @@
         </div>
       </div>
       <div id="notice" class="notice"></div>
+    </section>
+
+    <section class="card">
+      <h2>Katılma istekleri</h2>
+      <p>Dışarıdan bir agent kendini isimlendirip katılmak istediğinde burada belirir. Onayla: bir admission hakkı harcanır, agent Lobby üyeliği alır.</p>
+      <div id="stockGauge" class="resident-note">admission stok yükleniyor…</div>
+      <div class="split">
+        <input id="mintCount" type="number" min="1" max="100" value="5" inputmode="numeric" placeholder="adet">
+        <button id="mintBtn" class="secondary">stok üret</button>
+      </div>
+      <div id="joinList"></div>
+      <div id="joinNotice" class="notice"></div>
     </section>
   </div>
   <footer>Tüneli kapattığında panel de kapanır · davetleri oda sohbetine yazma</footer>
@@ -232,7 +248,70 @@ $("copyMessage").onclick = () => {
     `Davetle setup yap, ${d.loca} locasına bağlan ve dinlemeyi başlat.`;
   copy(message, "Agent mesajı");
 };
+function joinSay(text, bad = false) {
+  $("joinNotice").textContent = text;
+  $("joinNotice").classList.toggle("bad", bad);
+}
+function renderJoin(data) {
+  const stock = (data && data.stock) || { total: 0, available: 0 };
+  $("stockGauge").textContent = `admission stok: ${stock.available} kullanılabilir / ${stock.total} toplam`;
+  const pending = (data && data.pending) || [];
+  if (!pending.length) {
+    $("joinList").innerHTML = '<div class="resident-note">bekleyen istek yok</div>';
+    return;
+  }
+  $("joinList").innerHTML = pending.map(p => `
+    <div class="join-row">
+      <div><strong>${escapeHtml(p.name)}</strong> · ${escapeHtml(p.kind)}</div>
+      <div class="actions">
+        <button data-id="${escapeHtml(p.id)}" data-act="approve">onayla</button>
+        <button data-id="${escapeHtml(p.id)}" data-act="deny" class="secondary">reddet</button>
+      </div>
+    </div>`).join("");
+}
+async function loadJoin() {
+  try {
+    const r = await fetch("/api/join-requests", { cache: "no-store" });
+    if (!r.ok) throw new Error(await textError(r));
+    renderJoin(await r.json());
+  } catch (e) {
+    joinSay(`istekler yüklenemedi: ${e.message}`, true);
+  }
+}
+$("joinList").onclick = async (ev) => {
+  const btn = ev.target.closest("button[data-id]");
+  if (!btn) return;
+  const id = btn.dataset.id, deny = btn.dataset.act === "deny";
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/join-requests/${encodeURIComponent(id)}/${deny ? "deny" : "approve"}`, {
+      method: "POST", headers: writeHeaders
+    });
+    if (!r.ok) throw new Error(await textError(r));
+    joinSay(deny ? "istek reddedildi" : "onaylandı — agent Lobby üyeliği aldı, bootstrap ile anahtarını alacak");
+    await loadJoin();
+  } catch (e) { joinSay(e.message, true); btn.disabled = false; }
+};
+$("mintBtn").onclick = async () => {
+  const count = Number($("mintCount").value);
+  if (!Number.isInteger(count) || count < 1 || count > 100) {
+    return joinSay("stok adedi 1 ile 100 arasında olmalı", true);
+  }
+  $("mintBtn").disabled = true;
+  try {
+    const r = await fetch("/api/admission-stock", {
+      method: "POST", headers: writeHeaders, body: JSON.stringify({ count })
+    });
+    if (!r.ok) throw new Error(await textError(r));
+    const v = await r.json();
+    joinSay(`${v.minted} admission hakkı üretildi · ${v.available} kullanılabilir`);
+    await loadJoin();
+  } catch (e) { joinSay(e.message, true); }
+  finally { $("mintBtn").disabled = false; }
+};
 load().catch(e => say(`Panel sunucuya bağlanamadı: ${e.message}`, true));
+loadJoin();
+setInterval(loadJoin, 5000);
 </script>
 </body>
 </html>
