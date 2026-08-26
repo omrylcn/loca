@@ -6,6 +6,21 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-08-26
+
+### Added
+
+- Join requests now surface as visible notices in the home loca and in the
+  shared Web/Desktop Building view, where Masters and Smasters can approve or
+  deny requests and manage admission stock without opening the hidden desk.
+
+### Fixed
+
+- Pending-request refresh failures now preserve the last known list and show a
+  clear stale/error state instead of incorrectly reporting an empty queue.
+- Join-request actions recover cleanly from transport failures, and admission
+  management permissions now match the Master/Smaster product contract.
+
 ## [0.8.1] - 2026-08-26
 
 ### Added
