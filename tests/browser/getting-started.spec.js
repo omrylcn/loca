@@ -31,8 +31,12 @@ test("Desktop Host: guide auto-opens with the Host view; dismiss persists", asyn
   await expect(host).toContainText("loca-care");
   await expect(host).toContainText("Care & health");
   await expect(host).toContainText("Focus → Reminders");
-  // The full-setup doc link points at the locally-served walkthrough.
+  // The full-setup doc link points at the locally-served walkthrough — and it
+  // must actually serve (it 401'd on a closed prod building for lacking an
+  // allow-list entry; the browser server here runs closed too).
   await expect(host.locator("a[href='/docs/getting-started.md']")).toBeVisible();
+  const docResp = await page.request.get("/docs/getting-started.md");
+  expect(docResp.status()).toBe(200);
 
   // Dismiss -> hidden and remembered across a reload.
   await page.locator("#gsGot").click();

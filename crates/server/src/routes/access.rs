@@ -114,6 +114,11 @@ pub(crate) async fn require_membership(
         || path.starts_with("/assets/")
         || path == "/PRINCIPLES.md"
         || path == "/PRINCIPLES.en.md"
+        // The Getting Started guide links this one doc for the full setup
+        // walkthrough, so it must be publicly readable like PRINCIPLES (it is
+        // not a Building credential). Exact match keeps every other /docs path
+        // gated. It once 401'd on a closed prod building for lacking this entry.
+        || path == "/docs/getting-started.md"
         || path == "/health"
         || path == "/sessions"
         || path == "/membership/claim"
