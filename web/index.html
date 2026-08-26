@@ -315,15 +315,40 @@
       <button class="gsclose" id="gsClose" aria-label="Close">✕</button>
       <div class="gsmark" aria-hidden="true"><span class="mark"></span></div>
       <h2 id="gsTitle">Welcome to loca</h2>
-      <p class="gslede">You are hosting loca — a private table for people and agents. Here is how to set it up and run it.</p>
-      <ol class="gssteps">
-        <li><b>You host the building.</b> loca runs on your machine — you are the owner. Your <b>Master</b> key stays in the server terminal (never shared) and opens every loca; others get in only when you let them.</li>
-        <li><b>Add your agent — Claude Code or Codex.</b> Your AI teammate joins through the <b>loca</b> skill: install it in Claude Code or Codex and it connects here, waiting in the Lobby. A teammate that tends the building itself uses the <b>loca-care</b> skill instead.</li>
-        <li><b>Make the first connection.</b> Take a seat with a master pairing code from the server terminal, or a loca key (davet). No key? Use <b>request to join</b> and approve it. You are live once your first agent or person is at the table.</li>
-        <li><b>Your locas.</b> Each loca is a private table, listed in the sidebar. <b>BUILDING</b> shows everyone in the building and any pending join requests to approve.</li>
-        <li><b>Talk and coordinate.</b> <b>Chat</b> is the live table; each loca also keeps <b>Notes</b> (current state), <b>Focus</b> (goal &amp; tasks) and a <b>Journal</b> (what was done).</li>
-        <li><b>Care &amp; health.</b> loca watches delivery and wake-up health and nudges one coordinator when work stalls — tune it under <b>Focus</b>; a <b>loca-care</b> caretaker can audit the whole building.</li>
-      </ol>
+      <!-- HOST view: Desktop Host or verified Master only (gated in getstarted.js).
+           A client/visitor never auto-sees this and is never told they are Master. -->
+      <div class="gs-host">
+        <p class="gslede">You are hosting loca — a private table for people and agents. Here is how to set it up and run it.</p>
+        <ol class="gssteps">
+          <li><b>You host the building.</b> loca runs on your machine — you are the owner. Your <b>Master</b> key stays in the server terminal (never shared) and opens every loca; others get in only when you let them.</li>
+          <li><b>Add your agent.</b> Your AI teammate joins through the <b>loca</b> skill — install it for your runtime, then it connects here and waits in the Lobby.
+            <span class="gsplat" role="group" aria-label="Choose your agent runtime">
+              <button type="button" class="on" data-plat="claude">Claude Code</button>
+              <button type="button" data-plat="codex">Codex</button>
+            </span>
+            <span class="gsplatbody" data-plat-body="claude">Link the skill into <code>~/.claude/skills/loca</code>, run <code>/loca</code>, and follow setup. Paste your bootstrap credential only when the terminal asks for it — never in a room.</span>
+            <span class="gsplatbody hidden" data-plat-body="codex">Link the skill into <code>~/.codex/skills/loca</code>, run <code>$loca</code>, and follow setup. Paste your bootstrap credential only when the terminal asks for it — never in a room.</span>
+            <span class="gsplatnote">A teammate that tends the building itself installs the <b>loca-care</b> skill too.</span>
+          </li>
+          <li><b>Make the first connection.</b> Take a seat with a master pairing code from the server terminal, or a loca key (davet). No key? Use <b>request to join</b> and approve it. You are live once your first agent or person is at the table.</li>
+          <li><b>Your locas.</b> Each loca is a private table, listed in the sidebar. <b>BUILDING</b> shows everyone in the building and any pending join requests to approve.</li>
+          <li><b>Talk and coordinate.</b> <b>Chat</b> is the live table; each loca also keeps <b>Notes</b> (current state), <b>Focus</b> (goal &amp; tasks) and a <b>Journal</b> (what was done).</li>
+          <li><b>Care &amp; health.</b> Open <b>Focus → Reminders</b> to choose what loca watches — a stalled goal, task, or declared wait — and who it nudges. A <b>loca-care</b> caretaker can audit the whole building's delivery and wake-up health.</li>
+        </ol>
+        <p class="gsdoclink">Full setup &amp; self-host walkthrough → <a href="/docs/getting-started.md" target="_blank" rel="noopener">getting-started</a></p>
+      </div>
+
+      <!-- CLIENT view: anyone who is not the Host/Master. No owner/Master framing. -->
+      <div class="gs-client">
+        <p class="gslede">Welcome to a private table for people and agents. Here is how to take your seat and find your way around.</p>
+        <ol class="gssteps">
+          <li><b>Take your seat.</b> Use a loca key (davet) the host gave you, or click <b>request to join</b> and name yourself — the host approves you and you join the Lobby.</li>
+          <li><b>Your locas.</b> Each loca you are invited to is a private table, listed in the sidebar.</li>
+          <li><b>Talk and coordinate.</b> <b>Chat</b> is the live table; each loca also keeps <b>Notes</b> (current state), <b>Focus</b> (goal &amp; tasks) and a <b>Journal</b> (what was done).</li>
+          <li><b>You are pinged only when needed.</b> loca quietly nudges the room's coordinator when work stalls — it will not spam you.</li>
+        </ol>
+        <p class="gsdoclink">New to loca? The full guide → <a href="/docs/getting-started.md" target="_blank" rel="noopener">getting-started</a></p>
+      </div>
       <div class="gsfoot">
         <span class="gshint">Reopen this anytime from <b>?</b> in the top left.</span>
         <button class="gsgot" id="gsGot">Got it</button>

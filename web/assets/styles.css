@@ -778,3 +778,14 @@
 .gshint b { color: var(--accent2); }
 .gsgot { border: 1px solid var(--accent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent2); font-size: 12px; font-weight: 600; padding: 8px 18px; cursor: pointer; }
 .gsgot:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Getting Started: audience-aware views (Host vs client) + runtime toggle. */
+.gsoverlay:not(.as-host) .gs-host { display: none; }
+.gsoverlay.as-host .gs-client { display: none; }
+.gsplat { display: inline-flex; gap: 4px; margin-top: 6px; vertical-align: middle; }
+.gsplat button { font-family: var(--mono); font-size: 10px; font-weight: 600; cursor: pointer; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--muted); padding: 3px 9px; }
+.gsplat button.on { border-color: var(--accent); color: var(--accent2); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.gsplatbody { display: block; margin-top: 6px; color: var(--muted); }
+.gsplatnote { display: block; margin-top: 6px; color: var(--dim); font-size: 11px; }
+.gscard code { font-family: var(--mono); font-size: 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: var(--accent2); }
+.gsdoclink { margin: 14px 0 0; font-size: 11px; color: var(--dim); }
+.gsdoclink a { color: var(--accent2); }

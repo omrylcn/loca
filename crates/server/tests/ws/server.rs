@@ -134,6 +134,25 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         reqwest::StatusCode::NOT_FOUND
     );
 
+    // The Getting Started guide links the locally-served setup walkthrough; it
+    // must actually serve (same referenced-but-unserved class as joinrequest.js).
+    assert!(
+        shell_body.contains("/docs/getting-started.md"),
+        "the guide should link the local getting-started doc"
+    );
+    let doc = client
+        .get(format!("{base}/docs/getting-started.md"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(doc.status(), reqwest::StatusCode::OK);
+    assert!(doc
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/markdown")));
+    assert!(doc.text().await.unwrap().contains("Getting started"));
+
     let oversized = serde_json::json!({
         "sender": "operator",
         "sender_type": "user",
