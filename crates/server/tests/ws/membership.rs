@@ -989,3 +989,66 @@ async fn whoami_recognizes_a_member() {
     assert_eq!(who["kind"], "member");
     assert_eq!(who["name"], "cyber");
 }
+
+/// Admissions are a building-admin act, not master-only: a Smaster can list and
+/// act on join requests and mint admission stock, exactly as they can admit
+/// members. The approve route already records `smaster:{name}`, so the auth
+/// check must accept a Smaster (was wrongly `is_master_req`, now `is_admin_req`).
+#[tokio::test]
+async fn smaster_can_manage_join_requests_and_stock() {
+    let (port, _guard) = spawn_server_env("MASTER", &[]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    // The Master appoints a Smaster.
+    let sm: Value = client
+        .post(format!("{base}/smasters"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "name": "deputy" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let sm_token = sm["token"].as_str().unwrap();
+
+    // The Smaster can read the pending list — 401 back when it was master-only.
+    let list = client
+        .get(format!("{base}/join-requests"))
+        .header("x-admin-token", sm_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        list.status(),
+        200,
+        "a smaster must be able to list join requests"
+    );
+
+    // …and mint admission stock.
+    let mint = client
+        .post(format!("{base}/admission-stock"))
+        .header("x-admin-token", sm_token)
+        .json(&serde_json::json!({ "count": 1 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        mint.status(),
+        201,
+        "a smaster must be able to mint admission stock"
+    );
+
+    // A non-admin (no credential) is still refused at the handler.
+    let anon = client
+        .get(format!("{base}/join-requests"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        anon.status(),
+        401,
+        "a non-admin must not read join requests"
+    );
+}

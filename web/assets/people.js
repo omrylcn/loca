@@ -266,9 +266,16 @@ async function fetchPeople() {
     const people = await resPeople.json();
     // Durable source of truth for admissions: reloaded from the server on every
     // open/reconnect, so a Master always sees pending requests even if the live
-    // "wants to join" chat nudge was missed.
-    state.joinRequests = resJoin.ok ? ((await resJoin.json()).pending || []) : [];
-    state.admissionStock = resStock.ok ? await resStock.json() : null;
+    // "wants to join" chat nudge was missed. On a failed fetch we KEEP the last
+    // known list and flag the error — a fetch failure must never masquerade as
+    // "no pending requests".
+    if (resJoin.ok) {
+      state.joinRequests = (await resJoin.json()).pending || [];
+      state.joinRequestsError = false;
+    } else {
+      state.joinRequestsError = true;
+    }
+    if (resStock.ok) state.admissionStock = await resStock.json();
 
     // Ask each loca who it has barred; a ban lives in the room, not on the person.
     const bans = {};
@@ -291,17 +298,26 @@ async function fetchPeople() {
 // reloaded from the server), plus admission stock, all in the MAIN app so a
 // Master approves here rather than in the hidden SSH-tunnel desk.
 function joinRequestsHtml() {
-  const jr = state.joinRequests || [];
+  const loaded = Array.isArray(state.joinRequests);
+  // Not fetched yet (and no error): render nothing rather than a misleading box.
+  if (!loaded && !state.joinRequestsError) return "";
+  const jr = loaded ? state.joinRequests : [];
   const stock = state.admissionStock;
   const gauge = stock
     ? `${stock.available} available / ${stock.total} total`
     : "stock —";
-  const rows = jr.length
-    ? jr.map(r =>
-        `<div class="jrrow"><span class="jrwho"><b>${esc(r.name)}</b> · ${esc(r.kind)} wants to join</span>` +
-        `<span class="jracts"><button data-jr-approve="${esc(r.id)}">approve</button>` +
-        `<button data-jr-deny="${esc(r.id)}" class="quiet">deny</button></span></div>`).join("")
-    : `<div class="jrnone">no pending join requests</div>`;
+  let rows;
+  if (state.joinRequestsError && !jr.length) {
+    // A failed fetch is shown AS an error — never as "no pending requests".
+    rows = `<div class="jrnone jrerr">could not load join requests — retrying…</div>`;
+  } else if (!jr.length) {
+    rows = `<div class="jrnone">no pending join requests</div>`;
+  } else {
+    rows = jr.map(r =>
+      `<div class="jrrow"><span class="jrwho"><b>${esc(r.name)}</b> · ${esc(r.kind)} wants to join</span>` +
+      `<span class="jracts"><button data-jr-approve="${esc(r.id)}">approve</button>` +
+      `<button data-jr-deny="${esc(r.id)}" class="quiet">deny</button></span></div>`).join("");
+  }
   return `<div class="jrsection">` +
     `<div class="jrhead"><span class="sectionlabel">Join requests${jr.length ? ` (${jr.length})` : ""}</span>` +
     `<span class="jrstock">admission stock: ${esc(gauge)} · <button data-jr-mint="5" class="quiet">mint 5</button></span></div>` +
@@ -364,7 +380,12 @@ async function refreshPeopleRuntime() {
     state.people = await resPeople.json();
     // Keep the admissions panel live while the tab is open: a request that
     // arrives (or is approved elsewhere) shows up within the poll interval.
-    if (resJoin.ok) state.joinRequests = (await resJoin.json()).pending || [];
+    if (resJoin.ok) {
+      state.joinRequests = (await resJoin.json()).pending || [];
+      state.joinRequestsError = false;
+    } else {
+      state.joinRequestsError = true; // keep the last known list; flag the error
+    }
     if (resStock.ok) state.admissionStock = await resStock.json();
     renderPeople();
   } catch (e) { /* the normal health indicator owns transport errors */ }

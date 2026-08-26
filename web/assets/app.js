@@ -72,33 +72,40 @@ $("applySettings").onclick = applySettings;
 $("liveToggle").onclick = toggleLive;
 $("peopleList").onclick = async (e) => {
   const jrNote = (t) => { const n = $("jrNotice"); if (n) n.textContent = t; };
+  // One admission action, transport-safe: a network failure surfaces a notice
+  // and re-enables the button instead of an unhandled rejection + stuck button.
+  const jrAction = async (btn, url, opts, failMsg) => {
+    btn.disabled = true;
+    try {
+      const r = await fetch(url, opts);
+      if (!r.ok) jrNote(await r.text().catch(() => failMsg));
+    } catch (_) {
+      jrNote(`${failMsg} — network error, try again`);
+      btn.disabled = false;
+    } finally {
+      fetchPeople();   // reload the durable list regardless of outcome
+    }
+  };
   // Join-request admissions, handled right here in the main app (not the desk).
   const approve = e.target.closest("[data-jr-approve]");
   if (approve) {
-    approve.disabled = true;
-    const r = await fetch(`${serverBase()}/join-requests/${encodeURIComponent(approve.dataset.jrApprove)}/approve`,
-      { method: "POST", headers: adminHeaders({}) });
-    if (!r.ok) jrNote(await r.text().catch(() => "could not approve"));
-    fetchPeople();
+    await jrAction(approve,
+      `${serverBase()}/join-requests/${encodeURIComponent(approve.dataset.jrApprove)}/approve`,
+      { method: "POST", headers: adminHeaders({}) }, "could not approve");
     return;
   }
   const deny = e.target.closest("[data-jr-deny]");
   if (deny) {
-    deny.disabled = true;
-    const r = await fetch(`${serverBase()}/join-requests/${encodeURIComponent(deny.dataset.jrDeny)}/deny`,
-      { method: "POST", headers: adminHeaders({}) });
-    if (!r.ok) jrNote(await r.text().catch(() => "could not deny"));
-    fetchPeople();
+    await jrAction(deny,
+      `${serverBase()}/join-requests/${encodeURIComponent(deny.dataset.jrDeny)}/deny`,
+      { method: "POST", headers: adminHeaders({}) }, "could not deny");
     return;
   }
   const mint = e.target.closest("[data-jr-mint]");
   if (mint) {
-    mint.disabled = true;
-    const r = await fetch(`${serverBase()}/admission-stock`,
+    await jrAction(mint, `${serverBase()}/admission-stock`,
       { method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
-        body: JSON.stringify({ count: Number(mint.dataset.jrMint) || 5 }) });
-    if (!r.ok) jrNote(await r.text().catch(() => "could not mint"));
-    fetchPeople();
+        body: JSON.stringify({ count: Number(mint.dataset.jrMint) || 5 }) }, "could not mint");
     return;
   }
   const b = e.target.closest("[data-unban]");
