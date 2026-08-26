@@ -255,13 +255,20 @@ async function fetchPeople() {
   if (!isAdmin()) return;
   const box = $("peopleList");
   try {
-    const [resRooms, resPeople] = await Promise.all([
+    const [resRooms, resPeople, resJoin, resStock] = await Promise.all([
       fetch(`${serverBase()}/rooms`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) }),
+      fetch(`${serverBase()}/join-requests`, { headers: adminHeaders({}) }),
+      fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
     ]);
     if (!resPeople.ok) { box.innerHTML = `<div class="callnone">liste alınamadı</div>`; return; }
     const rooms = resRooms.ok ? await resRooms.json() : [];
     const people = await resPeople.json();
+    // Durable source of truth for admissions: reloaded from the server on every
+    // open/reconnect, so a Master always sees pending requests even if the live
+    // "wants to join" chat nudge was missed.
+    state.joinRequests = resJoin.ok ? ((await resJoin.json()).pending || []) : [];
+    state.admissionStock = resStock.ok ? await resStock.json() : null;
 
     // Ask each loca who it has barred; a ban lives in the room, not on the person.
     const bans = {};
@@ -280,6 +287,28 @@ async function fetchPeople() {
   }
 }
 
+// Building-level admissions surface: pending join requests (the durable list,
+// reloaded from the server), plus admission stock, all in the MAIN app so a
+// Master approves here rather than in the hidden SSH-tunnel desk.
+function joinRequestsHtml() {
+  const jr = state.joinRequests || [];
+  const stock = state.admissionStock;
+  const gauge = stock
+    ? `${stock.available} available / ${stock.total} total`
+    : "stock —";
+  const rows = jr.length
+    ? jr.map(r =>
+        `<div class="jrrow"><span class="jrwho"><b>${esc(r.name)}</b> · ${esc(r.kind)} wants to join</span>` +
+        `<span class="jracts"><button data-jr-approve="${esc(r.id)}">approve</button>` +
+        `<button data-jr-deny="${esc(r.id)}" class="quiet">deny</button></span></div>`).join("")
+    : `<div class="jrnone">no pending join requests</div>`;
+  return `<div class="jrsection">` +
+    `<div class="jrhead"><span class="sectionlabel">Join requests${jr.length ? ` (${jr.length})` : ""}</span>` +
+    `<span class="jrstock">admission stock: ${esc(gauge)} · <button data-jr-mint="5" class="quiet">mint 5</button></span></div>` +
+    rows +
+    `<div class="jrnotice" id="jrNotice"></div></div>`;
+}
+
 function renderPeople() {
   const box = $("peopleList");
   const people = state.people || [];
@@ -287,11 +316,12 @@ function renderPeople() {
   const names = new Set(people.map(p => p.name));
   Object.keys(bans).forEach(n => names.add(n));   // barred people may hold no seat
 
+  const jrHtml = joinRequestsHtml();
   if (!names.size) {
-    box.innerHTML = `<div class="callnone">nobody in the building</div>`;
+    box.innerHTML = jrHtml + `<div class="callnone">nobody in the building</div>`;
     return;
   }
-  box.innerHTML = [...names].sort().map(name => {
+  box.innerHTML = jrHtml + [...names].sort().map(name => {
     const p = people.find(x => x.name === name);
     const glyph = p?.kind === "agent" ? "*" : ".";
     const locas = p?.locas || [];
@@ -325,9 +355,17 @@ function renderPeople() {
 async function refreshPeopleRuntime() {
   if (!isAdmin() || state.tab !== "people") return;
   try {
-    const response = await fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) });
-    if (!response.ok) return;
-    state.people = await response.json();
+    const [resPeople, resJoin, resStock] = await Promise.all([
+      fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) }),
+      fetch(`${serverBase()}/join-requests`, { headers: adminHeaders({}) }),
+      fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
+    ]);
+    if (!resPeople.ok) return;
+    state.people = await resPeople.json();
+    // Keep the admissions panel live while the tab is open: a request that
+    // arrives (or is approved elsewhere) shows up within the poll interval.
+    if (resJoin.ok) state.joinRequests = (await resJoin.json()).pending || [];
+    if (resStock.ok) state.admissionStock = await resStock.json();
     renderPeople();
   } catch (e) { /* the normal health indicator owns transport errors */ }
 }

@@ -71,6 +71,36 @@ $("sealLocaBtn").onclick = () => deleteRoom(state.room);
 $("applySettings").onclick = applySettings;
 $("liveToggle").onclick = toggleLive;
 $("peopleList").onclick = async (e) => {
+  const jrNote = (t) => { const n = $("jrNotice"); if (n) n.textContent = t; };
+  // Join-request admissions, handled right here in the main app (not the desk).
+  const approve = e.target.closest("[data-jr-approve]");
+  if (approve) {
+    approve.disabled = true;
+    const r = await fetch(`${serverBase()}/join-requests/${encodeURIComponent(approve.dataset.jrApprove)}/approve`,
+      { method: "POST", headers: adminHeaders({}) });
+    if (!r.ok) jrNote(await r.text().catch(() => "could not approve"));
+    fetchPeople();
+    return;
+  }
+  const deny = e.target.closest("[data-jr-deny]");
+  if (deny) {
+    deny.disabled = true;
+    const r = await fetch(`${serverBase()}/join-requests/${encodeURIComponent(deny.dataset.jrDeny)}/deny`,
+      { method: "POST", headers: adminHeaders({}) });
+    if (!r.ok) jrNote(await r.text().catch(() => "could not deny"));
+    fetchPeople();
+    return;
+  }
+  const mint = e.target.closest("[data-jr-mint]");
+  if (mint) {
+    mint.disabled = true;
+    const r = await fetch(`${serverBase()}/admission-stock`,
+      { method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ count: Number(mint.dataset.jrMint) || 5 }) });
+    if (!r.ok) jrNote(await r.text().catch(() => "could not mint"));
+    fetchPeople();
+    return;
+  }
   const b = e.target.closest("[data-unban]");
   if (!b) return;
   await fetch(`${serverBase()}/rooms/${encodeURIComponent(b.dataset.room)}/moderate`, {
