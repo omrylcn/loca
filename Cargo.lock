@@ -941,7 +941,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "loca-admin"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "crossterm",
  "protocol",
@@ -1178,7 +1178,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "serde",
 ]
@@ -1533,7 +1533,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "axum",
  "futures-util",
