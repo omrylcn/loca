@@ -6,6 +6,12 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-08-26
+
+### Fixed
+
+- Include the served Getting Started document in production Docker builds.
+
 ## [0.8.3] - 2026-08-26
 
 ### Added
