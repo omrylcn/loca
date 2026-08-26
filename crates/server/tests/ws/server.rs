@@ -3,6 +3,50 @@
 use super::*;
 
 #[tokio::test]
+async fn public_docs_serve_on_a_closed_building_but_protected_routes_stay_gated() {
+    // Prod runs a CLOSED building (ROOM_TOKEN set) with REQUIRE_SESSIONS, so the
+    // membership gate is live and an anonymous request is not a member. The
+    // Getting Started guide links /docs/getting-started.md for the full setup
+    // walkthrough; it must be publicly readable there (like /PRINCIPLES.md). It
+    // once 401'd on prod because it was missing from the allow-list, and the
+    // open-building shell test could not catch that. This runs prod-equivalent.
+    let (port, _guard) = spawn_server_env(
+        "MASTER",
+        &[
+            ("ROOM_TOKEN", "building".into()),
+            ("REQUIRE_SESSIONS", "1".into()),
+            ("LEGACY_WS_QUERY_AUTH", "0".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    // The public docs + principles serve without any credential.
+    for path in ["/docs/getting-started.md", "/PRINCIPLES.md"] {
+        let response = client.get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::OK,
+            "{path} must be publicly readable on a closed building"
+        );
+    }
+
+    // A protected route is still gated for an anonymous caller — the allow-list
+    // opened exactly one doc, not the membership wall.
+    let protected = client
+        .get(format!("{base}/rooms/iye/waits"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        protected.status(),
+        reqwest::StatusCode::UNAUTHORIZED,
+        "protected routes must still require membership"
+    );
+}
+
+#[tokio::test]
 async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
     let (port, _guard) = spawn_server().await;
     let base = format!("http://127.0.0.1:{port}");
