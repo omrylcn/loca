@@ -313,7 +313,12 @@ function joinRequestsHtml() {
   } else if (!jr.length) {
     rows = `<div class="jrnone">no pending join requests</div>`;
   } else {
-    rows = jr.map(r =>
+    // A stale list after a failed refresh STILL carries an explicit error banner,
+    // so the Master never mistakes last-known rows for a current, complete list.
+    const stale = state.joinRequestsError
+      ? `<div class="jrerr jrstale">could not refresh — showing last known list</div>`
+      : "";
+    rows = stale + jr.map(r =>
       `<div class="jrrow"><span class="jrwho"><b>${esc(r.name)}</b> · ${esc(r.kind)} wants to join</span>` +
       `<span class="jracts"><button data-jr-approve="${esc(r.id)}">approve</button>` +
       `<button data-jr-deny="${esc(r.id)}" class="quiet">deny</button></span></div>`).join("");

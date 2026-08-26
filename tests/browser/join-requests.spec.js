@@ -44,3 +44,41 @@ test("join requests are visible and approvable in the main app, with no secret i
   await page.evaluate(() => { state.tab = "people"; return refreshPeopleRuntime(); });
   await expect(page.locator(".jrsection")).toContainText("could not load");
 });
+
+// Host-mode parity + deny + transport-failure resilience. The Desktop Host loads
+// the SAME shared Web UI (it may set window.__LOCA_HOST__), so the panel and its
+// actions must behave identically — there is no desktop fork.
+test("Host wrapper shows the same panel; deny works and a transport failure re-enables the button", async ({ page, request }) => {
+  const admin = { "x-admin-token": "MASTER" };
+  // Simulate the Desktop Host wrapper injecting its flag before the app loads.
+  await page.addInitScript(() => { window.__LOCA_HOST__ = true; });
+
+  const paired = await request.post("/pairings?ttl_hours=1", { headers: admin });
+  const { pairing_code } = await paired.json();
+  await page.goto("/");
+  await page.locator("#pairingCode").fill(pairing_code);
+  await page.evaluate(() => window.doConnect("iye"));
+  await expect(page.locator("#whoami")).toContainText("MASTER");
+
+  // An outside agent requests; the SAME panel is visible under the Host flag.
+  await request.post("/join-requests", { data: { name: "hostguest", kind: "agent" } });
+  await page.locator("#tabPeople").click();
+  const jr = page.locator(".jrsection");
+  await expect(jr).toContainText("hostguest");
+
+  // DENY calls the authenticated deny endpoint and the request leaves the list.
+  const denyReq = page.waitForRequest(r => r.url().includes("/deny") && r.method() === "POST");
+  await jr.locator("[data-jr-deny]").first().click();
+  await denyReq;
+  await expect(page.locator(".jrsection")).toContainText("no pending join requests");
+
+  // A transport failure on approve must NOT consume the request or leave the
+  // button stuck disabled: the request stays pending and the button is usable.
+  await request.post("/join-requests", { data: { name: "hostguest2", kind: "agent" } });
+  await page.evaluate(() => { state.tab = "people"; return refreshPeopleRuntime(); });
+  await expect(page.locator(".jrsection")).toContainText("hostguest2");
+  await page.route("**/join-requests/*/approve", route => route.abort());
+  await page.locator(".jrsection [data-jr-approve]").first().click();
+  await expect(page.locator(".jrsection")).toContainText("hostguest2");
+  await expect(page.locator(".jrsection [data-jr-approve]").first()).toBeEnabled();
+});

@@ -753,3 +753,5 @@
 .jracts button { padding: 6px 12px; font-size: 12px; }
 .jrnone { color: var(--dim); font-size: 12px; padding: 6px 0; }
 .jrnotice { color: var(--accent); font-size: 11px; min-height: 1em; margin-top: 6px; }
+.jrerr { color: #f0a; font-size: 11px; padding: 6px 0; }
+.jrstale { color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-bottom: 4px; }
