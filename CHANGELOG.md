@@ -6,6 +6,12 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-08-26
+
+### Fixed
+
+- Serve the exact Getting Started document path on closed buildings while preserving membership protection for all other routes.
+
 ## [0.8.4] - 2026-08-26
 
 ### Fixed
