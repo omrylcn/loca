@@ -1917,3 +1917,48 @@ fn approve_issued_membership_authenticates_on_a_persistent_store() {
     assert_eq!(member.name, "newbie");
     assert_eq!(member.kind, "agent");
 }
+
+#[test]
+fn join_request_is_announced_visibly_in_the_home_loca_without_leaking_the_secret() {
+    use super::JoinRequestCreate;
+    let hub = Hub::build(
+        HubConfig {
+            admin_token: "M".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        Arc::new(Store::open(None).expect("memory store")),
+        RoomSettings::default(),
+        1,
+    );
+    // The home loca must exist (a member present) for the announce to post.
+    assert!(hub.join("iye", "member:master", "master", SenderType::User, 1));
+    let ip: std::net::IpAddr = "10.0.0.1".parse().unwrap();
+    let out = hub.create_join_request("visitor", "agent", ip);
+    let JoinRequestCreate::Created { request_secret, .. } = out else {
+        panic!("expected Created");
+    };
+
+    // A visible "<name> wants to join" announce must land in the home loca so the
+    // Master sees it in the main app — the whole point of this fix. RED before it
+    // (create only wrote the hidden request row). And it must carry NO secret.
+    let (_rx, history) = hub.subscribe("iye");
+    let announce = history
+        .iter()
+        .find(|m| m.sender == "loca" && m.text.contains("wants to join"))
+        .unwrap_or_else(|| {
+            panic!(
+                "no visible join-request announce in the home loca; history: {:?}",
+                history.iter().map(|m| &m.text).collect::<Vec<_>>()
+            )
+        });
+    assert!(announce.text.contains("visitor"));
+    assert!(
+        !announce.text.contains(&request_secret) && !announce.text.contains("jrs_"),
+        "the announce must never carry the request secret"
+    );
+}
