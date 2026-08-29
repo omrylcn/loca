@@ -708,8 +708,12 @@ pub(crate) async fn get_join_request_route(
     }
 }
 
-/// POST /join-requests/:id/bootstrap — deliver the approved mb_ ONCE (secret in
-/// the `x-join-secret` header).
+/// POST /join-requests/:id/bootstrap — deliver the approved mb_, RE-FETCHABLE
+/// until the client ACKs (secret in the `x-join-secret` header). Idempotent by
+/// design: a client that crashes or drops the connection between receiving mb_
+/// and persisting it re-fetches the same credential instead of losing it. The
+/// window closes only when the client, having verified mb_ via /whoami, calls
+/// POST /join-requests/:id/ack.
 pub(crate) async fn bootstrap_join_request_route(
     State(hub): State<Hub>,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -726,7 +730,35 @@ pub(crate) async fn bootstrap_join_request_route(
             .into_response(),
         None => (
             StatusCode::NOT_FOUND,
-            "not approved, already delivered, or bad secret",
+            "not approved, already finalized, or bad secret",
+        )
+            .into_response(),
+    }
+}
+
+/// POST /join-requests/:id/ack — the requester confirms it persisted AND
+/// verified the mb_ (via /whoami), so the server closes the one-time delivery
+/// window (secret in the `x-join-secret` header). Until this call the bootstrap
+/// stays re-fetchable, so a crash cannot lose the credential; after it, the
+/// bootstrap endpoint returns 404. Idempotent: acking an already-acked request
+/// owned by the same secret still returns 200.
+pub(crate) async fn ack_join_request_route(
+    State(hub): State<Hub>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let Some(secret) = join_secret_of(&headers) else {
+        return (StatusCode::UNAUTHORIZED, "x-join-secret header required").into_response();
+    };
+    match hub.ack_join_request_bootstrap(&id, secret) {
+        Some(_) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "acknowledged": true })),
+        )
+            .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            "unknown request or secret, or not approved",
         )
             .into_response(),
     }

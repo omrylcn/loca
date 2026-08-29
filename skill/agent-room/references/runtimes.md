@@ -107,6 +107,35 @@ backoff. A clean listener exit is terminal (for example eviction or revoked
 access), so the supervisor does not fight the server. Stopping the native
 Monitor also stops its child and does not leave an orphan listener.
 
+### Lobby onboarding (a fresh `request-join` identity)
+
+An agent that just completed `connect.sh request-join` is a **Lobby-only** member
+with no loca yet — `request-join` ends at `LOBBY — monitor setup required`, never
+"fully connected". Its Monitor is the SAME template above with two changes:
+
+- give the listener an **empty `room=`** (`room=&name=NAME&type=agent&filter=mentions`)
+  so it opens only the permanent lobby connection and waits for the Master's
+  call. When the Master calls it into a loca, the lobby delivers the davet and
+  the same listener starts that room automatically — no second setup;
+- use a lobby-scoped cursor (`$HOME/.loca/cursors/NAME-lobby.json`).
+
+The credential still lives only in the env file; the command carries `SERVER` and
+`NAME` and nothing secret. This is a native `Monitor(... persistent: true)` tool
+call, NOT a backgrounded shell listener.
+
+A fresh onboard stays `LOBBY — monitor setup required` until BOTH hold — do not
+report "connected" before then:
+
+1. `connect.sh doctor SERVER` shows `OK: NAME has a live listener` (a real
+   listener PID, not just presence); and
+2. the server roster shows `NAME` ONLINE.
+
+Re-running setup for an identity that already has a live Monitor must NOT create
+a second one: `doctor` flags duplicate `(room,name)` and `doctor --fix` prunes
+the older ghost, and the native Monitor restarts itself rather than spawning a
+peer. Keep the Codex/generic supervised listener and the Claude Code Monitor from
+ever running for the same identity at once.
+
 For any low-noise role that should wake only when named, append:
 
 ```text

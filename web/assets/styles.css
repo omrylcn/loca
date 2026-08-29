@@ -789,3 +789,25 @@
 .gscard code { font-family: var(--mono); font-size: 11px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; color: var(--accent2); }
 .gsdoclink { margin: 14px 0 0; font-size: 11px; color: var(--dim); }
 .gsdoclink a { color: var(--accent2); }
+/* Tabbed Getting Started */
+.gstabs { display: flex; flex-wrap: wrap; gap: 2px; margin: 2px 0 14px; border-bottom: 1px solid var(--line); }
+.gstab { font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: .02em; cursor: pointer; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 7px 10px; margin-bottom: -1px; }
+.gstab:hover { color: var(--txt); }
+.gstab.on { color: var(--accent2); border-bottom-color: var(--accent); }
+.gspanel { animation: gsfade .18s ease; }
+.gspanel.hidden { display: none; }
+@keyframes gsfade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .gspanel { animation: none; } }
+.gscmd { display: flex; align-items: stretch; gap: 6px; margin-top: 8px; }
+.gscmd.hidden { display: none; }
+.gscmd code { flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 7px 9px; font-size: 11px; }
+.gscopy { flex: 0 0 auto; font-family: var(--mono); font-size: 10px; font-weight: 700; cursor: pointer; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--accent2); padding: 0 12px; }
+.gscopy:hover { border-color: var(--accent); }
+.gsmore { margin-top: 10px; }
+.gsmore summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.gsmore[open] summary { color: var(--txt); }
+.gsmore p { margin-top: 6px; }
+.gspath { margin: 8px 0; padding: 7px 9px; font-family: var(--mono); font-size: 11px; color: var(--accent2); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; white-space: nowrap; }
+.gspath.hidden { display: none; }
+.gserror { margin: 8px 0; padding: 7px 9px; font-size: 11px; color: #ffb4a2; background: rgba(255,107,107,.08); border: 1px solid rgba(255,107,107,.3); border-radius: 6px; }
+.gserror.hidden { display: none; }

@@ -314,18 +314,24 @@ case "$cmd" in
     fi
     who=$(printf '%s' "$identity" | jq -r '.name')
     mapfile -t server_locas < <(printf '%s' "$identity" | jq -r '.locas[]?')
-    verified=(); stale=(); expected_keys=" "
+    verified=(); pending=(); stale=(); expected_keys=" "
     for loca in "${server_locas[@]}"; do
       expected_keys+="DAVET_$(_var "$loca") "
       token=$(davet_for "$loca")
-      if _davet_is_live "$server" "$loca" "$token"; then
+      if [ -n "$token" ] && _davet_is_live "$server" "$loca" "$token"; then
         verified+=("$loca")
       else
-        stale+=("$loca")
+        # The SERVER lists this member in this loca, but the local cache has no
+        # live davet for it. That is the Master having CALLED the member in: the
+        # davet is delivered over the Lobby SOCKET, so it is PENDING a live
+        # listener — NOT revoked. Never send the agent to "ask the master".
+        pending+=("$loca")
       fi
     done
     while IFS= read -r key; do
       [ -n "$key" ] || continue
+      # A local DAVET_ the server no longer lists is genuinely stale (revoked,
+      # expired, or replaced); the Lobby listener drops it.
       case "$expected_keys" in *" $key "*) ;; *) stale+=("${key#DAVET_}") ;; esac
     done < <(compgen -A variable DAVET_ || true)
     if [ "${#verified[@]}" -gt 0 ]; then
@@ -337,16 +343,28 @@ case "$cmd" in
       else
         echo "POSTING SESSION: renewal required — delivery may still work, but sending can return 401; keep the Lobby listener/runtime supervised"
       fi
+      if [ "${#pending[@]}" -gt 0 ]; then
+        pending_list=$(IFS=,; printf '%s' "${pending[*]}")
+        echo "PENDING DAVET (start your listener) — the Master has called '$who' into: $pending_list; the davet arrives over the Lobby socket, not a status refresh"
+      fi
       if [ "${#stale[@]}" -gt 0 ]; then
         stale_list=$(IFS=,; printf '%s' "${stale[*]}")
-        echo "STALE LOCAL CACHE (ignored) — revoked, expired, missing, or replaced davet credentials for: $stale_list; the Lobby listener will remove them"
+        echo "STALE LOCAL CACHE (ignored) — replaced, expired, or missing davet credentials for: $stale_list; the Lobby listener will remove them"
       fi
+    elif [ "${#pending[@]}" -gt 0 ]; then
+      # Membership valid + the Master has called this member in, but no live
+      # listener has received the davet yet. This is the "start your listener"
+      # state — NOT an error, and NOT a reason to ask the master (the old
+      # STALE/exit-4 message sent agents down the wrong path here).
+      pending_list=$(IFS=,; printf '%s' "${pending[*]}")
+      echo "LOBBY (membership valid) — the Master has CALLED '$who' into: $pending_list"
+      echo "the davet arrives over the Lobby SOCKET, not a status refresh — start your listener/Monitor and it becomes INVITED (verified)."
+      echo "  Claude Code: one native persistent Monitor (monitor_listener.py). Codex/generic: runtime.sh start '$who'."
     elif [ "${#stale[@]}" -gt 0 ]; then
       stale_list=$(IFS=,; printf '%s' "${stale[*]}")
-      echo "STALE — '$who' has revoked, expired, missing, or replaced davet credentials for: $stale_list; ask the master for a new one"
-      exit 4
+      echo "STALE LOCAL CACHE — '$who' membership is valid but local davet(s) for $stale_list are replaced/expired; the Lobby listener drops them. If you expected access there, ask the master to call you in."
     else
-      echo "LOBBY — '$who' membership is valid; no loca davet is active"
+      echo "LOBBY — '$who' membership is valid; no loca davet is active. Start your listener so the Master's call can reach you over the Lobby socket."
     fi
     ;;
 
@@ -816,6 +834,142 @@ case "$cmd" in
       echo "  export LOCA_ENV=$LOCA_ENV"
       echo "put that line in this agent's shell profile, or prefix each call."
     fi
+    ;;
+
+  request-join)
+    # request-join <server> <name> — the AGENT-initiated onboarding path for a
+    # self-service building. An outside agent with NO credential names itself,
+    # waits for a Master to approve, and receives its own Lobby membership. The
+    # whole secret-bearing flow lives in join_request.py: the per-request secret
+    # stays in a mode-600 state file (~/.loca/<name>.request), and the issued
+    # membership (mb_) is written STRAIGHT into the atomic 600 identity env via
+    # the shared credentials API — RE-FETCHABLE on the server until acked, so a
+    # crash never loses it, and the ACK closes the window only after the persisted
+    # env re-verifies. Neither secret ever touches argv, an environment block,
+    # stdout, a log, or a room. It ends at "LOBBY — monitor setup required",
+    # never "fully connected".
+    server="${1:-${ROOM_SERVER_URL:-}}"
+    name="${2:-}"
+    if [ -z "$server" ] || [ -z "$name" ]; then
+      echo "usage: connect.sh request-join <server> <name>" >&2
+      exit 2
+    fi
+    if ! [[ "$server" =~ ^https?://([A-Za-z0-9._-]+|\[[0-9A-Fa-f:]+\])(:[0-9]+)?$ ]]; then
+      echo "server must be an http(s) origin without a path or shell syntax" >&2
+      exit 2
+    fi
+    if ! [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+      echo "name must be 1-64 ASCII letters, digits, dot, dash, or underscore" >&2
+      exit 2
+    fi
+    if [ "${3+x}" = x ]; then
+      echo "no secret is passed as an argument to request-join; it is managed in a 600 file" >&2
+      exit 2
+    fi
+    if ! curl -sf -m 10 "$server/health" >/dev/null; then
+      echo "cannot reach $server" >&2; exit 1
+    fi
+    mkdir -p "$HOME/.loca"; umask 177
+    req_file="$HOME/.loca/$(_identity_stem "$name").request"
+    # DETERMINISTIC per-identity env: request-join never shares the compatibility
+    # default ~/.loca/env, so two fresh agents onboarding at the same instant can
+    # never race onto the same file (each writes its own ~/.loca/<name>.env). A
+    # pinned LOCA_ENV still wins. credentials.load_local_env() already resolves a
+    # name-specific file ahead of the default, so later commands for this name
+    # find it, and update_env_values additionally refuses to overwrite a file
+    # already owned by a different LOCA_NAME.
+    if [ "${_LOCA_ENV_PINNED:-0}" -eq 1 ]; then
+      env_path="$LOCA_ENV"
+    else
+      env_path="$HOME/.loca/$(_identity_stem "$name").env"
+    fi
+    # ALL secret-bearing work AND the atomic env write happen inside the helper.
+    # It prints only human progress to stderr; no credential (request secret or
+    # membership) ever reaches stdout, argv, or an environment block.
+    python3 "$SCRIPT_DIR/join_request.py" onboard "$server" "$name" "$req_file" "$env_path"
+    rc=$?
+    case "$rc" in
+      0|6)
+        # Onboarded. rc 6 = membership persisted AND verified, but the server
+        # finalize (ack) is still pending — a later re-run completes it and
+        # nothing is lost. Either way the identity is filed and the honest
+        # result is "monitor setup required", never "fully connected".
+        ws=$(printf '%s' "$server" | sed -E 's#^http#ws#')
+        echo
+        echo "RESULT: LOBBY — monitor setup required   (you are NOT fully connected yet)"
+        echo "Onboarding created your identity and filed its membership in the env file."
+        echo "Nothing delivers to you or WAKES you until a listener/Monitor is running AND"
+        echo "verified ONLINE — that is part of connecting, not an optional extra. The"
+        echo "credential stays in the env file; the command below carries only the server"
+        echo "and your name, never a token. The wake step is the ONLY runtime-specific part:"
+        echo
+        echo "  Claude Code — start ONE native persistent Monitor (the harness tool, NOT a"
+        echo "    background shell), running the shipped supervisor over a LOBBY listener:"
+        echo "      monitor_listener.py --name $name -- listen.py \"$ws/ws?room=&name=$name&type=agent&filter=mentions\" …"
+        echo "    Copy the exact Monitor(...) call from references/runtimes.md -> 'Claude Code'"
+        echo "    -> 'Lobby onboarding' (room= is EMPTY for a Lobby-only agent)."
+        echo "  Codex / generic — supervise the same lobby listener with runtime.sh, then:"
+        echo "      connect.sh reconnect $server $name"
+        echo
+        echo "  THEN VERIFY (do not claim connected until this passes):"
+        echo "      connect.sh doctor $server      # expect: 'OK: $name has a live listener' + roster ONLINE"
+        echo "Until doctor shows a live listener and the roster shows '$name' ONLINE, your"
+        echo "state stays 'LOBBY — monitor setup required'. Only then can the Master CALL you"
+        echo "into a loca (the davet then arrives over the Lobby socket, not a status refresh)."
+        if [ "$rc" = 6 ]; then
+          echo
+          echo "note: the server finalize (ack) is still pending — re-run request-join once you"
+          echo "are online to complete it. Your membership is already safely filed."
+        fi
+        exit 0
+        ;;
+      5)
+        echo "cannot onboard '$name': its request was finalized on the server but no valid" >&2
+        echo "local membership exists, and the credential can no longer be re-fetched." >&2
+        echo "ask the operator to re-admit '$name' (a fresh membership or davet), then retry." >&2
+        exit 1
+        ;;
+      *)
+        # 2 usage, 3 denied, 1 transient — the helper already explained on stderr.
+        exit "$rc"
+        ;;
+    esac
+    ;;
+
+  stop)
+    # stop <server> <name> [--kill|--dry-run] — stop ONLY this identity's
+    # listener/Monitor on this server. NEVER a broad pattern kill: a
+    # `pkill -f listen.py` would take out every agent's listener on the machine
+    # (and a pattern can even match the caller's own shell — that is how a smoke
+    # cleanup once killed its own process). This targets only processes whose ws
+    # URL names EXACTLY <name> on <server>'s host, and re-checks each PID's kernel
+    # start-time immediately before signalling, so a recycled PID can never make
+    # us kill a bystander. Every other identity's listener is left untouched.
+    server="${1:-${ROOM_SERVER_URL:-}}"
+    name="${2:-${LOCA_NAME:-}}"
+    opt="${3:-}"
+    if [ -z "$server" ] || [ -z "$name" ]; then
+      echo "usage: connect.sh stop <server> <name> [--kill|--dry-run]" >&2
+      exit 2
+    fi
+    if ! [[ "$server" =~ ^https?://([A-Za-z0-9._-]+|\[[0-9A-Fa-f:]+\])(:[0-9]+)?$ ]]; then
+      echo "server must be an http(s) origin without a path or shell syntax" >&2
+      exit 2
+    fi
+    if ! [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+      echo "name must be 1-64 ASCII letters, digits, dot, dash, or underscore" >&2
+      exit 2
+    fi
+    host=$(printf '%s' "$server" | sed -E 's#^https?://##; s#/.*##')
+    extra=()
+    case "$opt" in
+      "") ;;
+      --kill) extra=(--signal KILL) ;;
+      --dry-run) extra=(--dry-run) ;;
+      *) echo "unknown option: $opt (use --kill or --dry-run)" >&2; exit 2 ;;
+    esac
+    python3 "$SCRIPT_DIR/stop_listener.py" "$host" "$name" "${extra[@]}"
+    exit $?
     ;;
 
   session)

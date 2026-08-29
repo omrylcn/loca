@@ -1127,3 +1127,170 @@ async fn smaster_can_manage_join_requests_and_stock() {
         "a non-admin must not read join requests"
     );
 }
+
+#[tokio::test]
+async fn join_request_bootstrap_is_refetchable_until_ack_over_http() {
+    // The crash-safe onboarding contract at the HTTP boundary: an outside agent
+    // requests, a Master approves, the mb_ is RE-FETCHABLE with the request
+    // secret (so a crash between receiving it and persisting it loses nothing),
+    // authenticates via /whoami, then ONE /ack closes the window — after which
+    // bootstrap is 404 while the delivered membership keeps working. Needs a real
+    // store (the default no-DB server is a no-op store for join requests).
+    let (port, _guard) = spawn_server_env("MASTER", &[("DB_PATH", ":memory:".into())]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    // Stock + request + approve.
+    client
+        .post(format!("{base}/admission-stock"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "count": 1 }))
+        .send()
+        .await
+        .unwrap();
+    let created: Value = client
+        .post(format!("{base}/join-requests"))
+        .json(&serde_json::json!({ "name": "newbie", "kind": "agent" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let jr = created["request_id"].as_str().unwrap().to_string();
+    let secret = created["request_secret"].as_str().unwrap().to_string();
+    assert!(
+        secret.starts_with("jrs_"),
+        "the request secret is the requester's only handle"
+    );
+    client
+        .post(format!("{base}/join-requests/{jr}/approve"))
+        .header("x-admin-token", "MASTER")
+        .send()
+        .await
+        .unwrap();
+
+    // Poll now advertises bootstrap_ready.
+    let poll: Value = client
+        .get(format!("{base}/join-requests/{jr}"))
+        .header("x-join-secret", &secret)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(poll["status"], "approved");
+    assert_eq!(poll["bootstrap_ready"], true);
+
+    // Two bootstraps BEFORE ack return the SAME mb_ (crash-safe re-fetch).
+    let r1 = client
+        .post(format!("{base}/join-requests/{jr}/bootstrap"))
+        .header("x-join-secret", &secret)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r1.status(), 201);
+    let mb1 = r1.json::<Value>().await.unwrap()["davet"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let r2 = client
+        .post(format!("{base}/join-requests/{jr}/bootstrap"))
+        .header("x-join-secret", &secret)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r2.status(), 201, "bootstrap is re-fetchable until ack");
+    let mb2 = r2.json::<Value>().await.unwrap()["davet"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(mb1, mb2, "the credential never diverges across re-fetches");
+    assert!(mb1.starts_with("mb_"));
+
+    // The mb_ authenticates as the named member via /whoami.
+    let who: Value = client
+        .get(format!("{base}/whoami"))
+        .header("x-room-token", &mb1)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(who["kind"], "member");
+    assert_eq!(who["name"], "newbie");
+
+    // A wrong secret can neither bootstrap nor ack, and leaves the window OPEN.
+    let bad_boot = client
+        .post(format!("{base}/join-requests/{jr}/bootstrap"))
+        .header("x-join-secret", "jrs_wrong")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad_boot.status(), 404);
+    let bad_ack = client
+        .post(format!("{base}/join-requests/{jr}/ack"))
+        .header("x-join-secret", "jrs_wrong")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(bad_ack.status(), 404);
+    let still = client
+        .post(format!("{base}/join-requests/{jr}/bootstrap"))
+        .header("x-join-secret", &secret)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        still.status(),
+        201,
+        "a wrong-secret ack must not close the window"
+    );
+
+    // ACK closes the window; the response carries NO credential/secret.
+    let ack = client
+        .post(format!("{base}/join-requests/{jr}/ack"))
+        .header("x-join-secret", &secret)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ack.status(), 200);
+    let ack_body: Value = ack.json().await.unwrap();
+    assert_eq!(ack_body["acknowledged"], true);
+    assert!(
+        ack_body.get("davet").is_none() && ack_body.get("mb").is_none(),
+        "the ack response must not echo any credential"
+    );
+    // Repeat ack is idempotent 200.
+    let ack2 = client
+        .post(format!("{base}/join-requests/{jr}/ack"))
+        .header("x-join-secret", &secret)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ack2.status(), 200, "repeat ack is idempotent");
+
+    // After ACK the bootstrap window is CLOSED (404)…
+    let after = client
+        .post(format!("{base}/join-requests/{jr}/bootstrap"))
+        .header("x-join-secret", &secret)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(after.status(), 404, "bootstrap is closed after ack");
+    // …but the delivered membership itself still works (only the one-time copy
+    // in the request row was scrubbed).
+    let who2 = client
+        .get(format!("{base}/whoami"))
+        .header("x-room-token", &mb1)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        who2.status(),
+        200,
+        "the delivered membership stays valid after ack"
+    );
+}

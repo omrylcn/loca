@@ -91,6 +91,25 @@ def update_env_values(path, updates):
         except FileNotFoundError:
             existing = []
 
+        # Ownership guard (inside the lock): never let one identity's write
+        # clobber a file that already belongs to a different LOCA_NAME. This turns
+        # a concurrent-onboarding collision into an explicit refusal instead of a
+        # silent overwrite of another agent's identity.
+        target_name = updates.get("LOCA_NAME")
+        if target_name:
+            for line in existing:
+                stripped = line.strip()
+                if stripped.startswith("LOCA_NAME="):
+                    current = stripped.split("=", 1)[1].strip()
+                    if len(current) >= 2 and current[0] == current[-1] and current[0] in "\"'":
+                        current = current[1:-1]
+                    if current and current != target_name:
+                        raise CredentialError(
+                            "refusing to overwrite identity %r with %r in %s"
+                            % (current, target_name, path)
+                        )
+                    break
+
         kept = []
         for line_number, line in enumerate(existing, start=1):
             stripped = line.strip()

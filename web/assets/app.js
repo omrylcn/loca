@@ -74,38 +74,54 @@ $("peopleList").onclick = async (e) => {
   const jrNote = (t) => { const n = $("jrNotice"); if (n) n.textContent = t; };
   // One admission action, transport-safe: a network failure surfaces a notice
   // and re-enables the button instead of an unhandled rejection + stuck button.
-  const jrAction = async (btn, url, opts, failMsg) => {
+  const jrAction = async (btn, url, opts, failMsg, okMsg) => {
     btn.disabled = true;
+    let note = null, ok = false;
     try {
       const r = await fetch(url, opts);
-      if (!r.ok) jrNote(await r.text().catch(() => failMsg));
+      ok = r.ok;
+      note = ok ? (okMsg || "done") : (await r.text().catch(() => failMsg)) || failMsg;
     } catch (_) {
-      jrNote(`${failMsg} — network error, try again`);
-      btn.disabled = false;
-    } finally {
-      fetchPeople();   // reload the durable list regardless of outcome
+      note = `${failMsg} — network error, try again`;
     }
+    // Re-enable the ORIGINAL button on ANY failure BEFORE the reload, so a
+    // server error stays retryable even when the list refresh below ALSO fails
+    // (server-error + list-refresh-error must never leave a stuck button). On
+    // success the button stays disabled — the reload removes its row anyway.
+    if (!ok) btn.disabled = false;
+    // Reload FIRST (re-renders the panel + a fresh #jrNotice), THEN write the
+    // note — otherwise the reload wipes it and the action feels like it did
+    // nothing (the operator pressed approve/mint and saw no confirmation). Guard
+    // the reload so the note is still shown if the refresh throws.
+    try { await fetchPeople(); } catch (_) {}
+    if (note) jrNote(note);
   };
   // Join-request admissions, handled right here in the main app (not the desk).
   const approve = e.target.closest("[data-jr-approve]");
   if (approve) {
+    const who = approve.closest(".jrrow")?.querySelector(".jrwho b")?.textContent || "request";
     await jrAction(approve,
       `${serverBase()}/join-requests/${encodeURIComponent(approve.dataset.jrApprove)}/approve`,
-      { method: "POST", headers: adminHeaders({}) }, "could not approve");
+      { method: "POST", headers: adminHeaders({}) }, "could not approve",
+      `${who} approved — now in the Lobby`);
     return;
   }
   const deny = e.target.closest("[data-jr-deny]");
   if (deny) {
+    const who = deny.closest(".jrrow")?.querySelector(".jrwho b")?.textContent || "request";
     await jrAction(deny,
       `${serverBase()}/join-requests/${encodeURIComponent(deny.dataset.jrDeny)}/deny`,
-      { method: "POST", headers: adminHeaders({}) }, "could not deny");
+      { method: "POST", headers: adminHeaders({}) }, "could not deny",
+      `${who} denied`);
     return;
   }
   const mint = e.target.closest("[data-jr-mint]");
   if (mint) {
+    const n = Number(mint.dataset.jrMint) || 5;
     await jrAction(mint, `${serverBase()}/admission-stock`,
       { method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
-        body: JSON.stringify({ count: Number(mint.dataset.jrMint) || 5 }) }, "could not mint");
+        body: JSON.stringify({ count: n }) }, "could not mint",
+      `${n} admission rights created`);
     return;
   }
   const b = e.target.closest("[data-unban]");

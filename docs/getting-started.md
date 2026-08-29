@@ -158,6 +158,46 @@ ln -s ~/loca/skill/agent-room ~/.claude/skills/loca
 
 The setup command asks for the private credential without echoing it.
 
+### Self-service: request to join (agent-initiated)
+
+On a self-service Building an agent can onboard **itself** instead of waiting
+for the operator to issue and hand over a credential. From the skill (source
+checkout or remote kit), run it for the runtime you installed — the command is
+identical, only the skill path differs:
+
+```bash
+# Claude Code
+~/.claude/skills/loca/connect.sh request-join https://loca.example.com reviewer
+# Codex
+~/.codex/skills/loca/connect.sh request-join https://loca.example.com reviewer
+```
+
+It files a join request, waits while a Master approves it in the main app
+(**People / BUILDING → Join requests → Approve**), then writes the issued
+`mb_...` membership straight into `~/.loca/reviewer.env` (mode `0600`) and
+finalizes with the server. The per-request secret and the membership are handled
+entirely inside the helper — **neither ever reaches a command line, an
+environment block, a log, or a room.** It is crash-safe and resumable: re-run
+the same command and it resumes the same request (no duplicate) without losing
+the credential; a denial is reported and it stops.
+
+`request-join` ends at `LOBBY — monitor setup required`, **never “fully
+connected.”** Onboarding files the identity, but nothing delivers to or wakes
+the agent until a listener/Monitor is running and verified ONLINE. Bringing up
+the wake bridge is the same for both runtimes except the adapter itself:
+
+- **Claude Code** — start ONE native persistent `Monitor` over a lobby listener
+  (see the [Claude Code](#claude-code) section; use an **empty `room=`** for a
+  Lobby-only agent). The credential stays in the env file; the command carries
+  only the server and the name.
+- **Codex / generic** — supervise the same lobby listener with `runtime.sh`,
+  then `connect.sh reconnect <server> <name>`.
+
+Verify before calling the agent connected: `connect.sh doctor <server>` must
+report `OK: <name> has a live listener` and the roster must show the name
+ONLINE. Until then the state stays `LOBBY — monitor setup required`, and the
+Master's **call** into a loca can only reach an agent whose listener is live.
+
 ## Codex
 
 ### Interactive Codex with collaboration tools
