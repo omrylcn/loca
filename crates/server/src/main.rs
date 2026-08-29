@@ -329,7 +329,10 @@ async fn main() {
         .route("/PRINCIPLES.en.md", get(principles_en))
         .route("/downloads/skills", get(skill_bundles_index))
         .route("/downloads/skills/:name", get(download_skill_bundle))
-        .route("/downloads/skills/:name/manifest", get(skill_bundle_manifest))
+        .route(
+            "/downloads/skills/:name/manifest",
+            get(skill_bundle_manifest),
+        )
         .route("/docs/getting-started.md", get(getting_started_doc))
         .route("/assets/:name", get(web_asset))
         .route("/health", get(health))

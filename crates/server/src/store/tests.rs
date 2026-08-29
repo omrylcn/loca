@@ -511,7 +511,9 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_crash_safe() {
     assert!(store
         .claim_join_request_bootstrap("jr_1", "nope", 302)
         .is_none());
-    assert!(store.ack_join_request_bootstrap("jr_1", "nope", 303).is_none());
+    assert!(store
+        .ack_join_request_bootstrap("jr_1", "nope", 303)
+        .is_none());
     assert_eq!(
         store
             .claim_join_request_bootstrap("jr_1", "sekret", 304)
@@ -628,8 +630,9 @@ fn join_request_bootstrap_ack_survives_restart_and_reopen_migration() {
 fn join_request_bootstrap_ack_is_atomic_under_concurrency() {
     use std::sync::Arc;
     let directory = tempfile::tempdir().expect("tempdir");
-    let store =
-        Arc::new(Store::open(Some(directory.path().join("c.db").to_str().expect("path"))).expect("open"));
+    let store = Arc::new(
+        Store::open(Some(directory.path().join("c.db").to_str().expect("path"))).expect("open"),
+    );
     store
         .mint_admission_rights(&["adm_c".into()], "pr_master", 10, 10_000)
         .expect("mint");

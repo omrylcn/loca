@@ -7,7 +7,9 @@
 use std::io::Write;
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: lock_hold <lock-file>");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: lock_hold <lock-file>");
     let file = std::fs::OpenOptions::new()
         .create(true)
         .write(true)

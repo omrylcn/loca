@@ -97,7 +97,10 @@ async fn skill_bundles_are_public_versioned_and_byte_consistent() {
         "loca/stop_listener.py",
         "loca/SKILL.md",
     ] {
-        assert!(paths.contains(&expected), "loca bundle must ship {expected}");
+        assert!(
+            paths.contains(&expected),
+            "loca bundle must ship {expected}"
+        );
     }
 
     // Unknown and traversal-shaped names resolve by EXACT name (no filesystem

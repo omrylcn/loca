@@ -138,8 +138,14 @@ fn expected_entries() -> std::io::Result<(FileMap, DirSet)> {
             .as_array()
             .ok_or_else(|| io_err("bad manifest: files"))?
         {
-            let path = PathBuf::from(file["path"].as_str().ok_or_else(|| io_err("bad manifest: path"))?);
-            let sha = file["sha256"].as_str().ok_or_else(|| io_err("bad manifest: sha256"))?;
+            let path = PathBuf::from(
+                file["path"]
+                    .as_str()
+                    .ok_or_else(|| io_err("bad manifest: path"))?,
+            );
+            let sha = file["sha256"]
+                .as_str()
+                .ok_or_else(|| io_err("bad manifest: sha256"))?;
             // Every directory ancestor of the file is an expected directory.
             let mut ancestor = path.parent();
             while let Some(d) = ancestor {
@@ -155,12 +161,17 @@ fn expected_entries() -> std::io::Result<(FileMap, DirSet)> {
     Ok((files, dirs))
 }
 
-fn check_tree(root: &Path, dir: &Path, files: &mut FileMap, dirs: &mut DirSet) -> std::io::Result<bool> {
+fn check_tree(
+    root: &Path,
+    dir: &Path,
+    files: &mut FileMap,
+    dirs: &mut DirSet,
+) -> std::io::Result<bool> {
     use sha2::{Digest, Sha256};
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
         let meta = std::fs::symlink_metadata(&path)?; // does NOT follow symlinks
-        // No symlinks and no special files — only regular files and directories.
+                                                      // No symlinks and no special files — only regular files and directories.
         if meta.file_type().is_symlink() {
             return Ok(false);
         }
@@ -241,7 +252,9 @@ impl InstallLock {
                 Ok(()) => return Ok(InstallLock(file)),
                 Err(std::fs::TryLockError::WouldBlock) => {
                     if std::time::Instant::now() >= deadline {
-                        return Err(io_err("timed out waiting for the skill-library install lock"));
+                        return Err(io_err(
+                            "timed out waiting for the skill-library install lock",
+                        ));
                     }
                     std::thread::sleep(std::time::Duration::from_millis(50));
                 }
@@ -332,7 +345,11 @@ mod tests {
                 let want = file["sha256"].as_str().unwrap();
                 let full = dir.path().join(path);
                 let bytes = std::fs::read(&full).unwrap_or_else(|_| panic!("missing {path}"));
-                assert_eq!(sha(&bytes), want, "extracted {path} must match the manifest");
+                assert_eq!(
+                    sha(&bytes),
+                    want,
+                    "extracted {path} must match the manifest"
+                );
                 assert!(
                     std::fs::metadata(&full).unwrap().permissions().readonly(),
                     "{path} must be read-only"
@@ -390,13 +407,22 @@ mod tests {
         let file = dir.join("loca/connect.sh");
         assert!(std::fs::metadata(&file).unwrap().permissions().readonly());
         assert!(
-            std::fs::metadata(dir.join("loca")).unwrap().permissions().readonly(),
+            std::fs::metadata(dir.join("loca"))
+                .unwrap()
+                .permissions()
+                .readonly(),
             "directories must be read-only too"
         );
         // A read-only parent directory means the file cannot be deleted OR
         // replaced — the installed skill is genuinely tamper-proof.
-        assert!(std::fs::remove_file(&file).is_err(), "must not be deletable");
-        assert!(std::fs::write(&file, b"tampered").is_err(), "must not be writable");
+        assert!(
+            std::fs::remove_file(&file).is_err(),
+            "must not be deletable"
+        );
+        assert!(
+            std::fs::write(&file, b"tampered").is_err(),
+            "must not be writable"
+        );
         cleanup(root.path());
     }
 
@@ -446,7 +472,10 @@ mod tests {
         std::fs::write(dir.join("loca/EXTRA.txt"), b"x").unwrap();
         assert!(!verify(&dir).unwrap(), "an extra file must fail verify");
         install_versioned(root.path()).unwrap();
-        assert!(!dir.join("loca/EXTRA.txt").exists(), "self-heal removes the extra file");
+        assert!(
+            !dir.join("loca/EXTRA.txt").exists(),
+            "self-heal removes the extra file"
+        );
         assert!(verify(&dir).unwrap());
 
         // (b) A SYMLINK inside the tree.
@@ -456,7 +485,10 @@ mod tests {
             std::os::unix::fs::symlink("/etc/passwd", dir.join("loca/link")).unwrap();
             assert!(!verify(&dir).unwrap(), "a symlink must fail verify");
             install_versioned(root.path()).unwrap();
-            assert!(!dir.join("loca/link").exists(), "self-heal removes the symlink");
+            assert!(
+                !dir.join("loca/link").exists(),
+                "self-heal removes the symlink"
+            );
             assert!(verify(&dir).unwrap());
         }
 
@@ -483,7 +515,10 @@ mod tests {
         let dir = install_versioned(root.path()).unwrap();
         assert!(verify(&dir).unwrap());
         set_readonly(&dir, false).unwrap();
-        assert!(!verify(&dir).unwrap(), "a writable version root must fail verify");
+        assert!(
+            !verify(&dir).unwrap(),
+            "a writable version root must fail verify"
+        );
         install_versioned(root.path()).unwrap();
         assert!(
             std::fs::metadata(&dir).unwrap().permissions().readonly(),
@@ -509,9 +544,15 @@ mod tests {
         set_readonly(&extra, true).unwrap();
         set_readonly(&parent, true).unwrap(); // re-lock: only EXTRA_DIR is anomalous
         assert!(verify(&dir).is_ok());
-        assert!(!verify(&dir).unwrap(), "an extra empty directory must fail verify");
+        assert!(
+            !verify(&dir).unwrap(),
+            "an extra empty directory must fail verify"
+        );
         install_versioned(root.path()).unwrap();
-        assert!(!dir.join("loca/EXTRA_DIR").exists(), "self-heal removes the extra directory");
+        assert!(
+            !dir.join("loca/EXTRA_DIR").exists(),
+            "self-heal removes the extra directory"
+        );
         assert!(verify(&dir).unwrap());
         cleanup(root.path());
     }
@@ -543,10 +584,19 @@ mod tests {
 
         // The external directory and its file are byte- and permission-identical,
         // and the symlink is gone from the healed library.
-        assert_eq!(std::fs::metadata(external.path()).unwrap().permissions(), ext_dir_perm);
-        assert_eq!(std::fs::metadata(&ext_file).unwrap().permissions(), ext_file_perm);
+        assert_eq!(
+            std::fs::metadata(external.path()).unwrap().permissions(),
+            ext_dir_perm
+        );
+        assert_eq!(
+            std::fs::metadata(&ext_file).unwrap().permissions(),
+            ext_file_perm
+        );
         assert_eq!(std::fs::read(&ext_file).unwrap(), b"external");
-        assert!(!dir.join("loca/evil").exists(), "the tampering symlink is removed");
+        assert!(
+            !dir.join("loca/evil").exists(),
+            "the tampering symlink is removed"
+        );
         assert!(verify(&dir).unwrap());
         cleanup(root.path());
     }
@@ -555,12 +605,25 @@ mod tests {
     fn a_held_lock_is_never_stolen() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".install.lock");
-        let a = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(&path).unwrap();
+        let a = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)
+            .unwrap();
         a.try_lock().unwrap(); // A holds the lock (a live owner)
-        // A second, independent handle CANNOT acquire it while A holds it —
-        // regardless of age. A live owner is never stolen.
-        let b = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(&path).unwrap();
-        assert!(matches!(b.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+                               // A second, independent handle CANNOT acquire it while A holds it —
+                               // regardless of age. A live owner is never stolen.
+        let b = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)
+            .unwrap();
+        assert!(matches!(
+            b.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
         // Once A releases (or would die), B can take it.
         a.unlock().unwrap();
         assert!(b.try_lock().is_ok());

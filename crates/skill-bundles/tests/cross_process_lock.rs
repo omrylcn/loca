@@ -51,6 +51,9 @@ fn a_lock_held_by_another_process_cannot_be_stolen_and_frees_on_its_death() {
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    assert!(acquired, "the lock must be free once the holding process dies");
+    assert!(
+        acquired,
+        "the lock must be free once the holding process dies"
+    );
     file.unlock().unwrap();
 }
