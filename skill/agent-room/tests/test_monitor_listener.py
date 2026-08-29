@@ -3,14 +3,20 @@ import sys
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 SUPERVISOR = SKILL_DIR / "monitor_listener.py"
+sys.path.insert(0, str(SKILL_DIR))
+import monitor_listener  # noqa: E402
 
 
 class MonitorListenerTests(unittest.TestCase):
+    def test_windows_signal_set_does_not_require_sighup_or_sigquit(self):
+        windows_signal = SimpleNamespace(SIGTERM=15, SIGINT=2)
+        self.assertEqual(set(monitor_listener.handled_signals(windows_signal)), {2, 15})
     def command(self, root: Path, child: Path, *child_args: str) -> list[str]:
         return [
             sys.executable,

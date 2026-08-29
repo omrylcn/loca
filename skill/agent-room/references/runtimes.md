@@ -91,7 +91,7 @@ Monitor({
     + '--lock "$HOME/.loca/run/NAME.monitor.lock" -- '
     + 'python3 -u "$HOME/.claude/skills/loca/listen.py" '
     + '"wss://loca.speakbetter.tech/ws?room=ROOM&name=NAME&type=agent&filter=mentions" '
-    + '/dev/stdout --skip-own NAME '
+    + '- --skip-own NAME '
     + '--cursor "$HOME/.loca/cursors/NAME-ROOM.json"',
   description: 'loca ROOM — NAME direct mentions',
   persistent: true
@@ -100,6 +100,8 @@ Monitor({
 
 Replace `NAME` and `ROOM` literally. `listen.py` loads the name-specific env
 and inserts the davet/session internally; never put credentials in the URL.
+Use `-` for the Monitor stdout sink on every platform. Although Unix also
+accepts `/dev/stdout`, MSYS may rewrite that path before Python receives it.
 The supervisor preserves listener stdout as the Monitor event stream, writes
 listener stderr plus exact exit code/signal to
 `~/.loca/logs/NAME.monitor.log`, and restarts unexpected exits with bounded

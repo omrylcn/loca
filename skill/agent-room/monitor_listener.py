@@ -54,6 +54,15 @@ def open_private(path: Path) -> TextIO:
     return os.fdopen(fd, "a", encoding="utf-8")
 
 
+def handled_signals(signal_module=signal) -> list[int]:
+    """Return only signals exposed by the current operating system."""
+    names = (
+        "SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT",
+        "SIGUSR1", "SIGUSR2", "SIGSTKFLT",
+    )
+    return list({value for name in names if (value := getattr(signal_module, name, None)) is not None})
+
+
 def legacy_listener_output(command: list[str]) -> str | None:
     """Return a non-stdout listen.py sink that cannot wake native Monitor."""
     for index, value in enumerate(command):
@@ -132,12 +141,7 @@ def main() -> int:
             if child is not None and child.poll() is None:
                 child.terminate()
 
-        handled = [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT]
-        for optional in ("SIGUSR1", "SIGUSR2", "SIGSTKFLT"):
-            value = getattr(signal, optional, None)
-            if value is not None:
-                handled.append(value)
-        for handled_signal in set(handled):
+        for handled_signal in handled_signals():
             signal.signal(handled_signal, request_stop)
 
         consecutive_failures = 0

@@ -313,7 +313,7 @@ case "$cmd" in
       exit 3
     fi
     who=$(printf '%s' "$identity" | jq -r '.name')
-    mapfile -t server_locas < <(printf '%s' "$identity" | jq -r '.locas[]?')
+    mapfile -t server_locas < <(printf '%s' "$identity" | jq -r '.locas[]?' | tr -d '\r')
     verified=(); pending=(); stale=(); expected_keys=" "
     for loca in "${server_locas[@]}"; do
       expected_keys+="DAVET_$(_var "$loca") "
@@ -1032,7 +1032,7 @@ case "$cmd" in
       if [ -n "$membership" ]; then
         identity=$(curl -sfS -m 5 -H "x-room-token: $membership" "$server/whoami" 2>/dev/null || true)
         if [ "$(printf '%s' "$identity" | jq -r '.kind // empty' 2>/dev/null)" = "member" ]; then
-          mapfile -t invited_locas < <(printf '%s' "$identity" | jq -r '.locas[]?' 2>/dev/null)
+          mapfile -t invited_locas < <(printf '%s' "$identity" | jq -r '.locas[]?' 2>/dev/null | tr -d '\r')
           verified=(); stale=(); expected_keys=" "
           for loca in "${invited_locas[@]}"; do
             key="DAVET_$(_var "$loca")"
@@ -1092,8 +1092,13 @@ case "$cmd" in
     fi
     echo "── loca client processes (all servers) ──"
     found=0
+    process_probe_available=1
+    if ! command -v pgrep >/dev/null 2>&1 || ! command -v ps >/dev/null 2>&1; then
+      process_probe_available=0
+      echo "  UNKNOWN: process inspection unavailable (pgrep/ps missing); listener state was not checked"
+    fi
     # pid \t age \t cmd  for every listener/bot/adapter
-    while IFS= read -r line; do
+    while [ "$process_probe_available" = 1 ] && IFS= read -r line; do
       pid="${line%% *}"
       cmd="${line#* }"
       age=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')
@@ -1105,19 +1110,23 @@ case "$cmd" in
       found=1
       echo "$pid $key" >> /tmp/loca-doctor.$$
     done < <(
-      pgrep -af 'listen\.py|bot\.py|agentd\.py' |
-        grep -v doctor |
-        grep -v 'runtime_agent\.py' |
-        grep -v 'monitor_listener\.py' |
-        grep -vE '^[0-9]+ +(/bin/)?(ba)?sh '
+      if [ "$process_probe_available" = 1 ]; then
+        pgrep -af 'listen\.py|bot\.py|agentd\.py' |
+          grep -v doctor |
+          grep -v 'runtime_agent\.py' |
+          grep -v 'monitor_listener\.py' |
+          grep -vE '^[0-9]+ +(/bin/)?(ba)?sh '
+      fi
     )
-    [ "$found" = 0 ] && echo "  none"
+    [ "$process_probe_available" = 1 ] && [ "$found" = 0 ] && echo "  none"
     echo "── listener coverage ──"
     coverage=0
     while IFS= read -r invited_name; do
       [ -n "$invited_name" ] || continue
       coverage=1
-      if grep -Fxq "$invited_name" "$listener_names_file"; then
+      if [ "$process_probe_available" = 0 ]; then
+        echo "  UNKNOWN: '$invited_name' listener coverage could not be inspected on this platform"
+      elif grep -Fxq "$invited_name" "$listener_names_file"; then
         echo "  OK: '$invited_name' has a live listener"
       else
         echo "  MISSING LISTENER: '$invited_name' has a verified davet but no live listener; delivery/presence/session renewal can silently split"
@@ -1153,6 +1162,7 @@ case "$cmd" in
     # not own the WebSocket and could miss, delay, or filter the model turn.
     # A process/roster check cannot call that healthy, so report both halves.
     legacy_wake_bridges=$(
+      [ "$process_probe_available" = 1 ] || exit 0
       ps -eo pid=,comm=,args= 2>/dev/null |
         awk '
           {

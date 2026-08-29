@@ -45,6 +45,17 @@ BACKFILL_PAGE_SIZE = 200
 DEFAULT_TURN_MAX_MESSAGES = 4
 
 
+def configure_protocol_streams():
+    """Force the JSON protocol streams to a Unicode-safe encoding."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="backslashreplace")
+            except (OSError, ValueError):
+                pass
+
+
 def directly_names(message, name):
     """Return true only for an exact target or exact @name token."""
     expected = name.casefold()
@@ -773,6 +784,10 @@ def room_protocols(room):
 
 
 def main():
+    # Windows consoles may inherit a legacy code page (for example cp1252).
+    # The listener's stdout is a protocol stream and must carry arbitrary JSON
+    # text without turning one non-ASCII message into a reconnect loop.
+    configure_protocol_streams()
     if len(sys.argv) < 3:
         print(
             "usage: listen.py <ws_url> <out.jsonl|-> "
