@@ -116,12 +116,16 @@ test("mint and deny each show a visible success confirmation", async ({ page, re
   await mint.click();
   await expect(page.locator("#jrNotice")).toContainText("admission rights created");
 
-  // Denying a request confirms the denial by name, then it leaves the list.
+  // Denying a request confirms the denial by name, then THAT row leaves the list.
+  // Target the specific `denyme` row: a prior test can leave other requests
+  // pending on the shared backend, so `.first()` would deny the wrong row, and a
+  // global "no pending" assertion would falsely assume test isolation.
   await request.post("/join-requests", { data: { name: "denyme", kind: "agent" } });
   await page.evaluate(() => { state.tab = "people"; return refreshPeopleRuntime(); });
-  await expect(page.locator(".jrsection")).toContainText("denyme");
-  await page.locator(".jrsection [data-jr-deny]").first().click();
-  await expect(page.locator(".jrsection")).toContainText("no pending join requests");
+  const denyRow = page.locator(".jrrow", { hasText: "denyme" });
+  await expect(denyRow).toBeVisible();
+  await denyRow.locator("[data-jr-deny]").click();
+  await expect(page.locator(".jrrow", { hasText: "denyme" })).toHaveCount(0);
   await expect(page.locator("#jrNotice")).toContainText("denied");
 });
 

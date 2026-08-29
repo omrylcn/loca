@@ -83,12 +83,14 @@ test("Host: Skill Library install command uses the Host origin; runtime toggle; 
   await expect(claudeCmd).toContainText("~/.claude/skills");
   await expect(page.locator(".gscopy").first()).toBeVisible();
 
-  // Runtime toggle -> the Codex path; the Claude command hides.
+  // Runtime toggle -> the Codex path; the Claude command hides. Assert the
+  // singular agent command id — `.gscmd[data-plat-body='claude']` also matches
+  // the caretaker command body, which would trip Playwright strict mode.
   await page.locator(".gsplat button[data-plat='codex']").click();
   const codexCmd = page.locator("#gsInstallCodex");
   await expect(codexCmd).toBeVisible();
   await expect(codexCmd).toContainText("~/.codex/skills");
-  await expect(page.locator(".gscmd[data-plat-body='claude']")).toBeHidden();
+  await expect(page.locator("#gsInstallClaude")).toBeHidden();
 
   // Esc closes; reopen; backdrop closes.
   await page.keyboard.press("Escape");
