@@ -38,6 +38,16 @@ def hermetic_env(home, **extra):
     return env
 
 
+def _seed_request_state(path, rid, secret):
+    """Write a request-state fixture the SAME secure way production does
+    (join_request.write_state): create it 0600 via os.open — so the per-request
+    secret is never world-readable, not even briefly, and never goes through a
+    high-level clear-text-storage sink like Path.write_text()."""
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("request_id=%s\nrequest_secret=%s\n" % (rid, secret))
+
+
 def reap(proc):
     """Terminate (if alive), wait (reap the PID), and close every pipe, so the
     suite leaves behind no ghost process or open file descriptor."""
@@ -129,6 +139,12 @@ class LocaMock(BaseHTTPRequestHandler):
                 if not (good and r["status"] == "approved" and r["mb"] and not r["acked"]):
                     self._json({"error": "closed"}, 404)
                     return
+                if st["bootstrap_malformed"]:
+                    # A 201 that carries the mb_ credential under the WRONG key:
+                    # join_request sees no "davet" and must log ONLY the status,
+                    # never this body (which holds the credential).
+                    self._json({"unexpected": r["mb"]}, 201)
+                    return
                 self._json({"davet": r["mb"]}, 201)
                 return
             if action == "ack":
@@ -145,10 +161,12 @@ class LocaMock(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
 
-def start_server(auto_approve=True, ack_forbidden=False, deny=False, wrong_name=False):
+def start_server(auto_approve=True, ack_forbidden=False, deny=False, wrong_name=False,
+                 bootstrap_malformed=False):
     srv = ThreadingHTTPServer(("127.0.0.1", 0), LocaMock)
     srv.state = {"reqs": {}, "members": {}, "created": 0, "auto_approve": auto_approve,
-                 "ack_forbidden": ack_forbidden, "deny": deny, "wrong_name": wrong_name}
+                 "ack_forbidden": ack_forbidden, "deny": deny, "wrong_name": wrong_name,
+                 "bootstrap_malformed": bootstrap_malformed}
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, "http://127.0.0.1:%d" % srv.server_address[1]
 
@@ -243,8 +261,7 @@ class OnboardTest(unittest.TestCase):
             post("/join-requests/%s/bootstrap" % rid, headers={"x-join-secret": sec})
             post("/join-requests/%s/ack" % rid, headers={"x-join-secret": sec})
             req_path = home / ".loca" / "erin.request"
-            req_path.write_text("request_id=%s\nrequest_secret=%s\n" % (rid, sec))
-            os.chmod(req_path, 0o600)
+            _seed_request_state(req_path, rid, sec)  # 0600 from creation, no cleartext sink
 
             r = self._onboard(base, "erin", home)
             self.assertEqual(r.returncode, 5, r.stderr)
@@ -287,6 +304,21 @@ class OnboardTest(unittest.TestCase):
             self.assertEqual(r.returncode, 1, r.stderr)
             self.assertIn("belongs to 'impostor'", r.stderr)
             self.assertFalse((home / ".loca" / "env").exists())  # never persisted
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_no_secret_in_stderr_when_bootstrap_response_is_malformed(self):
+        # A malformed bootstrap 201 carries the mb_ credential under the wrong
+        # key, so join_request finds no "davet" and takes the error path. It must
+        # log ONLY the status — the credential must never reach stderr.
+        srv, base = start_server(bootstrap_malformed=True)
+        try:
+            home = self._tmp()
+            r = self._onboard(base, "mallory", home)
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertNotIn("mb_mallory", r.stderr)
+            self.assertNotIn("mb_", r.stderr)  # no credential of any name leaks
+            self.assertFalse((home / ".loca" / "env").exists())  # nothing persisted
         finally:
             srv.shutdown(); srv.server_close()
 

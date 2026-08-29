@@ -220,7 +220,9 @@ def do_onboard(server, name, state_file, env_path):
         )
         b = jbody(text)
         if code not in (200, 201) or not b.get("request_id") or not b.get("request_secret"):
-            err("could not create the join request (%s): %s" % (code, (text or "")[:200]))
+            # Never echo the response body: a create response carries the
+            # per-request secret, so only the (non-secret) status is safe to log.
+            err("could not create the join request (status %s) — re-run to retry." % code)
             if code == 409:
                 err("(that name already exists — pick another, or you may already be a member)")
                 return 3
@@ -271,7 +273,9 @@ def do_onboard(server, name, state_file, env_path):
         return 5
     mb = jbody(text).get("davet")
     if code not in (200, 201) or not mb:
-        err("bootstrap did not return a membership (%s): %s" % (code, (text or "")[:160]))
+        # The bootstrap response body carries the mb_ membership credential —
+        # log only the status, never the body.
+        err("bootstrap did not return a membership (status %s) — re-run to retry." % code)
         return 1
 
     # Verify the credential BEFORE persisting: kind=member AND the exact name.
@@ -292,7 +296,9 @@ def do_onboard(server, name, state_file, env_path):
             {"ROOM_SERVER_URL": server, "LOCA_NAME": name, "LOCA_MEMBERSHIP": mb},
         )
     except Exception as e:  # noqa: BLE001
-        err("could not persist the identity env (%s): re-run to retry." % e)
+        # Log only the exception TYPE: the exception value could embed the mb_
+        # membership we were writing, which must never reach stderr.
+        err("could not persist the identity env (%s) — re-run to retry." % type(e).__name__)
         return 1
 
     # Re-verify the PERSISTED env before finalizing — never ACK against an env we
