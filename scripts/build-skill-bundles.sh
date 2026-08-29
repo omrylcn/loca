@@ -33,16 +33,33 @@ case "$SOURCE_DATE_EPOCH" in
   ''|*[!0-9]*) echo "SOURCE_DATE_EPOCH must be an integer Unix timestamp" >&2; exit 2 ;;
 esac
 
-if ! git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  echo "build-skill-bundles.sh requires a git work tree (it ships only tracked files)" >&2
-  exit 2
-fi
-
 # name -> source skill directory under skill/.
 declare -A SKILL_SRC=(
   [loca]="skill/agent-room"
   [loca-care]="skill/loca-care"
 )
+
+# The file set to ship. Prefer the COMMITTED manifest — it needs no .git, so this
+# runs inside a Docker build context that has no repository. Fall back to git only
+# when the manifest is absent (a fresh tree before it was generated, or a test
+# fixture repo). The manifest is kept honest by the packaging test, which asserts
+# it equals `git ls-files` (see scripts/skill_bundle_files.py); a Docker build can
+# therefore never ship a stale or partial set.
+MANIFEST_LIST="$ROOT/scripts/skill-bundle-files.txt"
+ALL_FILES=()
+if [ -f "$MANIFEST_LIST" ]; then
+  while IFS= read -r line; do
+    case "$line" in ''|'#'*) continue ;; esac
+    ALL_FILES+=("$line")
+  done < "$MANIFEST_LIST"
+elif git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  while IFS= read -r line; do
+    [ -n "$line" ] && ALL_FILES+=("$line")
+  done < <(python3 "$ROOT/scripts/skill_bundle_files.py" "$ROOT")
+else
+  echo "build-skill-bundles.sh needs either $MANIFEST_LIST or a git work tree" >&2
+  exit 2
+fi
 
 mkdir -p "$OUT"
 
@@ -55,29 +72,35 @@ build_one() {
   local kit="$stage/$name"
   mkdir -p "$kit"
 
-  # ONLY git-tracked runtime files — an untracked/generated/secret file that
-  # merely sits in the tree is never shipped. Tests and caches are excluded.
-  local rel
-  while IFS= read -r -d '' path; do
+  # The pre-selected file set (ALL_FILES) already excludes tests/caches; here we
+  # take this skill's files and REFUSE the two things that must never ship even if
+  # somehow listed: a credential-container file, and a symlink (which `cp` would
+  # dereference, pulling content from OUTSIDE the skill tree into the bundle).
+  local path rel
+  for path in "${ALL_FILES[@]}"; do
+    case "$path" in "$srcrel"/*) ;; *) continue ;; esac
     rel=${path#"$srcrel"/}
     case "$rel" in
-      tests/*|*/tests/*|*.pyc|*/__pycache__/*) continue ;;
       *.env|.env|*.request|.request)
-        # Credential-container files never belong in a distributed skill.
         echo "REFUSING: credential-container file '$path' must not be in a skill bundle" >&2
         exit 5 ;;
     esac
-    # A tracked symlink would make `cp` dereference its target and pull content
-    # from OUTSIDE the skill tree into the bundle — refuse it outright.
     if [ -L "$ROOT/$path" ]; then
       echo "REFUSING: '$path' is a symlink; skill bundles must ship only regular files" >&2
       exit 4
+    fi
+    # A manifest entry that is not a real file in the tree must fail loudly rather
+    # than silently shipping an incomplete bundle (e.g. a stale manifest, or a
+    # file not copied into the Docker build context).
+    if [ ! -f "$ROOT/$path" ]; then
+      echo "REFUSING: '$path' is listed for the bundle but missing from the tree" >&2
+      exit 6
     fi
     mkdir -p "$kit/$(dirname "$rel")"
     cp "$ROOT/$path" "$kit/$rel"
     # Preserve the source's executable bit deterministically.
     if [ -x "$ROOT/$path" ]; then chmod 700 "$kit/$rel"; else chmod 644 "$kit/$rel"; fi
-  done < <(git -C "$ROOT" ls-files -z -- "$srcrel")
+  done
   find "$kit" -type d -exec chmod 755 {} +
 
   # Credential gate: the CENTRAL policy (scripts/credential_scan.py) scans for

@@ -29,6 +29,14 @@ def _load_policy():
     return mod
 
 
+def _load_bundle_files():
+    spec = importlib.util.spec_from_file_location(
+        "skill_bundle_files", ROOT / "scripts" / "skill_bundle_files.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 @unittest.skipUnless(shutil.which("zip") and SCRIPT.exists(),
                      "needs zip and the packaging script")
 class SkillBundlesTest(unittest.TestCase):
@@ -83,6 +91,46 @@ class SkillBundlesTest(unittest.TestCase):
                 self.assertTrue((Path(d) / "loca.zip").exists())
                 self.assertTrue((Path(d) / "loca-care.zip").exists())
 
+    def test_committed_manifest_matches_git_ls_files(self):
+        """The committed manifest the Docker build reads must stay identical to
+        what `git ls-files` yields. If a tracked skill file is added or removed
+        without regenerating the manifest, this fails — so the container build
+        (which reads the manifest, not git) can never ship a stale/partial set."""
+        mod = _load_bundle_files()
+        want = mod.tracked_files(str(ROOT))
+        have = mod.read_manifest(str(ROOT))
+        self.assertEqual(
+            want, have,
+            "scripts/skill-bundle-files.txt is stale — run "
+            "`python3 scripts/skill_bundle_files.py . --write`")
+        # Non-trivial: the onboarding files are actually in it.
+        self.assertIn("skill/agent-room/connect.sh", have)
+        self.assertIn("skill/loca-care/SKILL.md", have)
+
+    def test_build_without_git_from_manifest_is_byte_identical(self):
+        """Docker parity: the build context has NO .git. Copy only what the
+        Dockerfile copies (Cargo.toml, scripts/, skill/, incl. the committed
+        manifest) into a non-git dir and prove the packager still builds the
+        SAME bytes as the git-backed build — the byte-identity invariant both
+        the Web endpoint and the Desktop Library depend on."""
+        ref = self._build()
+        ref_sha = {n: json.loads((ref / f"{n}.manifest.json").read_text())["bundle_sha256"]
+                   for n in ("loca", "loca-care")}
+        ctx = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, ctx, ignore_errors=True)
+        c = Path(ctx)
+        shutil.copy(ROOT / "Cargo.toml", c / "Cargo.toml")
+        shutil.copytree(ROOT / "scripts", c / "scripts")
+        shutil.copytree(ROOT / "skill", c / "skill")
+        self.assertFalse((c / ".git").exists(), "the parity context must have no git")
+        out = c / "out"
+        subprocess.run(["bash", str(c / "scripts" / "build-skill-bundles.sh"), str(out)],
+                       check=True, capture_output=True)
+        for n in ("loca", "loca-care"):
+            got = json.loads((out / f"{n}.manifest.json").read_text())["bundle_sha256"]
+            self.assertEqual(got, ref_sha[n],
+                             f"{n}: git-less build must be byte-identical to the git build")
+
     # --- central credential policy -----------------------------------------
 
     def test_central_policy_catches_every_class_but_not_code(self):
@@ -108,7 +156,8 @@ class SkillBundlesTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
         r = Path(repo)
         (r / "scripts").mkdir()
-        for s in ("build-skill-bundles.sh", "skill_manifest.py", "credential_scan.py"):
+        for s in ("build-skill-bundles.sh", "skill_manifest.py", "credential_scan.py",
+                  "skill_bundle_files.py"):
             shutil.copy(ROOT / "scripts" / s, r / "scripts" / s)
         (r / "scripts" / "version.sh").write_text("#!/usr/bin/env bash\necho 0.0.0\n")
         os.chmod(r / "scripts" / "version.sh", 0o755)
