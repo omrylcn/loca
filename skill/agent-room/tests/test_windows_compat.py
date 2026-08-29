@@ -35,8 +35,9 @@ class WindowsCompatibilityTests(unittest.TestCase):
 
     def test_shell_normalizes_jq_crlf_and_reports_missing_process_tools(self):
         script = (SKILL_DIR / "connect.sh").read_text(encoding="utf-8")
-        self.assertEqual(script.count("jq -r '.locas[]?'") , 2)
-        self.assertGreaterEqual(script.count("| tr -d '\\r'"), 2)
+        self.assertIn("_jq_raw() { jq -r \"$@\" | tr -d '\\r'; }", script)
+        raw_reads = [line for line in script.splitlines() if "jq -r" in line]
+        self.assertEqual(raw_reads, ["_jq_raw() { jq -r \"$@\" | tr -d '\\r'; }"])
         self.assertIn("process inspection unavailable (pgrep/ps missing)", script)
         self.assertIn("listener coverage could not be inspected", script)
 

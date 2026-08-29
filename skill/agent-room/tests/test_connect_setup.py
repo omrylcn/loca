@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -135,6 +136,7 @@ class MembershipOnlySetupTests(unittest.TestCase):
         stale_extra=False,
         session="",
         hide_processes=False,
+        crlf_jq=False,
     ):
         server = ThreadingHTTPServer(("127.0.0.1", 0), MembershipHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -163,6 +165,19 @@ class MembershipOnlySetupTests(unittest.TestCase):
                     fake_pgrep.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
                     fake_pgrep.chmod(0o700)
                     env["PATH"] = f"{bin_dir}:{env['PATH']}"
+                if crlf_jq:
+                    real_jq = shutil.which("jq", path=env["PATH"])
+                    self.assertIsNotNone(real_jq)
+                    bin_dir = Path(tmp) / "crlf-bin"
+                    bin_dir.mkdir()
+                    fake_jq = bin_dir / "jq"
+                    fake_jq.write_text(
+                        "#!/bin/sh\n"
+                        f"'{real_jq}' \"$@\" | sed 's/$/\\r/'\n",
+                        encoding="utf-8",
+                    )
+                    fake_jq.chmod(0o700)
+                    env["PATH"] = f"{bin_dir}:{env['PATH']}"
                 args = [str(SKILL_DIR / "connect.sh"), command, origin]
                 if command in ("status", "reconnect"):
                     args.append("debug")
@@ -185,6 +200,16 @@ class MembershipOnlySetupTests(unittest.TestCase):
         self.assertIn("INVITED (davet verified)", result.stdout)
         self.assertIn("sb-mobile", result.stdout)
         self.assertIn("POSTING SESSION: renewal required", result.stdout)
+
+    def test_status_normalizes_crlf_from_windows_jq(self):
+        result = self._run_invite_diagnostic(
+            "status", "dv_live", crlf_jq=True
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("INVITED (davet verified)", result.stdout)
+        self.assertIn("sb-mobile", result.stdout)
+        self.assertNotIn("membership rejected", result.stderr)
+        self.assertNotIn("\r", result.stdout + result.stderr)
 
     def test_status_separately_proves_a_live_posting_session(self):
         result = self._run_invite_diagnostic(

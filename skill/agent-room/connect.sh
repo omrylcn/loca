@@ -212,6 +212,11 @@ unset _requested_identity
 # whole loca's credentials.
 _var() { printf '%s' "$1" | tr -c 'A-Za-z0-9_' '_'; }
 
+# jq on MSYS/Windows can emit CRLF even inside command/process substitution.
+# Normalize every raw-text read centrally so comparisons, credentials and
+# array entries never retain a trailing carriage return.
+_jq_raw() { jq -r "$@" | tr -d '\r'; }
+
 cmd="${1:-}"; shift || true
 
 # Pick the davet for a given loca, falling back to the building key. Bash
@@ -234,8 +239,8 @@ _davet_is_live() {
   code=$(printf '%s' "$response" | tail -n1)
   body=$(printf '%s' "$response" | sed '$d')
   [ "$code" = "200" ] || return 1
-  kind=$(printf '%s' "$body" | jq -r '.kind // empty' 2>/dev/null)
-  opened=$(printf '%s' "$body" | jq -r '.loca // empty' 2>/dev/null)
+  kind=$(printf '%s' "$body" | _jq_raw '.kind // empty' 2>/dev/null)
+  opened=$(printf '%s' "$body" | _jq_raw '.loca // empty' 2>/dev/null)
   [ "$kind" = "building" ] || { [ "$kind" = "davet" ] && [ "$opened" = "$loca" ]; }
 }
 
@@ -250,10 +255,10 @@ _session_loca() {
   code=$(printf '%s' "$response" | tail -n1)
   body=$(printf '%s' "$response" | sed '$d')
   [ "$code" = "200" ] || return 1
-  kind=$(printf '%s' "$body" | jq -r '.kind // empty' 2>/dev/null)
-  owner=$(printf '%s' "$body" | jq -r '.name // empty' 2>/dev/null)
+  kind=$(printf '%s' "$body" | _jq_raw '.kind // empty' 2>/dev/null)
+  owner=$(printf '%s' "$body" | _jq_raw '.name // empty' 2>/dev/null)
   [ "$kind" = "session" ] && [ "$owner" = "$name" ] || return 1
-  printf '%s' "$body" | jq -r '.loca // empty' 2>/dev/null
+  printf '%s' "$body" | _jq_raw '.loca // empty' 2>/dev/null
 }
 
 # Room (join) token, if the server requires one. Sent as X-Room-Token on REST
@@ -308,12 +313,12 @@ case "$cmd" in
     code=$(printf '%s' "$response" | tail -n1)
     identity=$(printf '%s' "$response" | sed '$d')
     if [ "$code" != "200" ] \
-      || [ "$(printf '%s' "$identity" | jq -r '.kind // empty')" != "member" ]; then
+      || [ "$(printf '%s' "$identity" | _jq_raw '.kind // empty')" != "member" ]; then
       echo "membership rejected — ask the master to check building membership" >&2
       exit 3
     fi
-    who=$(printf '%s' "$identity" | jq -r '.name')
-    mapfile -t server_locas < <(printf '%s' "$identity" | jq -r '.locas[]?' | tr -d '\r')
+    who=$(printf '%s' "$identity" | _jq_raw '.name')
+    mapfile -t server_locas < <(printf '%s' "$identity" | _jq_raw '.locas[]?')
     verified=(); pending=(); stale=(); expected_keys=" "
     for loca in "${server_locas[@]}"; do
       expected_keys+="DAVET_$(_var "$loca") "
@@ -579,7 +584,7 @@ case "$cmd" in
       renew_body=$(printf '%s' "$renew_resp" | sed '$d')
       new=""
       if [ "$renew_code" = "201" ]; then
-        new=$(printf '%s' "$renew_body" | jq -r '.session_token // empty' 2>/dev/null || true)
+        new=$(printf '%s' "$renew_body" | _jq_raw '.session_token // empty' 2>/dev/null || true)
       else
         echo >&2 "session renewal rejected (HTTP $renew_code): reconnect through Lobby to refresh this loca's davet"
       fi
@@ -726,21 +731,21 @@ case "$cmd" in
     # Which loca is this davet for? The server knows; ask before writing, so
     # the davet is filed under its own loca instead of overwriting another.
     who=$(curl -s -m 10 -H "x-room-token: $token" "$server/whoami" || true)
-    davet_loca=$(printf '%s' "$who" | jq -r '.loca // empty' 2>/dev/null || true)
-    who_kind=$(printf '%s' "$who" | jq -r '.kind // empty' 2>/dev/null || true)
+    davet_loca=$(printf '%s' "$who" | _jq_raw '.loca // empty' 2>/dev/null || true)
+    who_kind=$(printf '%s' "$who" | _jq_raw '.kind // empty' 2>/dev/null || true)
     membership=""
     authoritative_name=""
     if [ "$who_kind" = "member" ]; then
       membership="$token"
-      authoritative_name=$(printf '%s' "$who" | jq -r '.name // empty' 2>/dev/null || true)
+      authoritative_name=$(printf '%s' "$who" | _jq_raw '.name // empty' 2>/dev/null || true)
     elif [ -n "$davet_loca" ]; then
       # A davet proves which building member is holding it. Claim that
       # permanent lobby identity once, so release can end the loca seat while
       # the agent remains reachable for the next one-click call.
       claim=$(curl -sS -m 10 -H 'content-type: application/json' \
         -H "x-room-token: $token" -X POST "$server/membership/claim" || true)
-      membership=$(printf '%s' "$claim" | jq -r '.membership_token // empty' 2>/dev/null || true)
-      authoritative_name=$(printf '%s' "$claim" | jq -r '.name // empty' 2>/dev/null || true)
+      membership=$(printf '%s' "$claim" | _jq_raw '.membership_token // empty' 2>/dev/null || true)
+      authoritative_name=$(printf '%s' "$claim" | _jq_raw '.name // empty' 2>/dev/null || true)
       if [ -z "$membership" ]; then
         echo "could not claim building membership; no identity file was changed." >&2
         exit 1
@@ -801,7 +806,7 @@ case "$cmd" in
     # than at the first 401.
     opens=""
     rooms_json=$(curl -s -m 10 -H "x-room-token: $token" "$server/rooms" || true)
-    for r in $(printf '%s' "$rooms_json" | jq -r '.[].room' 2>/dev/null || true); do
+    for r in $(printf '%s' "$rooms_json" | _jq_raw '.[].room' 2>/dev/null || true); do
       c=$(curl -s -o /dev/null -w '%{http_code}' -m 10 -H "x-room-token: $token" \
             "$server/rooms/$r/messages" || true)
       if [ "$c" = "200" ]; then opens="$opens $r"; fi
@@ -813,7 +818,7 @@ case "$cmd" in
     # installation after the identity file had already been written.
     if [ "$who_kind" != "member" ]; then
       sess=$(curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $token" \
-        -X POST "$server/sessions" -d "$(jq -n --arg n "$name" --arg l "${davet_loca:-}" '{name:$n, kind:"agent"} + (if $l == "" then {} else {loca:$l} end)')" | jq -r '.session_token // empty')
+        -X POST "$server/sessions" -d "$(jq -n --arg n "$name" --arg l "${davet_loca:-}" '{name:$n, kind:"agent"} + (if $l == "" then {} else {loca:$l} end)')" | _jq_raw '.session_token // empty')
       if [ -n "$sess" ]; then
         printf 'LOCA_SESSION\0%s\0' "$sess" | _credential_patch
         echo "session bound for '$name' — identity is now server-derived"
@@ -977,7 +982,7 @@ case "$cmd" in
     # Usage:  export LOCA_SESSION=$(connect.sh session $SERVER myname agent)
     server="$1"; name="$2"; kind="${3:-agent}"
     payload=$(jq -n --arg n "$name" --arg k "$kind" '{name:$n, kind:$k}')
-    curl_json -X POST "$server/sessions" -d "$payload" | jq -r '.session_token'
+    curl_json -X POST "$server/sessions" -d "$payload" | _jq_raw '.session_token'
     ;;
 
   doctor)
@@ -1031,8 +1036,8 @@ case "$cmd" in
       membership=$(sed -n 's/^LOCA_MEMBERSHIP=//p' "$f" | tr -d '"' | head -1)
       if [ -n "$membership" ]; then
         identity=$(curl -sfS -m 5 -H "x-room-token: $membership" "$server/whoami" 2>/dev/null || true)
-        if [ "$(printf '%s' "$identity" | jq -r '.kind // empty' 2>/dev/null)" = "member" ]; then
-          mapfile -t invited_locas < <(printf '%s' "$identity" | jq -r '.locas[]?' 2>/dev/null | tr -d '\r')
+        if [ "$(printf '%s' "$identity" | _jq_raw '.kind // empty' 2>/dev/null)" = "member" ]; then
+          mapfile -t invited_locas < <(printf '%s' "$identity" | _jq_raw '.locas[]?' 2>/dev/null)
           verified=(); stale=(); expected_keys=" "
           for loca in "${invited_locas[@]}"; do
             key="DAVET_$(_var "$loca")"
