@@ -27,8 +27,16 @@ fn main() {
         .expect("repo root is two levels above crates/skill-bundles")
         .to_path_buf();
 
-    let script = root.join("scripts/build-skill-bundles.sh");
+    let script = root.join("scripts/build_skill_bundles.py");
     println!("cargo:rerun-if-changed={}", script.display());
+    for dependency in [
+        "scripts/credential_scan.py",
+        "scripts/skill_bundle_files.py",
+        "scripts/skill-bundle-files.txt",
+        "Cargo.toml",
+    ] {
+        println!("cargo:rerun-if-changed={}", root.join(dependency).display());
+    }
     emit_rerun_for_tree(&root.join("skill/agent-room"));
     emit_rerun_for_tree(&root.join("skill/loca-care"));
 
@@ -36,14 +44,18 @@ fn main() {
     // packaging test, or CI job never clobbers this build's output.
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let bundle_dir = out_dir.join("skill-bundles");
-    let status = Command::new("bash")
+    let python = ["python3", "python"]
+        .into_iter()
+        .find(|candidate| Command::new(candidate).arg("--version").output().is_ok())
+        .expect("Python 3 is required to build the skill bundles");
+    let status = Command::new(python)
         .arg(&script)
         .arg(&bundle_dir)
         .current_dir(&root)
         .status()
         .unwrap_or_else(|e| {
             panic!(
-                "failed to run {}: {e} (bash + zip are required to build the skill bundles)",
+                "failed to run {}: {e} (Python 3 is required to build the skill bundles)",
                 script.display()
             )
         });
