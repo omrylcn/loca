@@ -58,43 +58,21 @@ def _emit(text):
     sys.stderr.flush()
 
 
-_HANDLE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
-
-
-def _safe(value):
-    """Sanitize a PUBLIC handle (an identity name or request id) for display.
-    Only a value that EXACTLY matches the strict handle shape passes through
-    unchanged; anything else — free-form text, an HTTP response body, or an
-    unexpected credential-shaped value — collapses to '?'. So no arbitrary or
-    sensitive text can ever reach the diagnostic stream. Credentials are never
-    passed here anyway; this is defence in depth on the call-site guarantee."""
-    if isinstance(value, str) and _HANDLE_RE.fullmatch(value):
-        return value
-    return "?"
-
-
-# Diagnostics go ONLY through these typed emitters — never a generic free-text
-# sink. Each builds the line from a STATIC template plus, at most, sanitized
-# identity handles and integer codes. An HTTP response body, an exception
-# object, or a credential can never be passed to any of them, so no sensitive
-# value can be logged even by mistake.
+# Diagnostics carry NO interpolated STRING data. Only two emitters exist:
+# `say` writes a fixed literal message, and `say_code` appends a single INTEGER
+# (a status / exit / count). No identity name, request id, response body, or
+# exception value is ever formatted into a diagnostic line, so a credential can
+# never reach stderr even by a miswired call site — there is no data-flow path
+# from any request/response value to the sink at all.
+# (CodeQL: py/clear-text-logging-sensitive-data.)
 def say(message):
-    """Emit a fixed, literal diagnostic message (no interpolated data)."""
+    """Emit a fixed, literal diagnostic message — no interpolated data."""
     _emit(message)
 
 
-def say_name(template, name):
-    """Emit `template % <safe name>` — one sanitized identity handle."""
-    _emit(template % _safe(name))
-
-
-def say_pair(template, first, second):
-    """Emit `template % (<safe>, <safe>)` — two sanitized identity handles."""
-    _emit(template % (_safe(first), _safe(second)))
-
-
 def say_code(template, code):
-    """Emit `template % <int>` — one integer status/exit/count, never free text."""
+    """Emit `template % <int>` — the ONLY dynamic value that reaches stderr is an
+    integer, coerced here with int(); a string is never interpolated."""
     _emit(template % int(code))
 
 
@@ -222,12 +200,12 @@ def do_onboard(server, name, state_file, env_path):
     existing = read_env_membership(env_path)
     if membership_verifies(server, existing, name):
         if finalize(server, state_file):
-            say_name("already onboarded: '%s' holds a verified Lobby membership; finalized.", name)
+            say("already onboarded: this identity holds a verified Lobby membership; finalized.")
             return 0
         # The membership is valid, but the server finalize (ack) is still pending
         # — report that (6), never claim finalization we could not confirm.
-        say_name("already onboarded: '%s' holds a verified Lobby membership; server "
-                 "finalize (ack) not confirmed, re-run to complete (nothing is lost).", name)
+        say("already onboarded: this identity holds a verified Lobby membership; server "
+            "finalize (ack) not confirmed, re-run to complete (nothing is lost).")
         return 6
 
     # Step B — run the request flow.
@@ -246,9 +224,9 @@ def do_onboard(server, name, state_file, env_path):
             if b.get("status") == "approved" and b.get("bootstrap_ready") is False:
                 # The window is closed (acked) yet Step A found no valid local
                 # membership: the delivered credential is unrecoverable.
-                say_pair("request '%s' was finalized on the server but no valid local "
-                         "membership exists — the credential cannot be re-fetched. Ask "
-                         "the operator to re-admit '%s'.", rid, name)
+                say("request was finalized on the server but no valid local membership "
+                    "exists — the credential cannot be re-fetched. Ask the operator to "
+                    "re-admit this identity.")
                 return 5
         elif code in (401, 404):
             rid = secret = None
@@ -270,7 +248,7 @@ def do_onboard(server, name, state_file, env_path):
         rid, secret = b["request_id"], b["request_secret"]
         write_state(state_file, rid, secret)  # secret lands ONLY in the 600 file
 
-    say_pair("requested to join as '%s' (request %s) — waiting for a Master to approve…", name, rid)
+    say("requested to join — waiting for a Master to approve…")
     say("the Master approves you in the main app: People / BUILDING -> Join requests -> Approve.")
 
     started = time.monotonic()
@@ -288,8 +266,8 @@ def do_onboard(server, name, state_file, env_path):
             if b.get("bootstrap_ready") is True:
                 break
             if b.get("status") == "approved" and b.get("bootstrap_ready") is False:
-                say_pair("request '%s' was finalized on the server but no local membership "
-                         "exists — ask the operator to re-admit '%s'.", rid, name)
+                say("request was finalized on the server but no local membership exists — "
+                    "ask the operator to re-admit this identity.")
                 return 5
         elif code in (401, 404):
             say("the request is no longer on the server (expired or purged); re-run to start fresh.")
@@ -307,8 +285,8 @@ def do_onboard(server, name, state_file, env_path):
         headers={"x-join-secret": secret},
     )
     if code == 404:
-        say_name("bootstrap is closed (finalized) but no valid local membership exists — "
-                 "ask the operator to re-admit '%s'.", name)
+        say("bootstrap is closed (finalized) but no valid local membership exists — "
+            "ask the operator to re-admit this identity.")
         return 5
     mb = jbody(text).get("davet")
     if code not in (200, 201) or not mb:
@@ -323,8 +301,7 @@ def do_onboard(server, name, state_file, env_path):
         say("the issued membership did not verify (/whoami kind != member) — not saving; re-run to retry.")
         return 1
     if who.get("name") != name:
-        say_pair("credential belongs to '%s', not the requested identity '%s' — not saving.",
-                 who.get("name"), name)
+        say("credential belongs to a DIFFERENT identity than the one requested — not saving.")
         return 1
 
     # Persist DIRECTLY into the atomic 600 identity env — mb_ never leaves this
@@ -334,11 +311,10 @@ def do_onboard(server, name, state_file, env_path):
             env_path,
             {"ROOM_SERVER_URL": server, "LOCA_NAME": name, "LOCA_MEMBERSHIP": mb},
         )
-    except Exception as e:  # noqa: BLE001
-        # Log only the exception TYPE name (via the sanitizing emitter): the
-        # exception value could embed the mb_ membership we were writing, which
-        # must never reach stderr.
-        say_name("could not persist the identity env (%s) — re-run to retry.", type(e).__name__)
+    except Exception:  # noqa: BLE001
+        # A static message only: the exception value could embed the mb_
+        # membership we were writing, so nothing from it is logged.
+        say("could not persist the identity env — re-run to retry.")
         return 1
 
     # Re-verify the PERSISTED env before finalizing — never ACK against an env we
@@ -348,10 +324,10 @@ def do_onboard(server, name, state_file, env_path):
         return 1
 
     if finalize(server, state_file):
-        say_name("onboarded: '%s' membership filed, verified, and acknowledged.", name)
+        say("onboarded: membership filed, verified, and acknowledged.")
         return 0
-    say_name("onboarded: '%s' membership filed and verified, but the server finalize (ack) "
-             "was not confirmed — nothing is lost; re-run to complete it.", name)
+    say("onboarded: membership filed and verified, but the server finalize (ack) "
+        "was not confirmed — nothing is lost; re-run to complete it.")
     return 6
 
 

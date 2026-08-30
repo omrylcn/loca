@@ -15,6 +15,7 @@ import glob
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -302,7 +303,7 @@ class OnboardTest(unittest.TestCase):
             home = self._tmp()
             r = self._onboard(base, "heidi", home)
             self.assertEqual(r.returncode, 1, r.stderr)
-            self.assertIn("belongs to 'impostor'", r.stderr)
+            self.assertIn("belongs to a DIFFERENT identity", r.stderr)
             self.assertFalse((home / ".loca" / "env").exists())  # never persisted
         finally:
             srv.shutdown(); srv.server_close()
@@ -455,11 +456,12 @@ if not hasattr(unittest.TestCase, "enterContext"):
     unittest.TestCase.enterContext = _enter_context
 
 
-class DiagnosticEmitSanitizerTest(unittest.TestCase):
-    """join_request.py exposes NO generic free-text stderr sink: diagnostics go
-    only through typed emitters, identity fields pass a strict allowlist, and any
-    free-form / response-body / credential-shaped value collapses to '?'. So a
-    secret can never be logged, even by a future miswired call site."""
+class DiagnosticEmitTest(unittest.TestCase):
+    """join_request.py logs diagnostics with NO interpolated STRING data: the
+    only emitters are say(literal) and say_code(template, int). No identity name,
+    request id, response body, or exception value is ever formatted into a line,
+    so there is no data-flow path from any request/response value to stderr and a
+    credential can never be logged."""
 
     def setUp(self):
         if str(SKILL_DIR) not in sys.path:
@@ -469,37 +471,33 @@ class DiagnosticEmitSanitizerTest(unittest.TestCase):
         self.jr = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.jr)
 
-    def test_safe_passes_real_handles_but_collapses_everything_else(self):
-        jr = self.jr
-        for ok in ("erin", "jr_17", "loca-care", "a.b_c-9"):
-            self.assertEqual(jr._safe(ok), ok)
-        # Anything with a separator/quote/brace, an HTTP body, empty/None, or an
-        # over-long value collapses — nothing arbitrary survives to be logged.
-        for bad in ('{"davet": "mb_secret"}', "mb_tok abc", "a b", "has'quote",
-                    "", None, "x" * 65, 12345):
-            self.assertEqual(jr._safe(bad), "?")
-
-    def test_no_generic_free_text_sink_remains(self):
+    def test_only_literal_and_integer_emitters_exist(self):
         src = (SKILL_DIR / "join_request.py").read_text(encoding="utf-8")
-        self.assertNotIn("def err(", src)
-        # Exactly one stderr write in the whole module, inside the private sink.
+        # The generic and the string-interpolating emitters are gone.
+        for gone in ("def err(", "def say_name(", "def say_pair(", "def _safe("):
+            self.assertNotIn(gone, src, "%s must not exist" % gone)
+        # Exactly one stderr write, inside the single private sink.
         self.assertEqual(src.count("sys.stderr.write"), 1)
+        # No say(...) call interpolates anything: every say() argument is a plain
+        # string literal (contains no '%s'/'%d' format placeholder).
+        say_calls = re.findall(r"(?<!_)\bsay\(([^\n]*)", src)
+        for arg in say_calls:
+            self.assertNotIn("%", arg, "say() must take a literal, not a template: %s" % arg)
 
-    def test_emitters_never_write_a_credential_carrying_body(self):
+    def test_say_code_coerces_to_int_and_rejects_strings(self):
         import contextlib
         import io
         jr = self.jr
         buf = io.StringIO()
         with contextlib.redirect_stderr(buf):
-            jr.say_pair("credential belongs to '%s', not '%s' — not saving.",
-                        '{"davet": "mb_LEAK"}', "erin")
             jr.say_code("bootstrap did not return a membership (status %s)", 404)
-            jr.say("static message only")
+            jr.say("credential belongs to a DIFFERENT identity than requested — not saving.")
         out = buf.getvalue()
-        self.assertNotIn("mb_LEAK", out)      # the body collapsed, no credential
-        self.assertIn("belongs to '?'", out)  # collapsed field shown as '?'
-        self.assertIn("not 'erin'", out)      # the real handle preserved
-        self.assertIn("status 404", out)      # numeric status preserved
+        self.assertIn("status 404", out)
+        self.assertNotIn("mb_", out)
+        # A non-integer value can never be smuggled through say_code.
+        with self.assertRaises((TypeError, ValueError)):
+            jr.say_code("x %s", '{"davet": "mb_LEAK"}')
 
 
 if __name__ == "__main__":
