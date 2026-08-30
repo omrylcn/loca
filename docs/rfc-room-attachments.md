@@ -1,7 +1,8 @@
 # RFC: Room attachments (images, PDF, text)
 
-Status: proposed (loca-care owns implementation; loca-dev owns Web/Desktop render
-+ final acceptance). Target: a follow-on minor after 0.8.6.
+Status: GO (loca-dev reviewed). loca-care owns ALL implementation (server,
+skill, Web/Desktop); loca-dev owns independent test + final acceptance only
+(operator's final role assignment). Target: a follow-on minor after 0.8.6.
 
 ## Goal
 
@@ -60,7 +61,13 @@ in a chat-message JSON or a WebSocket frame.
    already-uploaded ids; the server verifies each id exists, flips it
    `pending→referenced`, and records the message-ref + room-blob-reference **in
    one atomic step** (gap 7) so a concurrent delete/dedup can never race a
-   half-referenced blob. Refcount is per-room; the race is covered by a test.
+   half-referenced blob.
+   - **Two refcount levels** (loca-dev invariant): each room keeps its own
+     *logical* reference to a blob (used for quota + display), but the *physical*
+     file is deleted ONLY when the **global** reference count across all rooms
+     reaches 0. Deleting one room drops that room's logical refs and decrements
+     the global count; a blob still referenced by another room is untouched — one
+     room's deletion can never corrupt another room's shared file.
 
 3. **Skill / agent API — one path for BOTH runtimes.**
    `connect.sh send <server> <room> <name> <target> <text> --attach <file> [--attach <file>]`
@@ -70,7 +77,7 @@ in a chat-message JSON or a WebSocket frame.
    delivers the whole message object, so the `attachments` field flows to every
    consumer with no wake-path change.
 
-4. **Web = Desktop, one UI (loca-dev's slice).** A composer attach button
+4. **Web = Desktop, one UI.** A composer attach button
    (drag/drop + file picker) uploads then sends. Render: images inline (lazy,
    `max-width` bounded, click to open full), PDF/TXT/MD as a labeled chip that
    opens the GET url. The Desktop Host loads the same web UI → no desktop fork.
@@ -81,10 +88,14 @@ in a chat-message JSON or a WebSocket frame.
   text/plain text/markdown` — enforced by **magic-byte / UTF-8 sniff** (gap 1),
   not the header. Anything else → 415.
 - Size & quotas (gap 3): 10 MB per file (`attachments.max_bytes`), 4 attachments
-  per message; **per-room total quota** (`attachments.room_max_bytes`) and a
-  **building total quota** (`attachments.building_max_bytes`) — over quota → 413;
-  a **concurrent-upload cap** per identity so a client can't fan out uploads. The
-  request body is size-capped as it streams (reject early, never buffer >limit).
+  per message; **per-room quota** (`attachments.room_max_bytes`) counts each
+  room's *logical* referenced size (a blob shared by two rooms counts in both);
+  **building quota** (`attachments.building_max_bytes`) counts *unique physical*
+  blob size (a deduped blob counts once) — over quota → 413. A **concurrent-upload
+  cap** per identity so a client can't fan out uploads. The request body is
+  size-capped as it streams (reject early, never buffer >limit). Test:
+  re-uploading the same file must not double-count against the building quota
+  (dedup), and per-room accounting stays correct across shared blobs.
 - Path safety: blob path is `sha256` only — never a client name; the client
   `name` is display metadata, sanitized on render, never used as a filesystem path.
 - No credential scan needed (opaque bytes), but type+size are enforced server-side,
@@ -116,5 +127,5 @@ in a chat-message JSON or a WebSocket frame.
    validation + unit/ws tests. **(this slice first)**
 2. Skill: `connect.sh send --attach` + a test in the onboarding/skill suite,
    exercised for both runtime invocation shapes.
-3. Handoff to loca-dev: Web/Desktop composer + render.
-4. End-to-end acceptance (loca-dev), then release.
+3. Web/Desktop composer + render (loca-care) — same web UI, no desktop fork.
+4. End-to-end acceptance — loca-dev independently verifies the matrix, then release.
