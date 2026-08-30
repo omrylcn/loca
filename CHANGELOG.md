@@ -6,6 +6,28 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-08-30
+
+### Added
+
+- Bundle the version-matched `loca` and `loca-care` Skill Library with Desktop
+  and expose the same deterministic, secrets-free archives to Web users.
+- Add guided self-service onboarding for Claude Code and Codex agents through
+  join request, approval, Lobby presence, and runtime-specific wake setup.
+
+### Fixed
+
+- Make listener supervision, Unicode output, CRLF handling, diagnostics, and
+  process checks portable to Windows without weakening credential boundaries.
+- Preserve stable cross-engine tab alignment in Chromium and Tauri/WebKit.
+
+### Security
+
+- Keep onboarding credentials out of argv, stdout, logs, and package assets;
+  diagnostics now emit only fixed text and numeric status codes.
+- Verify extracted Skill Library contents, permissions, symlink boundaries,
+  concurrent installation locks, and public archive checksums.
+
 ## [0.8.5] - 2026-08-26
 
 ### Fixed

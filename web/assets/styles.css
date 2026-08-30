@@ -331,12 +331,26 @@
   .substatus { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .substatus .live { color: var(--accent2); }
   .substatus .typ { color: var(--accent); }
-  .tabs { display: flex; gap: 3px; margin-left: auto; background: var(--panel2); border: 1px solid var(--line);
-    border-radius: 8px; padding: 2px; }
+  .tabs { display: flex; align-items: center; gap: 3px; margin-left: auto; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+  /* Sekme etiketi ve nokta FLEX cocugu olarak ortalanir; satir kutusuna
+     (baseline/strut) hic bagli degil. Onceki halde Chat'te nokta YOKTU,
+     otekilerde vardi: satir ici bir inline-block'un baseline'a gore
+     hizalanmasi motordan motora degisir, bu yuzden Chromium'da hizali
+     gorunen sekmeler WebKit tabanli masaustu (Tauri) surumde kayabiliyordu.
+     `font` kisayolu line-height'i `normal`e sifirladigi icin yukseklik de
+     yazi tipinin metriklerine kaliyordu. 14px, Chromium'un bu yazi tipi
+     icin `normal`den urettigi degerin AYNISI: gorunum degismiyor, yalniz
+     motora gore degismesi engelleniyor. */
   .tab { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 4px 12px;
-    border-radius: 6px; font: 12px var(--mono); }
+    border-radius: 6px; font: 12px var(--mono); line-height: 14px;
+    display: inline-flex; align-items: center; justify-content: center; }
   .tab.active { background: var(--panel); color: var(--txt); box-shadow: inset 0 0 0 1px var(--line); }
-  .tab .dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+  /* Flex cocugu oldugu icin flex: 0 0 auto — aksi halde daralan sekmede
+     kuculup noktayi ovalligini kaybettirebilir. visibility:hidden korunur:
+     nokta gorunmezken de YER TUTAR, boylece nokta yandiginda sekme
+     genisligi ZIPLAMAZ. */
+  .tab .dot { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
     margin-left: 5px; visibility: hidden; }
   .tab .dot.on { visibility: visible; }
   .conndot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); flex: 0 0 auto;
