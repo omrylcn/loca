@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,6 +20,7 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parents[1]
 ROOT = SKILL_DIR.parents[1]
 SCRIPT = ROOT / "scripts" / "build-skill-bundles.sh"
+PY_SCRIPT = ROOT / "scripts" / "build_skill_bundles.py"
 
 
 def _load_policy():
@@ -37,11 +39,10 @@ def _load_bundle_files():
     return mod
 
 
-@unittest.skipUnless(shutil.which("zip") and SCRIPT.exists(),
-                     "needs zip and the packaging script")
+@unittest.skipUnless(PY_SCRIPT.exists(), "needs the packaging script")
 class SkillBundlesTest(unittest.TestCase):
     def _build(self, outdir=None):
-        args = ["bash", str(SCRIPT)] + ([outdir] if outdir else [])
+        args = [sys.executable, str(PY_SCRIPT)] + ([outdir] if outdir else [])
         subprocess.run(args, cwd=str(ROOT), check=True, capture_output=True)
         return Path(outdir) if outdir else ROOT / "dist" / "skill-bundles"
 
@@ -156,11 +157,14 @@ class SkillBundlesTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
         r = Path(repo)
         (r / "scripts").mkdir()
-        for s in ("build-skill-bundles.sh", "skill_manifest.py", "credential_scan.py",
+        for s in ("build-skill-bundles.sh", "build_skill_bundles.py",
+                  "skill_manifest.py", "credential_scan.py",
                   "skill_bundle_files.py"):
             shutil.copy(ROOT / "scripts" / s, r / "scripts" / s)
         (r / "scripts" / "version.sh").write_text("#!/usr/bin/env bash\necho 0.0.0\n")
         os.chmod(r / "scripts" / "version.sh", 0o755)
+        (r / "Cargo.toml").write_text(
+            '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "0.0.0"\n')
         for skill in ("agent-room", "loca-care"):
             (r / "skill" / skill).mkdir(parents=True)
             (r / "skill" / skill / "SKILL.md").write_text("# skill\n")
