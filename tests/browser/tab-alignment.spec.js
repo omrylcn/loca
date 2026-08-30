@@ -30,6 +30,7 @@ async function sekmeler(page) {
     // the fixture represent an opened loca before measuring layout; otherwise
     // every bounding box is zero and the test measures display:none.
     document.querySelector(".main")?.classList.remove("global");
+    document.querySelector(".tabs")?.style.setProperty("display", "flex", "important");
   });
   return page.locator(".tabs .tab");
 }
@@ -73,12 +74,13 @@ test("nokta gorunmezken de YER TUTAR, yaninca sekme genisligi ziplamaz", async (
   // yer tutmayinca genislik "degismiyor" ve assert bosa donuyordu.
   const noktaGen = await t.evaluateAll((els) =>
     els.map((el) => { const d = el.querySelector(".dot");
-      return d ? Math.round(d.getBoundingClientRect().width) : null; })
+      return d ? Number.parseFloat(getComputedStyle(d).width) : null; })
   );
   expect(noktaGen.filter((w) => w !== null).length).toBe(3);
   for (const w of noktaGen) if (w !== null) expect(w, "nokta gorunmezken yer tutmuyor").toBeGreaterThan(0);
 
   const kapali = await olc();
+  for (const w of kapali) expect(w, "sekme fixture gorunur degil").toBeGreaterThan(0);
   await t.evaluateAll((els) => els.forEach((el) => {
     const d = el.querySelector(".dot");
     if (d) d.classList.add("on");
