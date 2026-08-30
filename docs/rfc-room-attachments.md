@@ -100,8 +100,10 @@ in a chat-message JSON or a WebSocket frame.
   `name` is display metadata, sanitized on render, never used as a filesystem path.
 - No credential scan needed (opaque bytes), but type+size are enforced server-side,
   and a room member is the only reader (reuse `require_membership`).
-- Retention: blobs live with the room; deleting a room deletes its blobs (dedup
-  refcount by room, not global, to keep deletion simple).
+- Retention: blobs live with the room. Deleting a room drops that room's logical
+  references; the physical blob is removed only when the GLOBAL refcount reaches 0
+  (a blob shared with another room survives) — see the two-refcount invariant in
+  decision 2.
 
 ## Acceptance matrix (loca-dev verifies independently)
 
