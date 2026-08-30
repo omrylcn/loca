@@ -13,28 +13,54 @@ in a chat-message JSON or a WebSocket frame.
 ## Design decisions (locked)
 
 1. **Content-addressed blob store, not binary-in-message.** A blob is stored
-   under `<data>/attachments/<sha256[:2]>/<sha256>` (sha of the bytes → automatic
-   dedup, traversal-safe path derived only from the hash). The chat message
-   carries only a ref list:
+   under `<STORAGE_ROOT>/attachments/<sha256[:2]>/<sha256>` (sha of the bytes →
+   automatic dedup, traversal-safe path derived only from the hash). The chat
+   message carries only a ref list:
    `attachments: [{ id, sha256, name, mime, size }]` (`id` == sha256). Messages
    stay small; the durable JSONL and every client parse unchanged except for the
    optional `attachments` field.
+   - **Atomic, safe write** (gap 4): write to `<root>/attachments/tmp/<uuid>`,
+     `fsync`, then atomic `rename` into the final hash path. Before writing,
+     `symlink_metadata` the target — if a blob path already exists and is NOT a
+     regular file (symlink/special), refuse (500, never follow). The write path
+     is never derived from any client-supplied name.
+   - **Storage root & ops** (gap 8): `STORAGE_ROOT` defaults to the directory of
+     `DB_PATH` (so blobs sit beside the SQLite file and are captured by the same
+     Docker data volume + backup/restore). Memory-only mode (no DB_PATH) uses a
+     temp dir cleared on restart, consistent with messages. Documented in the
+     deploy notes: the attachments dir is part of the mounted volume.
 
 2. **Two room-scoped REST endpoints** (mirroring the existing membership/session
    auth the room already enforces — only a member/valid session may touch a
    room's blobs):
    - `POST /rooms/:room/attachments` — body is the raw bytes; `x-filename` and
-     `content-type` headers carry name+mime. Server validates **type** (allowlist)
-     and **size** (<= limit), computes sha256, writes the blob, returns
-     `{ id, sha256, name, mime, size }`. Idempotent: re-uploading identical bytes
-     returns the same id.
-   - `GET /rooms/:room/attachments/:id` — streams the blob with its stored mime
-     and `content-disposition`. 404 if the id is not referenced by any message in
-     that room (a blob is reachable only through a room it was posted to — no
-     cross-room read even with the hash).
-   Sending a message: the existing send path gains an optional `attachments`
-   array of already-uploaded ids; the server verifies each id exists before
-   accepting the message.
+     `content-type` headers carry name+mime. Server:
+     - **Validates content, not the header** (gap 1): sniff the leading bytes —
+       PNG/JPEG/WebP/PDF magic-byte signatures; TXT/MD must be valid UTF-8 with no
+       NUL. The claimed `content-type` must match the sniffed type, else `415`.
+       The stored `mime` is the *sniffed* one, never the client's claim.
+     - **Sanitizes `x-filename`** (gap 5): strip control chars and any
+       `\r\n`/header-injection; cap at 255 UTF-8 bytes; it is display metadata
+       only, never a path component.
+     - Enforces **per-file size** and **quotas** (gap 3, see below), computes
+       sha256, writes the blob atomically (decision 1), returns
+       `{ id, sha256, name, mime, size }`. Idempotent: identical bytes → same id.
+     - **Lifecycle** (gap 2): a fresh upload is `pending` with a TTL (config,
+       default 1h). It becomes `referenced` when a message that cites it is
+       accepted. A background sweep deletes `pending` blobs past TTL and any blob
+       whose refcount reaches 0. So an upload that never sends leaves no orphan.
+   - `GET /rooms/:room/attachments/:id` (gap 6) — behind the SAME `RoomAccess` /
+     `require_membership` gate as every room read; `404` if the id is not
+     `referenced` by a message in *this* room (no cross-room read even with the
+     hash). Serves with `X-Content-Type-Options: nosniff`, the stored mime, and a
+     safe `Content-Disposition: attachment; filename="<sanitized>"` (PDF/TXT/MD
+     always as attachment, never inline-executed; the client opens them
+     deliberately).
+   Sending a message: the send path gains an optional `attachments` array of
+   already-uploaded ids; the server verifies each id exists, flips it
+   `pending→referenced`, and records the message-ref + room-blob-reference **in
+   one atomic step** (gap 7) so a concurrent delete/dedup can never race a
+   half-referenced blob. Refcount is per-room; the race is covered by a test.
 
 3. **Skill / agent API — one path for BOTH runtimes.**
    `connect.sh send <server> <room> <name> <target> <text> --attach <file> [--attach <file>]`
@@ -52,8 +78,13 @@ in a chat-message JSON or a WebSocket frame.
 ## Limits & security
 
 - Types (allowlist): `image/png image/jpeg image/webp application/pdf
-  text/plain text/markdown`. Anything else → 415.
-- Size: 10 MB per file (config `attachments.max_bytes`), 4 attachments per message.
+  text/plain text/markdown` — enforced by **magic-byte / UTF-8 sniff** (gap 1),
+  not the header. Anything else → 415.
+- Size & quotas (gap 3): 10 MB per file (`attachments.max_bytes`), 4 attachments
+  per message; **per-room total quota** (`attachments.room_max_bytes`) and a
+  **building total quota** (`attachments.building_max_bytes`) — over quota → 413;
+  a **concurrent-upload cap** per identity so a client can't fan out uploads. The
+  request body is size-capped as it streams (reject early, never buffer >limit).
 - Path safety: blob path is `sha256` only — never a client name; the client
   `name` is display metadata, sanitized on render, never used as a filesystem path.
 - No credential scan needed (opaque bytes), but type+size are enforced server-side,
@@ -66,9 +97,18 @@ in a chat-message JSON or a WebSocket frame.
 - Claude Code agent AND Codex agent: `send --attach` an image and a PDF; the
   other side receives the refs and can GET the bytes (sha matches).
 - Web AND Desktop: image renders inline; PDF/TXT/MD chip opens.
-- A non-member cannot GET a room's blob (403/404); an oversize/wrong-type upload
-  is rejected; a message referencing a non-existent id is rejected.
-- Deterministic: same bytes → same id (dedup).
+- A non-member cannot GET a room's blob (403/404); a blob referenced only in
+  room A is 404 from room B (no cross-room read).
+- Rejections: oversize → 413; over room/building quota → 413; a file whose bytes
+  don't match the claimed type (e.g. a script sent as image/png) → 415; a message
+  referencing a non-existent id → rejected; a control-char/CRLF `x-filename` is
+  sanitized.
+- Lifecycle: an upload with no following message is gone after the TTL sweep (no
+  orphan); a blob whose last referencing message is deleted is collected.
+- Robustness: atomic write survives a mid-write crash (no partial blob is ever
+  served); a pre-existing symlink at a blob path is refused, not followed.
+- Deterministic: same bytes → same id (dedup); the message-ref + refcount update
+  is atomic under concurrent send/delete.
 
 ## Implementation slices (loca-care), each pushed for review before the next
 
