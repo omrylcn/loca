@@ -53,9 +53,49 @@ NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 ORIGIN_RE = re.compile(r"^https?://([A-Za-z0-9._-]+|\[[0-9A-Fa-f:]+\])(:[0-9]+)?$")
 
 
-def err(msg):
-    sys.stderr.write(msg + "\n")
+def _emit(text):
+    sys.stderr.write(text + "\n")
     sys.stderr.flush()
+
+
+_HANDLE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
+
+
+def _safe(value):
+    """Sanitize a PUBLIC handle (an identity name or request id) for display.
+    Only a value that EXACTLY matches the strict handle shape passes through
+    unchanged; anything else — free-form text, an HTTP response body, or an
+    unexpected credential-shaped value — collapses to '?'. So no arbitrary or
+    sensitive text can ever reach the diagnostic stream. Credentials are never
+    passed here anyway; this is defence in depth on the call-site guarantee."""
+    if isinstance(value, str) and _HANDLE_RE.fullmatch(value):
+        return value
+    return "?"
+
+
+# Diagnostics go ONLY through these typed emitters — never a generic free-text
+# sink. Each builds the line from a STATIC template plus, at most, sanitized
+# identity handles and integer codes. An HTTP response body, an exception
+# object, or a credential can never be passed to any of them, so no sensitive
+# value can be logged even by mistake.
+def say(message):
+    """Emit a fixed, literal diagnostic message (no interpolated data)."""
+    _emit(message)
+
+
+def say_name(template, name):
+    """Emit `template % <safe name>` — one sanitized identity handle."""
+    _emit(template % _safe(name))
+
+
+def say_pair(template, first, second):
+    """Emit `template % (<safe>, <safe>)` — two sanitized identity handles."""
+    _emit(template % (_safe(first), _safe(second)))
+
+
+def say_code(template, code):
+    """Emit `template % <int>` — one integer status/exit/count, never free text."""
+    _emit(template % int(code))
 
 
 def http(method, url, headers=None, body=None):
@@ -169,10 +209,10 @@ def finalize(server, state_file):
 
 def do_onboard(server, name, state_file, env_path):
     if not ORIGIN_RE.match(server):
-        err("server must be an http(s) origin without a path")
+        say("server must be an http(s) origin without a path")
         return 2
     if not NAME_RE.match(name):
-        err("name must be 1-64 ASCII letters, digits, dot, dash, or underscore")
+        say("name must be 1-64 ASCII letters, digits, dot, dash, or underscore")
         return 2
 
     # Step A — already onboarded? Verify the LOCAL env against /whoami (name +
@@ -182,12 +222,12 @@ def do_onboard(server, name, state_file, env_path):
     existing = read_env_membership(env_path)
     if membership_verifies(server, existing, name):
         if finalize(server, state_file):
-            err("already onboarded: '%s' holds a verified Lobby membership; finalized." % name)
+            say_name("already onboarded: '%s' holds a verified Lobby membership; finalized.", name)
             return 0
         # The membership is valid, but the server finalize (ack) is still pending
         # — report that (6), never claim finalization we could not confirm.
-        err("already onboarded: '%s' holds a verified Lobby membership; server "
-            "finalize (ack) not confirmed, re-run to complete (nothing is lost)." % name)
+        say_name("already onboarded: '%s' holds a verified Lobby membership; server "
+                 "finalize (ack) not confirmed, re-run to complete (nothing is lost).", name)
         return 6
 
     # Step B — run the request flow.
@@ -200,15 +240,15 @@ def do_onboard(server, name, state_file, env_path):
         if code == 200:
             b = jbody(text)
             if b.get("status") == "denied":
-                err("a Master denied the request.")
+                say("a Master denied the request.")
                 _discard(state_file)
                 return 3
             if b.get("status") == "approved" and b.get("bootstrap_ready") is False:
                 # The window is closed (acked) yet Step A found no valid local
                 # membership: the delivered credential is unrecoverable.
-                err("request '%s' was finalized on the server but no valid local "
-                    "membership exists — the credential cannot be re-fetched. Ask "
-                    "the operator to re-admit '%s'." % (rid, name))
+                say_pair("request '%s' was finalized on the server but no valid local "
+                         "membership exists — the credential cannot be re-fetched. Ask "
+                         "the operator to re-admit '%s'.", rid, name)
                 return 5
         elif code in (401, 404):
             rid = secret = None
@@ -222,17 +262,16 @@ def do_onboard(server, name, state_file, env_path):
         if code not in (200, 201) or not b.get("request_id") or not b.get("request_secret"):
             # Never echo the response body: a create response carries the
             # per-request secret, so only the (non-secret) status is safe to log.
-            err("could not create the join request (status %s) — re-run to retry." % code)
+            say_code("could not create the join request (status %s) — re-run to retry.", code)
             if code == 409:
-                err("(that name already exists — pick another, or you may already be a member)")
+                say("(that name already exists — pick another, or you may already be a member)")
                 return 3
             return 1
         rid, secret = b["request_id"], b["request_secret"]
         write_state(state_file, rid, secret)  # secret lands ONLY in the 600 file
 
-    err("requested to join '%s' as '%s' (request %s) — waiting for a Master to approve…"
-        % (server, name, rid))
-    err("the Master approves you in the main app: People / BUILDING -> Join requests -> Approve.")
+    say_pair("requested to join as '%s' (request %s) — waiting for a Master to approve…", name, rid)
+    say("the Master approves you in the main app: People / BUILDING -> Join requests -> Approve.")
 
     started = time.monotonic()
     while True:
@@ -243,22 +282,22 @@ def do_onboard(server, name, state_file, env_path):
         if code == 200:
             b = jbody(text)
             if b.get("status") == "denied":
-                err("a Master denied the request.")
+                say("a Master denied the request.")
                 _discard(state_file)
                 return 3
             if b.get("bootstrap_ready") is True:
                 break
             if b.get("status") == "approved" and b.get("bootstrap_ready") is False:
-                err("request '%s' was finalized on the server but no local membership "
-                    "exists — ask the operator to re-admit '%s'." % (rid, name))
+                say_pair("request '%s' was finalized on the server but no local membership "
+                         "exists — ask the operator to re-admit '%s'.", rid, name)
                 return 5
         elif code in (401, 404):
-            err("the request is no longer on the server (expired or purged); re-run to start fresh.")
+            say("the request is no longer on the server (expired or purged); re-run to start fresh.")
             _discard(state_file)
             return 1
         if MAX_POLL_SECONDS and (time.monotonic() - started) > MAX_POLL_SECONDS:
-            err("still waiting for approval after %ds — re-run later to resume (no new request)."
-                % int(MAX_POLL_SECONDS))
+            say_code("still waiting for approval after %ds — re-run later to resume (no new request).",
+                     int(MAX_POLL_SECONDS))
             return 1
         time.sleep(POLL_INTERVAL)
 
@@ -268,24 +307,24 @@ def do_onboard(server, name, state_file, env_path):
         headers={"x-join-secret": secret},
     )
     if code == 404:
-        err("bootstrap is closed (finalized) but no valid local membership exists — "
-            "ask the operator to re-admit '%s'." % name)
+        say_name("bootstrap is closed (finalized) but no valid local membership exists — "
+                 "ask the operator to re-admit '%s'.", name)
         return 5
     mb = jbody(text).get("davet")
     if code not in (200, 201) or not mb:
         # The bootstrap response body carries the mb_ membership credential —
         # log only the status, never the body.
-        err("bootstrap did not return a membership (status %s) — re-run to retry." % code)
+        say_code("bootstrap did not return a membership (status %s) — re-run to retry.", code)
         return 1
 
     # Verify the credential BEFORE persisting: kind=member AND the exact name.
     code, who = whoami(server, mb)
     if code != 200 or who.get("kind") != "member":
-        err("the issued membership did not verify (/whoami kind != member) — not saving; re-run to retry.")
+        say("the issued membership did not verify (/whoami kind != member) — not saving; re-run to retry.")
         return 1
     if who.get("name") != name:
-        err("credential belongs to '%s', not the requested identity '%s' — not saving."
-            % (who.get("name"), name))
+        say_pair("credential belongs to '%s', not the requested identity '%s' — not saving.",
+                 who.get("name"), name)
         return 1
 
     # Persist DIRECTLY into the atomic 600 identity env — mb_ never leaves this
@@ -296,29 +335,30 @@ def do_onboard(server, name, state_file, env_path):
             {"ROOM_SERVER_URL": server, "LOCA_NAME": name, "LOCA_MEMBERSHIP": mb},
         )
     except Exception as e:  # noqa: BLE001
-        # Log only the exception TYPE: the exception value could embed the mb_
-        # membership we were writing, which must never reach stderr.
-        err("could not persist the identity env (%s) — re-run to retry." % type(e).__name__)
+        # Log only the exception TYPE name (via the sanitizing emitter): the
+        # exception value could embed the mb_ membership we were writing, which
+        # must never reach stderr.
+        say_name("could not persist the identity env (%s) — re-run to retry.", type(e).__name__)
         return 1
 
     # Re-verify the PERSISTED env before finalizing — never ACK against an env we
     # have not read back and confirmed.
     if not membership_verifies(server, read_env_membership(env_path), name):
-        err("membership was written but did not re-verify from the env; not finalizing — re-run to retry.")
+        say("membership was written but did not re-verify from the env; not finalizing — re-run to retry.")
         return 1
 
     if finalize(server, state_file):
-        err("onboarded: '%s' membership filed, verified, and acknowledged." % name)
+        say_name("onboarded: '%s' membership filed, verified, and acknowledged.", name)
         return 0
-    err("onboarded: '%s' membership filed and verified, but the server finalize (ack) "
-        "was not confirmed — nothing is lost; re-run to complete it." % name)
+    say_name("onboarded: '%s' membership filed and verified, but the server finalize (ack) "
+             "was not confirmed — nothing is lost; re-run to complete it.", name)
     return 6
 
 
 def main(argv):
     if len(argv) == 6 and argv[1] == "onboard":
         return do_onboard(argv[2], argv[3], argv[4], argv[5])
-    err("usage: join_request.py onboard <server> <name> <state_file> <env_path>")
+    say("usage: join_request.py onboard <server> <name> <state_file> <env_path>")
     return 2
 
 

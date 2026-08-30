@@ -455,5 +455,52 @@ if not hasattr(unittest.TestCase, "enterContext"):
     unittest.TestCase.enterContext = _enter_context
 
 
+class DiagnosticEmitSanitizerTest(unittest.TestCase):
+    """join_request.py exposes NO generic free-text stderr sink: diagnostics go
+    only through typed emitters, identity fields pass a strict allowlist, and any
+    free-form / response-body / credential-shaped value collapses to '?'. So a
+    secret can never be logged, even by a future miswired call site."""
+
+    def setUp(self):
+        if str(SKILL_DIR) not in sys.path:
+            sys.path.insert(0, str(SKILL_DIR))
+        spec = importlib.util.spec_from_file_location(
+            "join_request", SKILL_DIR / "join_request.py")
+        self.jr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.jr)
+
+    def test_safe_passes_real_handles_but_collapses_everything_else(self):
+        jr = self.jr
+        for ok in ("erin", "jr_17", "loca-care", "a.b_c-9"):
+            self.assertEqual(jr._safe(ok), ok)
+        # Anything with a separator/quote/brace, an HTTP body, empty/None, or an
+        # over-long value collapses — nothing arbitrary survives to be logged.
+        for bad in ('{"davet": "mb_secret"}', "mb_tok abc", "a b", "has'quote",
+                    "", None, "x" * 65, 12345):
+            self.assertEqual(jr._safe(bad), "?")
+
+    def test_no_generic_free_text_sink_remains(self):
+        src = (SKILL_DIR / "join_request.py").read_text(encoding="utf-8")
+        self.assertNotIn("def err(", src)
+        # Exactly one stderr write in the whole module, inside the private sink.
+        self.assertEqual(src.count("sys.stderr.write"), 1)
+
+    def test_emitters_never_write_a_credential_carrying_body(self):
+        import contextlib
+        import io
+        jr = self.jr
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            jr.say_pair("credential belongs to '%s', not '%s' — not saving.",
+                        '{"davet": "mb_LEAK"}', "erin")
+            jr.say_code("bootstrap did not return a membership (status %s)", 404)
+            jr.say("static message only")
+        out = buf.getvalue()
+        self.assertNotIn("mb_LEAK", out)      # the body collapsed, no credential
+        self.assertIn("belongs to '?'", out)  # collapsed field shown as '?'
+        self.assertIn("not 'erin'", out)      # the real handle preserved
+        self.assertIn("status 404", out)      # numeric status preserved
+
+
 if __name__ == "__main__":
     unittest.main()
