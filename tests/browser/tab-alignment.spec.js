@@ -26,6 +26,10 @@ async function sekmeler(page) {
   await page.goto("/");
   await page.evaluate(() => {
     document.querySelectorAll(".hidden").forEach((e) => e.classList.remove("hidden"));
+    // The initial Building view deliberately hides the room tab strip. Make
+    // the fixture represent an opened loca before measuring layout; otherwise
+    // every bounding box is zero and the test measures display:none.
+    document.querySelector(".main")?.classList.remove("global");
   });
   return page.locator(".tabs .tab");
 }
