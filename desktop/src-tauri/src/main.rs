@@ -29,8 +29,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{WebviewUrl, WebviewWindowBuilder};
-#[cfg(feature = "bundled-server")]
-use tauri::Manager; // for app.manage() in the standalone flavor
+use tauri::Manager; // app.path()/app.manage()
 
 // Keychain service namespace + the exact credential keys mirrored from the web
 // UI. Keep this list in sync with the localStorage keys above; any key NOT here
@@ -588,9 +587,35 @@ fn main() {
             let lock_server = "true";
             #[cfg(not(feature = "bundled-server"))]
             let lock_server = "false";
+            // Extract the embedded skill library to a versioned, read-only local
+            // path so an agent can install a skill straight from disk — no server,
+            // no network. On failure we do NOT hide the reason: the error is
+            // logged AND surfaced to the guide, which shows a visible "Skill
+            // Library unavailable" status and falls back to the download command.
+            let (skill_library, skill_library_error): (Option<String>, Option<String>) =
+                match app.path().app_data_dir() {
+                    Ok(data) => match skill_bundles::install_versioned(&data.join("skill-library")) {
+                        Ok(dir) => (Some(dir.to_string_lossy().into_owned()), None),
+                        Err(e) => {
+                            eprintln!("skill library install failed: {e}");
+                            (None, Some(e.to_string()))
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("app_data_dir unavailable for skill library: {e}");
+                        (None, Some(e.to_string()))
+                    }
+                };
+            let skill_library_json =
+                serde_json::to_string(&skill_library).unwrap_or_else(|_| "null".to_string());
+            let skill_library_error_json =
+                serde_json::to_string(&skill_library_error).unwrap_or_else(|_| "null".to_string());
+
             let init = format!(
                 "window.__LOCA_LOCK_SERVER__ = {lock_server};\n\
                  window.__LOCA_DEFAULT_SERVER__ = {default_server};\n\
+                 window.__LOCA_SKILL_LIBRARY__ = {skill_library_json};\n\
+                 window.__LOCA_SKILL_LIBRARY_ERROR__ = {skill_library_error_json};\n\
                  window.__LOCA_KC_BOOT__ = {boot_json};\n{KEYCHAIN_SHIM}\n{SERVER_SHIM}\n{NOTIFY_SHIM}"
             );
 

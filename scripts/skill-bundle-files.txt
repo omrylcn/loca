@@ -1,0 +1,31 @@
+# GENERATED — the exact tracked runtime files each skill bundle ships.
+# Regenerate with:  python3 scripts/skill_bundle_files.py . --write
+# The packaging test asserts this equals `git ls-files` (minus tests/caches);
+# build-skill-bundles.sh reads THIS file so a Docker build needs no .git.
+skill/agent-room/SKILL.md
+skill/agent-room/VERSION
+skill/agent-room/agents/openai.yaml
+skill/agent-room/attention_store.py
+skill/agent-room/bot.py
+skill/agent-room/codex_adapter_v2.py
+skill/agent-room/connect.sh
+skill/agent-room/credentials.py
+skill/agent-room/join_request.py
+skill/agent-room/listen.py
+skill/agent-room/monitor_listener.py
+skill/agent-room/nudge.py
+skill/agent-room/orchestrator_queue.py
+skill/agent-room/portable_lock.py
+skill/agent-room/references/adapter-protocol-v1.md
+skill/agent-room/references/adapter-protocol-v2.md
+skill/agent-room/references/codex-orchestrator.md
+skill/agent-room/references/runtimes.md
+skill/agent-room/runtime.sh
+skill/agent-room/runtime_agent.py
+skill/agent-room/runtime_consumer.py
+skill/agent-room/setup.ps1
+skill/agent-room/stop_listener.py
+skill/loca-care/SKILL.md
+skill/loca-care/VERSION
+skill/loca-care/agents/openai.yaml
+skill/loca-care/scripts/audit.py

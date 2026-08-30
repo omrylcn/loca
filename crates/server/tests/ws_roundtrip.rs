@@ -1271,6 +1271,8 @@ mod attention;
 mod content;
 #[path = "ws/delivery.rs"]
 mod delivery;
+#[path = "ws/downloads.rs"]
+mod downloads;
 #[path = "ws/membership.rs"]
 mod membership;
 #[path = "ws/rooms.rs"]

@@ -50,6 +50,9 @@ test("join requests are visible and approvable in the main app, with no secret i
   // Approve it right here -> it leaves the pending list (one stock right spent).
   await jr.locator("[data-jr-approve]").first().click();
   await expect(page.locator(".jrsection")).toContainText("no pending join requests");
+  // Approve shows a visible success confirmation — it once looked like nothing
+  // happened because the reload wiped the notice before the operator saw it.
+  await expect(page.locator("#jrNotice")).toContainText("approved");
 
   // A failed list fetch is shown AS AN ERROR, never as a misleading "no pending".
   await page.route("**/join-requests", route => route.fulfill({ status: 500, body: "boom" }));
@@ -92,5 +95,72 @@ test("Host wrapper shows the same panel; deny works and a transport failure re-e
   await page.route("**/join-requests/*/approve", route => route.abort());
   await page.locator(".jrsection [data-jr-approve]").first().click();
   await expect(page.locator(".jrsection")).toContainText("hostguest2");
+  await expect(page.locator(".jrsection [data-jr-approve]").first()).toBeEnabled();
+});
+
+// Mint + deny each surface a visible success confirmation, not just a silent
+// state change — the operator must see that pressing the control did something.
+test("mint and deny each show a visible success confirmation", async ({ page, request }) => {
+  const admin = { "x-admin-token": "MASTER" };
+  const paired = await request.post("/pairings?ttl_hours=1", { headers: admin });
+  const { pairing_code } = await paired.json();
+  await page.goto("/");
+  await page.locator("#pairingCode").fill(pairing_code);
+  await page.evaluate(() => window.doConnect("iye"));
+  await expect(page.locator("#whoami")).toContainText("MASTER");
+  await page.locator("#tabPeople").click();
+
+  // Minting admission rights confirms the count that was created.
+  const mint = page.locator(".jrsection [data-jr-mint]").first();
+  await expect(mint).toBeVisible();
+  await mint.click();
+  await expect(page.locator("#jrNotice")).toContainText("admission rights created");
+
+  // Denying a request confirms the denial by name, then THAT row leaves the list.
+  // Target the specific `denyme` row: a prior test can leave other requests
+  // pending on the shared backend, so `.first()` would deny the wrong row, and a
+  // global "no pending" assertion would falsely assume test isolation.
+  await request.post("/join-requests", { data: { name: "denyme", kind: "agent" } });
+  await page.evaluate(() => { state.tab = "people"; return refreshPeopleRuntime(); });
+  const denyRow = page.locator(".jrrow", { hasText: "denyme" });
+  await expect(denyRow).toBeVisible();
+  await denyRow.locator("[data-jr-deny]").click();
+  await expect(page.locator(".jrrow", { hasText: "denyme" })).toHaveCount(0);
+  await expect(page.locator("#jrNotice")).toContainText("denied");
+});
+
+// The worst combination: approve returns a SERVER error (500, not a transport
+// abort) AND the follow-up list refresh also fails. The approve must not consume
+// the request, and the panel must stay recoverable — never a stuck, un-retryable
+// state. Once the endpoints recover, a refresh restores a usable approve button.
+test("a 500 on approve plus a failing refresh keeps the request and stays recoverable", async ({ page, request }) => {
+  const admin = { "x-admin-token": "MASTER" };
+  const paired = await request.post("/pairings?ttl_hours=1", { headers: admin });
+  const { pairing_code } = await paired.json();
+  await page.goto("/");
+  await page.locator("#pairingCode").fill(pairing_code);
+  await page.evaluate(() => window.doConnect("iye"));
+  await expect(page.locator("#whoami")).toContainText("MASTER");
+
+  await request.post("/admission-stock", { headers: admin, data: { count: 1 } });
+  await request.post("/join-requests", { data: { name: "srverr", kind: "agent" } });
+  await page.locator("#tabPeople").click();
+  await expect(page.locator(".jrsection")).toContainText("srverr");
+
+  // 500 on approve AND 500 on the list refresh that follows it.
+  await page.route("**/join-requests/*/approve", route => route.fulfill({ status: 500, body: "approve failed" }));
+  await page.route("**/join-requests", route => route.fulfill({ status: 500, body: "list down" }));
+  await page.locator(".jrsection [data-jr-approve]").first().click();
+
+  // The server still holds the pending request — a failed approve consumes nothing.
+  const pending = await request.get("/join-requests", { headers: admin }).then(r => r.json());
+  expect(pending.pending.map(r => r.name)).toContain("srverr");
+
+  // Recover the endpoints; a refresh restores the request row with a usable,
+  // ENABLED approve button (no stuck-disabled control survives the failure).
+  await page.unroute("**/join-requests/*/approve");
+  await page.unroute("**/join-requests");
+  await page.evaluate(() => { state.tab = "people"; return refreshPeopleRuntime(); });
+  await expect(page.locator(".jrsection")).toContainText("srverr");
   await expect(page.locator(".jrsection [data-jr-approve]").first()).toBeEnabled();
 });

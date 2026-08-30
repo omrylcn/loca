@@ -1,23 +1,37 @@
 # ---- build ----
 FROM rust:1.94-slim-bookworm AS build
 WORKDIR /app
+# The skill-bundles crate packages the skill trees at compile time via
+# scripts/build-skill-bundles.sh, which needs bash (present), zip and python3.
+# It reads the COMMITTED file manifest (scripts/skill-bundle-files.txt), so NO
+# .git is required in the build context and none is copied in.
+RUN apt-get update && apt-get install -y --no-install-recommends zip python3 \
+ && rm -rf /var/lib/apt/lists/*
 # Cache deps: copy manifests first.
 COPY Cargo.toml Cargo.lock ./
 COPY crates/protocol/Cargo.toml crates/protocol/
 COPY crates/server/Cargo.toml crates/server/
 COPY crates/admin/Cargo.toml crates/admin/
+COPY crates/skill-bundles/Cargo.toml crates/skill-bundles/
 # Dummy sources so `cargo build` can resolve+compile deps before real code.
-RUN mkdir -p crates/protocol/src crates/server/src crates/admin/src \
+# skill-bundles gets a dummy lib and NO build.rs (Cargo auto-detects build.rs by
+# presence), so this dep-cache layer does not run the packaging build script.
+RUN mkdir -p crates/protocol/src crates/server/src crates/admin/src crates/skill-bundles/src \
  && echo "" > crates/protocol/src/lib.rs \
  && echo "fn main(){}" > crates/server/src/main.rs \
  && echo "fn main(){}" > crates/admin/src/main.rs \
+ && echo "" > crates/skill-bundles/src/lib.rs \
  && cargo build --release --locked -p server
-# Now the real sources (web/index.html is include_str!'d by the server).
+# Now the real sources (web/index.html is include_str!'d by the server; the
+# skill-bundles build.rs packages scripts/ + the skill trees at compile time).
 COPY crates crates
 COPY web web
 COPY docs docs
+COPY scripts scripts
+COPY skill skill
 COPY PRINCIPLES.md PRINCIPLES.en.md ./
 RUN touch crates/server/src/main.rs crates/protocol/src/lib.rs \
+      crates/skill-bundles/build.rs crates/skill-bundles/src/lib.rs \
  && cargo build --release --locked -p server
 
 # ---- runtime ----

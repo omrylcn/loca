@@ -435,7 +435,7 @@ fn admission_stock_mints_consumes_once_and_ignores_expired() {
 }
 
 #[test]
-fn join_request_approve_is_exactly_once_and_bootstrap_is_one_time() {
+fn join_request_approve_is_exactly_once_and_bootstrap_is_crash_safe() {
     let directory = tempfile::tempdir().expect("tempdir");
     let store =
         Store::open(Some(directory.path().join("jr.db").to_str().expect("path"))).expect("open");
@@ -486,16 +486,73 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_one_time() {
     ));
     assert_eq!(store.admission_stock_counts(200), (2, 1)); // no extra consume
 
-    // The mb_ is delivered exactly once via bootstrap.
+    // Crash-safe bootstrap: the mb_ is RE-FETCHABLE with the same secret until
+    // the client ACKs, so a crash between receiving it and persisting it cannot
+    // lose the credential. Repeated bootstraps return the SAME mb_.
     assert_eq!(
         store
             .claim_join_request_bootstrap("jr_1", "sekret", 300)
             .as_deref(),
         Some("mb_bot")
     );
+    // Re-fetch (client crashed before persisting) still works — the window is open.
+    assert_eq!(
+        store
+            .claim_join_request_bootstrap("jr_1", "sekret", 301)
+            .as_deref(),
+        Some("mb_bot")
+    );
+    // The requester's poll keeps signaling bootstrap_ready until the ACK.
+    let (_, _, ready_before_ack) = store.join_request_view("jr_1", "sekret").expect("view");
+    assert!(ready_before_ack, "bootstrap_ready must stay true until ACK");
+    // A wrong secret can neither bootstrap nor ACK someone else's request, and
+    // a failed ACK attempt changes NO state — the window stays open for the
+    // rightful holder (the next real bootstrap still returns mb_).
     assert!(store
-        .claim_join_request_bootstrap("jr_1", "sekret", 301)
+        .claim_join_request_bootstrap("jr_1", "nope", 302)
         .is_none());
+    assert!(store
+        .ack_join_request_bootstrap("jr_1", "nope", 303)
+        .is_none());
+    assert_eq!(
+        store
+            .claim_join_request_bootstrap("jr_1", "sekret", 304)
+            .as_deref(),
+        Some("mb_bot"),
+        "a wrong-secret ACK must not close the window"
+    );
+    // Before the ACK the row still holds the plaintext mb_ copy.
+    assert_eq!(
+        store.join_request_mb_token_raw("jr_1"),
+        Some(Some("mb_bot".to_string()))
+    );
+    // ACK finalizes: first returns Some(true); a repeat by the same secret is
+    // idempotent Some(false); afterwards the bootstrap window is CLOSED (None).
+    assert_eq!(
+        store.ack_join_request_bootstrap("jr_1", "sekret", 305),
+        Some(true)
+    );
+    assert_eq!(
+        store.ack_join_request_bootstrap("jr_1", "sekret", 306),
+        Some(false)
+    );
+    assert!(store
+        .claim_join_request_bootstrap("jr_1", "sekret", 307)
+        .is_none());
+    // And the poll no longer advertises readiness once finalized.
+    let (_, _, ready_after_ack) = store.join_request_view("jr_1", "sekret").expect("view");
+    assert!(!ready_after_ack, "bootstrap_ready must be false after ACK");
+    // The ACK scrubbed the plaintext mb_ copy from the request row — a DB dump
+    // retains no delivered credential (the live membership lives in the members
+    // table, unaffected: it still resolves).
+    assert_eq!(store.join_request_mb_token_raw("jr_1"), Some(None));
+    assert_eq!(
+        store
+            .principal_for_credential("mb_bot")
+            .expect("live membership survives the request-row scrub")
+            .role,
+        super::BuildingRole::Member
+    );
 
     // Name-collision (identity-takeover fix): a second request for a name that is
     // now a live member is refused NameTaken — no second member is inserted, no
@@ -520,6 +577,101 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_one_time() {
         .expect("create2");
     assert!(store.deny_join_request("jr_2", "master", 200));
     assert!(!store.deny_join_request("jr_2", "master", 201));
+}
+
+#[test]
+fn join_request_bootstrap_ack_survives_restart_and_reopen_migration() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("r.db");
+    let p = path.to_str().expect("path");
+    {
+        let store = Store::open(Some(p)).expect("open");
+        store
+            .mint_admission_rights(&["adm_r".into()], "pr_master", 10, 10_000)
+            .expect("mint");
+        store
+            .create_join_request("jr_r", "sr", "rbot", "agent", 100)
+            .expect("create");
+        let super::ApproveTxn::Committed(_) =
+            store.approve_join_request_atomic("jr_r", "mb_r", "master", 200)
+        else {
+            panic!("approve");
+        };
+        assert_eq!(
+            store
+                .claim_join_request_bootstrap("jr_r", "sr", 300)
+                .as_deref(),
+            Some("mb_r")
+        );
+        assert_eq!(
+            store.ack_join_request_bootstrap("jr_r", "sr", 301),
+            Some(true)
+        );
+    } // drop → the connection closes, simulating a server restart.
+
+    // Reopen the SAME file: the additive `ALTER TABLE ... ADD COLUMN` re-runs
+    // harmlessly (duplicate-column error is swallowed), the ACK persisted, the
+    // window stays closed, the credential copy stays scrubbed, and a repeat ACK
+    // is still idempotent across the restart.
+    let store2 = Store::open(Some(p)).expect("reopen");
+    assert!(store2
+        .claim_join_request_bootstrap("jr_r", "sr", 400)
+        .is_none());
+    assert_eq!(
+        store2.ack_join_request_bootstrap("jr_r", "sr", 401),
+        Some(false)
+    );
+    assert_eq!(store2.join_request_mb_token_raw("jr_r"), Some(None));
+    let (_, _, ready) = store2.join_request_view("jr_r", "sr").expect("view");
+    assert!(!ready, "restart must not reopen the bootstrap window");
+}
+
+#[test]
+fn join_request_bootstrap_ack_is_atomic_under_concurrency() {
+    use std::sync::Arc;
+    let directory = tempfile::tempdir().expect("tempdir");
+    let store = Arc::new(
+        Store::open(Some(directory.path().join("c.db").to_str().expect("path"))).expect("open"),
+    );
+    store
+        .mint_admission_rights(&["adm_c".into()], "pr_master", 10, 10_000)
+        .expect("mint");
+    store
+        .create_join_request("jr_c", "sc", "cbot", "agent", 100)
+        .expect("create");
+    let super::ApproveTxn::Committed(_) =
+        store.approve_join_request_atomic("jr_c", "mb_c", "master", 200)
+    else {
+        panic!("approve");
+    };
+
+    // Fire many concurrent bootstraps alongside one ACK. The store's single held
+    // connection guard serializes every op, so there is no torn state: each
+    // bootstrap that succeeds returns the SAME credential (never a divergent one),
+    // and no bootstrap succeeds once the ACK has committed.
+    let mut handles = vec![];
+    for i in 0..8u64 {
+        let s = Arc::clone(&store);
+        handles.push(std::thread::spawn(move || {
+            s.claim_join_request_bootstrap("jr_c", "sc", 300 + i)
+        }));
+    }
+    let sack = Arc::clone(&store);
+    let ack = std::thread::spawn(move || sack.ack_join_request_bootstrap("jr_c", "sc", 999));
+
+    for h in handles {
+        if let Some(mb) = h.join().expect("bootstrap thread") {
+            assert_eq!(mb, "mb_c", "concurrent bootstraps never diverge");
+        }
+    }
+    assert!(ack.join().expect("ack thread").is_some());
+
+    // Once every thread has joined the ACK is committed: the window is closed and
+    // the credential copy scrubbed, no matter how the threads interleaved above.
+    assert!(store
+        .claim_join_request_bootstrap("jr_c", "sc", 1000)
+        .is_none());
+    assert_eq!(store.join_request_mb_token_raw("jr_c"), Some(None));
 }
 
 #[test]

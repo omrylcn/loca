@@ -104,13 +104,11 @@ impl axum::extract::FromRequestParts<Hub> for RoomAccess {
 /// `/health` (needs_token discovery) and `/sessions` (how you exchange a room
 /// token for an identity). `/ws` carries its token in the query and checks
 /// itself.
-pub(crate) async fn require_membership(
-    State(hub): State<Hub>,
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    let path = req.uri().path();
-    let public = path == "/"
+/// Paths readable WITHOUT a Building credential. Kept as a pure function so the
+/// exact boundary is unit-testable — a sibling prefix (`/downloads/skillsevil`)
+/// must NOT inherit a public prefix (`/downloads/skills`).
+pub(crate) fn is_public_path(path: &str) -> bool {
+    path == "/"
         || path.starts_with("/assets/")
         || path == "/PRINCIPLES.md"
         || path == "/PRINCIPLES.en.md"
@@ -120,6 +118,13 @@ pub(crate) async fn require_membership(
         // gated. It once 401'd on a closed prod building for lacking this entry.
         || path == "/docs/getting-started.md"
         || path == "/health"
+        // The skill distribution bundles are public release artifacts — no
+        // credential, no membership. An outside agent installs `loca` from here
+        // BEFORE it has any identity, so gating this would break onboarding.
+        // Match the EXACT path or a child, never a sibling prefix like
+        // `/downloads/skillsevil`, which stays gated.
+        || path == "/downloads/skills"
+        || path.starts_with("/downloads/skills/")
         || path == "/sessions"
         || path == "/membership/claim"
         // Join requests are authless BY DESIGN: an outsider creates one, polls it,
@@ -130,8 +135,16 @@ pub(crate) async fn require_membership(
         // safe.
         || path.starts_with("/join-requests")
         || path.starts_with("/ws")
-        || path.starts_with("/lobby/ws");
-    if public {
+        || path.starts_with("/lobby/ws")
+}
+
+pub(crate) async fn require_membership(
+    State(hub): State<Hub>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = req.uri().path();
+    if is_public_path(path) {
         return next.run(req).await;
     }
     let headers = req.headers();
@@ -186,4 +199,28 @@ pub(crate) async fn require_membership(
         return next.run(req).await;
     }
     (StatusCode::UNAUTHORIZED, "davet required").into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_public_path;
+
+    #[test]
+    fn skill_download_prefix_is_exact_not_sibling() {
+        // The exact index and its children are public.
+        assert!(is_public_path("/downloads/skills"));
+        assert!(is_public_path("/downloads/skills/loca"));
+        assert!(is_public_path("/downloads/skills/loca/manifest"));
+        // A SIBLING prefix must NOT inherit the public prefix.
+        assert!(!is_public_path("/downloads/skillsevil"));
+        assert!(!is_public_path("/downloads/skills-private"));
+        assert!(!is_public_path("/downloads"));
+        assert!(!is_public_path("/downloads/other"));
+        // Unrelated gated routes stay gated.
+        assert!(!is_public_path("/rooms"));
+        // Existing public paths remain public.
+        assert!(is_public_path("/health"));
+        assert!(is_public_path("/docs/getting-started.md"));
+        assert!(is_public_path("/assets/app.js"));
+    }
 }

@@ -327,6 +327,12 @@ async fn main() {
         .route("/", get(index))
         .route("/PRINCIPLES.md", get(principles_tr))
         .route("/PRINCIPLES.en.md", get(principles_en))
+        .route("/downloads/skills", get(skill_bundles_index))
+        .route("/downloads/skills/:name", get(download_skill_bundle))
+        .route(
+            "/downloads/skills/:name/manifest",
+            get(skill_bundle_manifest),
+        )
         .route("/docs/getting-started.md", get(getting_started_doc))
         .route("/assets/:name", get(web_asset))
         .route("/health", get(health))
@@ -355,6 +361,10 @@ async fn main() {
         .route(
             "/join-requests/:id/bootstrap",
             axum::routing::post(bootstrap_join_request_route),
+        )
+        .route(
+            "/join-requests/:id/ack",
+            axum::routing::post(ack_join_request_route),
         )
         .route("/whoami", get(whoami))
         .route("/profile", get(profile_view))

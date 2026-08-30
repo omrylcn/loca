@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -100,9 +101,15 @@ class MembershipHandler(BaseHTTPRequestHandler):
 class MembershipOnlySetupTests(unittest.TestCase):
     def test_status_without_identity_gives_one_actionable_onboarding_path(self):
         with tempfile.TemporaryDirectory() as tmp:
-            env = dict(os.environ)
+            # Hermetic: strip any loca identity the caller's shell already holds,
+            # or a real operator running the suite would see their own membership
+            # here instead of the no-identity path.
+            env = {
+                k: v for k, v in os.environ.items()
+                if not (k.startswith("LOCA_") or k.startswith("ROOM_")
+                        or k.startswith("DAVET_"))
+            }
             env["HOME"] = tmp
-            env.pop("LOCA_ENV", None)
             result = subprocess.run(
                 [
                     str(SKILL_DIR / "connect.sh"),
@@ -129,6 +136,7 @@ class MembershipOnlySetupTests(unittest.TestCase):
         stale_extra=False,
         session="",
         hide_processes=False,
+        crlf_jq=False,
     ):
         server = ThreadingHTTPServer(("127.0.0.1", 0), MembershipHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -157,6 +165,19 @@ class MembershipOnlySetupTests(unittest.TestCase):
                     fake_pgrep.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
                     fake_pgrep.chmod(0o700)
                     env["PATH"] = f"{bin_dir}:{env['PATH']}"
+                if crlf_jq:
+                    real_jq = shutil.which("jq", path=env["PATH"])
+                    self.assertIsNotNone(real_jq)
+                    bin_dir = Path(tmp) / "crlf-bin"
+                    bin_dir.mkdir()
+                    fake_jq = bin_dir / "jq"
+                    fake_jq.write_text(
+                        "#!/bin/sh\n"
+                        f"'{real_jq}' \"$@\" | sed 's/$/\\r/'\n",
+                        encoding="utf-8",
+                    )
+                    fake_jq.chmod(0o700)
+                    env["PATH"] = f"{bin_dir}:{env['PATH']}"
                 args = [str(SKILL_DIR / "connect.sh"), command, origin]
                 if command in ("status", "reconnect"):
                     args.append("debug")
@@ -180,6 +201,16 @@ class MembershipOnlySetupTests(unittest.TestCase):
         self.assertIn("sb-mobile", result.stdout)
         self.assertIn("POSTING SESSION: renewal required", result.stdout)
 
+    def test_status_normalizes_crlf_from_windows_jq(self):
+        result = self._run_invite_diagnostic(
+            "status", "dv_live", crlf_jq=True
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("INVITED (davet verified)", result.stdout)
+        self.assertIn("sb-mobile", result.stdout)
+        self.assertNotIn("membership rejected", result.stderr)
+        self.assertNotIn("\r", result.stdout + result.stderr)
+
     def test_status_separately_proves_a_live_posting_session(self):
         result = self._run_invite_diagnostic(
             "status", "dv_live", session="st_live"
@@ -188,11 +219,19 @@ class MembershipOnlySetupTests(unittest.TestCase):
         self.assertIn("INVITED (davet verified)", result.stdout)
         self.assertIn("POSTING SESSION: ready for sb-mobile", result.stdout)
 
-    def test_status_rejects_a_stale_local_davet(self):
+    def test_status_reclassifies_a_server_seated_loca_as_pending_not_stale(self):
+        # The server's whoami lists debug in sb-mobile (an active seat), but the
+        # local davet cache is stale. This is the case that once misdirected a
+        # called-in agent to "ask the master for a new davet": the seat is valid,
+        # the fresh davet arrives over the Lobby socket, so the right guidance is
+        # to START THE LISTENER. Membership is valid, so it is not an error.
         result = self._run_invite_diagnostic("status", "dv_stale")
-        self.assertEqual(result.returncode, 4, result.stdout + result.stderr)
-        self.assertIn("STALE", result.stdout)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("INVITED (davet verified)", result.stdout)
+        self.assertIn("the Master has CALLED", result.stdout)
+        self.assertIn("start your listener", result.stdout)
+        # It must NOT send a member the server has seated to ask for a new davet.
+        self.assertNotIn("ask the master for a new", result.stdout)
 
     def test_doctor_reports_a_stale_local_davet(self):
         result = self._run_invite_diagnostic("doctor", "dv_stale")

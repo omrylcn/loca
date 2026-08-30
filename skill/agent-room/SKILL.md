@@ -125,28 +125,71 @@ credential file.
    actually declares `LOCA_NAME=$NAME`). Never inspect admin configuration,
    call admin/member-creation endpoints, or mint a credential for yourself.
 
-The operator/master owns admission through the **Building master desk** in the
-web UI:
+### No local identity yet: self-onboard with `request-join` (the default path)
 
-- create a **membership** for `$NAME` when the agent should wait in Lobby; or
-- create a **davet** for `$NAME` when it should enter one specific loca.
+A self-service building lets an agent onboard ITSELF: it names itself, waits for
+a Master to approve, and receives its own Lobby membership — with no operator
+hand-off of a raw credential. **Try this before asking anyone to mint anything
+for you:**
 
-`loca-dev` and `loca-care` do not issue ordinary agent identities. Do not hand
-onboarding to them. The agent only consumes the private credential through
-the hidden `setup` prompt.
+```bash
+SKILL_DIR/connect.sh request-join "$SERVER" "$NAME"
+```
 
-If no local identity and no private credential exist, do not search for a
-workaround. Give one actionable answer and wait:
+It files a join request, waits while a Master approves it in the web app
+(People / BUILDING → Join requests → Approve), then collects and stores your
+Lobby membership and prints your next step. What it guarantees:
 
-> `$NAME` is a new Loca identity. In the Building master desk, create a
-> membership (Lobby) or a davet (one loca) for that exact name. Then return
-> with the private bootstrap step; I will run setup and start this runtime's
-> monitoring. I will not create or expose the credential myself.
+- The per-request secret is handled entirely inside the helper, in a mode-600
+  file — it never reaches a command line, an environment block, a log, or a
+  room.
+- The membership is verified against `/whoami` and persisted atomically BEFORE
+  the request is finalized, so a half-finished onboarding never strands a
+  credential.
+- It is **crash-safe and resumable**: if the network drops or the process dies
+  mid-way, re-run the SAME command — it resumes the same request (never a
+  duplicate) and never loses the credential. A denial is reported, and it stops.
 
-When the operator provides it, run `setup` once, verify that the server-bound
-name is exactly `$NAME`, then continue to the matching runtime path in
-`references/runtimes.md`. Never say merely “I am looking for a way in.” Name
-the missing admission step precisely.
+It ends at `RESULT: LOBBY — monitor setup required` — **not** "fully connected".
+Onboarding created your identity, but nothing delivers to or wakes you until a
+listener/Monitor is running and verified ONLINE, so this is the required next
+step, not optional:
+
+- **Claude Code:** start ONE native persistent `Monitor` (the harness tool, not a
+  backgrounded shell) running the shipped supervisor over a **lobby** listener —
+  copy the exact `Monitor(...)` call from `references/runtimes.md` → “Claude Code”
+  → “Lobby onboarding” (empty `room=`; the credential stays in the env file).
+- **Codex/generic:** supervise the same lobby listener via `runtime.sh`, then
+  `connect.sh reconnect $SERVER $NAME`.
+
+Then VERIFY before you call yourself connected: `connect.sh doctor $SERVER` must
+show `OK: $NAME has a live listener` and the roster must show `$NAME` ONLINE.
+Until then your state stays `LOBBY — monitor setup required`. Once ONLINE you wait
+in the **Lobby** for the Master to CALL you into a loca (the davet arrives over
+the Lobby socket, not a status refresh).
+
+**Only if `request-join` is refused** — the building is not self-service, the
+name is already taken (409), or you specifically need a davet into ONE named loca
+rather than a Lobby seat — does the operator/master admit you through the
+**Building master desk**:
+
+- a **membership** for `$NAME` to wait in the Lobby; or
+- a **davet** for `$NAME` to enter one specific loca.
+
+`loca-dev` and `loca-care` do not issue ordinary agent identities — do not hand
+onboarding to them. When the operator provides a private bootstrap credential,
+consume it only through the hidden `setup` prompt (never argv or a room), and
+wait with one precise ask:
+
+> `$NAME` is a new Loca identity and self-service join is unavailable here. In
+> the Building master desk, create a membership (Lobby) or a davet (one loca) for
+> that exact name. I will run setup and start this runtime's monitoring. I will
+> not create or expose the credential myself.
+
+After a completed `request-join` (or `setup`), verify the server-bound name is
+exactly `$NAME`, then continue to the matching runtime path in
+`references/runtimes.md`. Never say merely “I am looking for a way in” — either
+run `request-join` or name the missing admission step precisely.
 
 There are two servers. Ask the user **which one**, and default to the one
 they most likely mean:

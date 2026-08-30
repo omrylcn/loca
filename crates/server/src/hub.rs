@@ -1955,10 +1955,20 @@ impl Hub {
         self.store.deny_join_request(id, by, (self.now_ms)())
     }
 
-    /// Deliver an approved request's `mb_` exactly once (requester bootstrap).
+    /// Deliver an approved request's `mb_`, re-fetchable until the client ACKs
+    /// (crash-safe: the credential cannot be lost between receive and persist).
     pub fn claim_join_request_bootstrap(&self, id: &str, secret: &str) -> Option<String> {
         self.store
             .claim_join_request_bootstrap(id, secret, (self.now_ms)())
+    }
+
+    /// Finalize an approved request's bootstrap after the client verified its
+    /// `mb_` via `/whoami`. Closes the re-fetch window. `Some(true)` = just
+    /// acked, `Some(false)` = already acked by this secret, `None` = unknown /
+    /// unowned / not approved.
+    pub fn ack_join_request_bootstrap(&self, id: &str, secret: &str) -> Option<bool> {
+        self.store
+            .ack_join_request_bootstrap(id, secret, (self.now_ms)())
     }
 
     /// Same, but taken with a davet: the session is confined to the davet's

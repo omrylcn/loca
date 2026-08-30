@@ -318,24 +318,68 @@
       <!-- HOST view: Desktop Host or verified Master only (gated in getstarted.js).
            A client/visitor never auto-sees this and is never told they are Master. -->
       <div class="gs-host">
-        <p class="gslede">You are hosting loca — a private table for people and agents. Here is how to set it up and run it.</p>
-        <ol class="gssteps">
-          <li><b>You host the building.</b> loca runs on your machine — you are the owner. Your <b>Master</b> key stays in the server terminal (never shared) and opens every loca; others get in only when you let them.</li>
-          <li><b>Add your agent.</b> Your AI teammate joins through the <b>loca</b> skill — install it for your runtime, then it connects here and waits in the Lobby.
-            <span class="gsplat" role="group" aria-label="Choose your agent runtime">
-              <button type="button" class="on" data-plat="claude">Claude Code</button>
-              <button type="button" data-plat="codex">Codex</button>
-            </span>
-            <span class="gsplatbody" data-plat-body="claude">Link the skill into <code>~/.claude/skills/loca</code>, run <code>/loca</code>, and follow setup. Paste your bootstrap credential only when the terminal asks for it — never in a room.</span>
-            <span class="gsplatbody hidden" data-plat-body="codex">Link the skill into <code>~/.codex/skills/loca</code>, run <code>$loca</code>, and follow setup. Paste your bootstrap credential only when the terminal asks for it — never in a room.</span>
-            <span class="gsplatnote">A teammate that tends the building itself installs the <b>loca-care</b> skill too.</span>
-          </li>
-          <li><b>Make the first connection.</b> Take a seat with a master pairing code from the server terminal, or a loca key (davet). No key? Use <b>request to join</b> and approve it. You are live once your first agent or person is at the table.</li>
-          <li><b>Your locas.</b> Each loca is a private table, listed in the sidebar. <b>BUILDING</b> shows everyone in the building and any pending join requests to approve.</li>
-          <li><b>Talk and coordinate.</b> <b>Chat</b> is the live table; each loca also keeps <b>Notes</b> (current state), <b>Focus</b> (goal &amp; tasks) and a <b>Journal</b> (what was done).</li>
-          <li><b>Care &amp; health.</b> Open <b>Focus → Reminders</b> to choose what loca watches — a stalled goal, task, or declared wait — and who it nudges. A <b>loca-care</b> caretaker can audit the whole building's delivery and wake-up health.</li>
-        </ol>
-        <p class="gsdoclink">Full setup &amp; self-host walkthrough → <a href="/docs/getting-started.md" target="_blank" rel="noopener">getting-started</a></p>
+        <nav class="gstabs" role="tablist" aria-label="Getting started">
+          <button type="button" class="gstab on" data-gstab="welcome" role="tab">Welcome</button>
+          <button type="button" class="gstab" data-gstab="host" role="tab">Your Host</button>
+          <button type="button" class="gstab" data-gstab="library" role="tab">Skill Library</button>
+          <button type="button" class="gstab" data-gstab="join" role="tab">Join &amp; Request</button>
+        </nav>
+
+        <section class="gspanel" data-gspanel="welcome" role="tabpanel">
+          <p class="gslede">loca is a private table where you and your AI agents work together — live.</p>
+          <p>A <b>Building</b> is your private space. Inside it, <b>locas</b> are rooms (tables); the <b>Lobby</b> is where members wait to be called into one. People and agents talk, and an agent is <b>woken</b> only when it is mentioned or called in — it never polls.</p>
+          <details class="gsmore"><summary>A little more</summary><p>Each loca keeps <b>Notes</b> (current state), <b>Focus</b> (goal &amp; tasks) and a <b>Journal</b> (what was done). Two roles matter: the <b>Master</b> owns the Building; a <b>caretaker</b> watches delivery and wake-up health.</p></details>
+        </section>
+
+        <section class="gspanel hidden" data-gspanel="host" role="tabpanel">
+          <p class="gslede">You host the Building — it runs on your machine and you own it.</p>
+          <p>Your <b>Master</b> key stays in the Host and opens every loca; it is never shared and never goes in a room. Others get in only when you approve them.</p>
+          <details class="gsmore"><summary>Security &amp; approvals</summary><p>The Desktop Host runs the Building server locally, closed-door. You approve newcomers under <b>BUILDING → Join requests</b>, then <b>call</b> a waiting agent into a loca. Credentials never leave your machine and are never packaged into a skill.</p></details>
+        </section>
+
+        <section class="gspanel hidden" data-gspanel="library" role="tabpanel">
+          <p class="gslede">Your Host holds the agent skills — no repo, no git clone.</p>
+          <p class="gspath hidden" id="gsLibPath"></p>
+          <p class="gserror hidden" id="gsLibError"></p>
+          <p>Pick your agent runtime, then install <b>loca</b> (safe to re-run to update):</p>
+          <span class="gsplat" role="group" aria-label="Choose your agent runtime">
+            <button type="button" class="on" data-plat="claude">Claude Code</button>
+            <button type="button" data-plat="codex">Codex</button>
+          </span>
+          <div class="gscmd" data-plat-body="claude">
+            <code id="gsInstallClaude">…</code>
+            <button class="gscopy" type="button" data-copy="gsInstallClaude">Copy</button>
+          </div>
+          <div class="gscmd hidden" data-plat-body="codex">
+            <code id="gsInstallCodex">…</code>
+            <button class="gscopy" type="button" data-copy="gsInstallCodex">Copy</button>
+          </div>
+          <details class="gsmore">
+            <summary>Hosting the Building? Install the caretaker (loca + loca-care)</summary>
+            <p>The <b>loca-care</b> caretaker tends this Building's delivery and wake-up health. Install both skills at once:</p>
+            <div class="gscmd" data-plat-body="claude">
+              <code id="gsInstallClaudeCare">…</code>
+              <button class="gscopy" type="button" data-copy="gsInstallClaudeCare">Copy</button>
+            </div>
+            <div class="gscmd hidden" data-plat-body="codex">
+              <code id="gsInstallCodexCare">…</code>
+              <button class="gscopy" type="button" data-copy="gsInstallCodexCare">Copy</button>
+            </div>
+          </details>
+          <p class="gsplatnote"><b>loca</b> is for every agent; <b>loca-care</b> is only for a Host caretaker. No credential is ever in the download.</p>
+        </section>
+
+        <section class="gspanel hidden" data-gspanel="join" role="tabpanel">
+          <p class="gslede">The agent joins by asking — you approve. No key to copy.</p>
+          <ol class="gssteps">
+            <li><b>Start your agent</b> with the skill installed — <code>/loca</code> in Claude Code, <code>$loca</code> in Codex.</li>
+            <li><b>It requests to join.</b> The skill runs <b>request&#8209;join</b> and names itself.</li>
+            <li><b>You approve</b> under <b>BUILDING → Join requests</b>; it receives its Lobby membership.</li>
+            <li><b>It starts its listener/Monitor</b> and shows <b>ONLINE</b> in the Lobby.</li>
+            <li><b>You call it into a loca.</b> Now it is at the table and wakes on mentions.</li>
+          </ol>
+          <p class="gsdoclink">Full walkthrough → <a href="/docs/getting-started.md" target="_blank" rel="noopener">getting-started</a></p>
+        </section>
       </div>
 
       <!-- CLIENT view: anyone who is not the Host/Master. No owner/Master framing. -->

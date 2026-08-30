@@ -398,6 +398,17 @@ impl Store {
                 ON join_requests(status, created_at);
             "#,
         )?;
+        // Older databases predate the bootstrap-ACK column. Adding it is a no-op
+        // once present. It gates re-delivery: an approved request's mb_ stays
+        // re-fetchable via /bootstrap until the client explicitly ACKs (after
+        // verifying mb_ with /whoami), so a crash between receiving and
+        // persisting the credential can never lose it. `bootstrap_delivered_at`
+        // becomes a first-delivery timestamp for observability, no longer the
+        // gate; only the ACK closes the window.
+        let _ = conn.execute(
+            "ALTER TABLE join_requests ADD COLUMN bootstrap_acked_at INTEGER",
+            [],
+        );
         // Older databases predate message kinds; adding the column is a no-op
         // once it exists, and existing rows are plain speech by definition.
         let _ = conn.execute(
@@ -581,9 +592,12 @@ impl Store {
     /// (a caller learns nothing about a request that is not theirs).
     pub fn join_request_view(&self, id: &str, secret: &str) -> Option<(String, String, bool)> {
         let c = self.conn()?;
+        // `bootstrap_ready` stays true from approval until the client ACKs, so a
+        // requester that restarts mid-flow re-discovers it and re-bootstraps —
+        // gated on `bootstrap_acked_at`, not first delivery.
         c.query_row(
             "SELECT status, name, \
-                    (mb_token IS NOT NULL AND bootstrap_delivered_at IS NULL) \
+                    (mb_token IS NOT NULL AND bootstrap_acked_at IS NULL) \
              FROM join_requests WHERE id = ?1 AND secret_hash = ?2",
             params![id, secret_hash(secret)],
             |r| {
@@ -809,28 +823,85 @@ impl Store {
         .unwrap_or(false)
     }
 
-    /// Deliver the issued mb_ EXACTLY ONCE: only if approved, not-yet-delivered,
-    /// and the secret matches. Marks it delivered so a second call returns None —
-    /// the credential never sits in a repeatable/pollable response.
+    /// Deliver the issued mb_, RE-FETCHABLE until the client ACKs. It returns the
+    /// same mb_ on every call while the request is approved, secret-matched, and
+    /// not-yet-acked, so a client that crashes or drops the connection between
+    /// receiving mb_ and persisting it can simply ask again — the credential is
+    /// never lost. `bootstrap_delivered_at` records the FIRST delivery time for
+    /// observability only; it no longer gates re-delivery. Only
+    /// `ack_join_request_bootstrap` (called after the client verifies mb_ via
+    /// /whoami) closes the window, after which this returns None.
     pub fn claim_join_request_bootstrap(&self, id: &str, secret: &str, now: u64) -> Option<String> {
         let c = self.conn()?;
         let mb: String = c
             .query_row(
                 "SELECT mb_token FROM join_requests \
                  WHERE id = ?1 AND secret_hash = ?2 AND status = 'approved' \
-                   AND mb_token IS NOT NULL AND bootstrap_delivered_at IS NULL",
+                   AND mb_token IS NOT NULL AND bootstrap_acked_at IS NULL",
                 params![id, secret_hash(secret)],
                 |r| r.get(0),
             )
             .ok()?;
+        // First-delivery timestamp, observability only — never blocks re-delivery.
+        let _ = c.execute(
+            "UPDATE join_requests SET bootstrap_delivered_at = ?2 \
+             WHERE id = ?1 AND bootstrap_delivered_at IS NULL",
+            params![id, now],
+        );
+        Some(mb)
+    }
+
+    /// Finalize the bootstrap: the client has verified its mb_ (via /whoami) and
+    /// persisted it, so close the re-fetch window. After this the bootstrap
+    /// endpoint returns None. Returns `Some(true)` when this call set the ACK,
+    /// `Some(false)` when the request was already acked by this same secret (a
+    /// safe retry), and `None` when the request is unknown, not owned by this
+    /// secret, or not in the approved state. Requiring the secret means only the
+    /// requester can close their own window.
+    pub fn ack_join_request_bootstrap(&self, id: &str, secret: &str, now: u64) -> Option<bool> {
+        let c = self.conn()?;
+        // Ownership + state, reading the current ack timestamp. We deliberately do
+        // NOT require `mb_token IS NOT NULL` here: a completed ACK scrubs mb_token
+        // (below), so a repeat ACK by the same secret must still resolve as an
+        // idempotent success, not a 404. The held connection guard spans this
+        // SELECT and the UPDATE, so a concurrent bootstrap/ACK cannot interleave.
+        let acked_at: Option<u64> = c
+            .query_row(
+                "SELECT bootstrap_acked_at FROM join_requests \
+                 WHERE id = ?1 AND secret_hash = ?2 AND status = 'approved'",
+                params![id, secret_hash(secret)],
+                |r| r.get::<_, Option<u64>>(0),
+            )
+            .ok()?;
+        if acked_at.is_some() {
+            return Some(false); // already finalized by this secret — idempotent
+        }
+        // Finalize atomically: stamp the ACK AND scrub the plaintext mb_ copy from
+        // the request row, so a DB dump never retains the delivered credential.
+        // The live membership itself lives in the members/credentials tables and
+        // is untouched — only this one-time-delivery copy is erased.
         let changed = c
             .execute(
-                "UPDATE join_requests SET bootstrap_delivered_at = ?2 \
-                 WHERE id = ?1 AND bootstrap_delivered_at IS NULL",
+                "UPDATE join_requests SET bootstrap_acked_at = ?2, mb_token = NULL \
+                 WHERE id = ?1 AND bootstrap_acked_at IS NULL",
                 params![id, now],
             )
             .ok()?;
-        (changed == 1).then_some(mb)
+        Some(changed == 1)
+    }
+
+    /// Test-only: read the raw stored `mb_token` for a request. `Some(Some(_))`
+    /// when a credential copy is present, `Some(None)` when it has been scrubbed,
+    /// `None` when the row is absent. Proves the ACK erases the credential.
+    #[cfg(test)]
+    pub fn join_request_mb_token_raw(&self, id: &str) -> Option<Option<String>> {
+        let c = self.conn()?;
+        c.query_row(
+            "SELECT mb_token FROM join_requests WHERE id = ?1",
+            params![id],
+            |r| r.get::<_, Option<String>>(0),
+        )
+        .ok()
     }
 
     pub fn is_persistent(&self) -> bool {
