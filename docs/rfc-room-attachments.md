@@ -48,8 +48,13 @@ in a chat-message JSON or a WebSocket frame.
        `{ id, sha256, name, mime, size }`. Idempotent: identical bytes → same id.
      - **Lifecycle** (gap 2): a fresh upload is `pending` with a TTL (config,
        default 1h). It becomes `referenced` when a message that cites it is
-       accepted. A background sweep deletes `pending` blobs past TTL and any blob
-       whose refcount reaches 0. So an upload that never sends leaves no orphan.
+       accepted — the claim is AUTHORITATIVE, done inside the message-insert
+       transaction (a concurrent sweep can never leave a sent message with a lost
+       attachment; if the blob was swept the whole message is rejected). A
+       background sweep deletes `pending` blobs past TTL (V1's only active
+       reclamation), and — future-ready but untriggered in V1 (see Retention) —
+       any blob whose refcount reaches 0. So an upload that never sends leaves no
+       orphan.
    - `GET /rooms/:room/attachments/:id` (gap 6) — behind the SAME `RoomAccess` /
      `require_membership` gate as every room read; `404` if the id is not
      `referenced` by a message in *this* room (no cross-room read even with the
@@ -100,10 +105,15 @@ in a chat-message JSON or a WebSocket frame.
   `name` is display metadata, sanitized on render, never used as a filesystem path.
 - No credential scan needed (opaque bytes), but type+size are enforced server-side,
   and a room member is the only reader (reuse `require_membership`).
-- Retention: blobs live with the room. Deleting a room drops that room's logical
-  references; the physical blob is removed only when the GLOBAL refcount reaches 0
-  (a blob shared with another room survives) — see the two-refcount invariant in
-  decision 2.
+- Retention (V1, loca-dev decision): a **referenced** attachment lives exactly as
+  long as its message. Messages are never deleted, and `delete/seal room` is an
+  archive/tombstone that does NOT remove the message rows or their attachment
+  references — so a referenced blob is never reclaimed in V1. The only active
+  reclamation is the pending-TTL sweep: an upload that is never sent is collected
+  after its TTL. The refcount machinery below (derived COUNT, `ON DELETE CASCADE`
+  from `messages`) is correct and future-ready — a later message-delete/room-purge
+  would drop refs and let the sweep collect a blob whose GLOBAL count reaches 0 —
+  but that path has no trigger in V1 and is NOT presented as a working feature.
 
 ## Acceptance matrix (loca-dev verifies independently)
 
