@@ -54,6 +54,7 @@ impl Store {
         ) {
             if let Ok(rows) = stmt.query_map(params![room, needle, limit as i64], |r| {
                 Ok(Message {
+                    attachments: Vec::new(),
                     id: r.get(0)?,
                     room: room.to_string(),
                     sender: r.get(1)?,

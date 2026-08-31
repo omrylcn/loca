@@ -1887,6 +1887,7 @@ impl Hub {
             .unwrap_or_else(|| (ChatMode::Free, self.default_settings.clone()));
         let target = settings.lead.clone().or_else(|| Some("all".into()));
         let msg = Message {
+            attachments: Vec::new(),
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             room: room.clone(),
             sender: "loca".into(),
@@ -2366,6 +2367,7 @@ impl Hub {
         }
 
         let msg = Message {
+            attachments: Vec::new(),
             kind: body.kind,
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             room: room.to_string(),
@@ -2743,6 +2745,7 @@ impl Hub {
             None => format!("{by} set @lead none."),
         };
         let msg = Message {
+            attachments: Vec::new(),
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             room: room.to_string(),
             sender: "loca".into(),

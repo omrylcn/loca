@@ -322,6 +322,7 @@ impl Store {
             params![room, principal, op_id],
             |r| {
                 Ok(Message {
+                    attachments: Vec::new(),
                     id: r.get(0)?,
                     room: room.to_string(),
                     sender: r.get(1)?,
@@ -360,6 +361,7 @@ impl Store {
         )?;
         let rows = stmt.query_map(params![room, after_id, limit as u64], |r| {
             Ok(Message {
+                attachments: Vec::new(),
                 id: r.get(0)?,
                 room: room.to_string(),
                 sender: r.get(1)?,
