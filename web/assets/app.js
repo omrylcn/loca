@@ -309,6 +309,27 @@ $("onlineList").addEventListener("click", (e) => {
   if (lead) setLead(lead.dataset.lead || null);
 });
 $("sendBtn").onclick = send;
+// Attachments: the 📎 button opens the file picker; drag/drop onto the feed
+// works too. Chosen files upload immediately and appear as staged chips.
+$("attachBtn").addEventListener("click", () => $("attachInput").click());
+$("attachInput").addEventListener("change", async (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = "";  // allow re-picking the same file
+  if (files.length) await stageAttachments(files);
+});
+(function wireDropZone() {
+  const zone = $("feed");
+  if (!zone) return;
+  const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+  ["dragenter", "dragover"].forEach((ev) =>
+    zone.addEventListener(ev, (e) => { stop(e); zone.classList.add("dropping"); }));
+  ["dragleave", "drop"].forEach((ev) =>
+    zone.addEventListener(ev, (e) => { stop(e); zone.classList.remove("dropping"); }));
+  zone.addEventListener("drop", async (e) => {
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) await stageAttachments(files);
+  });
+})();
 $("leadSelect").addEventListener("change", async (e) => {
   const before = state.settings?.lead || "";
   const next = e.target.value || null;

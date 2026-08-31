@@ -275,6 +275,7 @@ function addMsg(m) {
         <span class="time" title="${esc(fmtFull(m.ts))}">${time}</span>
       </div>${quote}
       <div class="body markdown chatmarkdown">${txt}</div>
+      ${m.attachments?.length ? `<div class="attachments" data-attfor></div>` : ""}
       ${m.id ? reactionHtml(m.id) : ""}
     </div>${acts}
     ${m.id && !mine ? `<div class="reactionpicker hidden" data-picker="${m.id}">${locaReactionSet.map(emoji => `<button type="button" data-react="${m.id}" data-emoji="${emoji}">${emoji}</button>`).join("")}</div>` : ""}`;
@@ -291,8 +292,62 @@ function addMsg(m) {
     $("feed").appendChild(row);
   }
 
+  if (m.attachments?.length) renderAttachments(row, m);
+
   // @mention notification: flash the tab title if not focused.
   if (mentionsMe && !mine && document.hidden) flashTitle(m.sender);
+}
+
+/* ---- attachment rendering ---- */
+// The GET endpoint is membership-gated, so we cannot point <img src> / <a href>
+// straight at it (a browser element sends no auth header). We fetch the blob
+// WITH the session header and hand the element a same-origin object URL instead.
+function attachmentBlobUrl(room, id) {
+  return `${serverBase()}/rooms/${encodeURIComponent(room)}/attachments/${encodeURIComponent(id)}`;
+}
+async function fetchAttachmentBlob(room, id) {
+  const r = await fetch(attachmentBlobUrl(room, id), { headers: adminHeaders({}) });
+  if (!r.ok) throw new Error(`attachment ${r.status}`);
+  return URL.createObjectURL(await r.blob());
+}
+function attachmentChip(room, a) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "attachchip";
+  btn.innerHTML = `<span class="aglyph">📎</span><span class="aname">${esc(a.name || a.id.slice(0, 8))}</span><span class="asize">${fmtBytes(a.size)}</span>`;
+  btn.title = `${esc(a.mime || "")}`;
+  btn.addEventListener("click", async () => {
+    try {
+      const url = await fetchAttachmentBlob(room, a.id);
+      window.open(url, "_blank", "noopener");
+    } catch (e) {
+      addSys(`could not open ${a.name || "attachment"}`);
+    }
+  });
+  return btn;
+}
+function renderAttachments(row, m) {
+  const wrap = row.querySelector("[data-attfor]");
+  if (!wrap) return;
+  const room = m.room || state.room;
+  for (const a of m.attachments) {
+    const isImage = (a.mime || "").startsWith("image/");
+    if (isImage) {
+      const img = document.createElement("img");
+      img.className = "attachimg";
+      img.alt = a.name || "image";
+      img.loading = "lazy";
+      wrap.appendChild(img);
+      fetchAttachmentBlob(room, a.id)
+        .then((url) => {
+          img.src = url;
+          img.addEventListener("click", () => window.open(url, "_blank", "noopener"));
+        })
+        .catch(() => img.replaceWith(attachmentChip(room, a)));
+    } else {
+      wrap.appendChild(attachmentChip(room, a));
+    }
+  }
 }
 
 /* ---- @mention tab flash ---- */

@@ -192,8 +192,12 @@
       <button id="replyCancel">✕</button>
     </div>
     <div class="mentionpop hidden" id="mentionPop"></div>
+    <div class="attachstrip hidden" id="attachStrip" aria-label="Files staged to send"></div>
     <div class="composer" id="composer">
       <select id="target" title="who should reply"></select>
+      <input type="file" id="attachInput" class="hidden" multiple
+             accept="image/png,image/jpeg,image/webp,application/pdf,text/plain,.txt,.md,.markdown">
+      <button class="ctl attach" id="attachBtn" title="attach a file (image · pdf · txt · md)" aria-label="Attach a file">📎</button>
       <textarea id="msg" rows="1" placeholder="say it to the table…  (Enter = send · Shift+Enter = new line)"></textarea>
       <button class="send" id="sendBtn">send</button>
       <button class="ctl stop" id="stopBtn" title="broadcast /stop to agents">/stop</button>

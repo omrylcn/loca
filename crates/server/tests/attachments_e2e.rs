@@ -264,6 +264,40 @@ async fn rejects_type_mismatch_and_bad_citations() {
 }
 
 #[tokio::test]
+async fn caption_less_image_is_allowed_but_fully_empty_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("att.sqlite3");
+    let (base, _g) = spawn(&db.to_string_lossy()).await;
+    let client = reqwest::Client::new();
+
+    // An empty message with no attachments is still rejected.
+    let empty = send_msg(&client, &base, "alpha", "", &[]).await;
+    assert_eq!(empty.status(), 400, "a truly empty message is rejected");
+
+    // But an image with no caption is a real message.
+    let png = png_bytes(3);
+    let up: Value = upload(
+        &client,
+        &base,
+        "alpha",
+        png.clone(),
+        "image/png",
+        "shot.png",
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    let id = up["id"].as_str().unwrap();
+    let msg = send_msg(&client, &base, "alpha", "", &[id]).await;
+    assert_eq!(
+        msg.status(),
+        201,
+        "an attachment with empty text is allowed"
+    );
+}
+
+#[tokio::test]
 async fn identical_bytes_dedupe_to_one_id() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("att.sqlite3");
