@@ -425,7 +425,7 @@ async fn main() {
             // The upload body carries a file, so this one route lifts the tiny
             // global JSON body cap to the attachment limit (+ slack for headers).
             axum::routing::post(upload_attachment).layer(DefaultBodyLimit::max(
-                hub::ATTACHMENT_MAX_BYTES as usize + 4096,
+                hub::attachment_max_bytes() as usize + 4096,
             )),
         )
         .route("/rooms/:id/attachments/:att_id", get(get_attachment))

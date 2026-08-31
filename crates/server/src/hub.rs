@@ -53,17 +53,29 @@ const HISTORY_LIMIT: usize = 200;
 const BROADCAST_CAP: usize = 256;
 /// Most attachments one message may cite (RFC limits & security).
 const MAX_ATTACHMENTS_PER_MESSAGE: usize = 4;
-/// Per-file upload cap (10 MB). The upload route also caps the streamed body at
-/// this, so an oversize file is rejected before it is ever fully buffered.
-pub(crate) const ATTACHMENT_MAX_BYTES: u64 = 10 * 1024 * 1024;
-/// Per-room logical quota: sum of the distinct blob sizes a room references or
-/// holds pending (a blob shared by two rooms counts in each).
-const ATTACHMENT_ROOM_MAX_BYTES: u64 = 200 * 1024 * 1024;
-/// Building-wide physical quota: sum of unique blob sizes on disk (a deduped
-/// blob counts once, no matter how many rooms cite it).
-const ATTACHMENT_BUILDING_MAX_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-/// How long an uploaded-but-unsent blob lives before the sweep collects it.
-const ATTACHMENT_PENDING_TTL_MS: u64 = 60 * 60 * 1000;
+// Attachment limits: compile-time defaults, each overridable by an env var so
+// an operator (and the test suite) can tune them without a rebuild — the RFC's
+// attachments.*_max_bytes knobs. Read on use: uploads are infrequent, so the
+// env lookup cost is irrelevant and there is no config to thread through the
+// Hub. A non-positive or unparseable override falls back to the default.
+const ATTACHMENT_MAX_BYTES_DEFAULT: u64 = 10 * 1024 * 1024;
+const ATTACHMENT_ROOM_MAX_BYTES_DEFAULT: u64 = 200 * 1024 * 1024;
+const ATTACHMENT_BUILDING_MAX_BYTES_DEFAULT: u64 = 2 * 1024 * 1024 * 1024;
+const ATTACHMENT_PENDING_TTL_MS_DEFAULT: u64 = 60 * 60 * 1000;
+
+fn attachment_env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&v| v > 0)
+        .unwrap_or(default)
+}
+/// Per-file upload cap (bytes). `ATTACHMENT_MAX_BYTES` overrides. The upload
+/// route also caps the streamed body at this so an oversize file is rejected
+/// before it is ever fully buffered.
+pub(crate) fn attachment_max_bytes() -> u64 {
+    attachment_env_u64("ATTACHMENT_MAX_BYTES", ATTACHMENT_MAX_BYTES_DEFAULT)
+}
 
 #[derive(Clone, Copy)]
 struct CareMark {
@@ -3609,8 +3621,14 @@ impl Hub {
             mime,
             bytes,
             now,
-            ATTACHMENT_ROOM_MAX_BYTES,
-            ATTACHMENT_BUILDING_MAX_BYTES,
+            attachment_env_u64(
+                "ATTACHMENT_ROOM_MAX_BYTES",
+                ATTACHMENT_ROOM_MAX_BYTES_DEFAULT,
+            ),
+            attachment_env_u64(
+                "ATTACHMENT_BUILDING_MAX_BYTES",
+                ATTACHMENT_BUILDING_MAX_BYTES_DEFAULT,
+            ),
         )
     }
 
@@ -3623,7 +3641,13 @@ impl Hub {
     /// number of physical files deleted.
     pub fn sweep_attachments(&self) -> usize {
         let now = (self.now_ms)();
-        self.store.sweep_attachments(now, ATTACHMENT_PENDING_TTL_MS)
+        self.store.sweep_attachments(
+            now,
+            attachment_env_u64(
+                "ATTACHMENT_PENDING_TTL_MS",
+                ATTACHMENT_PENDING_TTL_MS_DEFAULT,
+            ),
+        )
     }
 }
 

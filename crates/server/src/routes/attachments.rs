@@ -58,7 +58,7 @@ pub(crate) async fn upload_attachment(
     // Defense in depth: the route also caps the streamed body, but reject an
     // oversize buffer explicitly so the limit is enforced even if the layer is
     // ever misconfigured.
-    if body.len() as u64 > hub::ATTACHMENT_MAX_BYTES {
+    if body.len() as u64 > hub::attachment_max_bytes() {
         return (
             StatusCode::PAYLOAD_TOO_LARGE,
             "file exceeds the 10 MB attachment limit",
