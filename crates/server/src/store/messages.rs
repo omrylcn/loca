@@ -127,6 +127,10 @@ impl Store {
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
+        // Attachment refs land in the SAME transaction as the message row, so a
+        // message and its pending→referenced flip commit atomically — a crash
+        // can never leave a durable message whose cited blob has no reference.
+        Self::write_attachment_refs(&tx, m)?;
         tx.commit()
             .inspect_err(|e| tracing::error!(error = %e, "message + silence reset failed"))
     }
@@ -173,6 +177,10 @@ impl Store {
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
+        // Attachment refs land in the SAME transaction as the message row, so a
+        // message and its pending→referenced flip commit atomically — a crash
+        // can never leave a durable message whose cited blob has no reference.
+        Self::write_attachment_refs(&tx, m)?;
         tx.commit()
             .inspect_err(|e| tracing::error!(error = %e, "message + room state commit failed"))
     }
@@ -223,6 +231,10 @@ impl Store {
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
+        // Attachment refs land in the SAME transaction as the message row, so a
+        // message and its pending→referenced flip commit atomically — a crash
+        // can never leave a durable message whose cited blob has no reference.
+        Self::write_attachment_refs(&tx, m)?;
         for signal in signals {
             Self::write_care(&tx, delivery_room, signal)?;
         }
@@ -286,6 +298,10 @@ impl Store {
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
+        // Attachment refs land in the SAME transaction as the message row, so a
+        // message and its pending→referenced flip commit atomically — a crash
+        // can never leave a durable message whose cited blob has no reference.
+        Self::write_attachment_refs(&tx, m)?;
         Self::resolve_wait_attentions(&tx, &m.room, waiter, at)?;
         Self::write_wait(&tx, wait)?;
         Self::write_care(&tx, delivery_room, wake)?;

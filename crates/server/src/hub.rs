@@ -2554,16 +2554,11 @@ impl Hub {
             }
             return Err(PostReject::Storage);
         }
-        // Flip the cited blobs pending→referenced now that the message is
-        // durable. The pending row protected each blob from the sweep until
-        // this point; the ref row protects it afterwards. A failure here leaves
-        // the message (which already carries the refs in its own row) intact but
-        // logs — the blob stays pending and is TTL-swept if never re-referenced.
-        if !attachments.is_empty() {
-            let _ = self
-                .store
-                .reference_attachments(room, msg.id, &attachments, now);
-        }
+        // The cited blobs' pending→referenced flip already committed INSIDE the
+        // message-insert transaction above (Store::write_attachment_refs), so
+        // the message and its references are durable together — nothing to do
+        // here. `attachments` was resolved up front purely to reject bad ids
+        // and to set msg.attachments before persistence.
         if record_rate {
             r.post_times
                 .entry(msg.sender.clone())

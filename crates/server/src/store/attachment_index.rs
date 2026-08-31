@@ -189,54 +189,47 @@ impl Store {
         })
     }
 
-    /// Flip the cited blobs `pending → referenced` for one accepted message, in
-    /// a single transaction: insert the per-room ref rows and clear the pending
-    /// slots together. The blob is protected from the sweep at every instant —
-    /// by its pending row before this commit, by its ref row after — so a
-    /// concurrent sweep/delete can never collect a blob a live message cites.
-    pub(crate) fn reference_attachments(
-        &self,
-        room: &str,
-        message_id: u64,
-        attachments: &[protocol::Attachment],
-        now: u64,
+    /// Flip a message's cited blobs `pending → referenced` INSIDE the caller's
+    /// message-insert transaction: insert the per-room ref rows and clear the
+    /// pending slots on the same `tx` that writes the message row. Because it
+    /// shares that transaction, the message and its references commit atomically
+    /// — a crash can never leave a durable message whose blob has no reference,
+    /// nor a reference to a message that was rolled back. The blob is protected
+    /// from the sweep at every instant: by its pending row before this commit,
+    /// by its ref row after. Reads `m.attachments`, already resolved by the
+    /// caller, so no id here is unvalidated.
+    pub(super) fn write_attachment_refs(
+        tx: &rusqlite::Transaction,
+        m: &Message,
     ) -> rusqlite::Result<()> {
-        if attachments.is_empty() {
-            return Ok(());
-        }
-        let Some(mut c) = self.conn() else {
-            return Ok(());
-        };
-        let tx = c.transaction()?;
-        for a in attachments {
+        for a in &m.attachments {
             // The blob row exists from upload; keep this defensive so a
             // reference always has its serve-metadata anchor.
             tx.execute(
                 "INSERT OR IGNORE INTO attachment_blobs (sha, mime, size, created_at)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![a.sha256, a.mime, a.size as i64, now as i64],
+                params![a.sha256, a.mime, a.size as i64, m.ts as i64],
             )?;
             tx.execute(
                 "INSERT OR IGNORE INTO attachment_refs
                  (room, message_id, sha, name, mime, size, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
-                    room,
-                    message_id as i64,
+                    m.room,
+                    m.id as i64,
                     a.sha256,
                     a.name,
                     a.mime,
                     a.size as i64,
-                    now as i64
+                    m.ts as i64
                 ],
             )?;
             tx.execute(
                 "DELETE FROM attachment_pending WHERE sha = ?1 AND room = ?2",
-                params![a.sha256, room],
+                params![a.sha256, m.room],
             )?;
         }
-        tx.commit()
-            .inspect_err(|e| tracing::error!(error = %e, "reference_attachments failed"))
+        Ok(())
     }
 
     /// Read a blob for serving IF it is referenced by a message in THIS room.
