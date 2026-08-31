@@ -41,7 +41,9 @@ pub struct BlobStore {
 }
 
 fn is_sha256_hex(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 fn set_mode(_path: &Path, _mode: u32) -> io::Result<()> {
@@ -102,9 +104,16 @@ impl BlobStore {
     }
 
     /// True only if `sha` names an existing regular blob file (not verified).
+    // A physical-presence probe kept as part of the BlobStore surface and
+    // exercised by the unit tests (a put lands a real file; a malformed id is
+    // never a path). No production caller yet — the lifecycle decides presence
+    // from the DB index, not the filesystem — so allow it until one appears.
+    #[allow(dead_code)]
     pub fn exists(&self, sha: &str) -> bool {
         match self.path_for(sha) {
-            Some(p) => fs::symlink_metadata(&p).map(|m| m.is_file()).unwrap_or(false),
+            Some(p) => fs::symlink_metadata(&p)
+                .map(|m| m.is_file())
+                .unwrap_or(false),
             None => false,
         }
     }
@@ -182,7 +191,10 @@ impl BlobStore {
                 }
                 // A stale/corrupt regular file blocks the rename (self-heal, and
                 // Windows non-replacing rename): drop it, then rename.
-                if fs::symlink_metadata(final_path).map(|m| m.is_file()).unwrap_or(false) {
+                if fs::symlink_metadata(final_path)
+                    .map(|m| m.is_file())
+                    .unwrap_or(false)
+                {
                     fs::remove_file(final_path)?;
                     fs::rename(tmp, final_path)
                 } else {
@@ -220,10 +232,16 @@ impl BlobStore {
         let mut f = opts.open(path)?;
         let meta = f.metadata()?;
         if !meta.is_file() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "blob is not a regular file"));
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "blob is not a regular file",
+            ));
         }
         if meta.len() > MAX_BLOB_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "blob exceeds the size bound"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "blob exceeds the size bound",
+            ));
         }
         let mut buf = Vec::with_capacity(meta.len() as usize);
         f.read_to_end(&mut buf)?;
@@ -234,13 +252,22 @@ impl BlobStore {
     fn read_no_follow(&self, path: &Path) -> io::Result<Vec<u8>> {
         let meta = fs::symlink_metadata(path)?;
         if meta.file_type().is_symlink() {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "blob path is a symlink"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "blob path is a symlink",
+            ));
         }
         if !meta.is_file() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "blob is not a regular file"));
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "blob is not a regular file",
+            ));
         }
         if meta.len() > MAX_BLOB_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "blob exceeds the size bound"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "blob exceeds the size bound",
+            ));
         }
         fs::read(path)
     }
@@ -251,6 +278,21 @@ impl BlobStore {
             .path_for(sha)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "malformed blob id"))?;
         self.read_at(&p, Some(sha))
+    }
+
+    /// Delete a blob's file. Used by the lifecycle sweep once a blob is
+    /// unreferenced (no pending, no ref). A missing file is success — the goal
+    /// state (gone) is reached — so the sweep is idempotent and never wedges on
+    /// an already-collected blob. A malformed id is a no-op (never a path).
+    pub fn delete(&self, sha: &str) -> io::Result<()> {
+        let Some(p) = self.path_for(sha) else {
+            return Ok(());
+        };
+        match fs::remove_file(&p) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -270,7 +312,12 @@ fn unique_name() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("{}-{}-{}", std::process::id(), nanos, COUNTER.fetch_add(1, Ordering::Relaxed))
+    format!(
+        "{}-{}-{}",
+        std::process::id(),
+        nanos,
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 #[cfg(test)]
@@ -304,7 +351,14 @@ mod tests {
     #[test]
     fn a_malformed_id_can_never_escape_the_root() {
         let (_d, bs) = store();
-        for bad in ["../etc/passwd", "/abs", "..", "xyz", &"g".repeat(64), &"a".repeat(63)] {
+        for bad in [
+            "../etc/passwd",
+            "/abs",
+            "..",
+            "xyz",
+            &"g".repeat(64),
+            &"a".repeat(63),
+        ] {
             assert!(bs.path_for(bad).is_none(), "{bad} must be rejected");
             assert!(!bs.exists(bad));
             assert!(bs.read(bad).is_err());
@@ -334,8 +388,14 @@ mod tests {
         let outside = _d.path().join("outside");
         fs::create_dir(&outside).unwrap();
         std::os::unix::fs::symlink(&outside, bs.path_for(&sha).unwrap().parent().unwrap()).unwrap();
-        assert!(bs.put(b"x").is_err(), "a symlinked shard dir must be refused");
-        assert!(fs::read_dir(&outside).unwrap().next().is_none(), "external dir untouched");
+        assert!(
+            bs.put(b"x").is_err(),
+            "a symlinked shard dir must be refused"
+        );
+        assert!(
+            fs::read_dir(&outside).unwrap().next().is_none(),
+            "external dir untouched"
+        );
     }
 
     #[test]
@@ -351,7 +411,10 @@ mod tests {
         fs::write(&outside, b"real bytes").unwrap();
         fs::remove_file(&path).unwrap();
         std::os::unix::fs::symlink(&outside, &path).unwrap();
-        assert!(bs.read(&sha).is_err(), "a symlinked blob path must be refused, not followed");
+        assert!(
+            bs.read(&sha).is_err(),
+            "a symlinked blob path must be refused, not followed"
+        );
     }
 
     #[test]
@@ -368,8 +431,16 @@ mod tests {
         assert_eq!(mode(&shard), 0o755, "precondition: shard is wide");
         // A put re-asserts 0700 on the existing dirs, not just fresh ones.
         bs.put(b"tighten").unwrap();
-        assert_eq!(mode(&shard), DIR_MODE, "existing shard dir must be tightened to 0700");
-        assert_eq!(mode(&bs.root.join("tmp")), DIR_MODE, "existing tmp dir must be tightened");
+        assert_eq!(
+            mode(&shard),
+            DIR_MODE,
+            "existing shard dir must be tightened to 0700"
+        );
+        assert_eq!(
+            mode(&bs.root.join("tmp")),
+            DIR_MODE,
+            "existing tmp dir must be tightened"
+        );
     }
 
     #[test]
@@ -380,7 +451,11 @@ mod tests {
         let path = bs.path_for(&sha).unwrap();
         let mode = |p: &Path| fs::symlink_metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(&path), FILE_MODE, "blob file must be 0600");
-        assert_eq!(mode(path.parent().unwrap()), DIR_MODE, "shard dir must be 0700");
+        assert_eq!(
+            mode(path.parent().unwrap()),
+            DIR_MODE,
+            "shard dir must be 0700"
+        );
         assert_eq!(mode(&bs.root.join("tmp")), DIR_MODE, "tmp dir must be 0700");
     }
 }

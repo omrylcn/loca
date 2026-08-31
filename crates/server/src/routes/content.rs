@@ -104,6 +104,10 @@ pub(crate) async fn post_message(
                 // Not the caller's fault — the write failed. 503 so a client
                 // may retry rather than treat it as a permanent rejection.
                 StatusCode::SERVICE_UNAVAILABLE
+            } else if reject.is_bad_request() {
+                // Malformed caller input (bad/too-many attachment ids) — 400,
+                // distinct from the 403 the mode/permission gates return.
+                StatusCode::BAD_REQUEST
             } else {
                 StatusCode::FORBIDDEN
             };

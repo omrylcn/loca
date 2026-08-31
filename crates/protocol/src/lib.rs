@@ -84,6 +84,12 @@ pub struct PostMessage {
     /// effective identity returns the first message without a second effect.
     #[serde(default)]
     pub op_id: Option<String>,
+    /// Ids (== sha256) of already-uploaded attachments to cite on this message.
+    /// Each must have been uploaded to THIS room (POST .../attachments) and not
+    /// yet swept; the server resolves each to its stored ref and flips it
+    /// `pending → referenced`. An unknown/foreign id rejects the whole post.
+    #[serde(default)]
+    pub attachments: Vec<String>,
 }
 
 /// One allowed social mark on a message. Reactions are visible to the loca,

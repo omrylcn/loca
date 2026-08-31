@@ -275,6 +275,24 @@ async fn main() {
             }
         });
     }
+    // Collect expired pending uploads (never sent) and blobs whose last
+    // referencing message was deleted, so orphaned bytes never accumulate on
+    // disk. Every 5 min is ample against a 1h pending TTL. No-op when the store
+    // is memory-only (no blob dir).
+    {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(300));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                let removed = hub.sweep_attachments();
+                if removed > 0 {
+                    tracing::info!(removed, "attachment sweep collected orphaned blobs");
+                }
+            }
+        });
+    }
 
     // The master desk is deliberately a second HTTP surface. In production
     // Docker publishes it as 127.0.0.1:3004 only, so the browser reaches it
@@ -402,6 +420,15 @@ async fn main() {
         )
         .route("/rooms", get(list_rooms))
         .route("/rooms/:id/messages", get(get_messages).post(post_message))
+        .route(
+            "/rooms/:id/attachments",
+            // The upload body carries a file, so this one route lifts the tiny
+            // global JSON body cap to the attachment limit (+ slack for headers).
+            axum::routing::post(upload_attachment).layer(DefaultBodyLimit::max(
+                hub::ATTACHMENT_MAX_BYTES as usize + 4096,
+            )),
+        )
+        .route("/rooms/:id/attachments/:att_id", get(get_attachment))
         .route("/rooms/:id/reactions", get(get_reactions))
         .route(
             "/rooms/:id/messages/:message_id/reactions",
@@ -1521,6 +1548,9 @@ fn handle_client_frame(
                         reply_to,
                         op_id,
                         kind: protocol::MessageKind::Say,
+                        // WS text sends carry no attachments (uploads use the
+                        // REST endpoint, then a REST/WS send cites their ids).
+                        attachments: Vec::new(),
                     },
                     false,
                     identity,

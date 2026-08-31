@@ -290,13 +290,13 @@ impl Store {
         let mut max_msg_id = 0u64;
         // Hot context only: the archive can be huge, memory holds the tail.
         if let Ok(mut stmt) = c.prepare(
-            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind FROM
+            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments FROM
                (SELECT * FROM messages WHERE room = ?1 ORDER BY id DESC LIMIT 200)
              ORDER BY id",
         ) {
             if let Ok(rows) = stmt.query_map(params![room], |r| {
                 Ok(Message {
-                    attachments: Vec::new(),
+                    attachments: attachments_from_json(r.get::<_, Option<String>>(8)?),
                     id: r.get(0)?,
                     room: room.to_string(),
                     sender: r.get(1)?,
