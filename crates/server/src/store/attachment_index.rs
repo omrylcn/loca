@@ -190,30 +190,34 @@ impl Store {
     }
 
     /// Flip a message's cited blobs `pending → referenced` INSIDE the caller's
-    /// message-insert transaction: insert the per-room ref rows and clear the
-    /// pending slots on the same `tx` that writes the message row. Because it
-    /// shares that transaction, the message and its references commit atomically
-    /// — a crash can never leave a durable message whose blob has no reference,
-    /// nor a reference to a message that was rolled back. The blob is protected
-    /// from the sweep at every instant: by its pending row before this commit,
-    /// by its ref row after. Reads `m.attachments`, already resolved by the
-    /// caller, so no id here is unvalidated.
+    /// message-insert transaction. This is the AUTHORITATIVE claim: the caller's
+    /// earlier `resolve_room_attachment` is only a pre-check/UX gate, because a
+    /// sweep could collect the pending blob between that read and this write.
+    ///
+    /// For each attachment the ref is inserted ONLY IF the blob is still
+    /// claimable in this room right now — a live pending upload OR an existing
+    /// room reference — via a conditional `INSERT ... SELECT ... WHERE EXISTS`.
+    /// If nothing was inserted the blob vanished (a concurrent sweep collected
+    /// it), so the whole transaction is aborted: the message is rejected rather
+    /// than committed citing a file that is gone. The sweep runs under the same
+    /// store `Mutex`, so it can never interleave this check-and-claim; combined
+    /// with sharing the message's transaction, a message and its live references
+    /// commit together or not at all — no successful message with a lost
+    /// attachment, and no reference to a rolled-back message.
+    ///
+    /// `attachments` is deduped by the caller, so each `(message, sha)` is
+    /// unique and a real claim never inserts zero rows for a benign reason.
     pub(super) fn write_attachment_refs(
         tx: &rusqlite::Transaction,
         m: &Message,
     ) -> rusqlite::Result<()> {
         for a in &m.attachments {
-            // The blob row exists from upload; keep this defensive so a
-            // reference always has its serve-metadata anchor.
-            tx.execute(
-                "INSERT OR IGNORE INTO attachment_blobs (sha, mime, size, created_at)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![a.sha256, a.mime, a.size as i64, m.ts as i64],
-            )?;
-            tx.execute(
-                "INSERT OR IGNORE INTO attachment_refs
+            let inserted = tx.execute(
+                "INSERT INTO attachment_refs
                  (room, message_id, sha, name, mime, size, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7
+                 WHERE EXISTS (SELECT 1 FROM attachment_pending WHERE sha = ?3 AND room = ?1)
+                    OR EXISTS (SELECT 1 FROM attachment_refs WHERE room = ?1 AND sha = ?3)",
                 params![
                     m.room,
                     m.id as i64,
@@ -224,6 +228,13 @@ impl Store {
                     m.ts as i64
                 ],
             )?;
+            if inserted == 0 {
+                // Not claimable now (swept, or never uploaded to this room) —
+                // abort the message transaction. StatementChangedRows(0) is the
+                // "required a row, got none" signal; the caller maps it to a
+                // clean rejection by re-resolving.
+                return Err(rusqlite::Error::StatementChangedRows(0));
+            }
             tx.execute(
                 "DELETE FROM attachment_pending WHERE sha = ?1 AND room = ?2",
                 params![a.sha256, m.room],
@@ -319,4 +330,122 @@ fn room_has_sha(c: &Connection, room: &str, sha: &str) -> rusqlite::Result<bool>
 fn sum_i64<P: rusqlite::Params>(c: &Connection, sql: &str, params: P) -> rusqlite::Result<u64> {
     let v: i64 = c.query_row(sql, params, |r| r.get(0))?;
     Ok(v.max(0) as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::{Message, MessageKind, SenderType};
+
+    const BIG: u64 = 1 << 30;
+
+    fn store() -> (tempfile::TempDir, Store) {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("att.sqlite3");
+        let store = Store::open(Some(p.to_str().unwrap())).unwrap();
+        (dir, store)
+    }
+
+    fn msg(id: u64, room: &str, atts: &[protocol::Attachment]) -> Message {
+        Message {
+            id,
+            room: room.to_string(),
+            sender: "t".into(),
+            sender_type: SenderType::Agent,
+            target: None,
+            text: "hi".into(),
+            reply_to: None,
+            ts: 1000,
+            kind: MessageKind::Say,
+            attachments: atts.to_vec(),
+        }
+    }
+
+    fn put(store: &Store, room: &str, bytes: &[u8]) -> protocol::Attachment {
+        store
+            .put_pending_attachment(room, "u", "f.png", "image/png", bytes, 1000, BIG, BIG)
+            .unwrap()
+    }
+
+    /// The race loca-dev named: a sweep collects the pending blob AFTER the
+    /// caller's pre-check but the authoritative in-tx claim rejects the message,
+    /// so there is no successful message with a lost attachment.
+    #[test]
+    fn cite_of_a_swept_pending_is_rejected_with_no_half_state() {
+        let (_d, store) = store();
+        let att = put(&store, "A", b"\x89PNG\r\n\x1a\n vanishing");
+        // Pre-check (UX gate) succeeds.
+        assert!(store.resolve_room_attachment("A", &att.id).is_some());
+        // A real sweep runs before the message write and collects the unsent
+        // pending upload (created_at 1000 < cutoff), and its now-orphan blob.
+        assert_eq!(
+            store.sweep_attachments(9_000_000, 1),
+            1,
+            "pending collected"
+        );
+        assert!(store.resolve_room_attachment("A", &att.id).is_none());
+        // The authoritative claim must reject: insert_message fails and nothing
+        // is persisted.
+        assert!(
+            store
+                .insert_message(&msg(10, "A", std::slice::from_ref(&att)), None)
+                .is_err(),
+            "citing a swept blob must abort the whole message"
+        );
+        let count: i64 = store
+            .conn()
+            .unwrap()
+            .query_row("SELECT COUNT(*) FROM messages WHERE id = 10", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "the message was rolled back — no half-state");
+        assert!(store.read_room_attachment("A", &att.id).is_none());
+    }
+
+    /// The normal path still works: a pending upload cited by a message becomes
+    /// referenced and fetchable, and a later message may re-cite it.
+    #[test]
+    fn normal_cite_flips_pending_to_referenced_and_re_cite_works() {
+        let (_d, store) = store();
+        let att = put(&store, "A", b"\x89PNG\r\n\x1a\n kept");
+        store
+            .insert_message(&msg(11, "A", std::slice::from_ref(&att)), None)
+            .unwrap();
+        assert!(store.read_room_attachment("A", &att.id).is_some());
+        // Pending is gone after the flip; a re-cite claims it from the ref.
+        store
+            .insert_message(&msg(12, "A", std::slice::from_ref(&att)), None)
+            .unwrap();
+    }
+
+    /// V1 reclamation: an unsent pending upload is protected while fresh and
+    /// collected once past its TTL; a referenced blob is never swept.
+    #[test]
+    fn pending_swept_after_ttl_but_referenced_blob_protected() {
+        let (_d, store) = store();
+        let a = put(&store, "A", b"\x89PNG\r\n\x1a\n orphan");
+        assert_eq!(
+            store.sweep_attachments(1000, 1_000_000),
+            0,
+            "fresh pending protected"
+        );
+        assert_eq!(
+            store.sweep_attachments(9_000_000, 1),
+            1,
+            "expired pending collected"
+        );
+        assert!(store.resolve_room_attachment("A", &a.id).is_none());
+
+        let b = put(&store, "A", b"\x89PNG\r\n\x1a\n kept2");
+        store
+            .insert_message(&msg(20, "A", std::slice::from_ref(&b)), None)
+            .unwrap();
+        assert_eq!(
+            store.sweep_attachments(9_000_000_000, 1),
+            0,
+            "a referenced blob is never swept"
+        );
+        assert!(store.read_room_attachment("A", &b.id).is_some());
+    }
 }

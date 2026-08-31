@@ -2330,8 +2330,15 @@ impl Hub {
                     max: MAX_ATTACHMENTS_PER_MESSAGE,
                 });
             }
-            let mut resolved = Vec::with_capacity(body.attachments.len());
+            let mut resolved: Vec<protocol::Attachment> =
+                Vec::with_capacity(body.attachments.len());
             for id in &body.attachments {
+                // Dedup: citing the same file twice is one reference, and keeps
+                // each (message, sha) unique so the in-tx claim never sees a
+                // spurious zero-row insert.
+                if resolved.iter().any(|a| &a.id == id) {
+                    continue;
+                }
                 match self.store.resolve_room_attachment(room, id) {
                     Some(a) => resolved.push(a),
                     None => return Err(PostReject::UnknownAttachment),
@@ -2563,6 +2570,18 @@ impl Hub {
         if persisted.is_err() {
             if let (Some(old), ChatMode::RoundRobin { turn, .. }) = (previous_turn, &mut r.mode) {
                 *turn = old;
+            }
+            // The in-tx authoritative claim aborts the message when a cited blob
+            // was swept between the pre-check and the write. Distinguish that
+            // (a caller-input problem → 400) from a genuine storage failure
+            // (→ 503) by re-resolving: if any attachment no longer resolves, the
+            // vanish race is why the write failed.
+            if !attachments.is_empty()
+                && attachments
+                    .iter()
+                    .any(|a| self.store.resolve_room_attachment(room, &a.id).is_none())
+            {
+                return Err(PostReject::UnknownAttachment);
             }
             return Err(PostReject::Storage);
         }

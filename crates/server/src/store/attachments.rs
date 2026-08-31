@@ -280,16 +280,93 @@ impl BlobStore {
         self.read_at(&p, Some(sha))
     }
 
-    /// Delete a blob's file. Used by the lifecycle sweep once a blob is
-    /// unreferenced (no pending, no ref). A missing file is success — the goal
-    /// state (gone) is reached — so the sweep is idempotent and never wedges on
-    /// an already-collected blob. A malformed id is a no-op (never a path).
+    /// Delete a blob's file, NEVER following a symlink out of the tree. Used by
+    /// the lifecycle sweep once a blob is unreferenced. A missing file is success
+    /// (the goal state is reached), so the sweep is idempotent; a malformed id is
+    /// a no-op (never a path). Symmetric with the O_NOFOLLOW read path: an
+    /// attacker who swaps a shard dir for a symlink cannot make the sweep unlink
+    /// a file outside the store.
     pub fn delete(&self, sha: &str) -> io::Result<()> {
         let Some(p) = self.path_for(sha) else {
             return Ok(());
         };
-        match fs::remove_file(&p) {
-            Ok(()) => Ok(()),
+        self.delete_no_follow(&p)
+    }
+
+    /// Unix: open the shard directory with `O_NOFOLLOW | O_DIRECTORY` (fails if
+    /// the shard was swapped for a symlink) and `unlinkat` the leaf by name.
+    /// `unlinkat` removes the directory ENTRY, so even a symlink named like the
+    /// blob is unlinked itself, not its target — the delete can never escape the
+    /// tree. This is atomic (no metadata-then-act TOCTOU), matching `read_no_follow`.
+    #[cfg(unix)]
+    fn delete_no_follow(&self, path: &Path) -> io::Result<()> {
+        use std::os::unix::ffi::OsStrExt;
+        let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+            return Ok(());
+        };
+        let parent_c = std::ffi::CString::new(parent.as_os_str().as_bytes())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "bad path"))?;
+        let dfd = unsafe {
+            libc::open(
+                parent_c.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_DIRECTORY | libc::O_CLOEXEC,
+            )
+        };
+        if dfd < 0 {
+            let e = io::Error::last_os_error();
+            // Shard absent → nothing to delete. A symlinked shard fails to open
+            // here (ELOOP/ENOTDIR): refuse rather than traverse out of the tree.
+            return if e.kind() == io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(e)
+            };
+        }
+        // Close the dir fd on every path out.
+        struct Fd(libc::c_int);
+        impl Drop for Fd {
+            fn drop(&mut self) {
+                unsafe { libc::close(self.0) };
+            }
+        }
+        let _fd = Fd(dfd);
+        let name_c = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "bad name"))?;
+        let rc = unsafe { libc::unlinkat(dfd, name_c.as_ptr(), 0) };
+        if rc != 0 {
+            let e = io::Error::last_os_error();
+            if e.kind() != io::ErrorKind::NotFound {
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+
+    /// Non-unix: no `unlinkat`, so verify neither the shard dir nor the leaf is a
+    /// symlink before unlinking. A planted symlink is refused, so the delete
+    /// still cannot redirect out of the tree (the Windows CI runner is the
+    /// authority on the platform specifics).
+    #[cfg(not(unix))]
+    fn delete_no_follow(&self, path: &Path) -> io::Result<()> {
+        if let Some(parent) = path.parent() {
+            match fs::symlink_metadata(parent) {
+                Ok(m) if m.file_type().is_symlink() => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "shard directory is a symlink",
+                    ))
+                }
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(e) => return Err(e),
+            }
+        }
+        match fs::symlink_metadata(path) {
+            Ok(m) if m.file_type().is_file() => fs::remove_file(path),
+            Ok(_) => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "blob path is not a regular file",
+            )),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e),
         }
@@ -328,6 +405,41 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let bs = BlobStore::new(dir.path().join("attachments")).unwrap();
         (dir, bs)
+    }
+
+    /// A shard dir swapped for a symlink must not let `delete` unlink a file
+    /// OUTSIDE the store tree (an attacker who plants such a symlink could
+    /// otherwise make the sweep delete an arbitrary file).
+    #[cfg(unix)]
+    #[test]
+    fn delete_never_follows_a_symlinked_shard_out_of_the_tree() {
+        let (dir, bs) = store();
+        let sha = bs.put(b"victim bytes").unwrap();
+        // An external file named exactly like the blob's leaf, so that FOLLOWING
+        // the symlink would compute the same path and unlink it.
+        let external = tempfile::tempdir().unwrap();
+        let target = external.path().join(&sha);
+        std::fs::write(&target, b"do not delete me").unwrap();
+        // Replace the real shard dir with a symlink to the external directory.
+        let shard = dir.path().join("attachments").join(&sha[..2]);
+        std::fs::remove_dir_all(&shard).unwrap();
+        std::os::unix::fs::symlink(external.path(), &shard).unwrap();
+        // delete may error (refusal) or be a no-op, but it must NOT touch the
+        // external file behind the symlink.
+        let _ = bs.delete(&sha);
+        assert!(target.exists(), "external file must survive");
+        assert_eq!(std::fs::read(&target).unwrap(), b"do not delete me");
+    }
+
+    #[test]
+    fn delete_removes_a_real_blob_and_is_idempotent() {
+        let (_d, bs) = store();
+        let sha = bs.put(b"collect me").unwrap();
+        assert!(bs.exists(&sha));
+        bs.delete(&sha).unwrap();
+        assert!(!bs.exists(&sha), "the blob file is gone");
+        // A second delete on the now-absent blob is a clean no-op.
+        bs.delete(&sha).unwrap();
     }
 
     #[test]
