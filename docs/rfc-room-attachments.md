@@ -125,9 +125,17 @@ in a chat-message JSON or a WebSocket frame.
 
 ## Implementation slices (loca-care), each pushed for review before the next
 
-1. Server: blob store module + the two endpoints + message `attachments` field +
-   validation + unit/ws tests. **(this slice first)**
-2. Skill: `connect.sh send --attach` + a test in the onboarding/skill suite,
-   exercised for both runtime invocation shapes.
-3. Web/Desktop composer + render (loca-care) — same web UI, no desktop fork.
-4. End-to-end acceptance — loca-dev independently verifies the matrix, then release.
+1. ✅ Server: blob store module + the two endpoints + message `attachments`
+   field + validation + unit/ws/e2e tests. Refs land in the SAME transaction as
+   the message insert (atomic); refcount is derived, not stored (no drift).
+   `cd4f045` (blob store) → `a8314cd` (endpoints/lifecycle) → `8d69ebe`
+   (transaction atomicity + `tests/attachments_e2e.rs`).
+2. ✅ Skill: `connect.sh send --attach` (repeatable, ≤4) + `tests/
+   test_send_attach.py`, one invocation shape for both runtimes. `f431200`.
+3. ✅ Web/Desktop composer + render — same web UI, no desktop fork (CSP null,
+   Desktop bundles `web/`). 📎 button + drag-drop upload, staged chips, inline
+   image / openable chip render via header-authed blob fetch → object URL.
+   Caption-less image allowed (empty text + attachments). `d1b2552`.
+4. End-to-end acceptance — loca-dev independently verifies the matrix (Web +
+   Desktop image-inline / pdf-chip, cross-room 404, rejections, lifecycle) and
+   the Windows blob foundation on `windows-latest` CI, then release.
