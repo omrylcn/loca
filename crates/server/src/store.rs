@@ -9,6 +9,11 @@
 //! method is a no-op and `load()` returns empty, so the server behaves exactly
 //! like the pre-persistence version (used by tests that want a clean slate).
 
+// Foundation for room attachments (docs/rfc-room-attachments.md, slice 1). The
+// blob store is exercised by its own unit tests here; the upload/fetch endpoints
+// that consume it land in the next commit, so allow the not-yet-wired API.
+#[allow(dead_code)]
+mod attachments;
 mod attention;
 mod content;
 mod identity;
