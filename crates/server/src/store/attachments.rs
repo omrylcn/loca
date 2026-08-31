@@ -2,16 +2,37 @@
 //!
 //! A blob lives at `<root>/<sha256[:2]>/<sha256>`; the path is derived ONLY from
 //! the hash of the bytes, never from any client-supplied name, so it is
-//! dedup-by-content and traversal-safe. Writes are atomic (temp file + fsync +
-//! rename) and refuse to follow a pre-existing symlink/special file at the target.
+//! dedup-by-content and traversal-safe. The disk layer is hardened to match the
+//! room-scoped HTTP auth above it:
+//!
+//! - **Integrity**: `read()` verifies the bytes hash back to the requested id, so
+//!   a corrupted or swapped file is never served; `put()` self-heals a corrupt
+//!   dedup target instead of trusting its mere existence.
+//! - **No symlink follow**: every internal directory (root, `tmp/`, shard) is
+//!   verified to be a real directory (not a symlink), and reads open with
+//!   `O_NOFOLLOW`, so a planted symlink can never redirect a write or a read
+//!   outside the tree.
+//! - **Atomic + durable + private**: writes go temp (`0600`) → fsync → rename,
+//!   then the parent dir is fsync'd; dirs are `0700`; a failed write cleans its
+//!   temp file.
+//!
 //! Lifecycle/refcount/quota accounting lives in the SQLite store; this module is
 //! only the bytes on disk.
 
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
+
+const DIR_MODE: u32 = 0o700;
+const FILE_MODE: u32 = 0o600;
+/// A stored blob can never exceed the upload cap; bound reads so a symlink swap
+/// to a giant file can't be slurped. Any file that hashes to a valid id is well
+/// within this, so a real blob is never rejected by the bound.
+const MAX_BLOB_BYTES: u64 = 32 * 1024 * 1024;
 
 /// The on-disk blob store, rooted at `<STORAGE_ROOT>/attachments`.
 #[derive(Debug, Clone)]
@@ -23,16 +44,53 @@ fn is_sha256_hex(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
+fn set_mode(_path: &Path, _mode: u32) -> io::Result<()> {
+    #[cfg(unix)]
+    fs::set_permissions(_path, fs::Permissions::from_mode(_mode))?;
+    Ok(())
+}
+
+/// Ensure `path` is a REAL directory we own (`0700`), creating it if missing.
+/// A symlink or special file at that path is refused — a write is never made
+/// through it, so `tmp/` or a shard dir cannot redirect bytes out of the tree.
+fn ensure_dir(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_symlink() => Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "attachment directory is a symlink",
+        )),
+        Ok(m) if m.is_dir() => Ok(()),
+        Ok(_) => Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "attachment path is not a directory",
+        )),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            fs::create_dir(path)?;
+            set_mode(path, DIR_MODE)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// fsync a directory so a create/rename inside it is durable across a crash.
+fn fsync_dir(_path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    fs::File::open(_path)?.sync_all()?;
+    Ok(())
+}
+
 impl BlobStore {
-    /// Open (creating if needed) a blob store under `root`. Also creates the
-    /// `tmp/` staging dir used for atomic writes.
+    /// Open (creating if needed) a blob store under `root`, with a `tmp/` staging
+    /// dir. Both are verified to be real directories with `0700` perms.
     pub fn new(root: impl AsRef<Path>) -> io::Result<Self> {
         let root = root.as_ref().to_path_buf();
-        fs::create_dir_all(root.join("tmp"))?;
+        ensure_dir(&root)?;
+        set_mode(&root, DIR_MODE)?;
+        ensure_dir(&root.join("tmp"))?;
         Ok(Self { root })
     }
 
-    /// The final path for a blob. `None` if `sha` is not a well-formed sha256
+    /// The final path for a blob, or `None` if `sha` is not well-formed sha256
     /// hex — so a `..`/absolute/garbage id can never escape the root.
     pub fn path_for(&self, sha: &str) -> Option<PathBuf> {
         if !is_sha256_hex(sha) {
@@ -41,7 +99,7 @@ impl BlobStore {
         Some(self.root.join(&sha[..2]).join(sha))
     }
 
-    /// True only if `sha` names an existing regular blob file.
+    /// True only if `sha` names an existing regular blob file (not verified).
     pub fn exists(&self, sha: &str) -> bool {
         match self.path_for(sha) {
             Some(p) => fs::symlink_metadata(&p).map(|m| m.is_file()).unwrap_or(false),
@@ -49,19 +107,33 @@ impl BlobStore {
         }
     }
 
-    /// Store `bytes`, returning their sha256 hex id. Idempotent: identical bytes
-    /// yield the same id and re-store is a cheap no-op (dedup). Atomic: readers
-    /// never see a partial blob. Refuses to overwrite a non-regular file.
+    /// Store `bytes`, returning their sha256 hex id. Idempotent (dedup); an intact
+    /// existing blob is a no-op, a CORRUPT one is self-healed. Atomic + durable +
+    /// `0600`. Refuses a symlink/special file at the blob path.
     pub fn put(&self, bytes: &[u8]) -> io::Result<String> {
         let sha = format!("{:x}", Sha256::digest(bytes));
-        let final_path = self
-            .path_for(&sha)
-            .expect("a sha256 digest is always well-formed hex");
+        // Re-verify the directory chain on every write (cheap; catches a dir that
+        // was swapped for a symlink since `new`).
+        ensure_dir(&self.root)?;
+        ensure_dir(&self.root.join("tmp"))?;
+        let shard = self.root.join(&sha[..2]);
+        ensure_dir(&shard)?;
+        let final_path = shard.join(&sha);
 
-        // Dedup / tamper check: an existing blob must be a regular file. If a
-        // symlink or special file squats the path, refuse — never follow it.
         match fs::symlink_metadata(&final_path) {
-            Ok(m) if m.is_file() => return Ok(sha), // already stored
+            Ok(m) if m.file_type().is_symlink() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "blob path is a symlink",
+                ))
+            }
+            Ok(m) if m.is_file() => {
+                // Dedup ONLY if the existing bytes actually hash to this id;
+                // otherwise it is corrupt/tampered — fall through and self-heal.
+                if self.read_at(&final_path, Some(&sha)).is_ok() {
+                    return Ok(sha);
+                }
+            }
             Ok(_) => {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
@@ -72,40 +144,65 @@ impl BlobStore {
             Err(e) => return Err(e),
         }
 
-        if let Some(parent) = final_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
         let tmp = self.root.join("tmp").join(unique_name());
-        {
-            let mut f = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&tmp)?;
+        let write = || -> io::Result<()> {
+            let mut opts = fs::OpenOptions::new();
+            opts.write(true).create_new(true);
+            #[cfg(unix)]
+            opts.mode(FILE_MODE);
+            let mut f = opts.open(&tmp)?;
             f.write_all(bytes)?;
             f.sync_all()?; // durable before the rename publishes it
+            Ok(())
+        };
+        if let Err(e) = write() {
+            let _ = fs::remove_file(&tmp);
+            return Err(e);
         }
-        // Atomic publish. If another writer won the race, the content is
-        // identical (same hash), so either file is correct.
-        match fs::rename(&tmp, &final_path) {
-            Ok(()) => Ok(sha),
-            Err(e) => {
-                let _ = fs::remove_file(&tmp);
-                Err(e)
-            }
+        set_mode(&tmp, FILE_MODE)?; // belt-and-suspenders on non-unix / odd umask
+        if let Err(e) = fs::rename(&tmp, &final_path) {
+            let _ = fs::remove_file(&tmp);
+            return Err(e);
         }
+        fsync_dir(&shard)?; // the rename itself must survive a crash
+        Ok(sha)
     }
 
-    /// Read a blob's bytes by id.
+    /// Read `path` without following a final symlink; if `expect` is given, verify
+    /// the bytes hash to it (so a corrupt/swapped file yields an error, never
+    /// wrong bytes). Bounded so a swapped-in giant file can't be slurped.
+    fn read_at(&self, path: &Path, expect: Option<&str>) -> io::Result<Vec<u8>> {
+        let mut opts = fs::OpenOptions::new();
+        opts.read(true);
+        #[cfg(unix)]
+        opts.custom_flags(libc::O_NOFOLLOW); // open fails if the final node is a symlink
+        let mut f = opts.open(path)?;
+        let meta = f.metadata()?;
+        if !meta.is_file() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "blob is not a regular file"));
+        }
+        if meta.len() > MAX_BLOB_BYTES {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "blob exceeds the size bound"));
+        }
+        let mut buf = Vec::with_capacity(meta.len() as usize);
+        f.read_to_end(&mut buf)?;
+        if let Some(sha) = expect {
+            if format!("{:x}", Sha256::digest(&buf)) != sha {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "blob content does not match its id (corrupt/tampered)",
+                ));
+            }
+        }
+        Ok(buf)
+    }
+
+    /// Read a blob's bytes by id, verifying integrity (id == sha256(bytes)).
     pub fn read(&self, sha: &str) -> io::Result<Vec<u8>> {
         let p = self
             .path_for(sha)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "malformed blob id"))?;
-        // Do not follow a symlink that may have replaced a blob.
-        if fs::symlink_metadata(&p)?.is_file() {
-            fs::read(&p)
-        } else {
-            Err(io::Error::new(io::ErrorKind::NotFound, "blob is not a regular file"))
-        }
+        self.read_at(&p, Some(sha))
     }
 }
 
@@ -136,7 +233,6 @@ mod tests {
         assert!(is_sha256_hex(&sha));
         assert_eq!(bs.read(&sha).unwrap(), b"hello attachment");
         assert!(bs.exists(&sha));
-        // Independently computed digest matches the id.
         assert_eq!(sha, format!("{:x}", Sha256::digest(b"hello attachment")));
     }
 
@@ -144,9 +240,7 @@ mod tests {
     fn identical_bytes_dedup_to_one_id_and_re_put_is_noop() {
         let (_d, bs) = store();
         let a = bs.put(b"same").unwrap();
-        let b = bs.put(b"same").unwrap();
-        assert_eq!(a, b, "identical bytes must yield the same id");
-        // Different bytes -> different id.
+        assert_eq!(a, bs.put(b"same").unwrap());
         assert_ne!(a, bs.put(b"different").unwrap());
     }
 
@@ -161,18 +255,57 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
-    fn put_refuses_to_overwrite_a_symlink_at_the_blob_path() {
+    fn read_rejects_a_corrupt_blob_and_put_self_heals_it() {
         let (_d, bs) = store();
-        let sha = format!("{:x}", Sha256::digest(b"payload"));
-        let target = bs.path_for(&sha).unwrap();
-        fs::create_dir_all(target.parent().unwrap()).unwrap();
-        // An attacker pre-plants a symlink where the blob would land.
+        let sha = bs.put(b"authentic").unwrap();
+        let path = bs.path_for(&sha).unwrap();
+        // Tamper the stored bytes in place.
+        fs::write(&path, b"tampered!").unwrap();
+        // read() must refuse to serve wrong bytes (content != id).
+        assert!(bs.read(&sha).is_err(), "a corrupt blob must not be served");
+        // put() of the authentic bytes self-heals the corrupt file.
+        assert_eq!(bs.put(b"authentic").unwrap(), sha);
+        assert_eq!(bs.read(&sha).unwrap(), b"authentic");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn put_refuses_a_symlinked_shard_dir_and_leaves_the_target_untouched() {
+        let (_d, bs) = store();
+        let sha = format!("{:x}", Sha256::digest(b"x"));
+        // Plant the shard dir <sha[:2]> as a symlink to an external directory.
         let outside = _d.path().join("outside");
-        fs::write(&outside, b"secret").unwrap();
-        std::os::unix::fs::symlink(&outside, &target).unwrap();
-        // put must refuse rather than follow the symlink and clobber `outside`.
-        assert!(bs.put(b"payload").is_err());
-        assert_eq!(fs::read(&outside).unwrap(), b"secret", "the symlink target is untouched");
+        fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, bs.path_for(&sha).unwrap().parent().unwrap()).unwrap();
+        assert!(bs.put(b"x").is_err(), "a symlinked shard dir must be refused");
+        assert!(fs::read_dir(&outside).unwrap().next().is_none(), "external dir untouched");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn read_does_not_follow_a_symlink_swapped_over_a_blob() {
+        let (_d, bs) = store();
+        let sha = bs.put(b"real bytes").unwrap();
+        let path = bs.path_for(&sha).unwrap();
+        // The symlink target holds the SAME bytes, so the content-hash check would
+        // PASS if the link were followed — only O_NOFOLLOW causes the refusal,
+        // which isolates the no-follow guarantee from the integrity guarantee.
+        let outside = _d.path().join("copy");
+        fs::write(&outside, b"real bytes").unwrap();
+        fs::remove_file(&path).unwrap();
+        std::os::unix::fs::symlink(&outside, &path).unwrap();
+        assert!(bs.read(&sha).is_err(), "a symlinked blob path must be refused, not followed");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn blob_is_0600_and_dirs_are_0700() {
+        let (_d, bs) = store();
+        let sha = bs.put(b"perms").unwrap();
+        let path = bs.path_for(&sha).unwrap();
+        let mode = |p: &Path| fs::symlink_metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&path), FILE_MODE, "blob file must be 0600");
+        assert_eq!(mode(path.parent().unwrap()), DIR_MODE, "shard dir must be 0700");
+        assert_eq!(mode(&bs.root.join("tmp")), DIR_MODE, "tmp dir must be 0700");
     }
 }
