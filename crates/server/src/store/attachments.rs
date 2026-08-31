@@ -59,7 +59,9 @@ fn ensure_dir(path: &Path) -> io::Result<()> {
             io::ErrorKind::AlreadyExists,
             "attachment directory is a symlink",
         )),
-        Ok(m) if m.is_dir() => Ok(()),
+        // An existing real directory: (re)assert 0700 — a dir left 0755 by an
+        // older build or a wider umask is tightened, not trusted as-is.
+        Ok(m) if m.is_dir() => set_mode(path, DIR_MODE),
         Ok(_) => Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             "attachment path is not a directory",
@@ -145,7 +147,11 @@ impl BlobStore {
         }
 
         let tmp = self.root.join("tmp").join(unique_name());
-        let write = || -> io::Result<()> {
+        // Removes the temp file on ANY early return below (open/write/sync/chmod/
+        // publish error). After a successful rename the temp is already gone, so
+        // the drop is a harmless no-op.
+        let _guard = TempGuard(tmp.clone());
+        {
             let mut opts = fs::OpenOptions::new();
             opts.write(true).create_new(true);
             #[cfg(unix)]
@@ -153,39 +159,44 @@ impl BlobStore {
             let mut f = opts.open(&tmp)?;
             f.write_all(bytes)?;
             f.sync_all()?; // durable before the rename publishes it
-            Ok(())
-        };
-        if let Err(e) = write() {
-            let _ = fs::remove_file(&tmp);
-            return Err(e);
         }
-        set_mode(&tmp, FILE_MODE)?; // belt-and-suspenders on non-unix / odd umask
-        if let Err(e) = fs::rename(&tmp, &final_path) {
-            let _ = fs::remove_file(&tmp);
-            return Err(e);
-        }
+        set_mode(&tmp, FILE_MODE)?; // now covered by the guard too
+        self.publish(&tmp, &final_path, &sha)?;
         fsync_dir(&shard)?; // the rename itself must survive a crash
         Ok(sha)
+    }
+
+    /// Publish `tmp` at `final_path` (an atomic rename on unix). Tolerates the
+    /// two cross-platform edge cases loca-dev flagged: a concurrent writer that
+    /// published this exact blob first, and Windows `rename` refusing to replace
+    /// an existing file. Windows atomicity is authoritatively verified by the
+    /// Windows CI runner; here we keep the store consistent on all platforms.
+    fn publish(&self, tmp: &Path, final_path: &Path, sha: &str) -> io::Result<()> {
+        match fs::rename(tmp, final_path) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Someone (or an earlier self) already published the correct
+                // bytes — the store is consistent; our temp is cleaned by the guard.
+                if self.read_at(final_path, Some(sha)).is_ok() {
+                    return Ok(());
+                }
+                // A stale/corrupt regular file blocks the rename (self-heal, and
+                // Windows non-replacing rename): drop it, then rename.
+                if fs::symlink_metadata(final_path).map(|m| m.is_file()).unwrap_or(false) {
+                    fs::remove_file(final_path)?;
+                    fs::rename(tmp, final_path)
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }
 
     /// Read `path` without following a final symlink; if `expect` is given, verify
     /// the bytes hash to it (so a corrupt/swapped file yields an error, never
     /// wrong bytes). Bounded so a swapped-in giant file can't be slurped.
     fn read_at(&self, path: &Path, expect: Option<&str>) -> io::Result<Vec<u8>> {
-        let mut opts = fs::OpenOptions::new();
-        opts.read(true);
-        #[cfg(unix)]
-        opts.custom_flags(libc::O_NOFOLLOW); // open fails if the final node is a symlink
-        let mut f = opts.open(path)?;
-        let meta = f.metadata()?;
-        if !meta.is_file() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "blob is not a regular file"));
-        }
-        if meta.len() > MAX_BLOB_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "blob exceeds the size bound"));
-        }
-        let mut buf = Vec::with_capacity(meta.len() as usize);
-        f.read_to_end(&mut buf)?;
+        let buf = self.read_no_follow(path)?;
         if let Some(sha) = expect {
             if format!("{:x}", Sha256::digest(&buf)) != sha {
                 return Err(io::Error::new(
@@ -197,12 +208,58 @@ impl BlobStore {
         Ok(buf)
     }
 
+    /// Read the raw bytes at `path` without following a final symlink. On unix
+    /// `O_NOFOLLOW` makes the refusal atomic at open; on other platforms a
+    /// symlink/reparse point is refused by metadata (the content-hash verify in
+    /// `read_at` closes the residual TOCTOU window, and the Windows CI runner
+    /// authoritatively checks the Windows path).
+    #[cfg(unix)]
+    fn read_no_follow(&self, path: &Path) -> io::Result<Vec<u8>> {
+        let mut opts = fs::OpenOptions::new();
+        opts.read(true).custom_flags(libc::O_NOFOLLOW);
+        let mut f = opts.open(path)?;
+        let meta = f.metadata()?;
+        if !meta.is_file() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "blob is not a regular file"));
+        }
+        if meta.len() > MAX_BLOB_BYTES {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "blob exceeds the size bound"));
+        }
+        let mut buf = Vec::with_capacity(meta.len() as usize);
+        f.read_to_end(&mut buf)?;
+        Ok(buf)
+    }
+
+    #[cfg(not(unix))]
+    fn read_no_follow(&self, path: &Path) -> io::Result<Vec<u8>> {
+        let meta = fs::symlink_metadata(path)?;
+        if meta.file_type().is_symlink() {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "blob path is a symlink"));
+        }
+        if !meta.is_file() {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "blob is not a regular file"));
+        }
+        if meta.len() > MAX_BLOB_BYTES {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "blob exceeds the size bound"));
+        }
+        fs::read(path)
+    }
+
     /// Read a blob's bytes by id, verifying integrity (id == sha256(bytes)).
     pub fn read(&self, sha: &str) -> io::Result<Vec<u8>> {
         let p = self
             .path_for(sha)
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "malformed blob id"))?;
         self.read_at(&p, Some(sha))
+    }
+}
+
+/// Removes a temp file on drop unless the rename already consumed it — so every
+/// pre-publish error path (open/write/sync/chmod/publish) leaves no orphan.
+struct TempGuard(PathBuf);
+impl Drop for TempGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
     }
 }
 
@@ -295,6 +352,24 @@ mod tests {
         fs::remove_file(&path).unwrap();
         std::os::unix::fs::symlink(&outside, &path).unwrap();
         assert!(bs.read(&sha).is_err(), "a symlinked blob path must be refused, not followed");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn an_existing_wide_permission_dir_is_tightened_to_0700() {
+        let (_d, bs) = store();
+        let sha = format!("{:x}", Sha256::digest(b"tighten"));
+        let shard = bs.path_for(&sha).unwrap().parent().unwrap().to_path_buf();
+        // Pre-create the shard AND tmp dirs world-readable (an older build / wide umask).
+        fs::create_dir_all(&shard).unwrap();
+        set_mode(&shard, 0o755).unwrap();
+        set_mode(&bs.root.join("tmp"), 0o755).unwrap();
+        let mode = |p: &Path| fs::symlink_metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&shard), 0o755, "precondition: shard is wide");
+        // A put re-asserts 0700 on the existing dirs, not just fresh ones.
+        bs.put(b"tighten").unwrap();
+        assert_eq!(mode(&shard), DIR_MODE, "existing shard dir must be tightened to 0700");
+        assert_eq!(mode(&bs.root.join("tmp")), DIR_MODE, "existing tmp dir must be tightened");
     }
 
     #[test]
