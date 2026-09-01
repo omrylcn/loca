@@ -227,6 +227,60 @@ function regexEsc(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/* ---- pinned message (per-user, per-room, localStorage — no server state) ---- */
+// Keyed by server + principal + room, so one identity's pin in one loca never
+// leaks into another loca or another identity on the same browser. This is a
+// personal reference only: pinning is task-INDEPENDENT and touches no shared
+// room state.
+function pinStorageKey() {
+  return `loca-pinned:${serverBase()}:${state.principalId || state.name || ""}:${state.room || ""}`;
+}
+function loadPinned() {
+  try {
+    state.pinned = JSON.parse(localStorage.getItem(pinStorageKey()) || "null");
+  } catch (e) {
+    state.pinned = null;
+  }
+  state.pinnedExpanded = false;
+  renderPinned();
+}
+function renderPinned() {
+  const bar = $("pinnedBar");
+  if (!bar) return;
+  const pin = state.pinned;
+  bar.classList.toggle("hidden", !pin || state.tab !== "chat");
+  bar.classList.toggle("expanded", !!pin && state.pinnedExpanded);
+  if (!pin) return;
+  $("pinnedContent").setAttribute("aria-expanded", String(state.pinnedExpanded));
+  $("pinnedContent").title = state.pinnedExpanded
+    ? "collapse pinned message"
+    : "expand pinned message";
+  $("pinnedContent").innerHTML =
+    `<div class="pinmeta">${esc(pin.sender)} · pinned · ${state.pinnedExpanded ? "collapse" : "expand"}</div>` +
+    `<div class="pintext">${renderChatMarkdown(pin.text)}</div>`;
+  document.querySelectorAll(".row[data-id]").forEach((row) => {
+    row.classList.toggle("pinned-source", Number(row.dataset.id) === Number(pin.id));
+  });
+}
+function togglePin(id) {
+  const nid = Number(id);
+  if (Number(state.pinned?.id) === nid) {
+    // Unpin — must work even after a reload where the message is no longer in
+    // the loaded feed (the bar renders from the stored snapshot, not msgById).
+    state.pinned = null;
+  } else {
+    const m = msgById.get(nid);
+    if (!m) return; // can only pin a message we currently hold
+    state.pinned = { id: m.id, sender: m.sender, text: m.text, ts: m.ts };
+  }
+  state.pinnedExpanded = false;
+  try {
+    if (state.pinned) localStorage.setItem(pinStorageKey(), JSON.stringify(state.pinned));
+    else localStorage.removeItem(pinStorageKey());
+  } catch (e) {}
+  renderPinned();
+}
+
 function addMsg(m) {
   if (m.kind !== "reminder") maybeDayChip(m.ts);
   if (m.id) {
@@ -242,7 +296,8 @@ function addMsg(m) {
   const row = document.createElement("div");
   row.className = "row" + (mine ? " mine" : "") + (mentionsMe && !mine ? " mentioned" : "")
     + (m.kind === "announce" ? " announce" : "")
-    + (m.kind === "reminder" ? " locareminder" : "");
+    + (m.kind === "reminder" ? " locareminder" : "")
+    + (Number(state.pinned?.id) === Number(m.id) ? " pinned-source" : "");
   if (m.id) row.dataset.id = m.id;
   row.dataset.ts = String(Number(m.ts || 0));
   row.dataset.text = (m.sender + " " + m.text).toLowerCase();
@@ -264,6 +319,7 @@ function addMsg(m) {
     ? `<div class="lineacts" role="group" aria-label="Message actions">
         ${mine ? "" : `<button type="button" data-reactpick="${m.id}" aria-label="React to ${esc(m.sender)}">♡ react</button>`}
         <button type="button" data-reply="${m.id}" aria-label="Reply to ${esc(m.sender)}">↩ reply</button>
+        <button type="button" data-pin="${m.id}" aria-label="Pin ${esc(m.sender)}'s message for yourself">⌖ pin</button>
         <button type="button" data-mktask="${m.id}" aria-label="Make a task from ${esc(m.sender)}'s message">→ task</button>
       </div>`
     : "";
@@ -293,6 +349,10 @@ function addMsg(m) {
   }
 
   if (m.attachments?.length) renderAttachments(row, m);
+
+  // A freshly-rendered row that IS the pinned message must show the pinned-source
+  // highlight (and keep the pinned bar current).
+  if (Number(state.pinned?.id) === Number(m.id)) renderPinned();
 
   // @mention notification: flash the tab title if not focused.
   if (mentionsMe && !mine && document.hidden) flashTitle(m.sender);
@@ -407,6 +467,7 @@ function repaintFeed() {
   state.msgs = [];
   for (const m of msgs) addMsg(m);
   rebuildReminderChatProjection();
+  renderPinned();
 }
 function nearBottom() { const f = $("feed"); return f.scrollHeight - f.scrollTop - f.clientHeight < 200; }
 function toBottom() { const f = $("feed"); f.scrollTop = f.scrollHeight; }

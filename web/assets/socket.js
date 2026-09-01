@@ -153,6 +153,7 @@ function joinRoom(room) {
   $("roomAvatar").textContent = (room[0] || "#").toUpperCase();
   revokeInlineAttachmentUrls();
   $("feed").innerHTML = "";
+  loadPinned(); // this room's personal pin (localStorage), if any
   state.attentions = {};
   resetReminderChatProjection();
   state.notes = {};

@@ -184,6 +184,14 @@
     </div>
 
     <!-- CHAT -->
+    <div class="pinnedbar hidden" id="pinnedBar">
+      <span class="pinmark">⌖</span>
+      <div class="pincontent" id="pinnedContent" title="expand pinned message"></div>
+      <div class="pinactions">
+        <button id="pinJumpBtn" title="show the original message">source ↳</button>
+        <button id="unpinBtn" title="unpin this message">unpin ×</button>
+      </div>
+    </div>
     <div class="feed" id="feed"></div>
     <button class="jump hidden" id="jumpBtn">↓ new messages</button>
     <div class="typing" id="typing" role="status" aria-live="polite"></div>

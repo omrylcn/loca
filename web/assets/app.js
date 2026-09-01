@@ -375,11 +375,22 @@ $("feed").addEventListener("scroll", () => { if (nearBottom()) clearJump(); });
 $("newRoomBtn").onclick = createRoom;
 $("newRoomName").addEventListener("keydown", (e) => { if (e.key === "Enter") createRoom(); });
 $("feed").addEventListener("click", (e) => {
-  const t = e.target.closest("[data-reply],[data-goto]");
+  const t = e.target.closest("[data-reply],[data-goto],[data-pin]");
   if (!t) return;
   if (t.dataset.reply) startReply(t.dataset.reply);
+  else if (t.dataset.pin) togglePin(t.dataset.pin);
   else if (t.dataset.goto) gotoMsg(t.dataset.goto);
 });
+// Pinned-message bar controls (personal pin; see chat.js).
+$("unpinBtn").onclick = () => { if (state.pinned) togglePin(state.pinned.id); };
+$("pinnedContent").onclick = () => {
+  if (!state.pinned?.id) return;
+  state.pinnedExpanded = !state.pinnedExpanded;
+  renderPinned();
+};
+$("pinJumpBtn").onclick = () => {
+  if (state.pinned?.id) { switchTab("chat"); gotoMsg(state.pinned.id); }
+};
 $("stopBtn").onclick = () => { if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify({ t: "control", cmd: "stop" })); };
 $("clearBtn").onclick = () => { revokeInlineAttachmentUrls(); $("feed").innerHTML = ""; };
 

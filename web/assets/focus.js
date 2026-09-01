@@ -282,6 +282,7 @@ function switchTab(tab) {
   $("feed").classList.toggle("hidden", !chat);
   $("composer").classList.toggle("hidden", !chat);
   $("hint").classList.toggle("hidden", !chat);
+  renderPinned(); // the pinned bar shows only on the chat tab
   $("notesPanel").classList.toggle("hidden", tab !== "notes");
   $("tasksPanel").classList.toggle("hidden", tab !== "tasks");
   $("journalPanel").classList.toggle("hidden", tab !== "journal");

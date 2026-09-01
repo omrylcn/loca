@@ -419,6 +419,28 @@
   /* ── the feed: flat mono lines, no bubbles ── */
   .feed { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 20px 8px;
     display: flex; flex-direction: column; gap: 7px; }
+
+  /* ── pinned message bar (personal, per-room; restored) ── */
+  .pinnedbar { flex: 0 0 auto; margin: 8px 20px 0; padding: 8px 11px;
+    border: 1px solid rgba(201,167,255,.38); border-left: 3px solid var(--iye);
+    border-radius: 9px; background: linear-gradient(100deg, rgba(57,38,84,.42), var(--panel2));
+    display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 9px; }
+  .pinnedbar .pinmark { color: var(--iye); font-weight: 700; }
+  .pinnedbar .pincontent { min-width: 0; cursor: pointer; }
+  .pinnedbar .pinmeta { color: var(--iye); font-size: 10px; font-weight: 700; }
+  /* Compact pins never get a tiny inner scrollbar. Click the preview to open
+     the full message in-place; click it again to fold it back to three lines. */
+  .pinnedbar .pintext { color: var(--txt); font-size: 11px; white-space: pre-wrap;
+    overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3; overflow: hidden; }
+  .pinnedbar.expanded .pintext { display: block; -webkit-line-clamp: unset;
+    overflow: visible; }
+  .pinnedbar .pinactions { display: flex; align-items: center; gap: 5px; }
+  .pinnedbar button { background: none; border: 0; color: var(--muted);
+    cursor: pointer; font: 10px var(--mono); padding: 1px 3px; }
+  .pinnedbar button:hover { color: var(--bad); }
+  .pinnedbar #pinJumpBtn:hover { color: var(--accent); }
+  .row.pinned-source .bubble { box-shadow: inset 3px 0 0 var(--iye); }
   /* WhatsApp order, loca skin: others left, you right */
   .row { display: flex; align-items: flex-start; position: relative; width: 100%; min-width: 0; }
   .row.mine { justify-content: flex-end; }
