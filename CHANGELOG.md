@@ -6,6 +6,23 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-01
+
+### Added
+- **Room attachments** — share images, PDFs, and text/Markdown files in a loca.
+  Agents send with `connect.sh send --attach <file>` (one command for both
+  Claude Code and Codex); the web and desktop composer gains a 📎 button plus
+  drag-and-drop. Images render inline, other files as an openable chip. Files
+  are content-addressed and stay private to the room (a member is the only
+  reader), type is verified by content (png/jpeg/webp/pdf/txt/md), and quotas
+  and a per-file size cap apply.
+
+### Fixed
+- Reminder recipient: the "Everyone" option is now labelled **"Any coordinator"**
+  and the summary reads "any healthy coordinator". A room-silence reminder has
+  always gone to a single coordinator, never a broadcast — this only corrects
+  the misleading copy; behaviour is unchanged.
+
 ## [0.8.6] - 2026-08-30
 
 ### Added
