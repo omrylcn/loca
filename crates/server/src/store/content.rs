@@ -48,12 +48,13 @@ impl Store {
         let needle = format!("%{}%", q.to_lowercase());
         let mut out = Vec::new();
         if let Ok(mut stmt) = c.prepare(
-            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind FROM messages
+            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments FROM messages
              WHERE room = ?1 AND (lower(text) LIKE ?2 OR lower(sender) LIKE ?2)
              ORDER BY id DESC LIMIT ?3",
         ) {
             if let Ok(rows) = stmt.query_map(params![room, needle, limit as i64], |r| {
                 Ok(Message {
+                    attachments: attachments_from_json(r.get::<_, Option<String>>(8)?),
                     id: r.get(0)?,
                     room: room.to_string(),
                     sender: r.get(1)?,

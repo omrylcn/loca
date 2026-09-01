@@ -48,7 +48,9 @@ pub(crate) async fn post_message(
     Json(mut body): Json<PostMessage>,
 ) -> impl IntoResponse {
     let id = access.room;
-    if body.text.trim().is_empty() {
+    // Empty text is fine when the message carries attachments (an image with no
+    // caption is a real message); it's only empty when BOTH are empty.
+    if body.text.trim().is_empty() && body.attachments.is_empty() {
         return (StatusCode::BAD_REQUEST, "empty text").into_response();
     }
     if body.op_id.as_ref().is_some_and(|id| id.len() > 128) {
@@ -104,6 +106,10 @@ pub(crate) async fn post_message(
                 // Not the caller's fault — the write failed. 503 so a client
                 // may retry rather than treat it as a permanent rejection.
                 StatusCode::SERVICE_UNAVAILABLE
+            } else if reject.is_bad_request() {
+                // Malformed caller input (bad/too-many attachment ids) — 400,
+                // distinct from the 403 the mode/permission gates return.
+                StatusCode::BAD_REQUEST
             } else {
                 StatusCode::FORBIDDEN
             };

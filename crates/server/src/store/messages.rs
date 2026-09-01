@@ -109,8 +109,8 @@ impl Store {
         let tx = c.transaction()?;
         tx.execute(
             "INSERT INTO messages
-             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id, attachments)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 m.id,
                 m.room,
@@ -122,10 +122,15 @@ impl Store {
                 m.ts,
                 kind_str(m.kind),
                 principal,
-                op_id
+                op_id,
+                attachments_to_json(&m.attachments)
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
+        // Attachment refs land in the SAME transaction as the message row, so a
+        // message and its pending→referenced flip commit atomically — a crash
+        // can never leave a durable message whose cited blob has no reference.
+        Self::write_attachment_refs(&tx, m)?;
         tx.commit()
             .inspect_err(|e| tracing::error!(error = %e, "message + silence reset failed"))
     }
@@ -154,8 +159,8 @@ impl Store {
         )?;
         tx.execute(
             "INSERT INTO messages
-             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id, attachments)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 m.id,
                 m.room,
@@ -167,10 +172,15 @@ impl Store {
                 m.ts,
                 kind_str(m.kind),
                 principal,
-                op_id
+                op_id,
+                attachments_to_json(&m.attachments)
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
+        // Attachment refs land in the SAME transaction as the message row, so a
+        // message and its pending→referenced flip commit atomically — a crash
+        // can never leave a durable message whose cited blob has no reference.
+        Self::write_attachment_refs(&tx, m)?;
         tx.commit()
             .inspect_err(|e| tracing::error!(error = %e, "message + room state commit failed"))
     }
@@ -203,8 +213,8 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO messages
-             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id, attachments)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 m.id,
                 m.room,
@@ -216,10 +226,15 @@ impl Store {
                 m.ts,
                 kind_str(m.kind),
                 principal,
-                op_id
+                op_id,
+                attachments_to_json(&m.attachments)
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
+        // Attachment refs land in the SAME transaction as the message row, so a
+        // message and its pending→referenced flip commit atomically — a crash
+        // can never leave a durable message whose cited blob has no reference.
+        Self::write_attachment_refs(&tx, m)?;
         for signal in signals {
             Self::write_care(&tx, delivery_room, signal)?;
         }
@@ -265,8 +280,8 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO messages
-             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id, attachments)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 m.id,
                 m.room,
@@ -278,10 +293,15 @@ impl Store {
                 m.ts,
                 kind_str(m.kind),
                 principal,
-                op_id
+                op_id,
+                attachments_to_json(&m.attachments)
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
+        // Attachment refs land in the SAME transaction as the message row, so a
+        // message and its pending→referenced flip commit atomically — a crash
+        // can never leave a durable message whose cited blob has no reference.
+        Self::write_attachment_refs(&tx, m)?;
         Self::resolve_wait_attentions(&tx, &m.room, waiter, at)?;
         Self::write_wait(&tx, wait)?;
         Self::write_care(&tx, delivery_room, wake)?;
@@ -317,11 +337,12 @@ impl Store {
             return Ok(None);
         };
         c.query_row(
-            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind
+            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments
              FROM messages WHERE room = ?1 AND principal = ?2 AND op_id = ?3",
             params![room, principal, op_id],
             |r| {
                 Ok(Message {
+                    attachments: attachments_from_json(r.get::<_, Option<String>>(8)?),
                     id: r.get(0)?,
                     room: room.to_string(),
                     sender: r.get(1)?,
@@ -352,7 +373,7 @@ impl Store {
             return Ok(None);
         };
         let mut stmt = c.prepare(
-            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind
+            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments
              FROM messages
              WHERE room = ?1 AND id > ?2
              ORDER BY id
@@ -360,6 +381,7 @@ impl Store {
         )?;
         let rows = stmt.query_map(params![room, after_id, limit as u64], |r| {
             Ok(Message {
+                attachments: attachments_from_json(r.get::<_, Option<String>>(8)?),
                 id: r.get(0)?,
                 room: room.to_string(),
                 sender: r.get(1)?,

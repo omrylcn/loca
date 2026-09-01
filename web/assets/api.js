@@ -182,9 +182,97 @@ async function acceptPostedMessage(response, room) {
   if (state.room === room) onFrame({ t: "msg", message: posted });
 }
 
+/* ---- attachments (composer) ---- */
+const ATTACH_MAX_BYTES = 10 * 1024 * 1024;
+const ATTACH_MAX_COUNT = 4;
+
+function fmtBytes(n) {
+  if (n == null) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Upload one file to the current room's attachment store; returns the stored
+// ref {id, sha256, name, mime, size} or null. The server sniffs+validates the
+// type, so a wrong-typed or oversize file is rejected here (not on send).
+async function uploadAttachment(file) {
+  if (!state.room) return null;
+  const headers = adminHeaders({ "x-filename": file.name || "attachment" });
+  // Let the browser's Blob type ride as content-type; the server matches it to
+  // the sniff. An empty type means "no claim" and the server sniffs freely.
+  const r = await fetch(
+    `${serverBase()}/rooms/${encodeURIComponent(state.room)}/attachments`,
+    { method: "POST", headers, body: file },
+  );
+  if (!r.ok) {
+    addSys(`attach failed (${r.status}): ${(await r.text()).slice(0, 120)}`);
+    return null;
+  }
+  return await r.json();
+}
+
+// Stage a list of chosen files: validate count/size client-side, upload each,
+// and add the returned refs to the pending strip. Duplicate ids are ignored.
+async function stageAttachments(files) {
+  if (!state.room) { addSys("join a loca before attaching a file"); return; }
+  for (const file of files) {
+    if (state.pendingAttachments.length >= ATTACH_MAX_COUNT) {
+      addSys(`at most ${ATTACH_MAX_COUNT} attachments per message`);
+      break;
+    }
+    if (file.size > ATTACH_MAX_BYTES) {
+      addSys(`"${file.name}" is larger than 10 MB`);
+      continue;
+    }
+    const ref = await uploadAttachment(file);
+    if (ref && !state.pendingAttachments.some(a => a.id === ref.id)) {
+      state.pendingAttachments.push(ref);
+      renderAttachStrip();
+    }
+  }
+}
+
+function removePendingAttachment(id) {
+  state.pendingAttachments = state.pendingAttachments.filter(a => a.id !== id);
+  renderAttachStrip();
+}
+
+function clearPendingAttachments() {
+  state.pendingAttachments = [];
+  renderAttachStrip();
+}
+
+// Draw the staged-file chips above the composer (name + size + remove).
+function renderAttachStrip() {
+  const strip = $("attachStrip");
+  if (!strip) return;
+  strip.innerHTML = "";
+  if (!state.pendingAttachments.length) { strip.classList.add("hidden"); return; }
+  strip.classList.remove("hidden");
+  for (const a of state.pendingAttachments) {
+    const chip = document.createElement("span");
+    chip.className = "pendingchip";
+    const isImage = (a.mime || "").startsWith("image/");
+    chip.innerHTML =
+      `<span class="pglyph">${isImage ? "🖼" : "📎"}</span>` +
+      `<span class="pname">${esc(a.name || a.id.slice(0, 8))}</span>` +
+      `<span class="psize">${fmtBytes(a.size)}</span>`;
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "premove";
+    x.setAttribute("aria-label", `Remove ${a.name || "attachment"}`);
+    x.textContent = "✕";
+    x.addEventListener("click", () => removePendingAttachment(a.id));
+    chip.appendChild(x);
+    strip.appendChild(chip);
+  }
+}
+
 async function send() {
   const input = $("msg"); const text = input.value.trim();
-  if (!text || !state.room || sendInFlight) return;
+  const hasAttachments = state.pendingAttachments.length > 0;
+  if ((!text && !hasAttachments) || !state.room || sendInFlight) return;
   const leadCommand = parseLeadCommand(text);
   if (leadCommand) {
     if (!isAdmin()) {
@@ -234,7 +322,7 @@ async function send() {
   // A message that is nothing but a mention wakes everybody to say nothing.
   // Easy to send by accident: the first Enter picks the name from the
   // autocomplete, the second fires before you have typed the sentence.
-  if (/^@[\w-]+$/.test(text)) {
+  if (/^@[\w-]+$/.test(text) && !hasAttachments) {
     addSys(`"${text}" tek başına — ne söyleyeceğini yaz, sonra gönder`);
     return;
   }
@@ -249,6 +337,9 @@ async function send() {
     sender: state.name, sender_type: "user", target, text,
     reply_to: replyTo, op_id: opId,
   };
+  if (hasAttachments) {
+    payload.attachments = state.pendingAttachments.map(a => a.id);
+  }
   restoredSendOperation = null;
   // Give immediate feedback and make repeated Enter presses harmless while
   // this exact operation is unresolved. The stable op_id below also makes the
@@ -265,7 +356,7 @@ async function send() {
       await takeSession();
       if (state.session) {
         const again = await postMessageWithSafeRetry(room, payload);
-        if (again.ok) { await acceptPostedMessage(again, room); return; }
+        if (again.ok) { await acceptPostedMessage(again, room); clearPendingAttachments(); return; }
       }
       restoreSendDraft(room, payload, "unauthorized — check the loca key");
       return;
@@ -274,6 +365,7 @@ async function send() {
     if (r.status === 429) { restoreSendDraft(room, payload, "rate limited: " + (await r.text())); return; }
     if (!r.ok) { restoreSendDraft(room, payload, `send failed (${r.status}): ` + (await r.text())); return; }
     await acceptPostedMessage(r, room);
+    clearPendingAttachments();
   } catch (e) {
     restoreSendDraft(
       room,

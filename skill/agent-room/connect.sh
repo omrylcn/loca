@@ -290,6 +290,68 @@ curl_json() { curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}
 # Reading is as private as writing — every GET carries the key as well.
 curl_get()  { curl -sS -m 10 "${tok_args[@]}" "$@"; }
 
+# Guess an attachment's content-type from its filename. Empty means "let the
+# server sniff": we then send an EMPTY content-type header so curl's default
+# form type is never sent and mistaken for the real one (which would 415).
+_mime_for() {
+  case "${1,,}" in
+    *.png)          printf 'image/png' ;;
+    *.jpg|*.jpeg)   printf 'image/jpeg' ;;
+    *.webp)         printf 'image/webp' ;;
+    *.pdf)          printf 'application/pdf' ;;
+    *.txt)          printf 'text/plain' ;;
+    *.md|*.markdown) printf 'text/markdown' ;;
+    *)              printf '' ;;
+  esac
+}
+
+# Mint a fresh session for $1=room as $2=name from this loca's davet, updating
+# LOCA_SESSION + tok_args in place. Returns 0 on success. Used by the attachment
+# upload path when a stale session 401s before the message post (the message
+# post has its own inline renewal).
+_renew_session() {
+  local room="$1" who="$2" key resp code body new
+  key=$(davet_for "$room")
+  [ -z "$key" ] && return 1
+  resp=$(curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $key" \
+    -w $'\n%{http_code}' -X POST "$server/sessions" \
+    -d "$(jq -n --arg n "$who" --arg l "$room" '{name:$n, kind:"agent", loca:$l}')") || return 1
+  code=$(printf '%s' "$resp" | tail -n1)
+  body=$(printf '%s' "$resp" | sed '$d')
+  [ "$code" = "201" ] || return 1
+  new=$(printf '%s' "$body" | _jq_raw '.session_token // empty' 2>/dev/null || true)
+  [ -z "$new" ] && return 1
+  export LOCA_SESSION="$new"
+  [ -f "$LOCA_ENV" ] && printf 'LOCA_SESSION\0%s\0' "$new" | _credential_patch
+  tok_args=(-H "x-room-token: $key" -H "x-session-token: $new")
+  return 0
+}
+
+# Upload one file to $1=room's attachment store as $3=name; echo the returned
+# id (== sha256) on success. Retries once after a session renewal on 401. The
+# server sniffs+validates the type, so a bad file is rejected server-side.
+_upload_attachment() {
+  local room="$1" file="$2" who="$3" mime resp code id
+  [ -f "$file" ] || { echo >&2 "attach: no such file: $file"; return 1; }
+  local hdr=(-H "x-filename: $(basename -- "$file")")
+  mime=$(_mime_for "$file")
+  if [ -n "$mime" ]; then hdr+=(-H "content-type: $mime"); else hdr+=(-H "content-type:"); fi
+  resp=$(curl -sS -m 30 "${tok_args[@]}" "${hdr[@]}" -w $'\n%{http_code}' \
+    --data-binary @"$file" -X POST "$server/rooms/$room/attachments") || { echo >&2 "attach: upload request failed for $file"; return 1; }
+  code=$(printf '%s' "$resp" | tail -n1)
+  if [ "$code" = "401" ] && _renew_session "$room" "$who"; then
+    resp=$(curl -sS -m 30 "${tok_args[@]}" "${hdr[@]}" -w $'\n%{http_code}' \
+      --data-binary @"$file" -X POST "$server/rooms/$room/attachments") || return 1
+    code=$(printf '%s' "$resp" | tail -n1)
+  fi
+  if [[ "$code" =~ ^2[0-9][0-9]$ ]]; then
+    id=$(printf '%s' "$resp" | sed '$d' | _jq_raw '.id // empty' 2>/dev/null || true)
+    [ -n "$id" ] && { printf '%s' "$id"; return 0; }
+  fi
+  echo >&2 "attach: upload failed for $file (HTTP $code): $(printf '%s' "$resp" | sed '$d' | head -c 200)"
+  return 1
+}
+
 case "$cmd" in
   health)
     server="$1"
@@ -544,8 +606,58 @@ case "$cmd" in
 
   send)
     server="$1"; room="$2"; name="$3"; target="$4"; shift 4
-    text="$*"
+    # Split the trailing args into text words and --attach <file> pairs. The
+    # flag may appear anywhere; this ONE invocation shape is identical for
+    # Claude Code and Codex (RFC: one path for both runtimes).
+    attach_files=()
+    text_parts=()
+    while [ $# -gt 0 ]; do
+      if [ "$1" = "--attach" ]; then
+        shift
+        # A dangling --attach (no path after it, e.g. it was the last arg) is a
+        # user error, not an empty attach — fail loudly rather than silently
+        # sending an attachment-less message.
+        if [ -z "${1:-}" ]; then
+          echo >&2 "send: --attach requires a file path"
+          exit 2
+        fi
+        attach_files+=("$1")
+        shift
+      else
+        text_parts+=("$1")
+        shift
+      fi
+    done
+    text="${text_parts[*]}"
+    # Validate attachments on the CLIENT before any upload, so a bad request
+    # never leaves an orphan pending blob on the server.
+    if [ "${#attach_files[@]}" -gt 0 ]; then
+      if [ "${#attach_files[@]}" -gt 4 ]; then
+        echo >&2 "send: at most 4 attachments per message (got ${#attach_files[@]})"
+        exit 2
+      fi
+      for f in "${attach_files[@]}"; do
+        # The filename rides in the x-filename header; a CR/LF or other control
+        # char is a header-injection vector. Reject at the client boundary (the
+        # server also sanitizes the stored name, but we never emit a bad header).
+        case "$(basename -- "$f")" in
+          *[[:cntrl:]]*)
+            echo >&2 "send: attachment filename has control characters: $f"
+            exit 2 ;;
+        esac
+      done
+    fi
     use_loca "$room"
+    # Upload each attachment first, collecting its server-issued id (== sha256).
+    # A failed upload aborts the send — we never post a message citing a file
+    # that isn't stored.
+    attach_ids=()
+    if [ "${#attach_files[@]}" -gt 0 ]; then
+      for f in "${attach_files[@]}"; do
+        aid=$(_upload_attachment "$room" "$f" "$name") || exit 6
+        attach_ids+=("$aid")
+      done
+    fi
     op_id="${LOCA_OP_ID:-send-$name-$(date +%s%N)-$$-$RANDOM}"
     reply_to="${LOCA_REPLY_TO:-}"
     if [ "$target" = "-" ] || [ -z "$target" ]; then
@@ -554,6 +666,10 @@ case "$cmd" in
     else
       body=$(jq -n --arg s "$name" --arg g "$target" --arg t "$text" --arg o "$op_id" \
         '{sender:$s, sender_type:"agent", target:$g, text:$t, op_id:$o}')
+    fi
+    if [ "${#attach_ids[@]}" -gt 0 ]; then
+      ids_json=$(printf '%s\n' "${attach_ids[@]}" | jq -R . | jq -s .)
+      body=$(printf '%s' "$body" | jq --argjson a "$ids_json" '. + {attachments:$a}')
     fi
     if [[ "$reply_to" =~ ^[0-9]+$ ]]; then
       body=$(printf '%s' "$body" | jq --argjson reply_to "$reply_to" \

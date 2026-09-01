@@ -4,6 +4,7 @@
 //! extraction, authorization decisions, and domain-specific HTTP handlers.
 
 mod access;
+mod attachments;
 mod attention;
 mod content;
 mod downloads;
@@ -16,6 +17,7 @@ pub(crate) use access::{
     admin_token_of, is_admin_req, is_master_req, member_token_of, pairing_code_of,
     require_membership, session_of, valid_identity_name, RoomAccess,
 };
+pub(crate) use attachments::{get_attachment, upload_attachment};
 pub(crate) use attention::{
     ack_care, claim_attention, create_attention, list_attentions, report_runtime_health,
     resolve_attention,

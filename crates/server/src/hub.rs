@@ -51,6 +51,31 @@ const HISTORY_LIMIT: usize = 200;
 /// Broadcast backlog; slow clients that lag past this get a `Lagged` and
 /// resync from history on their next reconnect.
 const BROADCAST_CAP: usize = 256;
+/// Most attachments one message may cite (RFC limits & security).
+const MAX_ATTACHMENTS_PER_MESSAGE: usize = 4;
+// Attachment limits: compile-time defaults, each overridable by an env var so
+// an operator (and the test suite) can tune them without a rebuild — the RFC's
+// attachments.*_max_bytes knobs. Read on use: uploads are infrequent, so the
+// env lookup cost is irrelevant and there is no config to thread through the
+// Hub. A non-positive or unparseable override falls back to the default.
+const ATTACHMENT_MAX_BYTES_DEFAULT: u64 = 10 * 1024 * 1024;
+const ATTACHMENT_ROOM_MAX_BYTES_DEFAULT: u64 = 200 * 1024 * 1024;
+const ATTACHMENT_BUILDING_MAX_BYTES_DEFAULT: u64 = 2 * 1024 * 1024 * 1024;
+const ATTACHMENT_PENDING_TTL_MS_DEFAULT: u64 = 60 * 60 * 1000;
+
+fn attachment_env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|&v| v > 0)
+        .unwrap_or(default)
+}
+/// Per-file upload cap (bytes). `ATTACHMENT_MAX_BYTES` overrides. The upload
+/// route also caps the streamed body at this so an oversize file is rejected
+/// before it is ever fully buffered.
+pub(crate) fn attachment_max_bytes() -> u64 {
+    attachment_env_u64("ATTACHMENT_MAX_BYTES", ATTACHMENT_MAX_BYTES_DEFAULT)
+}
 
 #[derive(Clone, Copy)]
 struct CareMark {
@@ -1887,6 +1912,7 @@ impl Hub {
             .unwrap_or_else(|| (ChatMode::Free, self.default_settings.clone()));
         let target = settings.lead.clone().or_else(|| Some("all".into()));
         let msg = Message {
+            attachments: Vec::new(),
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             room: room.clone(),
             sender: "loca".into(),
@@ -2291,6 +2317,35 @@ impl Hub {
                 Err(_) => return Err(PostReject::Storage),
             }
         }
+        // Resolve cited attachments BEFORE anything persists: each id must be an
+        // available upload in THIS room. Rejecting up front means a durable
+        // message can never cite a blob the server can't serve, and no
+        // cross-room hash guess resolves. The resolved refs ride on the message
+        // (durable JSON) and are flipped pending→referenced after the commit.
+        let attachments: Vec<protocol::Attachment> = if body.attachments.is_empty() {
+            Vec::new()
+        } else {
+            if body.attachments.len() > MAX_ATTACHMENTS_PER_MESSAGE {
+                return Err(PostReject::TooManyAttachments {
+                    max: MAX_ATTACHMENTS_PER_MESSAGE,
+                });
+            }
+            let mut resolved: Vec<protocol::Attachment> =
+                Vec::with_capacity(body.attachments.len());
+            for id in &body.attachments {
+                // Dedup: citing the same file twice is one reference, and keeps
+                // each (message, sha) unique so the in-tx claim never sees a
+                // spurious zero-row insert.
+                if resolved.iter().any(|a| &a.id == id) {
+                    continue;
+                }
+                match self.store.resolve_room_attachment(room, id) {
+                    Some(a) => resolved.push(a),
+                    None => return Err(PostReject::UnknownAttachment),
+                }
+            }
+            resolved
+        };
         let now = (self.now_ms)();
         let mut rooms = self.rooms.lock_or_recover();
         let home_tx = (room != self.home_room.as_str())
@@ -2366,6 +2421,7 @@ impl Hub {
         }
 
         let msg = Message {
+            attachments: attachments.clone(),
             kind: body.kind,
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             room: room.to_string(),
@@ -2515,8 +2571,25 @@ impl Hub {
             if let (Some(old), ChatMode::RoundRobin { turn, .. }) = (previous_turn, &mut r.mode) {
                 *turn = old;
             }
+            // The in-tx authoritative claim aborts the message when a cited blob
+            // was swept between the pre-check and the write. Distinguish that
+            // (a caller-input problem → 400) from a genuine storage failure
+            // (→ 503) by re-resolving: if any attachment no longer resolves, the
+            // vanish race is why the write failed.
+            if !attachments.is_empty()
+                && attachments
+                    .iter()
+                    .any(|a| self.store.resolve_room_attachment(room, &a.id).is_none())
+            {
+                return Err(PostReject::UnknownAttachment);
+            }
             return Err(PostReject::Storage);
         }
+        // The cited blobs' pending→referenced flip already committed INSIDE the
+        // message-insert transaction above (Store::write_attachment_refs), so
+        // the message and its references are durable together — nothing to do
+        // here. `attachments` was resolved up front purely to reject bad ids
+        // and to set msg.attachments before persistence.
         if record_rate {
             r.post_times
                 .entry(msg.sender.clone())
@@ -2743,6 +2816,7 @@ impl Hub {
             None => format!("{by} set @lead none."),
         };
         let msg = Message {
+            attachments: Vec::new(),
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             room: room.to_string(),
             sender: "loca".into(),
@@ -3539,6 +3613,63 @@ impl Hub {
     }
 }
 
+/// Attachment operations the Hub exposes to the upload/fetch routes. Thin
+/// pass-throughs to the Store that stamp the current time and the configured
+/// quotas, so the routes stay policy-free.
+impl Hub {
+    /// Attachments need a durable blob dir + DB (memory-only mode → off).
+    pub fn attachments_enabled(&self) -> bool {
+        self.store.attachments_enabled()
+    }
+
+    /// Store an uploaded blob as pending in `room` (see Store). `mime` is the
+    /// server-sniffed type; `name` is already sanitized display metadata.
+    pub fn put_pending_attachment(
+        &self,
+        room: &str,
+        uploader: &str,
+        name: &str,
+        mime: &str,
+        bytes: &[u8],
+    ) -> Result<protocol::Attachment, crate::store::AttachError> {
+        let now = (self.now_ms)();
+        self.store.put_pending_attachment(
+            room,
+            uploader,
+            name,
+            mime,
+            bytes,
+            now,
+            attachment_env_u64(
+                "ATTACHMENT_ROOM_MAX_BYTES",
+                ATTACHMENT_ROOM_MAX_BYTES_DEFAULT,
+            ),
+            attachment_env_u64(
+                "ATTACHMENT_BUILDING_MAX_BYTES",
+                ATTACHMENT_BUILDING_MAX_BYTES_DEFAULT,
+            ),
+        )
+    }
+
+    /// Read a blob for serving IF it is referenced by a message in `room`.
+    pub fn read_room_attachment(&self, room: &str, id: &str) -> Option<crate::store::BlobServe> {
+        self.store.read_room_attachment(room, id)
+    }
+
+    /// Collect expired pending uploads and unreferenced blobs. Returns the
+    /// number of physical files deleted.
+    pub fn sweep_attachments(&self) -> usize {
+        let now = (self.now_ms)();
+        self.store.sweep_attachments(
+            now,
+            attachment_env_u64(
+                "ATTACHMENT_PENDING_TTL_MS",
+                ATTACHMENT_PENDING_TTL_MS_DEFAULT,
+            ),
+        )
+    }
+}
+
 /// Why a chat post was rejected by the current mode.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PostReject {
@@ -3561,6 +3692,11 @@ pub enum PostReject {
     /// The message could not be persisted — refused rather than broadcast a
     /// line a restart would forget.
     Storage,
+    /// More attachments than a single message may carry.
+    TooManyAttachments { max: usize },
+    /// A cited attachment id is not an available upload in this room (never
+    /// uploaded here, already swept, or belongs to another room).
+    UnknownAttachment,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3597,12 +3733,26 @@ impl PostReject {
             PostReject::Archived => "this room is closed (archived) — read-only".into(),
             PostReject::Deleted => "this loca no longer exists".into(),
             PostReject::Storage => "could not save the message — try again".into(),
+            PostReject::TooManyAttachments { max } => {
+                format!("too many attachments — at most {max} per message")
+            }
+            PostReject::UnknownAttachment => {
+                "an attachment id is not an available upload in this loca".into()
+            }
         }
     }
 
     /// Whether this rejection is a rate-limit (maps to HTTP 429 vs 403).
     pub fn is_rate_limit(&self) -> bool {
         matches!(self, PostReject::RateLimited { .. })
+    }
+
+    /// A caller-input rejection (maps to HTTP 400, not the 403 mode gates use).
+    pub fn is_bad_request(&self) -> bool {
+        matches!(
+            self,
+            PostReject::TooManyAttachments { .. } | PostReject::UnknownAttachment
+        )
     }
 }
 

@@ -20,13 +20,25 @@ def production_sources() -> list[Path]:
     )
 
 
+def production_text(path: Path) -> str:
+    """Exclude an inline cfg(test) module from the production panic budget.
+
+    Server modules keep their unit tests in a final ``#[cfg(test)] mod tests``
+    block. Those unwraps are fixture assertions, not reachable production
+    panic surfaces.
+    """
+    text = path.read_text(encoding="utf-8")
+    marker = re.search(r"(?m)^#\[cfg\(test\)\]\s*\nmod tests\s*\{", text)
+    return text[: marker.start()] if marker else text
+
+
 def main() -> int:
     unwraps: list[tuple[Path, int]] = []
     raw_lock_panics: list[Path] = []
     missing_invariants: list[tuple[Path, int]] = []
 
     for path in production_sources():
-        text = path.read_text(encoding="utf-8")
+        text = production_text(path)
         if re.search(r"\.lock\(\)\s*\.(?:unwrap\(\)|expect\()", text):
             raw_lock_panics.append(path)
         lines = text.splitlines()

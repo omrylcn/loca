@@ -12,6 +12,21 @@ pub enum SenderType {
     User,
 }
 
+/// A file shared in a room. The bytes live in the content-addressed blob store
+/// (`id` == `sha256`); a message carries only this reference, never the binary,
+/// so the WS/JSON frame stays small.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Attachment {
+    /// Content id (equals `sha256`); used to fetch the bytes.
+    pub id: String,
+    pub sha256: String,
+    /// Display name, sanitized on ingest; never used as a filesystem path.
+    pub name: String,
+    /// MIME type the server sniffed from the bytes (not the client's claim).
+    pub mime: String,
+    pub size: u64,
+}
+
 /// A single message on a room's wall. Everyone connected to the room sees
 /// every message; `target` only signals *who is invited to reply*.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +53,10 @@ pub struct Message {
     pub reply_to: Option<u64>,
     /// Unix milliseconds.
     pub ts: u64,
+    /// Files shared with this message (image / PDF / text refs into the blob
+    /// store). Empty for an ordinary text message; omitted from the wire when so.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
 }
 
 /// A participant currently connected to a room.
@@ -65,6 +84,12 @@ pub struct PostMessage {
     /// effective identity returns the first message without a second effect.
     #[serde(default)]
     pub op_id: Option<String>,
+    /// Ids (== sha256) of already-uploaded attachments to cite on this message.
+    /// Each must have been uploaded to THIS room (POST .../attachments) and not
+    /// yet swept; the server resolves each to its stored ref and flips it
+    /// `pending → referenced`. An unknown/foreign id rejects the whole post.
+    #[serde(default)]
+    pub attachments: Vec<String>,
 }
 
 /// One allowed social mark on a message. Reactions are visible to the loca,

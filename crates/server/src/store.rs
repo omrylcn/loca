@@ -9,7 +9,13 @@
 //! method is a no-op and `load()` returns empty, so the server behaves exactly
 //! like the pre-persistence version (used by tests that want a clean slate).
 
+// Room attachments (docs/rfc-room-attachments.md). `attachments` is the
+// content-addressed blob store (physical files); `attachment_index` is the
+// SQLite lifecycle over it (quotas, pending→referenced, refcount, sweep).
+mod attachment_index;
+mod attachments;
 mod attention;
+pub(crate) use attachment_index::{AttachError, BlobServe};
 mod content;
 mod identity;
 mod messages;
@@ -31,6 +37,12 @@ use crate::sync::RecoverMutex;
 
 pub struct Store {
     conn: Option<Mutex<Connection>>,
+    /// Content-addressed file store for attachment blobs. `Some` only in
+    /// persistent mode (it lives beside the SQLite file, under the same data
+    /// volume). Memory-only stores have no durable blob dir, so attachments
+    /// are disabled there — the endpoints answer 503, matching how every other
+    /// persistence method no-ops without a DB.
+    blobs: Option<attachments::BlobStore>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -108,7 +120,10 @@ impl Store {
     /// Open (and migrate) the DB at `path`. `path == None` → memory-only no-op.
     pub fn open(path: Option<&str>) -> rusqlite::Result<Self> {
         let Some(path) = path else {
-            return Ok(Store { conn: None });
+            return Ok(Store {
+                conn: None,
+                blobs: None,
+            });
         };
         let mut conn = Connection::open(path)?;
         conn.execute_batch(
@@ -396,6 +411,63 @@ impl Store {
             );
             CREATE INDEX IF NOT EXISTS join_requests_pending
                 ON join_requests(status, created_at);
+            -- Room attachments (docs/rfc-room-attachments.md). The physical
+            -- bytes live in the content-addressed BlobStore beside this DB;
+            -- these tables are the metadata + reference index.
+            --
+            -- attachment_blobs: one row per unique sha that has a physical
+            -- file on disk (pending OR referenced). It anchors the serve mime
+            -- and the building-wide physical footprint. A blob's file is
+            -- deleted, and its row removed, only when it has neither a pending
+            -- nor a referenced row (see reference-count note on attachment_refs).
+            CREATE TABLE IF NOT EXISTS attachment_blobs (
+                sha TEXT PRIMARY KEY,
+                mime TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            -- attachment_pending: a fresh upload not yet cited by any accepted
+            -- message. TTL-swept so an upload that never sends leaves no orphan.
+            -- Keyed by (sha, room): the same bytes uploaded in two rooms each
+            -- hold their own pending slot, so one room's send can't consume the
+            -- other's pending upload.
+            CREATE TABLE IF NOT EXISTS attachment_pending (
+                sha TEXT NOT NULL,
+                room TEXT NOT NULL,
+                uploader TEXT NOT NULL,
+                name TEXT NOT NULL,
+                mime TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (sha, room)
+            );
+            -- attachment_refs: the logical, per-room reference index. One row
+            -- per (room, message, sha). This single table gives BOTH refcount
+            -- levels loca-dev requires with no stored counter to drift:
+            --   * per-room LOGICAL size / auth  = rows WHERE room = ?  (a blob
+            --     shared by two rooms counts in each; deleting a room drops
+            --     only its rows).
+            --   * GLOBAL PHYSICAL liveness       = COUNT(*) WHERE sha = ?  (the
+            --     file is deleted only when this reaches 0 across ALL rooms, so
+            --     one room's deletion never corrupts another's shared file).
+            -- message_id FKs messages ON DELETE CASCADE, so deleting a message
+            -- automatically drops its refs; the sweep then collects any blob
+            -- whose global count fell to 0.
+            CREATE TABLE IF NOT EXISTS attachment_refs (
+                room TEXT NOT NULL,
+                message_id INTEGER NOT NULL,
+                sha TEXT NOT NULL,
+                name TEXT NOT NULL,
+                mime TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                PRIMARY KEY (room, message_id, sha),
+                FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS attachment_refs_room_sha
+                ON attachment_refs(room, sha);
+            CREATE INDEX IF NOT EXISTS attachment_refs_sha
+                ON attachment_refs(sha);
             "#,
         )?;
         // Older databases predate the bootstrap-ACK column. Adding it is a no-op
@@ -417,6 +489,12 @@ impl Store {
         );
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN principal TEXT", []);
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN op_id TEXT", []);
+        // Attachments ride on the message row as a JSON array of the ref
+        // objects (id/sha/name/mime/size), so a reloaded message shows its
+        // chips exactly like the live broadcast — the word AND its files are
+        // durable together. NULL/absent means no attachments. Older databases
+        // predate the column; adding it is a no-op once present.
+        let _ = conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT", []);
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_operation
              ON messages(room, principal, op_id)
@@ -518,8 +596,26 @@ impl Store {
         }
         tx.commit()?;
         migrate_legacy_principals(&mut conn)?;
+        // Blobs live beside the SQLite file so the same Docker data volume +
+        // backup/restore captures them (RFC decision 1: STORAGE_ROOT defaults
+        // to the dir of DB_PATH). A blob dir that can't be created disables
+        // attachments (the endpoints answer 503) rather than sinking the whole
+        // server — every other room feature keeps working.
+        let blob_root = std::path::Path::new(path)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join("attachments");
+        let blobs = match attachments::BlobStore::new(&blob_root) {
+            Ok(store) => Some(store),
+            Err(e) => {
+                tracing::error!(error = %e, path = %blob_root.display(),
+                    "attachment blob store unavailable — attachments disabled");
+                None
+            }
+        };
         Ok(Store {
             conn: Some(Mutex::new(conn)),
+            blobs,
         })
     }
 
@@ -1056,6 +1152,24 @@ fn parse_sender_type(s: &str) -> SenderType {
         "agent" => SenderType::Agent,
         _ => SenderType::User,
     }
+}
+
+/// Serialize a message's attachment refs for the `messages.attachments` column.
+/// An empty list stores NULL, so ordinary messages keep a NULL column and the
+/// on-disk footprint is unchanged from before attachments existed.
+fn attachments_to_json(attachments: &[protocol::Attachment]) -> Option<String> {
+    if attachments.is_empty() {
+        return None;
+    }
+    serde_json::to_string(attachments).ok()
+}
+
+/// Parse the `messages.attachments` column back into refs. NULL, absent, or a
+/// value that fails to parse yields an empty list — a malformed column never
+/// blocks reloading the message itself (the text is what must not be lost).
+fn attachments_from_json(raw: Option<String>) -> Vec<protocol::Attachment> {
+    raw.and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
 }
 
 fn current_time_ms() -> u64 {
