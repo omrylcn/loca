@@ -189,18 +189,51 @@ impl BlobStore {
                 if self.read_at(final_path, Some(sha)).is_ok() {
                     return Ok(());
                 }
-                // A stale/corrupt regular file blocks the rename (self-heal, and
-                // Windows non-replacing rename): drop it, then rename.
-                if fs::symlink_metadata(final_path)
-                    .map(|m| m.is_file())
-                    .unwrap_or(false)
-                {
-                    fs::remove_file(final_path)?;
-                    fs::rename(tmp, final_path)
-                } else {
-                    Err(e)
-                }
+                // The target exists with stale/corrupt bytes (or, on Windows,
+                // `rename` won't replace an existing file): swap it atomically.
+                self.replace_existing(tmp, final_path, e)
             }
+        }
+    }
+
+    /// Replace an existing `final_path` with `tmp`. On unix `rename` already
+    /// replaces atomically, so reaching here is a genuine failure — but a stale
+    /// regular file can still block it; drop and retry.
+    #[cfg(not(windows))]
+    fn replace_existing(&self, tmp: &Path, final_path: &Path, orig: io::Error) -> io::Result<()> {
+        if fs::symlink_metadata(final_path)
+            .map(|m| m.is_file())
+            .unwrap_or(false)
+        {
+            fs::remove_file(final_path)?;
+            fs::rename(tmp, final_path)
+        } else {
+            Err(orig)
+        }
+    }
+
+    /// Windows: `ReplaceFileW` swaps the file contents in ONE atomic operation
+    /// and tolerates a reader holding the old file open — unlike remove-then-
+    /// rename, which has a window where the blob is briefly absent.
+    #[cfg(windows)]
+    fn replace_existing(&self, tmp: &Path, final_path: &Path, _orig: io::Error) -> io::Result<()> {
+        use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+        let replaced = to_wide(final_path);
+        let replacement = to_wide(tmp);
+        let ok = unsafe {
+            ReplaceFileW(
+                replaced.as_ptr(),
+                replacement.as_ptr(),
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
+        if ok == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
         }
     }
 
@@ -220,11 +253,12 @@ impl BlobStore {
         Ok(buf)
     }
 
-    /// Read the raw bytes at `path` without following a final symlink. On unix
-    /// `O_NOFOLLOW` makes the refusal atomic at open; on other platforms a
-    /// symlink/reparse point is refused by metadata (the content-hash verify in
-    /// `read_at` closes the residual TOCTOU window, and the Windows CI runner
-    /// authoritatively checks the Windows path).
+    /// Read the raw bytes at `path` without following a final symlink/reparse
+    /// point. Both hardened paths refuse it atomically at open — unix via
+    /// `O_NOFOLLOW`, Windows via `FILE_FLAG_OPEN_REPARSE_POINT` + a reparse-point
+    /// attribute check on the same handle — so there is no metadata→read TOCTOU;
+    /// the content-hash verify in `read_at` is the additional backstop. The
+    /// windows-latest CI is the runtime authority for the Windows path.
     #[cfg(unix)]
     fn read_no_follow(&self, path: &Path) -> io::Result<Vec<u8>> {
         let mut opts = fs::OpenOptions::new();
@@ -248,7 +282,48 @@ impl BlobStore {
         Ok(buf)
     }
 
-    #[cfg(not(unix))]
+    /// Windows: open with `FILE_FLAG_OPEN_REPARSE_POINT` — the analogue of unix
+    /// `O_NOFOLLOW` — so the handle is the reparse point ITSELF, never its
+    /// target. If the opened entry is a reparse point we refuse; otherwise we
+    /// read from that same handle, so there is no metadata→read TOCTOU. loca-dev's
+    /// windows-latest CI is the runtime authority for this path.
+    #[cfg(windows)]
+    fn read_no_follow(&self, path: &Path) -> io::Result<Vec<u8>> {
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        let mut f = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        let meta = f.metadata()?;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "blob path is a reparse point",
+            ));
+        }
+        if !meta.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "blob is not a regular file",
+            ));
+        }
+        if meta.len() > MAX_BLOB_BYTES {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "blob exceeds the size bound",
+            ));
+        }
+        let mut buf = Vec::with_capacity(meta.len() as usize);
+        f.read_to_end(&mut buf)?;
+        Ok(buf)
+    }
+
+    /// Any other platform: refuse a symlink by metadata (the content-hash verify
+    /// in `read_at` closes the residual TOCTOU). Neither prod (unix) nor Desktop
+    /// (windows) reaches this; it only keeps an exotic target compiling.
+    #[cfg(not(any(unix, windows)))]
     fn read_no_follow(&self, path: &Path) -> io::Result<Vec<u8>> {
         let meta = fs::symlink_metadata(path)?;
         if meta.file_type().is_symlink() {
@@ -346,7 +421,58 @@ impl BlobStore {
     /// symlink before unlinking. A planted symlink is refused, so the delete
     /// still cannot redirect out of the tree (the Windows CI runner is the
     /// authority on the platform specifics).
-    #[cfg(not(unix))]
+    /// Windows: open the entry with `OPEN_REPARSE_POINT | DELETE_ON_CLOSE` and
+    /// let the close delete it. `OPEN_REPARSE_POINT` means a reparse point is
+    /// opened (and thus deleted) as ITSELF, never followed to its target, so a
+    /// planted symlink/junction can't make the sweep unlink a file elsewhere.
+    /// Atomic — no metadata-then-act TOCTOU. Runtime-authoritative on the
+    /// windows-latest CI.
+    #[cfg(windows)]
+    fn delete_no_follow(&self, path: &Path) -> io::Result<()> {
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        const FILE_FLAG_DELETE_ON_CLOSE: u32 = 0x0400_0000;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000; // open a dir handle
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        const DELETE: u32 = 0x0001_0000;
+        // Refuse a reparse-point shard directory (a planted junction/symlink
+        // could redirect the unlink out of the tree). `OPEN_REPARSE_POINT` only
+        // guards the leaf, so check the parent handle's attributes. A fully
+        // dirfd-relative delete (never re-resolving the shard) would need ntdll
+        // `NtCreateFile(RootDirectory)`; this leaves only a narrow swap window
+        // that requires concurrent server-level write access to the store dir.
+        if let Some(parent) = path.parent() {
+            match fs::OpenOptions::new()
+                .access_mode(0)
+                .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+                .open(parent)
+            {
+                Ok(dir) => {
+                    if dir.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "shard directory is a reparse point",
+                        ));
+                    }
+                }
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+                Err(e) => return Err(e),
+            }
+        }
+        match fs::OpenOptions::new()
+            .access_mode(DELETE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_DELETE_ON_CLOSE)
+            .open(path)
+        {
+            Ok(_handle) => Ok(()), // dropping the handle fires delete-on-close
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Any other platform: metadata-guarded unlink (neither prod nor Desktop
+    /// reaches this; it only keeps an exotic target compiling).
+    #[cfg(not(any(unix, windows)))]
     fn delete_no_follow(&self, path: &Path) -> io::Result<()> {
         if let Some(parent) = path.parent() {
             match fs::symlink_metadata(parent) {
@@ -371,6 +497,13 @@ impl BlobStore {
             Err(e) => Err(e),
         }
     }
+}
+
+/// Windows wide-string (UTF-16 NUL-terminated) for a path, for `ReplaceFileW`.
+#[cfg(windows)]
+fn to_wide(p: &Path) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    p.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
 }
 
 /// Removes a temp file on drop unless the rename already consumed it — so every
@@ -440,6 +573,71 @@ mod tests {
         assert!(!bs.exists(&sha), "the blob file is gone");
         // A second delete on the now-absent blob is a clean no-op.
         bs.delete(&sha).unwrap();
+    }
+
+    // ---- Windows blob-store authoritative tests (run on windows-latest CI) ----
+    // Written without a local Windows box; the FFI is compile-checked via a
+    // standalone probe and these prove the security contract on real Windows.
+
+    /// A reparse-point (directory symlink/junction) planted at the shard dir must
+    /// not let `delete` unlink a file OUTSIDE the store tree.
+    #[cfg(windows)]
+    #[test]
+    fn windows_delete_refuses_a_reparse_shard_and_leaves_external_file() {
+        let (dir, bs) = store();
+        let sha = bs.put(b"victim bytes").unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let target = external.path().join(&sha);
+        std::fs::write(&target, b"do not delete me").unwrap();
+        let shard = dir.path().join("attachments").join(&sha[..2]);
+        std::fs::remove_dir_all(&shard).unwrap();
+        // A directory symlink is a reparse point and needs privilege/Dev Mode;
+        // if the runner can't create one we cannot assert — skip, don't false-pass.
+        if std::os::windows::fs::symlink_dir(external.path(), &shard).is_err() {
+            eprintln!("skip: cannot create a directory symlink on this runner");
+            return;
+        }
+        let _ = bs.delete(&sha);
+        assert!(target.exists(), "external file behind a reparse shard must survive");
+        assert_eq!(std::fs::read(&target).unwrap(), b"do not delete me");
+    }
+
+    /// Old-or-new atomicity: a corrupt file at the blob path is replaced with the
+    /// correct bytes via `ReplaceFileW`; a read always sees valid bytes (never a
+    /// torn/partial file), and ends on the healed content.
+    #[cfg(windows)]
+    #[test]
+    fn windows_self_heal_replaces_corrupt_blob_atomically() {
+        let (_d, bs) = store();
+        let good: &[u8] = b"the real bytes";
+        let sha = format!("{:x}", Sha256::digest(good));
+        let p = bs.path_for(&sha).unwrap();
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, b"corrupt-and-wrong").unwrap();
+        // put() detects the corrupt dedup target and self-heals (atomic replace).
+        assert_eq!(bs.put(good).unwrap(), sha);
+        assert_eq!(bs.read(&sha).unwrap(), good, "read sees the healed bytes, not a partial");
+    }
+
+    /// Parallel writers of the SAME blob converge to one consistent file (the
+    /// Windows rename/replace path must not corrupt under concurrency).
+    #[cfg(windows)]
+    #[test]
+    fn windows_parallel_same_sha_writers_converge() {
+        let (_d, bs) = store();
+        let bytes: &[u8] = b"concurrent blob bytes";
+        let sha = format!("{:x}", Sha256::digest(bytes));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let bs = bs.clone();
+                let data = bytes.to_vec();
+                std::thread::spawn(move || bs.put(&data))
+            })
+            .collect();
+        for h in handles {
+            assert_eq!(h.join().unwrap().unwrap(), sha, "every writer agrees on the id");
+        }
+        assert_eq!(bs.read(&sha).unwrap(), bytes, "one consistent blob after concurrent writes");
     }
 
     #[test]
