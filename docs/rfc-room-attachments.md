@@ -103,6 +103,22 @@ in a chat-message JSON or a WebSocket frame.
   (dedup), and per-room accounting stays correct across shared blobs.
 - Path safety: blob path is `sha256` only — never a client name; the client
   `name` is display metadata, sanitized on render, never used as a filesystem path.
+- No-follow disk ops: reads/deletes never traverse a planted symlink/reparse
+  point out of the store tree. **Unix** is fully handle-relative (read
+  `O_NOFOLLOW`; delete `openat(O_NOFOLLOW|O_DIRECTORY)` + `unlinkat`). **Windows**
+  uses `FILE_FLAG_OPEN_REPARSE_POINT` (read + a reparse-attribute check) and
+  `ReplaceFileW` (atomic replace); the delete refuses a reparse-point shard and
+  no-follows the leaf, leaving one narrow shard-swap window that a fully
+  dirfd-relative delete would need `ntdll NtCreateFile(RootDirectory)` to close.
+  **V1 assumption (locked):** the storage directory
+  (`STORAGE_ROOT` = dir of `DB_PATH`) is writable ONLY by the server/desktop
+  security principal — on the Windows Desktop that is the per-user
+  `app_data_dir()` (`%APPDATA%\<app>`, ACL'd to that user). The residual delete
+  window therefore requires the SAME principal's concurrent write access (who
+  can already tamper with the store), so it is accepted for V1; the ntdll
+  hardening is a deferred follow-up. If a deployment ever puts the store on a
+  path other principals can write, this assumption is void and the ntdll delete
+  is required.
 - No credential scan needed (opaque bytes), but type+size are enforced server-side,
   and a room member is the only reader (reuse `require_membership`).
 - Retention (V1, loca-dev decision): a **referenced** attachment lives exactly as

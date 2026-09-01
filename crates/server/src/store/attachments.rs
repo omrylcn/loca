@@ -579,8 +579,10 @@ mod tests {
     // Written without a local Windows box; the FFI is compile-checked via a
     // standalone probe and these prove the security contract on real Windows.
 
-    /// A reparse-point (directory symlink/junction) planted at the shard dir must
-    /// not let `delete` unlink a file OUTSIDE the store tree.
+    /// A reparse-point shard directory must not let `delete` unlink a file
+    /// OUTSIDE the store tree. Uses a directory JUNCTION (needs no privilege,
+    /// unlike a symlink) so the check ALWAYS runs on the runner — no false-skip;
+    /// if the junction can't be created the test fails rather than passing empty.
     #[cfg(windows)]
     #[test]
     fn windows_delete_refuses_a_reparse_shard_and_leaves_external_file() {
@@ -591,42 +593,64 @@ mod tests {
         std::fs::write(&target, b"do not delete me").unwrap();
         let shard = dir.path().join("attachments").join(&sha[..2]);
         std::fs::remove_dir_all(&shard).unwrap();
-        // A directory symlink is a reparse point and needs privilege/Dev Mode;
-        // if the runner can't create one we cannot assert — skip, don't false-pass.
-        if std::os::windows::fs::symlink_dir(external.path(), &shard).is_err() {
-            eprintln!("skip: cannot create a directory symlink on this runner");
-            return;
-        }
+        let out = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&shard)
+            .arg(external.path())
+            .output()
+            .expect("run mklink");
+        assert!(
+            out.status.success(),
+            "mklink /J must create a junction: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         let _ = bs.delete(&sha);
-        assert!(target.exists(), "external file behind a reparse shard must survive");
+        assert!(target.exists(), "external file behind the reparse shard must survive");
         assert_eq!(std::fs::read(&target).unwrap(), b"do not delete me");
     }
 
-    /// Old-or-new atomicity: a corrupt file at the blob path is replaced with the
-    /// correct bytes via `ReplaceFileW`; a read always sees valid bytes (never a
-    /// torn/partial file), and ends on the healed content.
+    /// Old-or-new atomicity, measured with a live handle: hold the OLD corrupt
+    /// file open (sharing read/write/DELETE so the replace can proceed) while
+    /// `put()` self-heals it. Afterward the path yields the FULL new bytes and
+    /// the pre-replace handle still yields the FULL old bytes — never a torn
+    /// file or a `NotFound` in between.
     #[cfg(windows)]
     #[test]
-    fn windows_self_heal_replaces_corrupt_blob_atomically() {
+    fn windows_replace_is_old_or_new_never_torn() {
+        use std::io::Read as _;
+        use std::os::windows::fs::OpenOptionsExt;
         let (_d, bs) = store();
-        let good: &[u8] = b"the real bytes";
-        let sha = format!("{:x}", Sha256::digest(good));
+        let new_bytes: &[u8] = b"the healed new bytes exactly!";
+        let old_bytes: &[u8] = b"old corrupt content bytes??";
+        let sha = format!("{:x}", Sha256::digest(new_bytes));
         let p = bs.path_for(&sha).unwrap();
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-        std::fs::write(&p, b"corrupt-and-wrong").unwrap();
-        // put() detects the corrupt dedup target and self-heals (atomic replace).
-        assert_eq!(bs.put(good).unwrap(), sha);
-        assert_eq!(bs.read(&sha).unwrap(), good, "read sees the healed bytes, not a partial");
+        std::fs::write(&p, old_bytes).unwrap();
+        let mut old_handle = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 | 0x2 | 0x4) // FILE_SHARE_READ | WRITE | DELETE
+            .open(&p)
+            .unwrap();
+        assert_eq!(bs.put(new_bytes).unwrap(), sha);
+        assert_eq!(bs.read(&sha).unwrap(), new_bytes, "path reads the full new bytes");
+        let mut buf = Vec::new();
+        old_handle.read_to_end(&mut buf).unwrap();
+        assert_eq!(buf, old_bytes, "the pre-replace handle still reads the full old bytes");
     }
 
-    /// Parallel writers of the SAME blob converge to one consistent file (the
-    /// Windows rename/replace path must not corrupt under concurrency).
+    /// Parallel writers of the SAME blob over a PRE-PLACED CORRUPT target, so at
+    /// least one writer must take the real replace path (not just the create/
+    /// rename fast path). All writers succeed, agree on the id, and the final
+    /// blob is the intact healed content.
     #[cfg(windows)]
     #[test]
-    fn windows_parallel_same_sha_writers_converge() {
+    fn windows_parallel_writers_over_corrupt_target_converge() {
         let (_d, bs) = store();
-        let bytes: &[u8] = b"concurrent blob bytes";
+        let bytes: &[u8] = b"concurrent blob bytes over a corrupt target";
         let sha = format!("{:x}", Sha256::digest(bytes));
+        let p = bs.path_for(&sha).unwrap();
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, b"corrupt-preexisting").unwrap();
         let handles: Vec<_> = (0..8)
             .map(|_| {
                 let bs = bs.clone();
@@ -637,7 +661,11 @@ mod tests {
         for h in handles {
             assert_eq!(h.join().unwrap().unwrap(), sha, "every writer agrees on the id");
         }
-        assert_eq!(bs.read(&sha).unwrap(), bytes, "one consistent blob after concurrent writes");
+        assert_eq!(
+            bs.read(&sha).unwrap(),
+            bytes,
+            "one consistent healed blob after concurrent writes"
+        );
     }
 
     #[test]
