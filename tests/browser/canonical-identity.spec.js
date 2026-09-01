@@ -407,7 +407,7 @@ test("goal command, focus, optional tasks, and reminders share one human surface
     headers: { "x-admin-token": "MASTER" },
   });
   expect((await allSettings.json()).care_recipient).toEqual({ kind: "all" });
-  await expect(page.locator("#reminderRecipient")).toContainText("everyone in this loca");
+  await expect(page.locator("#reminderRecipient")).toContainText("any healthy coordinator");
 
   // Durable Attention state must reconstruct a visible room receipt even when
   // the browser was offline for the original Care WebSocket frame.
