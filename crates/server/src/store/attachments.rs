@@ -503,7 +503,10 @@ impl BlobStore {
 #[cfg(windows)]
 fn to_wide(p: &Path) -> Vec<u16> {
     use std::os::windows::ffi::OsStrExt;
-    p.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
+    p.as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect()
 }
 
 /// Removes a temp file on drop unless the rename already consumed it — so every
@@ -605,7 +608,10 @@ mod tests {
             String::from_utf8_lossy(&out.stderr)
         );
         let _ = bs.delete(&sha);
-        assert!(target.exists(), "external file behind the reparse shard must survive");
+        assert!(
+            target.exists(),
+            "external file behind the reparse shard must survive"
+        );
         assert_eq!(std::fs::read(&target).unwrap(), b"do not delete me");
     }
 
@@ -632,10 +638,17 @@ mod tests {
             .open(&p)
             .unwrap();
         assert_eq!(bs.put(new_bytes).unwrap(), sha);
-        assert_eq!(bs.read(&sha).unwrap(), new_bytes, "path reads the full new bytes");
+        assert_eq!(
+            bs.read(&sha).unwrap(),
+            new_bytes,
+            "path reads the full new bytes"
+        );
         let mut buf = Vec::new();
         old_handle.read_to_end(&mut buf).unwrap();
-        assert_eq!(buf, old_bytes, "the pre-replace handle still reads the full old bytes");
+        assert_eq!(
+            buf, old_bytes,
+            "the pre-replace handle still reads the full old bytes"
+        );
     }
 
     /// Parallel writers of the SAME blob over a PRE-PLACED CORRUPT target, so at
@@ -659,7 +672,11 @@ mod tests {
             })
             .collect();
         for h in handles {
-            assert_eq!(h.join().unwrap().unwrap(), sha, "every writer agrees on the id");
+            assert_eq!(
+                h.join().unwrap().unwrap(),
+                sha,
+                "every writer agrees on the id"
+            );
         }
         assert_eq!(
             bs.read(&sha).unwrap(),
