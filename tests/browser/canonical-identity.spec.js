@@ -623,10 +623,14 @@ test("goal command, focus, optional tasks, and reminders share one human surface
     "loca · Goal finished: release is independently verified",
   );
 
-  // Temporary manual focus was redundant with Goal, Tasks, and Reminders. It
-  // must not leave a hidden composer or dead controls behind.
-  await expect(page.locator("[data-pin]")).toHaveCount(0);
-  await expect(page.locator("#pinnedBar")).toHaveCount(0);
+  // Message pinning is a RESTORED feature (see message-pin.spec.js): the pin bar
+  // element exists (hidden until used) and every message carries a pin action,
+  // independent of the task action.
+  await page.evaluate(() =>
+    onFrame({ t: "msg", message: { id: 99001, sender: "bob", text: "pinnable line", ts: Date.now() } }),
+  );
+  await expect(page.locator('[data-pin="99001"]')).toHaveCount(1);
+  await expect(page.locator("#pinnedBar")).toHaveCount(1);
 
   await expect(page.locator("#focusToggle")).toHaveCount(0);
   await expect(page.locator("#focusPanelToggle, #attentionBar, #attentionCreate")).toHaveCount(0);
