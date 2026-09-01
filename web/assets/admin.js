@@ -162,7 +162,10 @@ function renderReminderSettings() {
   $("saveReminders").classList.toggle("hidden", !isAdmin());
 
   const lead = s.lead;
-  $("reminderRecipient").textContent = recipientKind === "all" ? "everyone in this loca"
+  // "all" does NOT broadcast: it lets any healthy runtime own the follow-up
+  // (vs a fixed lead/person). Say that, not "everyone", so the summary matches
+  // the one-owner delivery (a care signal wakes a single owner, never the room).
+  $("reminderRecipient").textContent = recipientKind === "all" ? "any healthy coordinator"
     : recipientKind === "person" && selectedPerson ? `@${selectedPerson}`
     : lead ? `@${lead}` : "@loca-care";
   $("reminderRecipientDetail").textContent = recipientKind === "all"
