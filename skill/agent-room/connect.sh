@@ -614,14 +614,39 @@ case "$cmd" in
     while [ $# -gt 0 ]; do
       if [ "$1" = "--attach" ]; then
         shift
-        [ -n "${1:-}" ] && attach_files+=("$1")
-        [ $# -gt 0 ] && shift
+        # A dangling --attach (no path after it, e.g. it was the last arg) is a
+        # user error, not an empty attach — fail loudly rather than silently
+        # sending an attachment-less message.
+        if [ -z "${1:-}" ]; then
+          echo >&2 "send: --attach requires a file path"
+          exit 2
+        fi
+        attach_files+=("$1")
+        shift
       else
         text_parts+=("$1")
         shift
       fi
     done
     text="${text_parts[*]}"
+    # Validate attachments on the CLIENT before any upload, so a bad request
+    # never leaves an orphan pending blob on the server.
+    if [ "${#attach_files[@]}" -gt 0 ]; then
+      if [ "${#attach_files[@]}" -gt 4 ]; then
+        echo >&2 "send: at most 4 attachments per message (got ${#attach_files[@]})"
+        exit 2
+      fi
+      for f in "${attach_files[@]}"; do
+        # The filename rides in the x-filename header; a CR/LF or other control
+        # char is a header-injection vector. Reject at the client boundary (the
+        # server also sanitizes the stored name, but we never emit a bad header).
+        case "$(basename -- "$f")" in
+          *[[:cntrl:]]*)
+            echo >&2 "send: attachment filename has control characters: $f"
+            exit 2 ;;
+        esac
+      done
+    fi
     use_loca "$room"
     # Upload each attachment first, collecting its server-issued id (== sha256).
     # A failed upload aborts the send — we never post a message citing a file
