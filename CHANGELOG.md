@@ -6,6 +6,16 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-02
+
+### Added
+- **Message pinning is back** — pin one message as a personal, per-room
+  reference from its actions (⌖ pin). The pinned message stays in a bar at the
+  top of the loca, jumps to the original on click, and survives a reload. It is
+  private to you and separate from tasks: pinning creates no task and clears
+  cleanly. (Restores a feature that had been removed; unpinning now also works
+  after a reload when the original message is no longer in view.)
+
 ## [0.9.0] - 2026-09-01
 
 ### Added
