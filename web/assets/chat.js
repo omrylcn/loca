@@ -302,13 +302,34 @@ function addMsg(m) {
 // The GET endpoint is membership-gated, so we cannot point <img src> / <a href>
 // straight at it (a browser element sends no auth header). We fetch the blob
 // WITH the session header and hand the element a same-origin object URL instead.
+// Inline-image object URLs currently live in the feed. Tracked so they are
+// revoked on feed repaint / room change / manual clear rather than leaking for
+// the life of the process — which matters most for the long-lived Desktop shell.
+const inlineAttachmentUrls = new Set();
+function revokeInlineAttachmentUrls() {
+  for (const url of inlineAttachmentUrls) URL.revokeObjectURL(url);
+  inlineAttachmentUrls.clear();
+}
 function attachmentBlobUrl(room, id) {
   return `${serverBase()}/rooms/${encodeURIComponent(room)}/attachments/${encodeURIComponent(id)}`;
 }
+// The GET is membership-gated, so an <img src>/<a href> (which can't carry the
+// session header) won't work; fetch WITH the header and hand back a same-origin
+// object URL. The CALLER owns revoking it.
 async function fetchAttachmentBlob(room, id) {
   const r = await fetch(attachmentBlobUrl(room, id), { headers: adminHeaders({}) });
   if (!r.ok) throw new Error(`attachment ${r.status}`);
   return URL.createObjectURL(await r.blob());
+}
+// Open an attachment in a new tab, then revoke its URL after the tab has had
+// time to load it, so an opened file is never held for the process lifetime.
+function openAttachment(room, a) {
+  fetchAttachmentBlob(room, a.id)
+    .then((url) => {
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    })
+    .catch(() => addSys(`could not open ${a.name || "attachment"}`));
 }
 function attachmentChip(room, a) {
   const btn = document.createElement("button");
@@ -316,14 +337,7 @@ function attachmentChip(room, a) {
   btn.className = "attachchip";
   btn.innerHTML = `<span class="aglyph">📎</span><span class="aname">${esc(a.name || a.id.slice(0, 8))}</span><span class="asize">${fmtBytes(a.size)}</span>`;
   btn.title = `${esc(a.mime || "")}`;
-  btn.addEventListener("click", async () => {
-    try {
-      const url = await fetchAttachmentBlob(room, a.id);
-      window.open(url, "_blank", "noopener");
-    } catch (e) {
-      addSys(`could not open ${a.name || "attachment"}`);
-    }
-  });
+  btn.addEventListener("click", () => openAttachment(room, a));
   return btn;
 }
 function renderAttachments(row, m) {
@@ -340,8 +354,26 @@ function renderAttachments(row, m) {
       wrap.appendChild(img);
       fetchAttachmentBlob(room, a.id)
         .then((url) => {
+          // The row may have been cleared (repaint/room change) while the blob
+          // was in flight: free immediately and don't track a detached image.
+          if (!img.isConnected) {
+            URL.revokeObjectURL(url);
+            return;
+          }
+          inlineAttachmentUrls.add(url);
+          // Once decoded, the browser keeps the bitmap, so free the blob as soon
+          // as it loads; the repaint/room-change sweep is the backstop for the
+          // case where it never loads.
+          const free = () => {
+            URL.revokeObjectURL(url);
+            inlineAttachmentUrls.delete(url);
+          };
+          img.addEventListener("load", free, { once: true });
+          img.addEventListener("error", free, { once: true });
           img.src = url;
-          img.addEventListener("click", () => window.open(url, "_blank", "noopener"));
+          // Clicking opens the full image; openAttachment re-fetches so the
+          // inline blob is never kept alive for the popup.
+          img.addEventListener("click", () => openAttachment(room, a));
         })
         .catch(() => img.replaceWith(attachmentChip(room, a)));
     } else {
@@ -368,6 +400,7 @@ function addSys(t) { const d = document.createElement("div"); d.className = "sys
 // cleared while we were on another tab).
 function repaintFeed() {
   const msgs = state.msgs.slice();
+  revokeInlineAttachmentUrls();
   $("feed").innerHTML = "";
   lastDayKey = null;
   state.seen = new Set();

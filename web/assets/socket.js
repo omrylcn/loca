@@ -151,6 +151,7 @@ function joinRoom(room) {
   markRoomRead(room, state.roomLatest[room]);
   $("curRoom").textContent = room;
   $("roomAvatar").textContent = (room[0] || "#").toUpperCase();
+  revokeInlineAttachmentUrls();
   $("feed").innerHTML = "";
   state.attentions = {};
   resetReminderChatProjection();

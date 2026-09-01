@@ -381,7 +381,7 @@ $("feed").addEventListener("click", (e) => {
   else if (t.dataset.goto) gotoMsg(t.dataset.goto);
 });
 $("stopBtn").onclick = () => { if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify({ t: "control", cmd: "stop" })); };
-$("clearBtn").onclick = () => { $("feed").innerHTML = ""; };
+$("clearBtn").onclick = () => { revokeInlineAttachmentUrls(); $("feed").innerHTML = ""; };
 
 // tabs
 $("tabChat").onclick = () => switchTab("chat");
