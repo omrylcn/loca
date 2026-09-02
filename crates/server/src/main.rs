@@ -1136,6 +1136,11 @@ fn msg_addresses(m: &protocol::Message, name: &str, accepts_all: bool) -> bool {
     if m.target.as_deref() == Some(name) {
         return true;
     }
+    // A reply addresses the author of the message it answers (resolved by the
+    // server), separately from any explicit target, so replying wakes them.
+    if m.reply_to_sender.as_deref() == Some(name) {
+        return true;
+    }
     if all_is_a_call && m.target.as_deref() == Some("all") {
         return true;
     }

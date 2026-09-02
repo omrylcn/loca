@@ -1920,6 +1920,7 @@ impl Hub {
             target,
             text: format!("{name} ({kind}) wants to join — approve or deny it in Join requests."),
             reply_to: None,
+            reply_to_sender: None,
             kind: protocol::MessageKind::Announce,
             ts: (self.now_ms)(),
         };
@@ -2420,6 +2421,33 @@ impl Hub {
             }
         }
 
+        // A reply addresses the AUTHOR of the message it answers, as a separate
+        // recipient alongside any explicit `target` — so a reply that also
+        // targets/@mentions someone else wakes BOTH. `msg_addresses` keys wake
+        // on `target`/`@name` and never looked at `reply_to`, so a bare reply
+        // used to be a silent UI-only link. Resolve the author from the room's
+        // in-memory tail first (you usually reply to what you can see), then the
+        // durable store — the reply UI allows answering a message older than the
+        // 200-message tail, and those must wake their author too; a cross-room
+        // or unknown id resolves to nobody (message_owner is room-scoped), and a
+        // self-reply never addresses the sender. `target` is left untouched.
+        let reply_to_sender = match body.reply_to {
+            None => None,
+            Some(rid) => {
+                let owner = match r.history.iter().rev().find(|m| m.id == rid) {
+                    Some(m) => Some(m.sender.clone()),
+                    // Only consult the store on a tail miss. A lookup ERROR must
+                    // reject the post (503) — never silently drop the wake and
+                    // report success. An unknown id is a real absence (Ok(None))
+                    // and safely stays recipient-less.
+                    None => self
+                        .store
+                        .message_owner(room, rid)
+                        .map_err(|_| PostReject::Storage)?,
+                };
+                owner.filter(|owner| owner != &body.sender && !owner.is_empty())
+            }
+        };
         let msg = Message {
             attachments: attachments.clone(),
             kind: body.kind,
@@ -2430,6 +2458,7 @@ impl Hub {
             target: body.target.filter(|t| !t.is_empty()),
             text: body.text,
             reply_to: body.reply_to,
+            reply_to_sender,
             ts: self.next_condition_generation(now, r.last_msg_ms),
         };
         let caretaker_summons: Vec<CareSignal> = if room == self.home_room.as_str() {
@@ -2827,6 +2856,7 @@ impl Hub {
             target: lead.clone().or_else(|| Some("all".into())),
             text,
             reply_to: None,
+            reply_to_sender: None,
             kind: protocol::MessageKind::Announce,
             ts: (self.now_ms)(),
         };

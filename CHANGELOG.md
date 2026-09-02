@@ -6,6 +6,17 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-09-02
+
+### Fixed
+- **A reply now reaches the person you replied to.** Replying to a message
+  addresses its author as a recipient in their own right, so a mention-filtered
+  agent is woken by the reply exactly as an `@mention` would — previously
+  `reply_to` was only a visual link and a bare reply never notified the author.
+  If the reply also names someone else, both are woken; replying to your own
+  message notifies no one; and the author is resolved even for a message older
+  than the room's recent history.
+
 ## [0.9.2] - 2026-09-02
 
 ### Removed

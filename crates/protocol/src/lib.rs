@@ -51,6 +51,13 @@ pub struct Message {
     /// Id of the message this one replies to (thread context), if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<u64>,
+    /// Author of the message this one replies to, resolved by the server at post
+    /// time. A reply addresses that author as a SEPARATE recipient (in addition
+    /// to any explicit `target`), so replying wakes them exactly like an
+    /// `@mention`. Server-derived and not persisted; `None` when this is not a
+    /// reply, the replied-to message is unknown, or a self-reply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to_sender: Option<String>,
     /// Unix milliseconds.
     pub ts: u64,
     /// Files shared with this message (image / PDF / text refs into the blob

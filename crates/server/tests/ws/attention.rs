@@ -1502,3 +1502,70 @@ async fn wait_reply_does_not_complete_or_resurrect_the_wait() {
         "a deleted wait must not be resurrected by a later reply"
     );
 }
+
+#[tokio::test]
+async fn a_reply_to_a_caretaker_summons_them_cross_loca() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir
+        .path()
+        .join("reply-summon.db")
+        .to_string_lossy()
+        .to_string();
+    let (port, _guard) = spawn_server_env(
+        "",
+        &[
+            ("LOCA_AGENT_ROOM", "iye".into()),
+            ("RESERVED_LOCA", "iye".into()),
+            ("LOCA_CARETAKERS", "loca-dev,loca-care".into()),
+            ("DB_PATH", db),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let (mut caretaker, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-dev&type=agent&filter=mentions&turn_max=1"
+    ))
+    .await
+    .unwrap();
+    let client = reqwest::Client::new();
+
+    // loca-dev authored a message in the source loca `reviewer`.
+    let root: Value = client
+        .post(format!("{base}/rooms/reviewer/messages"))
+        .json(&serde_json::json!({
+            "sender": "loca-dev", "sender_type": "agent", "text": "the note"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let root_id = root["id"].as_u64().unwrap();
+
+    // A reply to loca-dev's message with NO explicit target and NO @loca-dev in
+    // text. The reply author (loca-dev) is addressed via reply_to_sender, so the
+    // cross-loca caretaker summon must still fire — exactly like an @mention.
+    client
+        .post(format!("{base}/rooms/reviewer/messages"))
+        .json(&serde_json::json!({
+            "sender": "reviewer1", "sender_type": "agent",
+            "text": "answering the note", "reply_to": root_id
+        }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let summoned = wait_for(&mut caretaker, |v| {
+        v["t"] == "care"
+            && v["signal"]["reason"] == "direct_summon"
+            && v["signal"]["context"][0]["text"] == "answering the note"
+    })
+    .await;
+    assert_eq!(summoned["signal"]["room"], "iye");
+    assert_eq!(summoned["signal"]["source_room"], "reviewer");
+    assert_eq!(summoned["signal"]["owner"], "loca-dev");
+    assert_eq!(summoned["signal"]["context"].as_array().unwrap().len(), 1);
+}

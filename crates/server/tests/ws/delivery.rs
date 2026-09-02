@@ -288,6 +288,281 @@ async fn filter_mentions_only_delivers_addressed_messages() {
 }
 
 #[tokio::test]
+async fn reply_wakes_owner_even_when_older_than_the_tail() {
+    // A real DB is required: past the in-memory tail the author can only come
+    // from Store::message_owner, which is a no-op in memory-only mode.
+    let port = {
+        let l = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let p = l.local_addr().unwrap().port();
+        drop(l);
+        p
+    };
+    let db = std::env::temp_dir().join(format!("agent-room-reply-tail-{port}.db"));
+    let _ = std::fs::remove_file(&db);
+    let (_port, _guard) = spawn_server_env(
+        "",
+        &[
+            ("PORT", port.to_string()),
+            ("DB_PATH", db.to_string_lossy().to_string()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    // bob's root, then enough traffic to evict it from the 200-message in-memory
+    // tail so the author can only come from the durable store.
+    let root: Value = client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({ "sender": "bob", "sender_type": "agent", "text": "old root" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let root_id = root["id"].as_u64().unwrap();
+    // Distinct senders dodge the per-sender rate limit; 205 > HISTORY_LIMIT (200)
+    // guarantees the root has rolled out of the tail.
+    for i in 0..205 {
+        client
+            .post(format!("{base}/rooms/general/messages"))
+            .json(&serde_json::json!({
+                "sender": format!("filler{i}"), "sender_type": "agent", "text": "noise"
+            }))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // bob connects mentions-only AFTER the tail rolled past the root.
+    let url = format!(
+        "ws://127.0.0.1:{port}/ws?room=general&name=bob&type=agent\
+         &filter=mentions&turn_max=1"
+    );
+    let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+
+    // A reply to the long-evicted root: only Store::message_owner can still name
+    // the author, and bob must still be woken.
+    client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({
+            "sender": "x", "sender_type": "agent", "text": "late answer", "reply_to": root_id
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let frame = wait_for(&mut ws, |v| {
+        v["t"] == "msg" && v["message"]["text"] == "late answer"
+    })
+    .await;
+    assert_eq!(frame["message"]["reply_to_sender"], "bob");
+    assert_eq!(frame["message"]["reply_to"], root_id);
+}
+
+#[tokio::test]
+async fn a_reply_and_an_explicit_target_wake_both() {
+    let (port, _guard) = spawn_server().await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    let root: Value = client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({ "sender": "bob", "sender_type": "agent", "text": "root" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let root_id = root["id"].as_u64().unwrap();
+
+    // Two mentions-only listeners: the reply author (bob) and a different,
+    // explicit target (carol).
+    let (mut bob, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=general&name=bob&type=agent&filter=mentions&turn_max=1"
+    ))
+    .await
+    .unwrap();
+    let (mut carol, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=general&name=carol&type=agent&filter=mentions&turn_max=1"
+    ))
+    .await
+    .unwrap();
+
+    // Reply to bob's message, explicitly targeting carol. Both must wake: carol
+    // via target, bob via reply_to_sender — the reply author is a SEPARATE
+    // recipient, not overridden by the explicit target.
+    client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({
+            "sender": "x", "sender_type": "agent", "target": "carol",
+            "text": "for both", "reply_to": root_id
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let is_it = |v: &Value| v["t"] == "msg" && v["message"]["text"] == "for both";
+    let bf = wait_for(&mut bob, is_it).await;
+    let cf = wait_for(&mut carol, is_it).await;
+    assert_eq!(bf["message"]["reply_to_sender"], "bob");
+    assert_eq!(cf["message"]["target"], "carol");
+}
+
+#[tokio::test]
+async fn a_reply_to_an_unknown_or_cross_room_id_addresses_nobody() {
+    let (port, _guard) = spawn_server().await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let mut watcher = connect_ws(port, "general", "watcher", "user").await;
+
+    // A real message, but in ANOTHER room.
+    let elsewhere: Value = client
+        .post(format!("{base}/rooms/sales/messages"))
+        .json(&serde_json::json!({ "sender": "dave", "sender_type": "agent", "text": "over here" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let cross_id = elsewhere["id"].as_u64().unwrap();
+
+    // A reply in `general` to a cross-room id resolves no author (message_owner
+    // is room-scoped), so nobody is addressed.
+    client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({
+            "sender": "x", "sender_type": "agent", "text": "cross room", "reply_to": cross_id
+        }))
+        .send()
+        .await
+        .unwrap();
+    let f1 = wait_for(&mut watcher, |v| v["message"]["text"] == "cross room").await;
+    assert!(
+        f1["message"]["reply_to_sender"].is_null(),
+        "a cross-room reply addresses nobody"
+    );
+
+    // A wholly unknown id likewise addresses nobody.
+    client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({
+            "sender": "x", "sender_type": "agent", "text": "ghost reply", "reply_to": 999999
+        }))
+        .send()
+        .await
+        .unwrap();
+    let f2 = wait_for(&mut watcher, |v| v["message"]["text"] == "ghost reply").await;
+    assert!(
+        f2["message"]["reply_to_sender"].is_null(),
+        "a reply to an unknown id addresses nobody"
+    );
+}
+
+#[tokio::test]
+async fn a_self_reply_addresses_nobody() {
+    let (port, _guard) = spawn_server().await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let mut watcher = connect_ws(port, "general", "watcher", "user").await;
+
+    let root: Value = client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({ "sender": "bob", "sender_type": "agent", "text": "root" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let root_id = root["id"].as_u64().unwrap();
+
+    // bob answers bob: the author equals the sender, so nobody is addressed and
+    // the sender can never wake itself.
+    client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({
+            "sender": "bob", "sender_type": "agent", "text": "talking to myself", "reply_to": root_id
+        }))
+        .send()
+        .await
+        .unwrap();
+    let frame = wait_for(&mut watcher, |v| {
+        v["message"]["text"] == "talking to myself"
+    })
+    .await;
+    assert!(
+        frame["message"]["reply_to_sender"].is_null(),
+        "a self-reply addresses nobody"
+    );
+}
+
+#[tokio::test]
+async fn a_message_owner_storage_error_rejects_the_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("owner-error.db");
+    let db = db_path.to_string_lossy().to_string();
+    let (port, _guard) = spawn_server_env("", &[("DB_PATH", db)]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    // bob's root, then enough traffic to evict it from the tail so the reply
+    // must consult Store::message_owner rather than the in-memory history.
+    let root: Value = client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({ "sender": "bob", "sender_type": "agent", "text": "root" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let root_id = root["id"].as_u64().unwrap();
+    for i in 0..205 {
+        client
+            .post(format!("{base}/rooms/general/messages"))
+            .json(&serde_json::json!({ "sender": format!("f{i}"), "sender_type": "agent", "text": "n" }))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // Corrupt exactly what message_owner reads: overwrite the root's `sender`
+    // with a BLOB. The column is TEXT NOT NULL, so a blob still satisfies NOT
+    // NULL but fails to decode as a String — the row still EXISTS (an unknown id
+    // would be a clean Ok(None)), so this isolates a storage READ error. It must
+    // reject the reply, never silently post it and drop the wake.
+    {
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.busy_timeout(Duration::from_secs(5)).unwrap();
+        conn.execute(
+            "UPDATE messages SET sender = X'00' WHERE id = ?1",
+            rusqlite::params![root_id],
+        )
+        .unwrap();
+    }
+
+    let resp = client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({
+            "sender": "x", "sender_type": "agent", "text": "late answer", "reply_to": root_id
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        503,
+        "a message_owner storage error must reject the reply, not silently drop the wake"
+    );
+}
+
+#[tokio::test]
 async fn a_named_lead_hears_the_whole_room_until_the_title_ends() {
     let (port, _guard) = spawn_server_with("adm").await;
     let base = format!("http://127.0.0.1:{port}");

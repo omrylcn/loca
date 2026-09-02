@@ -66,6 +66,67 @@ fn authority_resolves_server_side_principals_and_revocation_takes_effect_live() 
 }
 
 #[test]
+fn a_reply_to_a_caretaker_is_addressed_once() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("addressing.db");
+    let store = Arc::new(Store::open(Some(path.to_str().expect("db path"))).expect("store"));
+    let hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::from(["loca-dev".into()]),
+        },
+        store,
+        RoomSettings::default(),
+        1,
+    );
+
+    let base = protocol::Message {
+        id: 5,
+        room: "reviewer".into(),
+        sender: "someone".into(),
+        sender_type: SenderType::Agent,
+        target: None,
+        text: "answering".into(),
+        kind: protocol::MessageKind::Say,
+        reply_to: Some(1),
+        reply_to_sender: Some("loca-dev".into()),
+        ts: 1,
+        attachments: Vec::new(),
+    };
+
+    // A reply whose author is a caretaker addresses them — the new path, with no
+    // explicit target and no @mention.
+    assert_eq!(
+        hub.addressed_caretakers(&base),
+        vec!["loca-dev".to_string()]
+    );
+
+    // When the same caretaker is ALSO the target and @mentioned, sort+dedup keep
+    // exactly one summon (never three).
+    let triple = protocol::Message {
+        target: Some("loca-dev".into()),
+        text: "@loca-dev answering".into(),
+        ..base.clone()
+    };
+    assert_eq!(
+        hub.addressed_caretakers(&triple),
+        vec!["loca-dev".to_string()]
+    );
+
+    // A non-caretaker reply author addresses nobody.
+    let non_caretaker = protocol::Message {
+        reply_to_sender: Some("someone-else".into()),
+        ..base.clone()
+    };
+    assert!(hub.addressed_caretakers(&non_caretaker).is_empty());
+}
+
+#[test]
 fn reminder_state_exposes_progress_retry_and_caretaker_fallback() {
     assert_eq!(
         Hub::reminder_state(Some("lead"), 1, false),
