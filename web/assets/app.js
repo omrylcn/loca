@@ -293,14 +293,6 @@ $("feed").addEventListener("click", (e) => {
     reaction.closest(".reactionpicker")?.classList.add("hidden");
     return;
   }
-  const mk = e.target.closest("[data-mktask]");
-  if (!mk) return;
-  const m = msgById.get(Number(mk.dataset.mktask));
-  if (!m) return;
-  const title = prompt("Add a next step:", m.text.slice(0, 80));
-  if (!title) return;
-  const assignee = prompt("Assign to (may stay empty):", m.sender_type === "agent" ? m.sender : "");
-  createTask(title.trim(), m.id, (assignee || "").trim() || null).then(ok => { if (ok) addSys(`Next step added: ${title.trim()}`); });
 });
 $("onlineList").addEventListener("click", (e) => {
   const b = e.target.closest("[data-mod]");

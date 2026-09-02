@@ -320,7 +320,6 @@ function addMsg(m) {
         ${mine ? "" : `<button type="button" data-reactpick="${m.id}" aria-label="React to ${esc(m.sender)}">♡ react</button>`}
         <button type="button" data-reply="${m.id}" aria-label="Reply to ${esc(m.sender)}">↩ reply</button>
         <button type="button" data-pin="${m.id}" aria-label="Pin ${esc(m.sender)}'s message for yourself">⌖ pin</button>
-        <button type="button" data-mktask="${m.id}" aria-label="Make a task from ${esc(m.sender)}'s message">→ task</button>
       </div>`
     : "";
   row.innerHTML = `

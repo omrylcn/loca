@@ -6,6 +6,14 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-02
+
+### Removed
+- **Message → task action** — a message bubble no longer offers a "→ task"
+  button. A chat message is for conversation, not project management, and
+  turning one into a task did not fit loca. Reply, pin, and react are
+  unchanged, and the Tasks panel (operator-declared work) is unaffected.
+
 ## [0.9.1] - 2026-09-02
 
 ### Added
