@@ -56,7 +56,12 @@ function boundedChatText(value, max = 120) {
 }
 
 function reminderChatText(attention) {
-  const owner = attention.owner ? `@${attention.owner}` : "a healthy recipient";
+  // An "Everyone" reminder fans out to a per-member attention each, all sharing a
+  // server-derived `group` (generation) id. Chat shows it as one @all line, not
+  // one member's name, so it reads as addressed to the whole loca.
+  const owner = attention.group
+    ? "@all"
+    : attention.owner ? `@${attention.owner}` : "a healthy recipient";
   const timing = reminderTiming(attention).match(/waiting [^·]+/)?.[0]?.trim();
   const subject = boundedChatText(attention.subject || "Reminder");
   return `${owner}, ${subject}${timing ? ` · ${timing}` : ""}`;
@@ -72,8 +77,11 @@ function addReminderChatBubble(attention) {
   state.reminderReceipts.add(deliveryKey);
   addMsg({
     sender: "loca",
+    // An "Everyone" reminder is a single @all line (the text already says @all);
+    // it has no one person as target, so addMsg must not prepend an owner
+    // mention on top of it. Lead/Person reminders keep their directed target.
     sender_type: "agent",
-    target: attention.owner,
+    target: attention.group ? null : attention.owner,
     text: reminderChatText(attention),
     kind: "reminder",
     ts: attention.delivered_at || attention.created_at,
@@ -329,8 +337,16 @@ function onFrame(f) {
     const isReminder = ["goal_reminder", "task_reminder", "wait_overdue", "wait_cycle", "room_silence"]
       .includes(f.attention.reason);
     // Directed attention / actionable reminder -> native notification (kind
-    // only, no body). Reactions and ordinary messages never reach here.
-    notifyDesktop(isReminder ? "reminder" : "attention", null, f.attention.room || state.room, f.attention.id);
+    // only, no body). Reactions and ordinary messages never reach here. An
+    // "Everyone" reminder fans out to a per-member attention each; key the
+    // notification by the shared `group` (generation) so the whole fan-out
+    // raises ONE native notification, not one per member.
+    notifyDesktop(
+      isReminder ? "reminder" : "attention",
+      null,
+      f.attention.room || state.room,
+      f.attention.group || f.attention.id,
+    );
     if (isReminder) rebuildReminderChatProjection();
     renderReminderSettings();
     renderReminderHistory();

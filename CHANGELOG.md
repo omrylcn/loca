@@ -6,6 +6,17 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-09-03
+
+### Fixed
+- **An "Everyone" reminder now actually reaches everyone.** A room-silence (or
+  goal/task) reminder set to "Any coordinator / Everyone" previously woke only a
+  single lead-first coordinator. It now fans out to every member of the loca: each
+  gets their own durable reminder, online members are notified immediately and
+  offline members on their next reconnect, and Chat still shows it as one `@all`
+  line. A new room message clears it for the whole group at once. "Lead" and a
+  specific person are unchanged (still a single recipient).
+
 ## [0.9.3] - 2026-09-02
 
 ### Fixed

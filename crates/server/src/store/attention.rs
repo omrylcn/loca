@@ -117,6 +117,37 @@ impl Store {
         tx.commit()
             .inspect_err(|e| tracing::error!(error = %e, "care mark + attention commit failed"))
     }
+    /// Atomic fan-out for an `Everyone` reminder: advance the single per-key
+    /// care mark AND write every per-member attention + outbox row in ONE
+    /// transaction. All or nothing — if any write fails the whole generation
+    /// rolls back, so a roster that cannot be fully materialised never leaves a
+    /// partial "Everyone" that looks complete, and the unadvanced mark lets the
+    /// scheduler retry. Each signal is delivered in its own room (never a shared
+    /// override), matching the single-signal path.
+    pub fn enqueue_everyone_care(
+        &self,
+        room: &str,
+        signal_key: &str,
+        last_signal_at: u64,
+        signal_count: u32,
+        signals: &[protocol::CareSignal],
+    ) -> rusqlite::Result<()> {
+        let Some(mut c) = self.conn() else {
+            return Ok(());
+        };
+        let tx = c.transaction()?;
+        tx.execute(
+            "INSERT OR REPLACE INTO care_marks
+             (room, signal_key, last_signal_at, signal_count)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![room, signal_key, last_signal_at, signal_count],
+        )?;
+        for signal in signals {
+            Self::write_care(&tx, signal.room.as_str(), signal)?;
+        }
+        tx.commit()
+            .inspect_err(|e| tracing::error!(error = %e, "everyone care batch commit failed"))
+    }
     pub fn enqueue_care_with_waits(
         &self,
         waits: &[WaitState],
@@ -168,13 +199,14 @@ impl Store {
         if let Some(owner) = signal.owner.as_deref() {
             c.execute(
                 "INSERT OR IGNORE INTO care_outbox
-                 (id, attention_id, delivery_room, owner, signal, created_at, acked_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
+                 (id, attention_id, delivery_room, owner, owner_principal_id, signal, created_at, acked_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)",
                 params![
                     signal.id,
                     attention_id,
                     delivery_room,
                     owner,
+                    signal.owner_principal_id,
                     json,
                     signal.at
                 ],
@@ -217,6 +249,7 @@ impl Store {
             subject: signal.subject,
             audience: signal.audience,
             owner: signal.owner,
+            group: signal.group,
             participants: signal.participants,
             created_by: signal.created_by,
             created_at,
@@ -287,6 +320,7 @@ impl Store {
         tx.commit()?;
         Ok(changed > 0)
     }
+    #[cfg(test)]
     pub fn pending_care(&self, delivery_room: &str, owner: &str) -> Vec<protocol::CareSignal> {
         let Some(c) = self.conn() else {
             return Vec::new();
@@ -322,6 +356,47 @@ impl Store {
         }
         out
     }
+    /// Reconnect replay scoped by canonical principal: a principal-required row
+    /// (an Everyone per-member reminder) matches ONLY the session's authenticated
+    /// `principal_id`, so a shared display name never crosses wires and a
+    /// principal-less/legacy socket never receives one. Legacy rows
+    /// (owner_principal_id NULL) keep matching by display name.
+    pub fn pending_care_scoped(
+        &self,
+        delivery_room: &str,
+        owner: &str,
+        principal_id: Option<&str>,
+    ) -> Vec<protocol::CareSignal> {
+        let Some(c) = self.conn() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if let Ok(mut stmt) = c.prepare(
+            "SELECT o.signal FROM care_outbox o
+             LEFT JOIN attentions a ON a.id = o.attention_id
+             WHERE o.delivery_room = ?1 AND o.acked_at IS NULL
+               AND (a.id IS NULL OR a.resolved_at IS NULL)
+               AND (
+                    (o.owner_principal_id IS NULL AND o.owner = ?2)
+                 OR (o.owner_principal_id IS NOT NULL AND o.owner_principal_id = ?3)
+               )
+             ORDER BY o.created_at, o.id",
+        ) {
+            if let Ok(rows) = stmt.query_map(params![delivery_room, owner, principal_id], |row| {
+                let json: String = row.get(0)?;
+                serde_json::from_str::<protocol::CareSignal>(&json).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })
+            }) {
+                out.extend(rows.flatten().filter(|signal| signal.room == delivery_room));
+            }
+        }
+        out
+    }
     pub fn attention_id_for_delivery(&self, delivery_id: &str) -> Option<String> {
         let c = self.conn()?;
         c.query_row(
@@ -333,7 +408,21 @@ impl Store {
         .ok()
         .flatten()
     }
-    pub fn ack_care(&self, id: &str, owner: &str, at: u64) -> rusqlite::Result<bool> {
+    /// Acknowledge a delivered care signal, scoped by canonical principal. A
+    /// principal-required row (owner_principal_id set — an Everyone per-member
+    /// reminder) is ACK'd ONLY by its authenticated `principal_id`, so a shared
+    /// display name can never ACK another principal's delivery. Legacy rows
+    /// (owner_principal_id NULL) keep matching by display name. This atomic
+    /// UPDATE is the single authority for whether an ACK lands; the Hub's
+    /// name pre-check only shortcuts the legacy/hot path and can never
+    /// over-approve, since a principal mismatch returns `changed == 0`.
+    pub fn ack_care_scoped(
+        &self,
+        id: &str,
+        owner: &str,
+        principal_id: Option<&str>,
+        at: u64,
+    ) -> rusqlite::Result<bool> {
         let Some(mut c) = self.conn() else {
             // The Hub validates and records hot delivery receipts in
             // memory-only mode. A no-op store must never authenticate an
@@ -344,15 +433,19 @@ impl Store {
         let attention_id: Option<String> = tx
             .query_row(
                 "SELECT attention_id FROM care_outbox
-                 WHERE id = ?1 AND owner = ?2 AND acked_at IS NULL",
-                params![id, owner],
+                 WHERE id = ?1 AND acked_at IS NULL
+                   AND ((owner_principal_id IS NULL AND owner = ?2)
+                     OR (owner_principal_id IS NOT NULL AND owner_principal_id = ?3))",
+                params![id, owner, principal_id],
                 |row| row.get(0),
             )
             .optional()?;
         let changed = tx.execute(
-            "UPDATE care_outbox SET acked_at = ?3
-             WHERE id = ?1 AND owner = ?2 AND acked_at IS NULL",
-            params![id, owner, at],
+            "UPDATE care_outbox SET acked_at = ?4
+             WHERE id = ?1 AND acked_at IS NULL
+               AND ((owner_principal_id IS NULL AND owner = ?2)
+                 OR (owner_principal_id IS NOT NULL AND owner_principal_id = ?3))",
+            params![id, owner, principal_id, at],
         )?;
         if changed > 0 {
             tx.execute(
@@ -362,7 +455,7 @@ impl Store {
             )?;
         }
         tx.commit()
-            .inspect_err(|e| tracing::error!(error = %e, "ack_care failed"))?;
+            .inspect_err(|e| tracing::error!(error = %e, "ack_care_scoped failed"))?;
         Ok(changed > 0)
     }
 }

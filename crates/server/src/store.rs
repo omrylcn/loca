@@ -227,12 +227,16 @@ impl Store {
                 attention_id TEXT NOT NULL DEFAULT '',
                 delivery_room TEXT NOT NULL,
                 owner TEXT NOT NULL,
+                owner_principal_id TEXT,
                 signal TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
                 acked_at INTEGER
             );
             CREATE INDEX IF NOT EXISTS care_outbox_delivery
                 ON care_outbox(delivery_room, owner, acked_at);
+            -- The owner_principal_id index is created in the migration step, AFTER
+            -- the ALTER that adds the column, so an older DB (whose CREATE TABLE
+            -- IF NOT EXISTS is a no-op) does not reference a column it lacks yet.
             CREATE TABLE IF NOT EXISTS attentions (
                 id TEXT PRIMARY KEY,
                 room TEXT NOT NULL,
@@ -540,6 +544,18 @@ impl Store {
         );
         let _ = conn.execute(
             "UPDATE care_outbox SET attention_id = id WHERE attention_id = ''",
+            [],
+        );
+        // v0.9.4: Everyone reminders deliver by canonical principal. Legacy rows
+        // (Lead/Person and everything written before this) keep NULL here and stay
+        // on the name-based delivery path.
+        let _ = conn.execute(
+            "ALTER TABLE care_outbox ADD COLUMN owner_principal_id TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "CREATE INDEX IF NOT EXISTS care_outbox_delivery_principal
+                ON care_outbox(delivery_room, owner_principal_id, acked_at)",
             [],
         );
         // v0.6.9 makes Attention a first-class product ledger. Older DBs may

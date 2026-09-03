@@ -84,3 +84,67 @@ test("native-notify events: only mentions, directed attention and reminders noti
     expect(Object.prototype.hasOwnProperty.call(e, "body")).toBeFalsy();
   }
 });
+
+// An "Everyone" reminder fans out to one per-member Attention each: they share a
+// server-derived `group` (generation) id but carry DISTINCT attention ids, and
+// every socket in the room receives all of them. The client must collapse the
+// whole fan-out into ONE @all chat bubble and ONE native notification (keyed by
+// `group`) — never one bubble/notification per member.
+test("everyone reminder: many grouped Attention frames -> one @all bubble + one notification", async ({
+  page,
+  request,
+}) => {
+  const admin = { "x-admin-token": "MASTER" };
+  await request.post("/members", { headers: admin, data: { name: "alluser", kind: "user" } });
+  const invited = await request.post("/rooms/e2e/invites", {
+    headers: admin,
+    data: { name: "alluser", kind: "user" },
+  });
+  const { token } = await invited.json();
+
+  await page.goto("/");
+  await page.locator("#name").fill("alluser");
+  await page.locator("#roomToken").fill(token);
+  await page.evaluate(() => window.doConnect("e2e"));
+  await expect(page.locator("#curRoom")).toHaveText("e2e");
+
+  await page.evaluate(() => {
+    window.__notifyLog = [];
+    window.__LOCA_NOTIFY__ = (ev) => window.__notifyLog.push(ev);
+  });
+
+  // Drive three per-member reminder frames of ONE generation through the real
+  // dispatcher: same `group`, distinct ids, distinct owners.
+  await page.evaluate(() => {
+    const now = Date.now();
+    const group = "attention:e2e:silence:1000";
+    for (const owner of ["alice", "bob", "carol"]) {
+      window.onFrame({
+        t: "attention",
+        attention: {
+          id: `${group}:${owner}-pid`,
+          group,
+          reason: "room_silence",
+          room: "e2e",
+          owner,
+          subject: "the room has gone quiet",
+          delivered_at: now,
+          created_at: now,
+          attempt: 1,
+        },
+      });
+    }
+  });
+
+  // Exactly one native notification for the whole generation (group-keyed dedup),
+  // carrying the shared group id, not any single member's attention id.
+  const log = await page.evaluate(() => window.__notifyLog);
+  expect(log.map((e) => e.kind)).toEqual(["reminder"]);
+  expect(log[0]).toMatchObject({ kind: "reminder", id: "attention:e2e:silence:1000" });
+
+  // Exactly one reminder chat bubble, addressed to @all — never one per member.
+  const bubbles = page.locator("#feed .row.locareminder");
+  await expect(bubbles).toHaveCount(1);
+  await expect(bubbles).toContainText("@all");
+  await expect(bubbles).not.toContainText("@alice");
+});

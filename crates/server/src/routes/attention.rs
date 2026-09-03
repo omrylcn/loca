@@ -170,7 +170,12 @@ pub(crate) async fn ack_care(
         Ok(actor) => actor,
         Err(code) => return (code, "invalid or missing session").into_response(),
     };
-    match hub.ack_care(&signal_id, &actor) {
+    // The authenticated principal, not the display name, gates an Everyone
+    // per-member ACK: two members sharing a name each ACK only their own row.
+    let principal_id = session_of(&headers)
+        .and_then(|token| hub.session_identity(Some(token)))
+        .and_then(|identity| identity.principal_id);
+    match hub.ack_care(&signal_id, &actor, principal_id.as_deref()) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (
             StatusCode::NOT_FOUND,

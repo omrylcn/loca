@@ -1186,6 +1186,13 @@ async fn ws_session(
                                                // Identify this session so we can tell our own eviction broadcast apart
                                                // from a later one aimed at us.
     let session_id = hub.next_session_id();
+    // The session's AUTHENTICATED principal, when it took its session with a
+    // davet/credential. Everyone per-member reminders are delivered and replayed
+    // by this id, never by the connection's display name — so a shared name can
+    // never cross wires and a principal-less socket never receives one.
+    let session_principal_id = credentials
+        .live_session(&hub)
+        .and_then(|session| session.principal_id);
     // `@all` calls ordinary room members everywhere. A caretaker receives it
     // only at its private home table; a cross-loca watch must never turn a
     // room-wide call into access to that room's discussion.
@@ -1215,7 +1222,7 @@ async fn ws_session(
     // anything this identity has not transport-ACKed; the listener ACKs only
     // after writing its durable inbox. Subscribe happened first, so remember
     // ids and suppress a raced live copy from `rx` below.
-    for signal in hub.pending_care(&room, &name) {
+    for signal in hub.pending_care_scoped(&room, &name, session_principal_id.as_deref()) {
         // Invariant (P0#2): a Care envelope is only ever placed on a socket
         // whose room matches signal.room. pending_care already guarantees this,
         // but never put a mismatched envelope on the wire even if a legacy or
@@ -1379,10 +1386,20 @@ async fn ws_session(
                     // operator names somebody else or clears the title.
                     if filter == WsFilter::Mentions {
                         if let ServerFrame::Care { signal } = &frame {
-                            let addressed = signal.owner.as_deref() == Some(name.as_str())
-                                || matches!(&signal.audience,
-                                    AttentionAudience::Group { names }
-                                        if names.iter().any(|member| member == &name));
+                            let addressed = match signal.owner_principal_id.as_deref() {
+                                // Principal-required (Everyone per-member): ONLY the
+                                // session whose authenticated principal matches gets
+                                // it — never a display-name or group-audience match.
+                                // This is what closes the N×N wake and keeps two
+                                // same-named principals apart.
+                                Some(pid) => session_principal_id.as_deref() == Some(pid),
+                                None => {
+                                    signal.owner.as_deref() == Some(name.as_str())
+                                        || matches!(&signal.audience,
+                                            AttentionAudience::Group { names }
+                                                if names.iter().any(|member| member == &name))
+                                }
+                            };
                             if !addressed {
                                 continue;
                             }

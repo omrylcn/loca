@@ -86,6 +86,12 @@ struct CareMark {
 struct CareDraft {
     attention_key: String,
     owner: Option<String>,
+    /// Set only for an Everyone per-member signal — the canonical principal that
+    /// must receive it. Its presence flips the signal to principal-only delivery
+    /// and a `Person` audience (no group broadcast).
+    owner_principal_id: Option<String>,
+    /// Generation id shared by every per-member signal of one Everyone reminder.
+    group: Option<String>,
     reason: CareReason,
     target: Option<String>,
     participants: Vec<String>,
@@ -2480,6 +2486,8 @@ impl Hub {
                         name: owner.clone(),
                     },
                     owner: Some(owner.clone()),
+                    owner_principal_id: None,
+                    group: None,
                     target: Some(owner.clone()),
                     participants: vec![msg.sender.clone(), owner],
                     subject: format!("{} directly summoned a caretaker", msg.sender),
@@ -2535,6 +2543,8 @@ impl Hub {
                     name: target.to_string(),
                 },
                 owner: Some(target.to_string()),
+                owner_principal_id: None,
+                group: None,
                 target: Some(target.to_string()),
                 participants: vec![msg.sender.clone(), target.to_string()],
                 subject: format!("{} replied to {}", msg.sender, target),
@@ -2675,6 +2685,7 @@ impl Hub {
                         subject: signal.subject.clone(),
                         audience: signal.audience.clone(),
                         owner: signal.owner.clone(),
+                        group: signal.group.clone(),
                         participants: signal.participants.clone(),
                         created_by: signal.created_by.clone(),
                         created_at: signal.at,
@@ -2715,6 +2726,7 @@ impl Hub {
                     subject: wake.subject.clone(),
                     audience: wake.audience.clone(),
                     owner: wake.owner.clone(),
+                    group: wake.group.clone(),
                     participants: wake.participants.clone(),
                     created_by: wake.created_by.clone(),
                     created_at: wake.at,
