@@ -11,6 +11,7 @@ SKILL_DIR = Path(__file__).resolve().parents[1]
 SUPERVISOR = SKILL_DIR / "monitor_listener.py"
 sys.path.insert(0, str(SKILL_DIR))
 import monitor_listener  # noqa: E402
+import listen  # noqa: E402
 
 
 class MonitorListenerTests(unittest.TestCase):
@@ -97,6 +98,62 @@ if count == 1:
                 "output must be /dev/stdout",
                 (root / "monitor.log").read_text(encoding="utf-8"),
             )
+
+    def test_native_monitor_marks_only_its_listener_for_runtime_health(self):
+        command = [sys.executable, "/opt/loca/listen.py", "wss://example/ws", "-"]
+        marked = monitor_listener.enable_native_runtime_health(command)
+        self.assertEqual(marked[-1], "--runtime-health")
+        self.assertNotIn("--runtime-health", command)
+        self.assertEqual(
+            monitor_listener.enable_native_runtime_health(marked).count(
+                "--runtime-health"
+            ),
+            1,
+        )
+        manual = [sys.executable, "/opt/loca/other-listener.py"]
+        self.assertEqual(monitor_listener.enable_native_runtime_health(manual), manual)
+
+    def test_native_health_renews_only_for_a_live_active_connection(self):
+        class RecordingLease(listen.NativeRuntimeHealthLease):
+            def __init__(self):
+                super().__init__("https://example", "membership", 0.02, 0.07)
+                self.reports = 0
+                self.reported = __import__("threading").Event()
+
+            def _report(self):
+                self.reports += 1
+                self.reported.set()
+
+        lease = RecordingLease()
+        lease.start()
+        try:
+            time.sleep(0.04)
+            self.assertEqual(lease.reports, 0, "a child PID alone is not ready")
+
+            lease.connected()
+            self.assertTrue(lease.reported.wait(timeout=1))
+            first = lease.reports
+            lease.activity()
+            time.sleep(0.06)
+            self.assertGreater(lease.reports, first, "a live connection renews its lease")
+
+            # No frames/pings: stop renewing before the server's 20 second TTL.
+            time.sleep(0.10)
+            expired = lease.reports
+            time.sleep(0.06)
+            self.assertEqual(lease.reports, expired)
+
+            lease.disconnected()
+            lease.activity()
+            disconnected = lease.reports
+            time.sleep(0.06)
+            self.assertEqual(
+                lease.reports,
+                disconnected,
+                "activity cannot revive a disconnected listener",
+            )
+        finally:
+            lease.stop()
 
     def test_supervisor_stop_terminates_child_without_restart(self):
         with tempfile.TemporaryDirectory() as tmp:

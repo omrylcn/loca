@@ -1159,7 +1159,10 @@ fn msg_addresses(m: &protocol::Message, name: &str, accepts_all: bool) -> bool {
 }
 
 /// Server-side keepalive so an idle connection isn't closed (was seen as 1006).
-const WS_PING_SECS: u64 = 30;
+// Runtime readiness expires after 20 seconds.  Ping often enough that a native
+// listener can prove the socket is still carrying traffic before renewing its
+// wake lease; a 30-second ping left an impossible gap between those contracts.
+const WS_PING_SECS: u64 = 10;
 
 /// One WS connection: replay history, then fan broadcast frames down to the
 /// client while accepting optional `send`/`control` frames coming up.

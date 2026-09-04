@@ -2063,6 +2063,57 @@ fn archived_room_pauses_care_and_unarchive_resumes_same_open_attention() {
 }
 
 #[test]
+fn runtime_readiness_expires_without_a_renewed_native_lease() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let mut hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        Arc::new(Store::open(None).expect("memory store")),
+        RoomSettings::default(),
+        1,
+    );
+    hub.now_ms = test_now_ms;
+    TEST_NOW.store(1_000, Ordering::Relaxed);
+    hub.report_runtime_health(
+        "native-lead",
+        RuntimeHealthUpdate {
+            wake: "IDLE".into(),
+            ack: "IDLE".into(),
+            delivery_id: None,
+            attention_id: None,
+            stored: false,
+            accepted: false,
+            first_response: false,
+            final_response: false,
+            turn_completed: false,
+        },
+    )
+    .expect("initial native lease");
+    assert!(
+        hub.runtime_health_for("native-lead")
+            .expect("reported runtime")
+            .ready
+    );
+
+    TEST_NOW.store(21_001, Ordering::Relaxed);
+    assert!(
+        !hub.runtime_health_for("native-lead")
+            .expect("expired runtime remains observable")
+            .ready,
+        "a stopped Monitor must become ineligible without a shutdown report"
+    );
+}
+
+#[test]
 fn disjoint_wait_cycle_is_not_starved_by_resolved_first_cycle() {
     let _clock = TEST_CLOCK_LOCK
         .lock()

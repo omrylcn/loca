@@ -78,6 +78,21 @@ def legacy_listener_output(command: list[str]) -> str | None:
     return None
 
 
+def enable_native_runtime_health(command: list[str]) -> list[str]:
+    """Mark the validated stdout listener as a native wake bridge.
+
+    A bare/manual ``listen.py`` must never advertise runtime readiness: it can
+    persist messages but cannot wake a model.  ``monitor_listener.py`` is the
+    trust boundary that knows stdout is owned by Claude's persistent Monitor,
+    so only this supervisor adds the health flag.
+    """
+    if "--runtime-health" in command:
+        return command
+    if any(Path(value).name == "listen.py" for value in command):
+        return [*command, "--runtime-health"]
+    return command
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", required=True)
@@ -106,6 +121,7 @@ def main() -> int:
             append_log(log, reason)
         emit_terminal_error(args.name, reason)
         return 64
+    command = enable_native_runtime_health(command)
     if args.max_restarts < 0:
         parser.error("--max-restarts must be non-negative")
     if min(
