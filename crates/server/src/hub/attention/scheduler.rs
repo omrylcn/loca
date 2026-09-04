@@ -51,23 +51,37 @@ impl Hub {
             room: room_name.to_string(),
             source_room: String::new(),
             reason: draft.reason,
-            audience: match &room.settings.care_recipient {
-                ReminderRecipient::Lead => AttentionAudience::Lead,
-                ReminderRecipient::All => {
-                    let mut names: Vec<String> = room
-                        .members
-                        .values()
-                        .filter(|(_, _, count)| *count > 0)
-                        .map(|(name, _, _)| name.clone())
-                        .collect();
-                    names.sort();
-                    names.dedup();
-                    AttentionAudience::Group { names }
+            // An Everyone per-member signal (owner_principal_id set) is addressed
+            // to exactly one person, so it carries a Person audience — never the
+            // Group audience that would let the mentions filter fan one signal out
+            // to every online member (the N×N wake). The group identity for the
+            // single-@all projection travels in `group`, not the audience.
+            audience: if draft.owner_principal_id.is_some() {
+                match draft.owner.clone() {
+                    Some(name) => AttentionAudience::Person { name },
+                    None => AttentionAudience::Lead,
                 }
-                ReminderRecipient::Person { name } => {
-                    AttentionAudience::Person { name: name.clone() }
+            } else {
+                match &room.settings.care_recipient {
+                    ReminderRecipient::Lead => AttentionAudience::Lead,
+                    ReminderRecipient::All => {
+                        let mut names: Vec<String> = room
+                            .members
+                            .values()
+                            .filter(|(_, _, count)| *count > 0)
+                            .map(|(name, _, _)| name.clone())
+                            .collect();
+                        names.sort();
+                        names.dedup();
+                        AttentionAudience::Group { names }
+                    }
+                    ReminderRecipient::Person { name } => {
+                        AttentionAudience::Person { name: name.clone() }
+                    }
                 }
             },
+            owner_principal_id: draft.owner_principal_id,
+            group: draft.group,
             owner: draft.owner,
             target: draft.target,
             participants: draft.participants,
@@ -142,6 +156,7 @@ impl Hub {
                 subject: signal.subject.clone(),
                 audience: signal.audience.clone(),
                 owner: signal.owner.clone(),
+                group: signal.group.clone(),
                 participants: signal.participants.clone(),
                 created_by: signal.created_by.clone(),
                 created_at: signal.at,
@@ -186,10 +201,15 @@ impl Hub {
                 continue;
             }
             let owner = self.care_owner(&rooms, &room_name);
-            if owner.is_none() {
-                // No live lead or loca-care runtime: leave counters untouched.
-                // The explicit wait remains persisted and the next sweep will
-                // deliver it once one attention owner is actually present.
+            let is_everyone = rooms
+                .get(&room_name)
+                .is_some_and(|room| matches!(room.settings.care_recipient, ReminderRecipient::All));
+            if owner.is_none() && !is_everyone {
+                // Lead/Person reminders need a single live owner: without one,
+                // leave counters untouched. The explicit wait remains persisted
+                // and the next sweep delivers it once an owner is present. An
+                // Everyone reminder instead fans out to the whole roster, so it
+                // proceeds even with no single owner (offline members included).
                 continue;
             }
             let Some(room) = rooms.get_mut(&room_name) else {
@@ -227,6 +247,8 @@ impl Hub {
                         CareDraft {
                             attention_key: key.clone(),
                             owner: owner.clone(),
+                            owner_principal_id: None,
+                            group: None,
                             reason: CareReason::WaitCycle,
                             target: None,
                             participants: cycle.clone(),
@@ -313,6 +335,8 @@ impl Hub {
                     CareDraft {
                         attention_key: format!("wait:{name}:{wait_since}"),
                         owner: owner.clone(),
+                        owner_principal_id: None,
+                        group: None,
                         reason: CareReason::WaitOverdue,
                         target: Some(target),
                         participants,
@@ -435,6 +459,110 @@ impl Hub {
                     };
                     let attempt = next_mark.signal_count;
                     let escalated = attempt > max_attempts;
+
+                    if is_everyone {
+                        // Fan out to the canonical roster. On the FIRST emission
+                        // of this generation the roster is the active-invite
+                        // snapshot; on a retry the generation's own open
+                        // attentions ARE the snapshot, so a member who joined
+                        // after the reminder started is never added. Each member
+                        // is re-checked at delivery time so a davet/membership
+                        // revoked after the snapshot is not delivered. The
+                        // per-member attention id carries the safe principal id
+                        // (never a secret token); the owner is the display name.
+                        let recipients: Vec<(String, String)> = if mark.signal_count == 0 {
+                            // First emission: the full active-invite snapshot must
+                            // resolve completely, or the whole generation aborts
+                            // (no writes, mark untouched → the scheduler retries).
+                            match self.everyone_recipients(&room_name) {
+                                Some(roster) => roster,
+                                None => continue,
+                            }
+                        } else {
+                            let prefix = format!("attention:{room_name}:{attention_key}:");
+                            let mut existing: Vec<(String, String)> = room
+                                .attentions
+                                .iter()
+                                .filter(|(id, attention)| {
+                                    id.starts_with(&prefix)
+                                        && attention.status == AttentionStatus::Open
+                                })
+                                .filter_map(|(id, attention)| {
+                                    let principal_id = id.strip_prefix(&prefix)?.to_string();
+                                    attention.owner.clone().map(|name| (principal_id, name))
+                                })
+                                .collect();
+                            existing.sort();
+                            existing
+                        };
+                        // Build every per-member signal up front (no writes yet).
+                        // A member is skipped only for a LEGITIMATE reason —
+                        // revoked after the snapshot, or already claimed/resolved —
+                        // which is a correct exclusion, not a partial failure.
+                        let mut signals = Vec::new();
+                        for (principal_id, display_name) in recipients {
+                            if !self.everyone_recipient_active(&room_name, &principal_id) {
+                                continue;
+                            }
+                            let mut member_subject = subject.clone();
+                            if reason == CareReason::GoalReminder && display_name == "loca-care" {
+                                Self::goal_caretaker_subject(&mut member_subject, escalated);
+                            }
+                            let signal = self.make_care_signal(
+                                &room_name,
+                                room,
+                                CareDraft {
+                                    attention_key: format!("{attention_key}:{principal_id}"),
+                                    owner: Some(display_name),
+                                    owner_principal_id: Some(principal_id.clone()),
+                                    // Generation id shared by every per-member
+                                    // signal of this reminder — secret-free and
+                                    // server-derived (no member/davet token).
+                                    group: Some(format!("attention:{room_name}:{attention_key}")),
+                                    reason,
+                                    target: target.clone(),
+                                    participants: participants.clone(),
+                                    subject: member_subject,
+                                    attempt,
+                                    at: now,
+                                    escalated,
+                                },
+                            );
+                            let done = room
+                                .attentions
+                                .get(&signal.attention_id)
+                                .is_some_and(|a| a.status != AttentionStatus::Open)
+                                || self
+                                    .store
+                                    .attention(&signal.attention_id)
+                                    .is_some_and(|a| a.status != AttentionStatus::Open);
+                            if done {
+                                continue;
+                            }
+                            signals.push(signal);
+                        }
+                        if signals.is_empty() {
+                            continue;
+                        }
+                        // All per-member attentions + the single generation mark
+                        // commit in ONE transaction — all or nothing.
+                        if let Err(error) = self.store.enqueue_everyone_care(
+                            &room_name,
+                            &key,
+                            next_mark.last_signal_at,
+                            next_mark.signal_count,
+                            &signals,
+                        ) {
+                            tracing::error!(%error, room = %room_name, signal_key = %key, "everyone care batch persistence failed");
+                            continue;
+                        }
+                        room.care_marks.insert(key, next_mark);
+                        for signal in signals {
+                            pending.push((room_name.clone(), signal, true));
+                        }
+                        break;
+                    }
+
                     if reason == CareReason::GoalReminder && owner.as_deref() == Some("loca-care") {
                         Self::goal_caretaker_subject(&mut subject, escalated);
                     }
@@ -444,6 +572,8 @@ impl Hub {
                         CareDraft {
                             attention_key,
                             owner: owner.clone(),
+                            owner_principal_id: None,
+                            group: None,
                             reason,
                             target,
                             participants,

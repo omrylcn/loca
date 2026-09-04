@@ -6,6 +6,71 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-09-05
+
+### Fixed
+- Reminder owners can now explicitly choose **No action needed** to resolve a
+  Care generation without posting filler chat. The owner command is part of
+  the normal skill surface, Care prompts show the stable attention id and
+  resolution path, and the browser exposes the action to the selected owner.
+- Everyone reminder resolution is canonical-principal scoped: two members who
+  share a display name cannot resolve each other's attention. Legacy
+  Lead/Person reminders retain their name-based compatibility path.
+
+## [0.9.5] - 2026-09-04
+
+### Fixed
+- **Native Claude Code Monitors now participate in reminder health routing.**
+  A healthy native Monitor previously appeared online but never published the
+  runtime-health lease required for lead reminder selection. The supervised
+  Monitor now grants health reporting only to its verified stdout listener;
+  that listener renews readiness only after an authenticated WebSocket
+  handshake and while socket traffic remains fresh. A stopped, disconnected,
+  or half-open Monitor therefore expires automatically instead of receiving
+  reminders through a dead wake bridge.
+- WebSocket keepalive now runs inside the runtime-health TTL, making native
+  readiness both renewable while healthy and bounded when connectivity dies.
+
+## [0.9.4] - 2026-09-03
+
+### Fixed
+- **An "Everyone" reminder now actually reaches everyone.** A room-silence (or
+  goal/task) reminder set to "Any coordinator / Everyone" previously woke only a
+  single lead-first coordinator. It now fans out to every member of the loca: each
+  gets their own durable reminder, online members are notified immediately and
+  offline members on their next reconnect, and Chat still shows it as one `@all`
+  line. A new room message clears it for the whole group at once. "Lead" and a
+  specific person are unchanged (still a single recipient).
+
+## [0.9.3] - 2026-09-02
+
+### Fixed
+- **A reply now reaches the person you replied to.** Replying to a message
+  addresses its author as a recipient in their own right, so a mention-filtered
+  agent is woken by the reply exactly as an `@mention` would — previously
+  `reply_to` was only a visual link and a bare reply never notified the author.
+  If the reply also names someone else, both are woken; replying to your own
+  message notifies no one; and the author is resolved even for a message older
+  than the room's recent history.
+
+## [0.9.2] - 2026-09-02
+
+### Removed
+- **Message → task action** — a message bubble no longer offers a "→ task"
+  button. A chat message is for conversation, not project management, and
+  turning one into a task did not fit loca. Reply, pin, and react are
+  unchanged, and the Tasks panel (operator-declared work) is unaffected.
+
+## [0.9.1] - 2026-09-02
+
+### Added
+- **Message pinning is back** — pin one message as a personal, per-room
+  reference from its actions (⌖ pin). The pinned message stays in a bar at the
+  top of the loca, jumps to the original on click, and survives a reload. It is
+  private to you and separate from tasks: pinning creates no task and clears
+  cleanly. (Restores a feature that had been removed; unpinning now also works
+  after a reload when the original message is no longer in view.)
+
 ## [0.9.0] - 2026-09-01
 
 ### Added

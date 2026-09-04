@@ -1502,3 +1502,605 @@ async fn wait_reply_does_not_complete_or_resurrect_the_wait() {
         "a deleted wait must not be resurrected by a later reply"
     );
 }
+
+#[tokio::test]
+async fn a_reply_to_a_caretaker_summons_them_cross_loca() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir
+        .path()
+        .join("reply-summon.db")
+        .to_string_lossy()
+        .to_string();
+    let (port, _guard) = spawn_server_env(
+        "",
+        &[
+            ("LOCA_AGENT_ROOM", "iye".into()),
+            ("RESERVED_LOCA", "iye".into()),
+            ("LOCA_CARETAKERS", "loca-dev,loca-care".into()),
+            ("DB_PATH", db),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let (mut caretaker, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-dev&type=agent&filter=mentions&turn_max=1"
+    ))
+    .await
+    .unwrap();
+    let client = reqwest::Client::new();
+
+    // loca-dev authored a message in the source loca `reviewer`.
+    let root: Value = client
+        .post(format!("{base}/rooms/reviewer/messages"))
+        .json(&serde_json::json!({
+            "sender": "loca-dev", "sender_type": "agent", "text": "the note"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let root_id = root["id"].as_u64().unwrap();
+
+    // A reply to loca-dev's message with NO explicit target and NO @loca-dev in
+    // text. The reply author (loca-dev) is addressed via reply_to_sender, so the
+    // cross-loca caretaker summon must still fire — exactly like an @mention.
+    client
+        .post(format!("{base}/rooms/reviewer/messages"))
+        .json(&serde_json::json!({
+            "sender": "reviewer1", "sender_type": "agent",
+            "text": "answering the note", "reply_to": root_id
+        }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let summoned = wait_for(&mut caretaker, |v| {
+        v["t"] == "care"
+            && v["signal"]["reason"] == "direct_summon"
+            && v["signal"]["context"][0]["text"] == "answering the note"
+    })
+    .await;
+    assert_eq!(summoned["signal"]["room"], "iye");
+    assert_eq!(summoned["signal"]["source_room"], "reviewer");
+    assert_eq!(summoned["signal"]["owner"], "loca-dev");
+    assert_eq!(summoned["signal"]["context"].as_array().unwrap().len(), 1);
+}
+
+/// Count room-silence Care frames delivered to `ws` within `ms` ms.
+async fn count_silence_care(
+    ws: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    ms: u64,
+) -> usize {
+    let mut count = 0usize;
+    let deadline = tokio::time::sleep(Duration::from_millis(ms));
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            _ = &mut deadline => break,
+            item = ws.next() => match item {
+                Some(Ok(WsMessage::Text(text))) => {
+                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                        if value["t"] == "care"
+                            && value["signal"]["reason"] == "room_silence"
+                        {
+                            count += 1;
+                        }
+                    }
+                }
+                _ => break,
+            },
+        }
+    }
+    count
+}
+
+#[tokio::test]
+async fn everyone_reminder_wakes_each_member_exactly_once_over_websockets() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir
+        .path()
+        .join("everyone-ws.sqlite")
+        .to_string_lossy()
+        .to_string();
+    // Silence fires after 1s; a long cooldown means exactly ONE sweep in the test
+    // window, so per-socket Care counts are deterministic — the pre-fix N×N group
+    // broadcast delivered one-per-member to EVERY socket (count 3), the fix
+    // delivers each member only its own (count 1).
+    let (port, _guard) = spawn_server_env(
+        "MASTER",
+        &[
+            ("DB_PATH", db),
+            ("CARE_SILENCE_SECS", "1".into()),
+            ("CARE_COOLDOWN_SECS", "60".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    // Three real members, each with a davet and a principal-bound session in proj.
+    let mut session = std::collections::HashMap::new();
+    for name in ["alice", "bob", "carol"] {
+        let davet = davet_for(&base, "MASTER", "proj", name).await;
+        session.insert(
+            name,
+            session_with(&base, ("x-room-token", davet.as_str()), name, Some("proj")).await,
+        );
+    }
+
+    // The reminder recipient is Everyone.
+    client
+        .put(format!("{base}/rooms/proj/settings"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "care_recipient": { "kind": "all" } }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let ws_url = |name: &str| {
+        format!(
+            "ws://127.0.0.1:{port}/ws?room=proj&name={name}&type=agent\
+             &filter=mentions&turn_max=1&session={}",
+            session[name]
+        )
+    };
+    let (mut alice, _) = tokio_tungstenite::connect_async(ws_url("alice"))
+        .await
+        .unwrap();
+    let (mut bob, _) = tokio_tungstenite::connect_async(ws_url("bob"))
+        .await
+        .unwrap();
+
+    // One message sets last_msg_ms; then the room goes quiet and silence elapses.
+    client
+        .post(format!("{base}/rooms/proj/messages"))
+        .header("x-session-token", &session["alice"])
+        .json(&serde_json::json!({ "sender": "alice", "sender_type": "agent", "text": "hi" }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    // Each online member is woken EXACTLY ONCE — never once-per-member.
+    assert_eq!(
+        count_silence_care(&mut alice, 4000).await,
+        1,
+        "alice woken exactly once, not once per member (no N×N)"
+    );
+    assert_eq!(
+        count_silence_care(&mut bob, 800).await,
+        1,
+        "bob woken exactly once, not once per member (no N×N)"
+    );
+
+    // carol was offline during the fan-out; her per-member reminder is durable and
+    // delivered exactly once on her first reconnect (principal-scoped replay).
+    let (mut carol, _) = tokio_tungstenite::connect_async(ws_url("carol"))
+        .await
+        .unwrap();
+    assert_eq!(
+        count_silence_care(&mut carol, 2000).await,
+        1,
+        "offline carol gets exactly one on reconnect"
+    );
+}
+
+/// Return the id of the first room-silence Care signal delivered to `ws` within
+/// `ms` ms — the delivery id the client would POST back to ACK.
+async fn next_silence_signal(
+    ws: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    ms: u64,
+) -> Option<(String, String)> {
+    let deadline = tokio::time::sleep(Duration::from_millis(ms));
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            _ = &mut deadline => return None,
+            item = ws.next() => match item {
+                Some(Ok(WsMessage::Text(text))) => {
+                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                        if value["t"] == "care" && value["signal"]["reason"] == "room_silence" {
+                            return Some((
+                                value["signal"]["id"].as_str()?.to_string(),
+                                value["signal"]["attention_id"].as_str()?.to_string(),
+                            ));
+                        }
+                    }
+                }
+                _ => return None,
+            },
+        }
+    }
+}
+
+/// An Everyone per-member ACK is gated by the ACKing session's authenticated
+/// principal end-to-end over the real HTTP door: the row's owner cannot be
+/// ACK'd by a different member, the owner ACKs its own and the receipt is
+/// durable (reconnect no longer replays it), and a co-member's own delivery is
+/// wholly independent of that ACK.
+#[tokio::test]
+async fn everyone_reminder_ack_is_principal_scoped_over_http() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir
+        .path()
+        .join("everyone-ack.sqlite")
+        .to_string_lossy()
+        .to_string();
+    let (port, _guard) = spawn_server_env(
+        "MASTER",
+        &[
+            ("DB_PATH", db),
+            ("CARE_SILENCE_SECS", "1".into()),
+            ("CARE_COOLDOWN_SECS", "60".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    let mut session = std::collections::HashMap::new();
+    for name in ["alice", "bob"] {
+        let davet = davet_for(&base, "MASTER", "proj", name).await;
+        session.insert(
+            name,
+            session_with(&base, ("x-room-token", davet.as_str()), name, Some("proj")).await,
+        );
+    }
+    client
+        .put(format!("{base}/rooms/proj/settings"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "care_recipient": { "kind": "all" } }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let ws_url = |name: &str| {
+        format!(
+            "ws://127.0.0.1:{port}/ws?room=proj&name={name}&type=agent\
+             &filter=mentions&turn_max=1&session={}",
+            session[name]
+        )
+    };
+
+    // Only alice is online during the fan-out; bob's per-member row is durable.
+    let (mut alice, _) = tokio_tungstenite::connect_async(ws_url("alice"))
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/rooms/proj/messages"))
+        .header("x-session-token", &session["alice"])
+        .json(&serde_json::json!({ "sender": "alice", "sender_type": "agent", "text": "hi" }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let (sig_alice, alice_attention) = next_silence_signal(&mut alice, 4000)
+        .await
+        .expect("alice receives her per-member reminder");
+
+    // A DIFFERENT member cannot ACK alice's delivery, even over the real door.
+    let ack = |token: &str, by: &str, signal: &str| {
+        client
+            .post(format!("{base}/rooms/proj/care/{signal}/ack"))
+            .header("x-session-token", token.to_string())
+            .json(&serde_json::json!({ "by": by }))
+            .send()
+    };
+    let bob_try = ack(&session["bob"], "bob", &sig_alice).await.unwrap();
+    assert_eq!(
+        bob_try.status(),
+        reqwest::StatusCode::NOT_FOUND,
+        "a co-member cannot ACK another member's Everyone delivery"
+    );
+
+    // Alice ACKs her own — accepted.
+    let own = ack(&session["alice"], "alice", &sig_alice).await.unwrap();
+    assert_eq!(
+        own.status(),
+        reqwest::StatusCode::NO_CONTENT,
+        "the owning principal ACKs its own delivery over HTTP"
+    );
+
+    let resolve = |token: &str, by: &str| {
+        client
+            .post(format!(
+                "{base}/rooms/proj/attentions/{alice_attention}/resolve"
+            ))
+            .header("x-session-token", token.to_string())
+            .json(&serde_json::json!({ "by": by }))
+            .send()
+    };
+    assert_eq!(
+        resolve(&session["bob"], "bob").await.unwrap().status(),
+        reqwest::StatusCode::FORBIDDEN,
+        "a co-member cannot resolve another principal's Everyone attention"
+    );
+    assert_eq!(
+        resolve(&session["alice"], "alice").await.unwrap().status(),
+        reqwest::StatusCode::OK,
+        "the owning principal resolves its own attention over HTTP"
+    );
+
+    // The ACK is durable: alice's reconnect no longer replays it.
+    let (mut alice2, _) = tokio_tungstenite::connect_async(ws_url("alice"))
+        .await
+        .unwrap();
+    assert_eq!(
+        count_silence_care(&mut alice2, 1500).await,
+        0,
+        "an acknowledged per-member reminder is not replayed on reconnect"
+    );
+
+    // bob's own delivery is wholly independent — his first connect still wakes
+    // him exactly once, untouched by alice's ACK.
+    let (mut bob, _) = tokio_tungstenite::connect_async(ws_url("bob"))
+        .await
+        .unwrap();
+    assert_eq!(
+        count_silence_care(&mut bob, 2000).await,
+        1,
+        "bob's per-member reminder is unaffected by alice's ACK"
+    );
+}
+
+/// A member revoked AFTER the fan-out (its durable row already enqueued) gets
+/// ZERO Care on reconnect. Over the real door revocation cascades to the
+/// session, so the socket is refused outright — the durable row is never
+/// delivered. (The defense-in-depth roster re-check inside the principal-scoped
+/// replay, for the narrower case of an off-roster principal that still holds a
+/// live session, is proved at the hub level in
+/// `everyone_reconnect_replay_drops_a_revoked_principals_row`.)
+#[tokio::test]
+async fn everyone_reminder_revoked_member_gets_zero_on_reconnect() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir
+        .path()
+        .join("everyone-revoke.sqlite")
+        .to_string_lossy()
+        .to_string();
+    let (port, _guard) = spawn_server_env(
+        "MASTER",
+        &[
+            ("DB_PATH", db),
+            ("CARE_SILENCE_SECS", "1".into()),
+            ("CARE_COOLDOWN_SECS", "60".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    let mut session = std::collections::HashMap::new();
+    let mut davet = std::collections::HashMap::new();
+    for name in ["alice", "carol"] {
+        let dv = davet_for(&base, "MASTER", "proj", name).await;
+        session.insert(
+            name,
+            session_with(&base, ("x-room-token", dv.as_str()), name, Some("proj")).await,
+        );
+        davet.insert(name, dv);
+    }
+    client
+        .put(format!("{base}/rooms/proj/settings"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "care_recipient": { "kind": "all" } }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let ws_url = |name: &str| {
+        format!(
+            "ws://127.0.0.1:{port}/ws?room=proj&name={name}&type=agent\
+             &filter=mentions&turn_max=1&session={}",
+            session[name]
+        )
+    };
+
+    // alice online drives the silence; carol is offline, so her per-member row
+    // is written to the durable outbox.
+    let (mut alice, _) = tokio_tungstenite::connect_async(ws_url("alice"))
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/rooms/proj/messages"))
+        .header("x-session-token", &session["alice"])
+        .json(&serde_json::json!({ "sender": "alice", "sender_type": "agent", "text": "hi" }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    assert_eq!(
+        count_silence_care(&mut alice, 4000).await,
+        1,
+        "alice (still on the roster) is woken once"
+    );
+
+    // Revoke carol's davet AFTER the fan-out already enqueued her row.
+    client
+        .delete(format!("{base}/rooms/proj/invites/{}", davet["carol"]))
+        .header("x-admin-token", "MASTER")
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    // carol tries to reconnect: revocation cascaded to her session, so the door
+    // refuses the socket — she receives zero Care because she cannot reconnect.
+    let reconnect = tokio_tungstenite::connect_async(ws_url("carol")).await;
+    assert!(
+        reconnect.is_err(),
+        "a member revoked after the fan-out cannot reconnect — its session is revoked with the davet, so it receives zero"
+    );
+}
+
+/// Two DISTINCT canonical principals that share a display name each receive ONLY
+/// their own Everyone Care over real WebSockets — delivery is principal-scoped,
+/// never name-based, so a shared name cannot cross-deliver. The server refuses
+/// two live members with one name, so we seed two distinct members (distinct
+/// principals) with principal-bound sessions, rename the second to the same name
+/// in the DB while the server is down, then restart onto the same DB+port: the
+/// reloaded roster now holds two same-named principals and the sessions persist.
+#[tokio::test]
+async fn everyone_reminder_separates_two_same_named_principals_over_websockets() {
+    // Fixed port + temp DB so we can rename between two boots of the same server.
+    let port = {
+        let l = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let p = l.local_addr().unwrap().port();
+        drop(l);
+        p
+    };
+    let db = std::env::temp_dir().join(format!("everyone-samename-{port}.db"));
+    let _ = std::fs::remove_file(&db);
+    let db_str = db.to_string_lossy().to_string();
+    let boot_env = |port: u16| {
+        vec![
+            ("PORT", port.to_string()),
+            ("DB_PATH", db_str.clone()),
+            ("CARE_SILENCE_SECS", "1".to_string()),
+            ("CARE_COOLDOWN_SECS", "60".to_string()),
+        ]
+    };
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    // Boot 1: two distinct members (distinct principals), each davetted into proj.
+    // care_recipient = Everyone. Davets are durable across restart; davet-derived
+    // sessions are ephemeral, so we re-mint them on boot 2.
+    let dv_a;
+    let dv_b;
+    {
+        let (_p, _guard) = spawn_server_env("MASTER", &boot_env(port)).await;
+        dv_a = davet_for(&base, "MASTER", "proj", "sam").await;
+        dv_b = davet_for(&base, "MASTER", "proj", "sam-two").await;
+        client
+            .put(format!("{base}/rooms/proj/settings"))
+            .header("x-admin-token", "MASTER")
+            .json(&serde_json::json!({ "care_recipient": { "kind": "all" } }))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+        // _guard drops here -> server killed.
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // Rename the second identity to the SAME display name while the server is
+    // down — in members (the fan-out roster name) AND principals (the session's
+    // resolved name) — so the reloaded roster holds two distinct principals both
+    // shown as "sam". principal_id is untouched, so they stay distinct.
+    {
+        let sql = rusqlite::Connection::open(&db).unwrap();
+        sql.busy_timeout(Duration::from_secs(5)).unwrap();
+        let renamed_member = sql
+            .execute("UPDATE members SET name = 'sam' WHERE name = 'sam-two'", [])
+            .unwrap();
+        assert_eq!(renamed_member, 1, "renamed exactly the second member");
+        sql.execute(
+            "UPDATE principals SET display_name = 'sam' WHERE display_name = 'sam-two'",
+            [],
+        )
+        .unwrap();
+    }
+
+    // Boot 2: same DB + port. The roster now has two same-named principals.
+    let (_p2, _guard2) = spawn_server_env("MASTER", &boot_env(port)).await;
+
+    // Re-mint each session from its durable davet: a session speaks as its davet's
+    // member, so both now resolve to the display name "sam" with DISTINCT principals.
+    let session_a = session_with(&base, ("x-room-token", dv_a.as_str()), "sam", Some("proj")).await;
+    let session_b = session_with(&base, ("x-room-token", dv_b.as_str()), "sam", Some("proj")).await;
+
+    let ws_url = |session: &str| {
+        format!(
+            "ws://127.0.0.1:{port}/ws?room=proj&name=sam&type=agent\
+             &filter=mentions&turn_max=1&session={session}"
+        )
+    };
+    let (mut sam_a, _) = tokio_tungstenite::connect_async(ws_url(&session_a))
+        .await
+        .unwrap();
+    let (mut sam_b, _) = tokio_tungstenite::connect_async(ws_url(&session_b))
+        .await
+        .unwrap();
+
+    // Arm silence: one message, then the room goes quiet.
+    client
+        .post(format!("{base}/rooms/proj/messages"))
+        .header("x-session-token", &session_a)
+        .json(&serde_json::json!({ "sender": "sam", "sender_type": "agent", "text": "hi" }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    // Each same-named socket receives EXACTLY its own principal's row. A name-based
+    // delivery would hand BOTH "sam" rows to BOTH sockets.
+    let (a, attention_a) = next_silence_signal(&mut sam_a, 4000)
+        .await
+        .expect("sam(A) receives its own reminder");
+    let (b, attention_b) = next_silence_signal(&mut sam_b, 2000)
+        .await
+        .expect("sam(B) receives its own reminder");
+    assert_ne!(a, b, "each socket received a distinct principal's delivery");
+    // No SECOND Care to either socket — neither received the other principal's row.
+    assert_eq!(
+        count_silence_care(&mut sam_a, 800).await,
+        0,
+        "sam(A) got only its own row, never sam(B)'s"
+    );
+    assert_eq!(
+        count_silence_care(&mut sam_b, 800).await,
+        0,
+        "sam(B) got only its own row, never sam(A)'s"
+    );
+
+    // Both sessions present the same display name, so only canonical principal
+    // scoping can distinguish the owner at the HTTP resolve door.
+    let resolve_a = |session: &str, attention_id: &str| {
+        client
+            .post(format!(
+                "{base}/rooms/proj/attentions/{attention_id}/resolve"
+            ))
+            .header("x-session-token", session.to_string())
+            .json(&serde_json::json!({ "by": "sam" }))
+            .send()
+    };
+    assert_eq!(
+        resolve_a(&session_b, &attention_a).await.unwrap().status(),
+        reqwest::StatusCode::FORBIDDEN,
+        "same-named sam(B) cannot resolve sam(A)'s attention"
+    );
+    assert_eq!(
+        resolve_a(&session_a, &attention_a).await.unwrap().status(),
+        reqwest::StatusCode::OK,
+        "sam(A) resolves only its own principal-scoped attention"
+    );
+    assert_eq!(
+        resolve_a(&session_b, &attention_b).await.unwrap().status(),
+        reqwest::StatusCode::OK,
+        "sam(B)'s own attention remains independently resolvable"
+    );
+
+    let _ = std::fs::remove_file(&db);
+}

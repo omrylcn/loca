@@ -14,6 +14,7 @@ SKILL_DIR = Path(__file__).resolve().parents[1]
 
 class MembershipHandler(BaseHTTPRequestHandler):
     session_requests = 0
+    last_post_path = ""
 
     def log_message(self, *_):
         pass
@@ -71,6 +72,7 @@ class MembershipHandler(BaseHTTPRequestHandler):
             self._json({"error": "unauthorized"}, 401)
 
     def do_POST(self):
+        type(self).last_post_path = self.path
         if (
             self.path == "/membership/claim"
             and self.headers.get("x-room-token") == "dv_invited"
@@ -99,6 +101,46 @@ class MembershipHandler(BaseHTTPRequestHandler):
 
 
 class MembershipOnlySetupTests(unittest.TestCase):
+    def test_attention_resolve_is_an_owner_command_without_internal_flag(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), MembershipHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                env = dict(os.environ)
+                env.update({
+                    "HOME": tmp,
+                    "LOCA_NAME": "debug",
+                    "DAVET_sb_mobile": "dv_live",
+                    "LOCA_INTERNAL_ATTENTION": "0",
+                })
+                origin = f"http://127.0.0.1:{server.server_port}"
+                result = subprocess.run(
+                    [
+                        str(SKILL_DIR / "connect.sh"),
+                        "attention-resolve",
+                        origin,
+                        "sb-mobile",
+                        "debug",
+                        "attention:sb-mobile:silence:123",
+                    ],
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("internal attention lifecycle", result.stderr)
+                self.assertEqual(
+                    MembershipHandler.last_post_path,
+                    "/rooms/sb-mobile/attentions/attention%3Asb-mobile%3Asilence%3A123/resolve",
+                )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
     def test_status_without_identity_gives_one_actionable_onboarding_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             # Hermetic: strip any loca identity the caller's shell already holds,

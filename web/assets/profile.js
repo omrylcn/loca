@@ -90,7 +90,15 @@ async function fetchProfile() {
     if (sequence !== profileFetchSequence || room !== state.room) return;
     state.profile = profile;
     state.credentials = credentials;
+    const priorPrincipal = state.principalId;
     state.principalId = profile.principal?.id || null;
+    // Identity just hydrated. joinRoom() may have loaded the personal pin under
+    // the name fallback before the real principal id arrived; re-key it now (if
+    // still in a room and the principal actually changed) so a pin stored under
+    // the principal key reappears after a slow /profile.
+    if (state.room && state.principalId && state.principalId !== priorPrincipal) {
+      loadPinned();
+    }
     if (state.profile.principal?.display_name) {
       state.name = state.profile.principal.display_name;
       $("name").value = state.name;

@@ -131,7 +131,16 @@ pub(crate) async fn resolve_attention(
     let is_operator = source_access
         && (is_admin_req(&hub, &headers)
             || hub.is_loca_operator(&id, admin_token_of(&headers), session_of(&headers), &actor));
-    attention_response(hub.resolve_attention(&id, &attention_id, &actor, is_operator))
+    let principal_id = session_of(&headers)
+        .and_then(|token| hub.session_identity(Some(token)))
+        .and_then(|identity| identity.principal_id);
+    attention_response(hub.resolve_attention(
+        &id,
+        &attention_id,
+        &actor,
+        principal_id.as_deref(),
+        is_operator,
+    ))
 }
 pub(crate) fn attention_response(
     result: Result<protocol::Attention, AttentionError>,
@@ -170,7 +179,12 @@ pub(crate) async fn ack_care(
         Ok(actor) => actor,
         Err(code) => return (code, "invalid or missing session").into_response(),
     };
-    match hub.ack_care(&signal_id, &actor) {
+    // The authenticated principal, not the display name, gates an Everyone
+    // per-member ACK: two members sharing a name each ACK only their own row.
+    let principal_id = session_of(&headers)
+        .and_then(|token| hub.session_identity(Some(token)))
+        .and_then(|identity| identity.principal_id);
+    match hub.ack_care(&signal_id, &actor, principal_id.as_deref()) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (
             StatusCode::NOT_FOUND,

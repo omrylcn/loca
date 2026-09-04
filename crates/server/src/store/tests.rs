@@ -276,6 +276,8 @@ fn care_signal_from(id: &str, attention_id: &str, room: &str, source_room: &str)
             name: "loca-care".into(),
         },
         owner: Some("loca-care".into()),
+        owner_principal_id: None,
+        group: None,
         target: None,
         participants: Vec::new(),
         subject: "stalled goal".into(),
@@ -312,7 +314,7 @@ fn room_rename_migrates_attention_identity_but_keeps_delivery_receipt() {
     assert_eq!(pending.attention_id, "attention:new:goal:1:1000");
     assert_eq!(pending.room, "new");
     assert!(store
-        .ack_care("delivery-stable", "loca-care", 2_000)
+        .ack_care_scoped("delivery-stable", "loca-care", None, 2_000)
         .expect("late ACK"));
 }
 

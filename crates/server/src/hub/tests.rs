@@ -8,7 +8,7 @@ use protocol::{
     SenderType, ServerFrame, SetWait, TaskStatus, UpdateGoal, UpdateTask,
 };
 
-use super::{CareDraft, GoalError, Hub, HubConfig};
+use super::{AttentionError, CareDraft, GoalError, Hub, HubConfig};
 use crate::store::{BuildingRole, Store};
 
 static TEST_NOW: AtomicU64 = AtomicU64::new(0);
@@ -63,6 +63,67 @@ fn authority_resolves_server_side_principals_and_revocation_takes_effect_live() 
     let revoked = hub.resolve_authority(Some("sm_alice"), None);
     assert_eq!(revoked.building_role, None);
     assert!(!revoked.is_building_admin());
+}
+
+#[test]
+fn a_reply_to_a_caretaker_is_addressed_once() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("addressing.db");
+    let store = Arc::new(Store::open(Some(path.to_str().expect("db path"))).expect("store"));
+    let hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::from(["loca-dev".into()]),
+        },
+        store,
+        RoomSettings::default(),
+        1,
+    );
+
+    let base = protocol::Message {
+        id: 5,
+        room: "reviewer".into(),
+        sender: "someone".into(),
+        sender_type: SenderType::Agent,
+        target: None,
+        text: "answering".into(),
+        kind: protocol::MessageKind::Say,
+        reply_to: Some(1),
+        reply_to_sender: Some("loca-dev".into()),
+        ts: 1,
+        attachments: Vec::new(),
+    };
+
+    // A reply whose author is a caretaker addresses them — the new path, with no
+    // explicit target and no @mention.
+    assert_eq!(
+        hub.addressed_caretakers(&base),
+        vec!["loca-dev".to_string()]
+    );
+
+    // When the same caretaker is ALSO the target and @mentioned, sort+dedup keep
+    // exactly one summon (never three).
+    let triple = protocol::Message {
+        target: Some("loca-dev".into()),
+        text: "@loca-dev answering".into(),
+        ..base.clone()
+    };
+    assert_eq!(
+        hub.addressed_caretakers(&triple),
+        vec!["loca-dev".to_string()]
+    );
+
+    // A non-caretaker reply author addresses nobody.
+    let non_caretaker = protocol::Message {
+        reply_to_sender: Some("someone-else".into()),
+        ..base.clone()
+    };
+    assert!(hub.addressed_caretakers(&non_caretaker).is_empty());
 }
 
 #[test]
@@ -698,6 +759,8 @@ fn operator_can_route_reminders_to_one_specific_healthy_person() {
         CareDraft {
             attention_key: "goal:all:1".into(),
             owner: Some("lead".into()),
+            owner_principal_id: None,
+            group: None,
             reason: CareReason::GoalReminder,
             target: None,
             participants: Vec::new(),
@@ -712,6 +775,544 @@ fn operator_can_route_reminders_to_one_specific_healthy_person() {
         AttentionAudience::Group {
             names: vec!["lead".into(), "reviewer".into()]
         }
+    );
+}
+
+// ---- Everyone (durable multi-recipient) reminder fan-out ----
+
+/// Build a hub whose new rooms default to an `Everyone` room-silence reminder,
+/// and seat a canonical roster of `names` (each admitted — which mints a
+/// principal — and davetted into `room`). Returns the hub with a controllable
+/// clock already at `t=1_000`.
+fn everyone_hub_from_store(store: Arc<Store>) -> Hub {
+    let mut hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        store,
+        RoomSettings {
+            care_silence_secs: 1,
+            care_cooldown_secs: 0,
+            care_max_attempts: 3,
+            care_recipient: ReminderRecipient::All,
+            ..RoomSettings::default()
+        },
+        1,
+    );
+    hub.now_ms = test_now_ms;
+    TEST_NOW.store(1_000, Ordering::Relaxed);
+    hub
+}
+
+fn everyone_hub(db: &std::path::Path, room: &str, names: &[&str]) -> Hub {
+    let hub = everyone_hub_from_store(Arc::new(Store::open(db.to_str()).expect("sqlite store")));
+    for name in names {
+        let member = hub.admit_member(name, "agent", "operator").expect("admit");
+        hub.invite_member_to_room(&member.token, room, "operator")
+            .expect("invite");
+    }
+    hub
+}
+
+fn arm_silence(hub: &Hub, room: &str, sender: &str) {
+    hub.post(
+        room,
+        PostMessage {
+            kind: Default::default(),
+            sender: sender.into(),
+            sender_type: SenderType::Agent,
+            target: None,
+            text: "hi".into(),
+            reply_to: None,
+            op_id: None,
+            attachments: Vec::new(),
+        },
+        true,
+        sender,
+    )
+    .expect("seed message");
+}
+
+fn silence_attentions(hub: &Hub, room: &str) -> Vec<(String, protocol::Attention)> {
+    let rooms = hub.rooms.lock().expect("rooms");
+    let r = rooms.get(room).expect("room");
+    let mut out: Vec<(String, protocol::Attention)> = r
+        .attentions
+        .iter()
+        .filter(|(id, _)| id.contains(":silence:"))
+        .map(|(id, a)| (id.clone(), a.clone()))
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+#[test]
+fn everyone_reminder_fans_out_to_a_durable_attention_per_member() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let dir = tempfile::tempdir().expect("temp store");
+    let hub = everyone_hub(
+        &dir.path().join("fanout.sqlite"),
+        "proj",
+        &["alice", "bob", "carol"],
+    );
+    arm_silence(&hub, "proj", "alice");
+
+    TEST_NOW.store(5_000, Ordering::Relaxed);
+    hub.tick_care();
+
+    let silence = silence_attentions(&hub, "proj");
+    assert_eq!(
+        silence.len(),
+        3,
+        "one attention per roster member, not one lead"
+    );
+    let mut owners: Vec<String> = silence
+        .iter()
+        .filter_map(|(_, a)| a.owner.clone())
+        .collect();
+    owners.sort();
+    assert_eq!(owners, vec!["alice", "bob", "carol"]);
+    // Every per-member attention shares the silence generation prefix (so the
+    // durable + in-memory prefix resolvers close them together) and carries the
+    // group audience (so Chat renders a single @all).
+    let mut groups = std::collections::HashSet::new();
+    for (id, attention) in &silence {
+        assert!(
+            id.starts_with("attention:proj:silence:"),
+            "shared generation prefix: {id}"
+        );
+        // Each per-member signal is addressed to ONE person (no group audience →
+        // no N×N wake); the generation identity for the single @all lives in
+        // `group`, shared across members and carrying no secret token.
+        assert!(
+            matches!(attention.audience, AttentionAudience::Person { .. }),
+            "per-member Person audience, not a group broadcast"
+        );
+        let group = attention
+            .group
+            .clone()
+            .expect("per-member attention carries a group id");
+        assert!(
+            !group.contains("mb_") && !group.contains("dv_"),
+            "group id is secret-free"
+        );
+        groups.insert(group);
+    }
+    assert_eq!(groups.len(), 1, "all members share one generation group id");
+}
+
+#[test]
+fn everyone_reminder_reaches_offline_members_via_the_durable_outbox() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let dir = tempfile::tempdir().expect("temp store");
+    // Nobody joins — every member is offline. They must still each get a durable
+    // care_outbox row so the reminder is delivered on their first reconnect.
+    let hub = everyone_hub(
+        &dir.path().join("offline.sqlite"),
+        "proj",
+        &["alice", "bob", "carol"],
+    );
+    arm_silence(&hub, "proj", "alice");
+    TEST_NOW.store(5_000, Ordering::Relaxed);
+    hub.tick_care();
+
+    for name in ["alice", "bob", "carol"] {
+        let pending = hub.store.pending_care("proj", name);
+        assert_eq!(
+            pending.len(),
+            1,
+            "{name} (offline) has one durable reminder queued"
+        );
+        assert_eq!(pending[0].reason, CareReason::RoomSilence);
+    }
+}
+
+#[test]
+fn everyone_reminder_is_all_or_nothing_when_a_principal_cannot_resolve() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let dir = tempfile::tempdir().expect("temp store");
+    let db = dir.path().join("all-or-nothing.sqlite");
+    let hub = everyone_hub(&db, "proj", &["alice", "bob", "carol"]);
+    arm_silence(&hub, "proj", "alice");
+
+    // Break bob's principal resolution while his davet + membership stay active:
+    // drop the credential that binds his member record to a principal (targeted
+    // via his principal's unique display name). The roster is now inconsistent.
+    {
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        conn.execute(
+            "DELETE FROM credentials WHERE principal_id IN
+                 (SELECT id FROM principals WHERE display_name = 'bob')",
+            [],
+        )
+        .unwrap();
+    }
+
+    TEST_NOW.store(5_000, Ordering::Relaxed);
+    hub.tick_care();
+
+    // All or nothing: not one attention, not one outbox row, and the mark is
+    // untouched so the scheduler retries — never a partial "Everyone".
+    assert!(
+        silence_attentions(&hub, "proj").is_empty(),
+        "a single unresolvable principal aborts the whole fan-out"
+    );
+    for name in ["alice", "carol"] {
+        assert!(
+            hub.store.pending_care("proj", name).is_empty(),
+            "{name} got no outbox row from the aborted generation"
+        );
+    }
+    let rooms = hub.rooms.lock().expect("rooms");
+    assert!(
+        !rooms
+            .get("proj")
+            .expect("room")
+            .care_marks
+            .contains_key("silence"),
+        "the care mark did not advance"
+    );
+}
+
+#[test]
+fn everyone_reminder_retry_re_delivers_without_duplicating() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let dir = tempfile::tempdir().expect("temp store");
+    let hub = everyone_hub(
+        &dir.path().join("retry.sqlite"),
+        "proj",
+        &["alice", "bob", "carol"],
+    );
+    arm_silence(&hub, "proj", "alice");
+
+    TEST_NOW.store(5_000, Ordering::Relaxed);
+    hub.tick_care();
+    assert_eq!(silence_attentions(&hub, "proj").len(), 3);
+
+    // A later sweep re-delivers to the SAME generation; the per-member attention
+    // ids are stable, so no new attention is created.
+    TEST_NOW.store(9_000, Ordering::Relaxed);
+    hub.tick_care();
+    assert_eq!(
+        silence_attentions(&hub, "proj").len(),
+        3,
+        "retry re-delivers to the same generation, never duplicates"
+    );
+}
+
+#[test]
+fn a_room_message_resolves_every_everyone_attention_together() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let dir = tempfile::tempdir().expect("temp store");
+    let hub = everyone_hub(
+        &dir.path().join("resolve.sqlite"),
+        "proj",
+        &["alice", "bob", "carol"],
+    );
+    arm_silence(&hub, "proj", "alice");
+    TEST_NOW.store(5_000, Ordering::Relaxed);
+    hub.tick_care();
+    assert_eq!(silence_attentions(&hub, "proj").len(), 3);
+
+    // A new room message breaks the silence: every per-member attention of that
+    // generation resolves together (the prefix resolver), not just one.
+    TEST_NOW.store(6_000, Ordering::Relaxed);
+    arm_silence(&hub, "proj", "bob");
+    let silence = silence_attentions(&hub, "proj");
+    assert_eq!(silence.len(), 3);
+    assert!(
+        silence
+            .iter()
+            .all(|(_, a)| a.status == AttentionStatus::Resolved),
+        "a room message resolves all Everyone attentions, not one"
+    );
+}
+
+#[test]
+fn everyone_roster_drops_a_revoked_member() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let dir = tempfile::tempdir().expect("temp store");
+    let hub = everyone_hub(
+        &dir.path().join("revoke.sqlite"),
+        "proj",
+        &["alice", "bob", "carol"],
+    );
+    assert_eq!(
+        hub.everyone_recipients("proj").expect("full roster").len(),
+        3
+    );
+
+    let carol = hub.member_by_name("carol").expect("carol").token;
+    hub.revoke_member(&carol).expect("revoke carol");
+
+    let roster = hub
+        .everyone_recipients("proj")
+        .expect("roster after revoke");
+    assert_eq!(
+        roster.len(),
+        2,
+        "a revoked member leaves the Everyone roster"
+    );
+    assert!(roster.iter().all(|(_, name)| name != "carol"));
+}
+
+#[test]
+fn everyone_reconnect_replay_drops_a_revoked_principals_row() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let dir = tempfile::tempdir().expect("temp store");
+    // Everyone is offline, so the fan-out writes a durable outbox row per member.
+    let hub = everyone_hub(
+        &dir.path().join("revoke-replay.sqlite"),
+        "proj",
+        &["alice", "carol"],
+    );
+    arm_silence(&hub, "proj", "alice");
+    TEST_NOW.store(5_000, Ordering::Relaxed);
+    hub.tick_care();
+
+    // carol's canonical principal, from the pre-revoke roster.
+    let carol_pid = hub
+        .everyone_recipients("proj")
+        .expect("roster")
+        .into_iter()
+        .find(|(_, name)| name == "carol")
+        .expect("carol on roster")
+        .0;
+
+    // Before revoke: carol's durable row replays to her principal exactly once.
+    assert_eq!(
+        hub.pending_care_scoped("proj", "carol", Some(&carol_pid))
+            .len(),
+        1,
+        "carol's enqueued reminder replays before revoke"
+    );
+
+    // Revoke carol's davet AFTER her row was already enqueued.
+    hub.revoke_invites_for("proj", "carol")
+        .expect("revoke carol's davet");
+
+    // The principal-scoped replay re-checks the LIVE roster and drops the stale
+    // row: a revoked principal receives zero on reconnect.
+    assert!(
+        hub.pending_care_scoped("proj", "carol", Some(&carol_pid))
+            .is_empty(),
+        "a revoked principal's enqueued reminder is dropped on reconnect"
+    );
+    // The durable receipt is retained UNACKNOWLEDGED (audit truth) — it is
+    // filtered at delivery, never fake-ACK'd.
+    assert_eq!(
+        hub.store.pending_care("proj", "carol").len(),
+        1,
+        "the outbox row is retained unacknowledged, not fake-ACK'd"
+    );
+}
+
+#[test]
+fn everyone_treats_two_same_named_principals_as_distinct_recipients() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let dir = tempfile::tempdir().expect("temp store");
+    let db = dir.path().join("same-name.sqlite");
+    let hub = everyone_hub_from_store(Arc::new(Store::open(db.to_str()).expect("store")));
+    // Two distinct members with distinct canonical principals, both davetted into
+    // the same room.
+    let dave = hub.admit_member("dave", "agent", "operator").expect("dave");
+    let other = hub
+        .admit_member("dave-two", "agent", "operator")
+        .expect("other");
+    hub.invite_member_to_room(&dave.token, "proj", "operator")
+        .expect("invite dave");
+    hub.invite_member_to_room(&other.token, "proj", "operator")
+        .expect("invite other");
+    // Rename the second member to the SAME display name — in the store and the
+    // in-memory roster — so two distinct principals now share a display name.
+    {
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        conn.execute(
+            "UPDATE members SET name = 'dave' WHERE token = ?1",
+            rusqlite::params![other.token],
+        )
+        .unwrap();
+    }
+    hub.members
+        .lock()
+        .expect("members")
+        .get_mut(&other.token)
+        .expect("other membership")
+        .name = "dave".into();
+
+    // Deduped by canonical principal, never by name → two recipients, both "dave".
+    let roster = hub.everyone_recipients("proj").expect("roster");
+    assert_eq!(roster.len(), 2, "two principals, same name, two recipients");
+    assert!(roster.iter().all(|(_, name)| name == "dave"));
+    let principals: HashSet<String> = roster.iter().map(|(pid, _)| pid.clone()).collect();
+    assert_eq!(principals.len(), 2, "distinct canonical principals");
+
+    arm_silence(&hub, "proj", "dave");
+    TEST_NOW.store(5_000, Ordering::Relaxed);
+    hub.tick_care();
+    let silence = silence_attentions(&hub, "proj");
+    assert_eq!(
+        silence.len(),
+        2,
+        "one attention per principal, not merged by name"
+    );
+    let ids: HashSet<String> = silence.iter().map(|(id, _)| id.clone()).collect();
+    assert_eq!(ids.len(), 2, "attention ids differ by principal");
+    assert!(silence
+        .iter()
+        .all(|(_, a)| a.owner.as_deref() == Some("dave")));
+
+    // Each same-named principal has its OWN durable outbox row, and the ACK is
+    // gated by the authenticated principal — never the shared display name.
+    let pids: Vec<String> = roster.iter().map(|(pid, _)| pid.clone()).collect();
+    let care_a = hub
+        .pending_care_scoped("proj", "dave", Some(&pids[0]))
+        .pop()
+        .expect("principal a has its own row");
+    let care_b = hub
+        .pending_care_scoped("proj", "dave", Some(&pids[1]))
+        .pop()
+        .expect("principal b has its own row");
+    let sig_a = care_a.id.clone();
+    let sig_b = care_b.id.clone();
+    assert_ne!(sig_a, sig_b, "each principal's delivery is distinct");
+    assert!(
+        matches!(
+            hub.resolve_attention("proj", &care_a.attention_id, "dave", Some(&pids[1]), false),
+            Err(AttentionError::Forbidden)
+        ),
+        "a same-named principal cannot resolve another principal's attention"
+    );
+    assert!(
+        matches!(
+            hub.resolve_attention("proj", &care_a.attention_id, "dave", None, false),
+            Err(AttentionError::Forbidden)
+        ),
+        "a principal-bound attention cannot be resolved by name alone"
+    );
+    // The OTHER same-named principal cannot ACK this row.
+    assert!(
+        !hub.ack_care(&sig_a, "dave", Some(&pids[1]))
+            .expect("cross-principal ack"),
+        "a same-named principal cannot ACK another's delivery"
+    );
+    // A legacy/name-only ACK (no authenticated principal) cannot ACK an
+    // Everyone per-member row either — the reminder demands the principal.
+    assert!(
+        !hub.ack_care(&sig_a, "dave", None).expect("name-only ack"),
+        "a principal-bound row is never ACK'd by display name alone"
+    );
+    // Its own principal ACKs it; the other principal's delivery stays pending.
+    assert!(
+        hub.ack_care(&sig_a, "dave", Some(&pids[0]))
+            .expect("own ack a"),
+        "the owning principal ACKs its own delivery"
+    );
+    assert!(
+        hub.pending_care_scoped("proj", "dave", Some(&pids[0]))
+            .is_empty(),
+        "principal a's row is now acknowledged"
+    );
+    assert_eq!(
+        hub.pending_care_scoped("proj", "dave", Some(&pids[1]))
+            .len(),
+        1,
+        "principal b's delivery is untouched by a's ACK"
+    );
+    assert!(
+        hub.ack_care(&sig_b, "dave", Some(&pids[1]))
+            .expect("own ack b"),
+        "principal b independently ACKs its own delivery"
+    );
+    assert_eq!(
+        hub.resolve_attention("proj", &care_a.attention_id, "dave", Some(&pids[0]), false)
+            .expect("owner resolves its own attention")
+            .status,
+        AttentionStatus::Resolved
+    );
+
+    // Revoking one same-named member drops only its own delivery; the other stays.
+    hub.revoke_member(&dave.token).expect("revoke dave");
+    let after = hub
+        .everyone_recipients("proj")
+        .expect("roster after revoke");
+    assert_eq!(
+        after.len(),
+        1,
+        "revoking one same-named member leaves the other"
+    );
+}
+
+#[test]
+fn a_legacy_invite_binds_to_its_principal_and_enters_the_roster_once() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let dir = tempfile::tempdir().expect("temp store");
+    let db = dir.path().join("legacy.sqlite");
+    let store = Arc::new(Store::open(db.to_str()).expect("store"));
+    // First boot: admit erin (membership + principal), then seed a LEGACY davet
+    // that predates the member link — empty `member`, carrying only her name.
+    let erin = {
+        let hub = everyone_hub_from_store(store.clone());
+        let erin = hub.admit_member("erin", "agent", "operator").expect("erin");
+        let legacy = protocol::Invite {
+            token: "dv_legacy_erin".into(),
+            room: "proj".into(),
+            member: String::new(),
+            name: "erin".into(),
+            kind: "agent".into(),
+            issued_at: 1_000,
+            issued_by: "operator".into(),
+        };
+        hub.store
+            .insert_invite(&legacy)
+            .expect("seed legacy invite");
+        erin
+    };
+    // Second boot: the load-time migration binds the legacy davet to erin's
+    // membership by name, so she resolves to her real canonical principal —
+    // exactly once, never a fabricated or duplicate identity.
+    let hub = everyone_hub_from_store(store);
+    let roster = hub.everyone_recipients("proj").expect("roster");
+    assert_eq!(
+        roster.len(),
+        1,
+        "the migrated legacy davet enters the roster once"
+    );
+    assert_eq!(roster[0].1, "erin");
+    assert_eq!(
+        roster[0].0,
+        hub.store
+            .principal_id_for_member_record(&erin.token)
+            .expect("erin principal"),
+        "bound to erin's real canonical principal"
     );
 }
 
@@ -856,10 +1457,10 @@ fn attention_defaults_to_lead_and_delivery_ack_does_not_resolve_it() {
         }
     };
     assert!(!hub
-        .ack_care("unknown-delivery", "lead")
+        .ack_care("unknown-delivery", "lead", None)
         .expect("unknown ack"));
     assert!(!hub
-        .ack_care(&delivery_id, "intruder")
+        .ack_care(&delivery_id, "intruder", None)
         .expect("wrong-owner ack"));
 
     TEST_NOW.store(2_000, Ordering::Relaxed);
@@ -870,9 +1471,11 @@ fn attention_defaults_to_lead_and_delivery_ack_does_not_resolve_it() {
     assert_eq!(claimed.claimed_by.as_deref(), Some("lead"));
 
     TEST_NOW.store(3_000, Ordering::Relaxed);
-    assert!(hub.ack_care(&delivery_id, "lead").expect("delivery ack"));
+    assert!(hub
+        .ack_care(&delivery_id, "lead", None)
+        .expect("delivery ack"));
     assert!(!hub
-        .ack_care(&delivery_id, "lead")
+        .ack_care(&delivery_id, "lead", None)
         .expect("duplicate delivery ack"));
     let after_ack = hub.attentions("proj").pop().expect("attention remains");
     assert_eq!(after_ack.delivered_at, Some(3_000));
@@ -884,7 +1487,7 @@ fn attention_defaults_to_lead_and_delivery_ack_does_not_resolve_it() {
 
     TEST_NOW.store(4_000, Ordering::Relaxed);
     let resolved = hub
-        .resolve_attention("proj", &attention.id, "lead", false)
+        .resolve_attention("proj", &attention.id, "lead", None, false)
         .expect("resolve");
     assert_eq!(resolved.status, AttentionStatus::Resolved);
     assert_eq!(resolved.resolved_at, Some(4_000));
@@ -1093,6 +1696,8 @@ fn same_millisecond_care_conditions_keep_distinct_delivery_receipts() {
             CareDraft {
                 attention_key: attention_key.into(),
                 owner: Some("lead".into()),
+                owner_principal_id: None,
+                group: None,
                 reason: CareReason::WaitOverdue,
                 target: None,
                 participants: Vec::new(),
@@ -1478,6 +2083,57 @@ fn archived_room_pauses_care_and_unarchive_resumes_same_open_attention() {
 }
 
 #[test]
+fn runtime_readiness_expires_without_a_renewed_native_lease() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let mut hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        Arc::new(Store::open(None).expect("memory store")),
+        RoomSettings::default(),
+        1,
+    );
+    hub.now_ms = test_now_ms;
+    TEST_NOW.store(1_000, Ordering::Relaxed);
+    hub.report_runtime_health(
+        "native-lead",
+        RuntimeHealthUpdate {
+            wake: "IDLE".into(),
+            ack: "IDLE".into(),
+            delivery_id: None,
+            attention_id: None,
+            stored: false,
+            accepted: false,
+            first_response: false,
+            final_response: false,
+            turn_completed: false,
+        },
+    )
+    .expect("initial native lease");
+    assert!(
+        hub.runtime_health_for("native-lead")
+            .expect("reported runtime")
+            .ready
+    );
+
+    TEST_NOW.store(21_001, Ordering::Relaxed);
+    assert!(
+        !hub.runtime_health_for("native-lead")
+            .expect("expired runtime remains observable")
+            .ready,
+        "a stopped Monitor must become ineligible without a shutdown report"
+    );
+}
+
+#[test]
 fn disjoint_wait_cycle_is_not_starved_by_resolved_first_cycle() {
     let _clock = TEST_CLOCK_LOCK
         .lock()
@@ -1543,7 +2199,7 @@ fn disjoint_wait_cycle_is_not_starved_by_resolved_first_cycle() {
         }
     };
     assert_eq!(first.participants, vec!["a", "b"]);
-    hub.resolve_attention("proj", &first.attention_id, "lead", false)
+    hub.resolve_attention("proj", &first.attention_id, "lead", None, false)
         .expect("resolve first cycle");
     while events.try_recv().is_ok() {}
     TEST_NOW.store(2_000, Ordering::Relaxed);

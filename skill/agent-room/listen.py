@@ -420,7 +420,7 @@ def connect(url, protocols=None):
     # A healthy server sends WebSocket pings regularly. Keep a bounded read
     # timeout so a half-open nginx/TCP connection cannot make an agent look
     # alive locally while it has vanished from the server roster forever.
-    s.settimeout(45)
+    s.settimeout(20)
     return s, buf.split(b"\r\n\r\n", 1)[1]
 
 
@@ -434,7 +434,7 @@ def send_control_frame(s, opcode, payload=b""):
     s.sendall(bytes([0x80 | opcode, 0x80 | len(payload)]) + mask + masked)
 
 
-def frames(s, leftover=b""):
+def frames(s, leftover=b"", on_activity=None):
     """Yield decoded text payloads from the socket."""
     buf = leftover
 
@@ -442,6 +442,8 @@ def frames(s, leftover=b""):
         data = s.recv(4096)
         if not data:
             raise ConnectionError("WebSocket closed")
+        if on_activity is not None:
+            on_activity()
         return data
 
     while True:
@@ -538,6 +540,104 @@ def server_origin(url):
     port = parsed.port or default_port
     suffix = "" if port == default_port else f":{port}"
     return f"{scheme}://{parsed.hostname}{suffix}"
+
+
+class NativeRuntimeHealthLease:
+    """Publish a short-lived wake lease only while a native Monitor is live.
+
+    The server owns expiry (currently 20 seconds).  We renew every five
+    seconds while at least one authenticated WebSocket is connected and has
+    shown recent traffic.  A dead listener, half-open socket, or stopped
+    Monitor therefore becomes ineligible for Care without needing a shutdown
+    request to succeed.
+    """
+
+    def __init__(self, origin, membership, interval=5.0, activity_ttl=15.0):
+        self.origin = origin.rstrip("/")
+        self.membership = membership
+        self.interval = interval
+        self.activity_ttl = activity_ttl
+        self._condition = threading.Condition()
+        self._connections = 0
+        self._last_activity = 0.0
+        self._stopping = False
+        self._last_error = ""
+        self._thread = threading.Thread(
+            target=self._run, name="loca-native-health", daemon=True
+        )
+
+    def start(self):
+        self._thread.start()
+
+    def connected(self):
+        with self._condition:
+            self._connections += 1
+            self._last_activity = time.monotonic()
+            self._condition.notify_all()
+
+    def activity(self):
+        with self._condition:
+            if self._connections:
+                self._last_activity = time.monotonic()
+
+    def disconnected(self):
+        with self._condition:
+            self._connections = max(0, self._connections - 1)
+            self._condition.notify_all()
+
+    def stop(self):
+        with self._condition:
+            self._stopping = True
+            self._condition.notify_all()
+        self._thread.join(timeout=max(1.0, self.interval * 2))
+
+    def _ready(self):
+        return self._connections > 0 and (
+            time.monotonic() - self._last_activity <= self.activity_ttl
+        )
+
+    def _report(self):
+        body = json.dumps(
+            {
+                "wake": "IDLE",
+                "ack": "IDLE",
+                "stored": False,
+                "accepted": False,
+                "first_response": False,
+                "final_response": False,
+                "turn_completed": False,
+            }
+        ).encode()
+        request = urllib.request.Request(
+            f"{self.origin}/runtime/health", data=body, method="POST"
+        )
+        request.add_header("content-type", "application/json")
+        request.add_header("x-room-token", self.membership)
+        with urllib.request.urlopen(request, timeout=5):
+            pass
+
+    def _run(self):
+        next_report = 0.0
+        while True:
+            with self._condition:
+                if self._stopping:
+                    return
+                now = time.monotonic()
+                ready = self._ready()
+                wait_for = max(0.05, next_report - now) if ready else self.interval
+                if not ready or now < next_report:
+                    self._condition.wait(timeout=wait_for)
+                    continue
+            try:
+                self._report()
+                self._last_error = ""
+            except Exception as error:
+                detail = str(error)
+                if detail != self._last_error:
+                    sys.stderr.write(f"runtime health report failed: {detail}\n")
+                    sys.stderr.flush()
+                self._last_error = detail
+            next_report = time.monotonic() + self.interval
 
 
 def make_delivery(
@@ -792,7 +892,7 @@ def main():
         print(
             "usage: listen.py <ws_url> <out.jsonl|-> "
             "[--skip-own NAME] [--only-direct NAME] [--cursor FILE] "
-            "[--turn-log FILE]",
+            "[--turn-log FILE] [--runtime-health]",
             file=sys.stderr,
         )
         return 2
@@ -806,6 +906,16 @@ def main():
         print(f"credential configuration error: {error}", file=sys.stderr)
         return 2
     membership = claim_membership(url)
+    runtime_health = None
+    if "--runtime-health" in sys.argv:
+        if not membership:
+            print(
+                "runtime health requires a verified Building membership",
+                file=sys.stderr,
+            )
+            return 2
+        runtime_health = NativeRuntimeHealthLease(server_origin(url), membership)
+        runtime_health.start()
     skip_own = None
     if "--skip-own" in sys.argv:
         i = sys.argv.index("--skip-own")
@@ -960,6 +1070,8 @@ def main():
             s = None
             try:
                 s, leftover = connect(wurl, room_protocols(room))
+                if runtime_health is not None:
+                    runtime_health.connected()
                 # A live handshake means the (possibly renewed) session works;
                 # clear the renew backoff counter.
                 renew_attempts = 0
@@ -1000,7 +1112,11 @@ def main():
                             f"in batches of at most {turn_limit}\n"
                         )
                         sys.stderr.flush()
-                for raw in frames(s, leftover):
+                for raw in frames(
+                    s,
+                    leftover,
+                    runtime_health.activity if runtime_health is not None else None,
+                ):
                     try:
                         f = json.loads(raw)
                     except Exception:
@@ -1113,6 +1229,8 @@ def main():
                         continue
                 sys.stderr.write(f"[{room}] reconnect after error: {e}\n"); sys.stderr.flush()
             finally:
+                if s is not None and runtime_health is not None:
+                    runtime_health.disconnected()
                 if s is not None:
                     try:
                         send_control_frame(s, 0x8)
@@ -1164,13 +1282,20 @@ def main():
         parsed = urlparse(url)
         lobby_url = parsed._replace(path="/lobby/ws", query="").geturl()
         while True:
+            sock = None
             try:
                 sock, leftover = connect(
                     lobby_url, ["loca.v1", f"loca.membership.{membership}"]
                 )
+                if runtime_health is not None:
+                    runtime_health.connected()
                 sys.stderr.write("[lobby] connected — waiting for calls\n")
                 sys.stderr.flush()
-                for raw in frames(sock, leftover):
+                for raw in frames(
+                    sock,
+                    leftover,
+                    runtime_health.activity if runtime_health is not None else None,
+                ):
                     try:
                         frame = json.loads(raw)
                     except Exception:
@@ -1217,23 +1342,35 @@ def main():
                 sys.stderr.write(f"[lobby] reconnect after error: {e}\n")
                 sys.stderr.flush()
                 time.sleep(2)
+            finally:
+                if sock is not None and runtime_health is not None:
+                    runtime_health.disconnected()
+                if sock is not None:
+                    try:
+                        send_control_frame(sock, 0x8)
+                    except (OSError, ValueError):
+                        pass
 
-    if membership:
-        # The lobby is the process anchor. Room listeners come and go as calls
-        # arrive and release returns the member here. Do not start from cached
-        # DAVET_* values first: after a revoke/re-call that token can be stale,
-        # and its forever-retrying thread would block the fresh lobby token
-        # from starting for the same room.
-        lobby_watch()
-        return
+    try:
+        if membership:
+            # The lobby is the process anchor. Room listeners come and go as calls
+            # arrive and release returns the member here. Do not start from cached
+            # DAVET_* values first: after a revoke/re-call that token can be stale,
+            # and its forever-retrying thread would block the fresh lobby token
+            # from starting for the same room.
+            lobby_watch()
+            return 0
 
-    # Compatibility for old/open servers with no building membership model.
-    for room in rooms:
-        start_room(room)
-    threads = list(active.values())
-    for thread in threads:
-        thread.join()
-    return 0
+        # Compatibility for old/open servers with no building membership model.
+        for room in rooms:
+            start_room(room)
+        threads = list(active.values())
+        for thread in threads:
+            thread.join()
+        return 0
+    finally:
+        if runtime_health is not None:
+            runtime_health.stop()
 
 
 if __name__ == "__main__":

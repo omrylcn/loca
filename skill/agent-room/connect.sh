@@ -20,6 +20,7 @@
 #   connect.sh wait        <server> <room> <name> <waiting_for> <reason>
 #   connect.sh wait-clear  <server> <room> <name>
 #   connect.sh announce    <server> <room> <name> <text>           # something the loca must know
+#   connect.sh attention-resolve <server> <room> <name> <attention_id> # owner: no action needed
 #   connect.sh mode        <server> <room>                        # current chat mode
 #   connect.sh settings    <server> <room>                        # rate limit
 #   connect.sh setup       <server> [name]                        # one-time: hidden credential prompt
@@ -543,17 +544,24 @@ case "$cmd" in
     curl_get "$server/rooms/$room/attentions"
     ;;
 
-  attention-claim|attention-resolve)
+  attention-claim)
     if [ "${LOCA_INTERNAL_ATTENTION:-0}" != "1" ]; then
       echo "internal attention lifecycle is adapter-owned; set LOCA_INTERNAL_ATTENTION=1 only for compatibility diagnostics" >&2
       exit 64
     fi
     server="$1"; room="$2"; name="$3"; attention_id="$4"
     use_loca "$room"
-    action="${cmd#attention-}"
     payload=$(jq -n --arg by "$name" '{by:$by}')
     encoded_id=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$attention_id")
-    curl_json -X POST "$server/rooms/$room/attentions/$encoded_id/$action" -d "$payload"
+    curl_json -X POST "$server/rooms/$room/attentions/$encoded_id/claim" -d "$payload"
+    ;;
+
+  attention-resolve)
+    server="$1"; room="$2"; name="$3"; attention_id="$4"
+    use_loca "$room"
+    payload=$(jq -n --arg by "$name" '{by:$by}')
+    encoded_id=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$attention_id")
+    curl_json -X POST "$server/rooms/$room/attentions/$encoded_id/resolve" -d "$payload"
     ;;
 
   waits)
@@ -1107,6 +1115,9 @@ case "$cmd" in
     # listener/bot processes, duplicate (room,name) connections shadowing each
     # other, a stale process squatting on the server port. --fix kills the
     # flagged duplicates (keeps the newest per room+name).
+    # Every probe is best-effort: a failed probe is itself report data and must
+    # not let global `set -e` truncate the remaining diagnostics.
+    set +e
     server="${1:-http://127.0.0.1:8787}"; fix="${2:-}"
     echo "── server ──"
     if h=$(curl -sS -m 5 "$server/health" 2>/dev/null); then
@@ -1302,7 +1313,7 @@ case "$cmd" in
             }
           }
         '
-    )
+    ) || true
     if [ -n "$legacy_wake_bridges" ]; then
       echo "  DEGRADED: legacy project-local JSONL/tail wake bridge found"
       printf '%s\n' "$legacy_wake_bridges" |
@@ -1314,6 +1325,10 @@ case "$cmd" in
     else
       echo "  no legacy project-local JSONL/tail bridge detected"
     fi
+    # `doctor` is an interactive report. Findings are rendered above but do
+    # not inherit an incidental non-zero status from the final probe under
+    # `set -o pipefail`. A future CI gate must be an explicit --fail-on-* mode.
+    true
     ;;
 
   *)

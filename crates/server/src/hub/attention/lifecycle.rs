@@ -69,10 +69,46 @@ impl Hub {
             });
         }
     }
+    /// Name-based replay, superseded for live delivery by `pending_care_scoped`
+    /// (which is principal-aware). Retained as a test helper for the Lead/Person
+    /// and wait paths that key on display name.
+    #[cfg(test)]
     pub fn pending_care(&self, delivery_room: &str, owner: &str) -> Vec<CareSignal> {
         self.store.pending_care(delivery_room, owner)
     }
-    pub fn ack_care(&self, signal_id: &str, owner: &str) -> rusqlite::Result<bool> {
+    /// Reconnect replay for one session, scoped to its authenticated principal. A
+    /// principal-required reminder (Everyone per-member) matches only this
+    /// session's principal in the store, and is additionally dropped here when the
+    /// recipient's davet/membership was revoked after the snapshot — the
+    /// delivery-time re-check. The outbox row is left untouched (not fake-ACKed),
+    /// so the audit truth stands; it is simply not replayed.
+    pub fn pending_care_scoped(
+        &self,
+        delivery_room: &str,
+        owner: &str,
+        principal_id: Option<&str>,
+    ) -> Vec<CareSignal> {
+        self.store
+            .pending_care_scoped(delivery_room, owner, principal_id)
+            .into_iter()
+            .filter(|signal| match signal.owner_principal_id.as_deref() {
+                Some(pid) => self.everyone_recipient_active(delivery_room, pid),
+                None => true,
+            })
+            .collect()
+    }
+    /// Acknowledge a care delivery. `principal_id` is the ACKing session's
+    /// authenticated canonical principal (None for a legacy/principal-less
+    /// session): an Everyone per-member row (owner_principal_id set) is ACK'd
+    /// only by its own principal — a shared display name can never ACK another
+    /// principal's delivery. The name pre-check below stays for the legacy/hot
+    /// path; the store UPDATE is the authoritative principal gate.
+    pub fn ack_care(
+        &self,
+        signal_id: &str,
+        owner: &str,
+        principal_id: Option<&str>,
+    ) -> rusqlite::Result<bool> {
         let now = (self.now_ms)();
         let hot_attention_id = self
             .care_deliveries
@@ -101,7 +137,9 @@ impl Hub {
             return Ok(false);
         }
 
-        let mut acked = self.store.ack_care(signal_id, owner, now)?;
+        let mut acked = self
+            .store
+            .ack_care_scoped(signal_id, owner, principal_id, now)?;
         if !self.store.is_persistent()
             && hot_attention_id.is_some()
             && memory_attention
@@ -157,6 +195,8 @@ impl Hub {
             reason: CareReason::Manual,
             audience: req.audience,
             owner: Some(owner.clone()),
+            owner_principal_id: None,
+            group: None,
             target: Some(owner),
             participants,
             subject: req.subject,
@@ -183,6 +223,7 @@ impl Hub {
                 subject: signal.subject.clone(),
                 audience: signal.audience.clone(),
                 owner: signal.owner.clone(),
+                group: signal.group.clone(),
                 participants: signal.participants.clone(),
                 created_by: signal.created_by.clone(),
                 created_at: signal.at,
@@ -247,6 +288,7 @@ impl Hub {
         room_name: &str,
         id: &str,
         actor: &str,
+        actor_principal_id: Option<&str>,
         is_operator: bool,
     ) -> Result<Attention, AttentionError> {
         let now = (self.now_ms)();
@@ -257,11 +299,31 @@ impl Hub {
             .get(id)
             .cloned()
             .ok_or(AttentionError::NotFound)?;
-        if !is_operator
-            && current.owner.as_deref() != Some(actor)
-            && current.claimed_by.as_deref() != Some(actor)
-        {
-            return Err(AttentionError::Forbidden);
+        if !is_operator {
+            let owner_principal_id = self
+                .store
+                .attention_owner_principal_id(id)
+                .map_err(|_| AttentionError::Storage)?;
+            let authorized = match owner_principal_id {
+                Some(Some(owner_principal_id)) => {
+                    actor_principal_id == Some(owner_principal_id.as_str())
+                }
+                Some(None) => {
+                    current.owner.as_deref() == Some(actor)
+                        || current.claimed_by.as_deref() == Some(actor)
+                }
+                // A generated Everyone attention (`group` present) must never
+                // downgrade to display-name authorization if its durable
+                // principal scope is unexpectedly unavailable.
+                None if current.group.is_some() => false,
+                None => {
+                    current.owner.as_deref() == Some(actor)
+                        || current.claimed_by.as_deref() == Some(actor)
+                }
+            };
+            if !authorized {
+                return Err(AttentionError::Forbidden);
+            }
         }
         if current.status == AttentionStatus::Resolved {
             return Err(AttentionError::Conflict);

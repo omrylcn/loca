@@ -129,6 +129,7 @@ class NudgeTests(unittest.TestCase):
             {
                 "t": "care",
                 "signal": {
+                    "attention_id": "attention:sb-dev:wait:worker:123",
                     "room": "sb-dev",
                     "reason": "wait_cycle",
                     "target": "reviewer",
@@ -141,6 +142,9 @@ class NudgeTests(unittest.TestCase):
             }
         )
         self.assertIn("wait_cycle", text)
+        self.assertIn("Attention id: attention:sb-dev:wait:worker:123", text)
+        self.assertIn("resolve the displayed attention id", text)
+        self.assertIn("connect.sh attention-resolve", text)
         self.assertIn("reviewer", text)
         self.assertIn("contract bekliyorum", text)
         self.assertIn("exactly one direct message", text)

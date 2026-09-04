@@ -86,6 +86,12 @@ struct CareMark {
 struct CareDraft {
     attention_key: String,
     owner: Option<String>,
+    /// Set only for an Everyone per-member signal — the canonical principal that
+    /// must receive it. Its presence flips the signal to principal-only delivery
+    /// and a `Person` audience (no group broadcast).
+    owner_principal_id: Option<String>,
+    /// Generation id shared by every per-member signal of one Everyone reminder.
+    group: Option<String>,
     reason: CareReason,
     target: Option<String>,
     participants: Vec<String>,
@@ -1920,6 +1926,7 @@ impl Hub {
             target,
             text: format!("{name} ({kind}) wants to join — approve or deny it in Join requests."),
             reply_to: None,
+            reply_to_sender: None,
             kind: protocol::MessageKind::Announce,
             ts: (self.now_ms)(),
         };
@@ -2420,6 +2427,33 @@ impl Hub {
             }
         }
 
+        // A reply addresses the AUTHOR of the message it answers, as a separate
+        // recipient alongside any explicit `target` — so a reply that also
+        // targets/@mentions someone else wakes BOTH. `msg_addresses` keys wake
+        // on `target`/`@name` and never looked at `reply_to`, so a bare reply
+        // used to be a silent UI-only link. Resolve the author from the room's
+        // in-memory tail first (you usually reply to what you can see), then the
+        // durable store — the reply UI allows answering a message older than the
+        // 200-message tail, and those must wake their author too; a cross-room
+        // or unknown id resolves to nobody (message_owner is room-scoped), and a
+        // self-reply never addresses the sender. `target` is left untouched.
+        let reply_to_sender = match body.reply_to {
+            None => None,
+            Some(rid) => {
+                let owner = match r.history.iter().rev().find(|m| m.id == rid) {
+                    Some(m) => Some(m.sender.clone()),
+                    // Only consult the store on a tail miss. A lookup ERROR must
+                    // reject the post (503) — never silently drop the wake and
+                    // report success. An unknown id is a real absence (Ok(None))
+                    // and safely stays recipient-less.
+                    None => self
+                        .store
+                        .message_owner(room, rid)
+                        .map_err(|_| PostReject::Storage)?,
+                };
+                owner.filter(|owner| owner != &body.sender && !owner.is_empty())
+            }
+        };
         let msg = Message {
             attachments: attachments.clone(),
             kind: body.kind,
@@ -2430,6 +2464,7 @@ impl Hub {
             target: body.target.filter(|t| !t.is_empty()),
             text: body.text,
             reply_to: body.reply_to,
+            reply_to_sender,
             ts: self.next_condition_generation(now, r.last_msg_ms),
         };
         let caretaker_summons: Vec<CareSignal> = if room == self.home_room.as_str() {
@@ -2451,6 +2486,8 @@ impl Hub {
                         name: owner.clone(),
                     },
                     owner: Some(owner.clone()),
+                    owner_principal_id: None,
+                    group: None,
                     target: Some(owner.clone()),
                     participants: vec![msg.sender.clone(), owner],
                     subject: format!("{} directly summoned a caretaker", msg.sender),
@@ -2506,6 +2543,8 @@ impl Hub {
                     name: target.to_string(),
                 },
                 owner: Some(target.to_string()),
+                owner_principal_id: None,
+                group: None,
                 target: Some(target.to_string()),
                 participants: vec![msg.sender.clone(), target.to_string()],
                 subject: format!("{} replied to {}", msg.sender, target),
@@ -2646,6 +2685,7 @@ impl Hub {
                         subject: signal.subject.clone(),
                         audience: signal.audience.clone(),
                         owner: signal.owner.clone(),
+                        group: signal.group.clone(),
                         participants: signal.participants.clone(),
                         created_by: signal.created_by.clone(),
                         created_at: signal.at,
@@ -2686,6 +2726,7 @@ impl Hub {
                     subject: wake.subject.clone(),
                     audience: wake.audience.clone(),
                     owner: wake.owner.clone(),
+                    group: wake.group.clone(),
                     participants: wake.participants.clone(),
                     created_by: wake.created_by.clone(),
                     created_at: wake.at,
@@ -2827,6 +2868,7 @@ impl Hub {
             target: lead.clone().or_else(|| Some("all".into())),
             text,
             reply_to: None,
+            reply_to_sender: None,
             kind: protocol::MessageKind::Announce,
             ts: (self.now_ms)(),
         };

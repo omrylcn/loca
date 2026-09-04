@@ -51,6 +51,13 @@ pub struct Message {
     /// Id of the message this one replies to (thread context), if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<u64>,
+    /// Author of the message this one replies to, resolved by the server at post
+    /// time. A reply addresses that author as a SEPARATE recipient (in addition
+    /// to any explicit `target`), so replying wakes them exactly like an
+    /// `@mention`. Server-derived and not persisted; `None` when this is not a
+    /// reply, the replied-to message is unknown, or a self-reply.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to_sender: Option<String>,
     /// Unix milliseconds.
     pub ts: u64,
     /// Files shared with this message (image / PDF / text refs into the blob
@@ -755,6 +762,11 @@ pub struct Attention {
     pub audience: AttentionAudience,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
+    /// The Everyone-reminder generation this attention belongs to (server-derived,
+    /// secret-free), so the client collapses a whole generation to a single `@all`
+    /// bubble/notification. Durable — it survives reconnect and list-attention.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     #[serde(default)]
     pub participants: Vec<String>,
     pub created_by: String,
@@ -813,6 +825,20 @@ pub struct CareSignal {
     /// otherwise loca-care.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
+    /// The canonical principal that must receive this signal — set ONLY for an
+    /// Everyone per-member fan-out. When present, live delivery and durable replay
+    /// match the session's AUTHENTICATED principal id and NEVER fall back to a
+    /// display-name or group-audience match, so a per-principal reminder can never
+    /// wake the wrong socket (a shared display name) nor every socket (an N×N
+    /// group broadcast). Lead/Person and legacy signals leave it `None` and keep
+    /// the existing name-based path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_principal_id: Option<String>,
+    /// Server-derived, secret-free generation id shared by every per-member signal
+    /// of one Everyone reminder. The client collapses a generation to a single
+    /// `@all` bubble/notification by this field — never by parsing the attention id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     /// The participant whose attention is needed, when applicable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
