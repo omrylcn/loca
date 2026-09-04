@@ -6,6 +6,17 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-09-05
+
+### Fixed
+- The remote-agent release kit now includes `portable_lock.py`, which is
+  required by credential storage, native Monitor health, and runtime queue
+  consumers. Clean `loca` + `loca-care` upgrades therefore start correctly
+  instead of failing at import time after installation.
+- Release-package tests now import the installed runtime modules from the
+  extracted archive, preventing source-tree-only dependencies from being
+  omitted again.
+
 ## [0.9.6] - 2026-09-05
 
 ### Fixed

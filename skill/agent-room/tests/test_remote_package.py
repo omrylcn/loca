@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -150,6 +151,10 @@ class RemotePackageTests(unittest.TestCase):
                 listing,
             )
             self.assertIn(
+                "loca-remote-agent/loca/portable_lock.py",
+                listing,
+            )
+            self.assertIn(
                 "loca-remote-agent/loca/references/adapter-protocol-v1.md",
                 listing,
             )
@@ -170,6 +175,21 @@ class RemotePackageTests(unittest.TestCase):
                 "loca-remote-agent/loca-care/scripts/audit.py",
                 listing,
             )
+            extracted = Path(tmp) / "extracted"
+            shutil.unpack_archive(archive, extracted)
+            import_check = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "import credentials, monitor_listener, runtime_consumer",
+                ],
+                cwd=extracted / "loca-remote-agent" / "loca",
+                text=True,
+                capture_output=True,
+                timeout=5,
+                check=False,
+            )
+            self.assertEqual(import_check.returncode, 0, import_check.stderr)
 
     def test_installer_requires_an_explicit_server_choice(self):
         with tempfile.TemporaryDirectory() as tmp:
