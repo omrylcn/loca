@@ -289,6 +289,32 @@ impl Store {
         .ok()
         .flatten()
     }
+    /// Canonical delivery owner recorded inside a Care signal. `None` is the
+    /// intentional legacy Lead/Person case, which remains display-name scoped.
+    pub fn attention_owner_principal_id(
+        &self,
+        id: &str,
+    ) -> rusqlite::Result<Option<Option<String>>> {
+        let Some(c) = self.conn() else {
+            return Ok(None);
+        };
+        c.query_row(
+            "SELECT signal FROM attentions WHERE id = ?1",
+            params![id],
+            |row| {
+                let raw: String = row.get(0)?;
+                let signal: protocol::CareSignal = serde_json::from_str(&raw).map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?;
+                Ok(signal.owner_principal_id)
+            },
+        )
+        .optional()
+    }
     pub fn claim_attention(&self, id: &str, by: &str, at: u64) -> rusqlite::Result<bool> {
         let Some(c) = self.conn() else {
             return Ok(true);

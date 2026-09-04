@@ -489,6 +489,9 @@ class CodexAdapterV2Tests(unittest.TestCase):
         self.assertIn("wait_timeout", prompt)
         self.assertIn("sb-dev", prompt)  # delivery room
         self.assertIn("still blocked on the merge gate", prompt)  # context message
+        self.assertIn("resolve this stable Care signal id", prompt)
+        self.assertIn("connect.sh attention-resolve", prompt)
+        self.assertIn(str(event["signal"]["attention_id"]), prompt)
         # source_room is present and non-empty -> must be surfaced.
         self.assertIn("iye", prompt)
         # The old contentless rendering must be gone.

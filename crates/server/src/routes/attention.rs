@@ -131,7 +131,16 @@ pub(crate) async fn resolve_attention(
     let is_operator = source_access
         && (is_admin_req(&hub, &headers)
             || hub.is_loca_operator(&id, admin_token_of(&headers), session_of(&headers), &actor));
-    attention_response(hub.resolve_attention(&id, &attention_id, &actor, is_operator))
+    let principal_id = session_of(&headers)
+        .and_then(|token| hub.session_identity(Some(token)))
+        .and_then(|identity| identity.principal_id);
+    attention_response(hub.resolve_attention(
+        &id,
+        &attention_id,
+        &actor,
+        principal_id.as_deref(),
+        is_operator,
+    ))
 }
 pub(crate) fn attention_response(
     result: Result<protocol::Attention, AttentionError>,

@@ -43,6 +43,7 @@ def nudge_text(event: dict[str, Any]) -> str:
         reason = str(signal.get("reason") or "attention")
         subject = str(signal.get("subject") or "").strip()
         target = str(signal.get("target") or "").strip()
+        attention_id = str(signal.get("attention_id") or "").strip()
         context = signal.get("context") or []
         lines = [
             f"- {message.get('sender') or 'unknown'}: {str(message.get('text') or '').strip()}"
@@ -52,11 +53,16 @@ def nudge_text(event: dict[str, Any]) -> str:
         context_text = "\n".join(lines) if lines else "(no source-room context was shared)"
         return (
             f"$loca care signal in {room}: {reason}; {subject}\n"
+            f"Attention id: {attention_id or 'unknown'}\n"
+            "Owner resolve command: SKILL_DIR/connect.sh attention-resolve "
+            f'"$SERVER" {room} "$NAME" {attention_id or "<attention-id>"}\n'
             f"Target: {target or 'operator escalation'}\n"
             f"Bounded context:\n{context_text}\n"
             "You are the single attention owner for this signal. Read the Loca "
             "skill. If a nudge is useful, send exactly one direct message; "
-            "otherwise stay quiet or escalate to the operator. Do not create "
+            "otherwise stay quiet or escalate to the operator. If you own this "
+            "attention and no action is needed, resolve the displayed attention "
+            "id without posting filler chat. Do not create "
             "tasks or infer new work."
         )
     if event.get("t") == "reaction":

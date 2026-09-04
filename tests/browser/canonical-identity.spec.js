@@ -18,6 +18,58 @@ test("door credentials are masked", async ({ page }) => {
   await expect(page.locator("#roomToken")).toHaveAttribute("type", "password");
 });
 
+test("a reminder owner can resolve no-action-needed without operator UI", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    state.name = "bob";
+    state.room = "e2e";
+    state.attentions = {
+      "attention:e2e:silence:owner": {
+        id: "attention:e2e:silence:owner",
+        reason: "room_silence",
+        subject: "room has been quiet",
+        owner: "alice",
+        created_at: 1,
+        delivered_at: 2,
+        status: "open",
+      },
+    };
+    renderReminderHistory();
+  });
+  await expect(page.locator("[data-reminder-resolve]")).toHaveCount(0);
+
+  const requestBodies = [];
+  await page.route("**/rooms/e2e/attentions/*/resolve", async (route) => {
+    requestBodies.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "attention:e2e:silence:owner",
+        reason: "room_silence",
+        subject: "room has been quiet",
+        owner: "alice",
+        created_at: 1,
+        delivered_at: 2,
+        resolved_at: 3,
+        status: "resolved",
+      }),
+    });
+  });
+  await page.evaluate(() => {
+    state.name = "alice";
+    renderReminderHistory();
+    document.body.classList.remove("locked");
+    switchTab("tasks");
+    document.querySelector("#reminderHistory").open = true;
+  });
+  const resolve = page.locator("[data-reminder-resolve]");
+  await expect(resolve).toHaveText("No action needed");
+  await resolve.click();
+  await expect.poll(() => requestBodies).toEqual([{ by: "alice" }]);
+  await expect(page.locator("[data-reminder-resolve]")).toHaveCount(0);
+});
+
 test("a confirmed reaction renders without waiting for its websocket echo", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(async () => {

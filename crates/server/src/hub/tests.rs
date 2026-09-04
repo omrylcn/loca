@@ -8,7 +8,7 @@ use protocol::{
     SenderType, ServerFrame, SetWait, TaskStatus, UpdateGoal, UpdateTask,
 };
 
-use super::{CareDraft, GoalError, Hub, HubConfig};
+use super::{AttentionError, CareDraft, GoalError, Hub, HubConfig};
 use crate::store::{BuildingRole, Store};
 
 static TEST_NOW: AtomicU64 = AtomicU64::new(0);
@@ -1191,17 +1191,31 @@ fn everyone_treats_two_same_named_principals_as_distinct_recipients() {
     // Each same-named principal has its OWN durable outbox row, and the ACK is
     // gated by the authenticated principal — never the shared display name.
     let pids: Vec<String> = roster.iter().map(|(pid, _)| pid.clone()).collect();
-    let sig_a = hub
+    let care_a = hub
         .pending_care_scoped("proj", "dave", Some(&pids[0]))
         .pop()
-        .expect("principal a has its own row")
-        .id;
-    let sig_b = hub
+        .expect("principal a has its own row");
+    let care_b = hub
         .pending_care_scoped("proj", "dave", Some(&pids[1]))
         .pop()
-        .expect("principal b has its own row")
-        .id;
+        .expect("principal b has its own row");
+    let sig_a = care_a.id.clone();
+    let sig_b = care_b.id.clone();
     assert_ne!(sig_a, sig_b, "each principal's delivery is distinct");
+    assert!(
+        matches!(
+            hub.resolve_attention("proj", &care_a.attention_id, "dave", Some(&pids[1]), false),
+            Err(AttentionError::Forbidden)
+        ),
+        "a same-named principal cannot resolve another principal's attention"
+    );
+    assert!(
+        matches!(
+            hub.resolve_attention("proj", &care_a.attention_id, "dave", None, false),
+            Err(AttentionError::Forbidden)
+        ),
+        "a principal-bound attention cannot be resolved by name alone"
+    );
     // The OTHER same-named principal cannot ACK this row.
     assert!(
         !hub.ack_care(&sig_a, "dave", Some(&pids[1]))
@@ -1235,6 +1249,12 @@ fn everyone_treats_two_same_named_principals_as_distinct_recipients() {
         hub.ack_care(&sig_b, "dave", Some(&pids[1]))
             .expect("own ack b"),
         "principal b independently ACKs its own delivery"
+    );
+    assert_eq!(
+        hub.resolve_attention("proj", &care_a.attention_id, "dave", Some(&pids[0]), false)
+            .expect("owner resolves its own attention")
+            .status,
+        AttentionStatus::Resolved
     );
 
     // Revoking one same-named member drops only its own delivery; the other stays.
@@ -1467,7 +1487,7 @@ fn attention_defaults_to_lead_and_delivery_ack_does_not_resolve_it() {
 
     TEST_NOW.store(4_000, Ordering::Relaxed);
     let resolved = hub
-        .resolve_attention("proj", &attention.id, "lead", false)
+        .resolve_attention("proj", &attention.id, "lead", None, false)
         .expect("resolve");
     assert_eq!(resolved.status, AttentionStatus::Resolved);
     assert_eq!(resolved.resolved_at, Some(4_000));
@@ -2179,7 +2199,7 @@ fn disjoint_wait_cycle_is_not_starved_by_resolved_first_cycle() {
         }
     };
     assert_eq!(first.participants, vec!["a", "b"]);
-    hub.resolve_attention("proj", &first.attention_id, "lead", false)
+    hub.resolve_attention("proj", &first.attention_id, "lead", None, false)
         .expect("resolve first cycle");
     while events.try_recv().is_ok() {}
     TEST_NOW.store(2_000, Ordering::Relaxed);

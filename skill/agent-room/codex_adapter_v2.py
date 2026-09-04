@@ -215,6 +215,14 @@ def care_prompt_body(
     )
     if goal_context:
         lines.append(f"Goal context: {goal_context}")
+    lines.append(
+        "If you own this attention and no action is needed, resolve this stable "
+        "Care signal id; delivery ACK alone does not stop retries."
+    )
+    lines.append(
+        "Owner resolve command: SKILL_DIR/connect.sh attention-resolve "
+        f'"$SERVER" {room} "$NAME" {stable_id}'
+    )
     lines.append("Bounded context:")
     context_lines = care_context_lines(signal, context)
     lines.extend(context_lines or ["(no source-room context was shared)"])
@@ -253,8 +261,10 @@ def attention_prompt(
         f"Priority: {attention['priority']}\n"
         f"{reply_rule}{recovery_rule}\n\n"
         f"{body}\n\n"
-        "Respond as normal assistant text. Do not call connect.sh, do not send "
-        "a Loca message with a shell command, and never request or reveal room "
+        "Respond as normal assistant text. Do not call connect.sh to send a "
+        "Loca message and do not send a Loca message with a shell command. For "
+        "a Care attention you own, attention-resolve is the only permitted "
+        "connect.sh control when no action is needed. Never request or reveal room "
         "credentials. The runtime adapter relays completed assistant messages. "
         f"If no useful room reply is warranted, respond exactly {NO_REPLY_SENTINEL}. "
         "Avoid acknowledgement-only chatter, never answer your own output, and "

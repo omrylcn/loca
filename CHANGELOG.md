@@ -6,6 +6,17 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-09-05
+
+### Fixed
+- Reminder owners can now explicitly choose **No action needed** to resolve a
+  Care generation without posting filler chat. The owner command is part of
+  the normal skill surface, Care prompts show the stable attention id and
+  resolution path, and the browser exposes the action to the selected owner.
+- Everyone reminder resolution is canonical-principal scoped: two members who
+  share a display name cannot resolve each other's attention. Legacy
+  Lead/Person reminders retain their name-based compatibility path.
+
 ## [0.9.5] - 2026-09-04
 
 ### Fixed

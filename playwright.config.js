@@ -1,11 +1,12 @@
 const { defineConfig } = require("@playwright/test");
+const port = process.env.PLAYWRIGHT_PORT || "18787";
 
 module.exports = defineConfig({
   testDir: "tests/browser",
   timeout: 30_000,
   workers: 1,
   use: {
-    baseURL: "http://127.0.0.1:18787",
+    baseURL: `http://127.0.0.1:${port}`,
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
       ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH }
       : {},
@@ -14,7 +15,7 @@ module.exports = defineConfig({
   webServer: {
     command: [
       "env",
-      "PORT=18787",
+      `PORT=${port}`,
       "BIND_ADDR=127.0.0.1",
       "ADMIN_TOKEN=MASTER",
       "DB_PATH=:memory:",
@@ -23,7 +24,7 @@ module.exports = defineConfig({
       "LEGACY_WS_QUERY_AUTH=0",
       "cargo run --quiet -p server",
     ].join(" "),
-    url: "http://127.0.0.1:18787/health",
+    url: `http://127.0.0.1:${port}/health`,
     reuseExistingServer: false,
     timeout: 120_000,
   },

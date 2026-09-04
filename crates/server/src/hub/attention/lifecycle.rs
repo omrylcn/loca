@@ -288,6 +288,7 @@ impl Hub {
         room_name: &str,
         id: &str,
         actor: &str,
+        actor_principal_id: Option<&str>,
         is_operator: bool,
     ) -> Result<Attention, AttentionError> {
         let now = (self.now_ms)();
@@ -298,11 +299,31 @@ impl Hub {
             .get(id)
             .cloned()
             .ok_or(AttentionError::NotFound)?;
-        if !is_operator
-            && current.owner.as_deref() != Some(actor)
-            && current.claimed_by.as_deref() != Some(actor)
-        {
-            return Err(AttentionError::Forbidden);
+        if !is_operator {
+            let owner_principal_id = self
+                .store
+                .attention_owner_principal_id(id)
+                .map_err(|_| AttentionError::Storage)?;
+            let authorized = match owner_principal_id {
+                Some(Some(owner_principal_id)) => {
+                    actor_principal_id == Some(owner_principal_id.as_str())
+                }
+                Some(None) => {
+                    current.owner.as_deref() == Some(actor)
+                        || current.claimed_by.as_deref() == Some(actor)
+                }
+                // A generated Everyone attention (`group` present) must never
+                // downgrade to display-name authorization if its durable
+                // principal scope is unexpectedly unavailable.
+                None if current.group.is_some() => false,
+                None => {
+                    current.owner.as_deref() == Some(actor)
+                        || current.claimed_by.as_deref() == Some(actor)
+                }
+            };
+            if !authorized {
+                return Err(AttentionError::Forbidden);
+            }
         }
         if current.status == AttentionStatus::Resolved {
             return Err(AttentionError::Conflict);

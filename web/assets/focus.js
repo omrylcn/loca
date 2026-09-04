@@ -82,8 +82,9 @@ function renderReminderHistory() {
     const occurrences = count > 1 ? ` · ${count} occurrences` : "";
     row.innerHTML = `<span class="rhsubject"></span><span class="rhmeta"></span>`
       + `<span class="rhstate"></span>`
-      + (isLocaOperator() && reminder.status !== "resolved"
-        ? `<button data-reminder-resolve="${esc(reminder.id)}">Resolve</button>` : "");
+      + ((isLocaOperator() || reminder.owner?.toLowerCase() === state.name.toLowerCase())
+          && reminder.status !== "resolved"
+        ? `<button data-reminder-resolve="${esc(reminder.id)}">${isLocaOperator() ? "Resolve" : "No action needed"}</button>` : "");
     row.querySelector(".rhsubject").textContent = reminder.subject;
     const attempt = ` · attempt ${Math.max(1, Number(reminder.attempt || 1))}`;
     row.querySelector(".rhmeta").textContent = `${owner} · ${delivery}${reminderTiming(reminder)}${attempt}${occurrences} · last ${fmtFull(reminder.created_at)}`;

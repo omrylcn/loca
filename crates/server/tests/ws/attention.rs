@@ -1701,7 +1701,7 @@ async fn next_silence_signal(
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >,
     ms: u64,
-) -> Option<String> {
+) -> Option<(String, String)> {
     let deadline = tokio::time::sleep(Duration::from_millis(ms));
     tokio::pin!(deadline);
     loop {
@@ -1711,7 +1711,10 @@ async fn next_silence_signal(
                 Some(Ok(WsMessage::Text(text))) => {
                     if let Ok(value) = serde_json::from_str::<Value>(&text) {
                         if value["t"] == "care" && value["signal"]["reason"] == "room_silence" {
-                            return value["signal"]["id"].as_str().map(str::to_string);
+                            return Some((
+                                value["signal"]["id"].as_str()?.to_string(),
+                                value["signal"]["attention_id"].as_str()?.to_string(),
+                            ));
                         }
                     }
                 }
@@ -1786,7 +1789,7 @@ async fn everyone_reminder_ack_is_principal_scoped_over_http() {
         .error_for_status()
         .unwrap();
 
-    let sig_alice = next_silence_signal(&mut alice, 4000)
+    let (sig_alice, alice_attention) = next_silence_signal(&mut alice, 4000)
         .await
         .expect("alice receives her per-member reminder");
 
@@ -1811,6 +1814,26 @@ async fn everyone_reminder_ack_is_principal_scoped_over_http() {
         own.status(),
         reqwest::StatusCode::NO_CONTENT,
         "the owning principal ACKs its own delivery over HTTP"
+    );
+
+    let resolve = |token: &str, by: &str| {
+        client
+            .post(format!(
+                "{base}/rooms/proj/attentions/{alice_attention}/resolve"
+            ))
+            .header("x-session-token", token.to_string())
+            .json(&serde_json::json!({ "by": by }))
+            .send()
+    };
+    assert_eq!(
+        resolve(&session["bob"], "bob").await.unwrap().status(),
+        reqwest::StatusCode::FORBIDDEN,
+        "a co-member cannot resolve another principal's Everyone attention"
+    );
+    assert_eq!(
+        resolve(&session["alice"], "alice").await.unwrap().status(),
+        reqwest::StatusCode::OK,
+        "the owning principal resolves its own attention over HTTP"
     );
 
     // The ACK is durable: alice's reconnect no longer replays it.
@@ -2033,10 +2056,10 @@ async fn everyone_reminder_separates_two_same_named_principals_over_websockets()
 
     // Each same-named socket receives EXACTLY its own principal's row. A name-based
     // delivery would hand BOTH "sam" rows to BOTH sockets.
-    let a = next_silence_signal(&mut sam_a, 4000)
+    let (a, attention_a) = next_silence_signal(&mut sam_a, 4000)
         .await
         .expect("sam(A) receives its own reminder");
-    let b = next_silence_signal(&mut sam_b, 2000)
+    let (b, attention_b) = next_silence_signal(&mut sam_b, 2000)
         .await
         .expect("sam(B) receives its own reminder");
     assert_ne!(a, b, "each socket received a distinct principal's delivery");
@@ -2050,6 +2073,33 @@ async fn everyone_reminder_separates_two_same_named_principals_over_websockets()
         count_silence_care(&mut sam_b, 800).await,
         0,
         "sam(B) got only its own row, never sam(A)'s"
+    );
+
+    // Both sessions present the same display name, so only canonical principal
+    // scoping can distinguish the owner at the HTTP resolve door.
+    let resolve_a = |session: &str, attention_id: &str| {
+        client
+            .post(format!(
+                "{base}/rooms/proj/attentions/{attention_id}/resolve"
+            ))
+            .header("x-session-token", session.to_string())
+            .json(&serde_json::json!({ "by": "sam" }))
+            .send()
+    };
+    assert_eq!(
+        resolve_a(&session_b, &attention_a).await.unwrap().status(),
+        reqwest::StatusCode::FORBIDDEN,
+        "same-named sam(B) cannot resolve sam(A)'s attention"
+    );
+    assert_eq!(
+        resolve_a(&session_a, &attention_a).await.unwrap().status(),
+        reqwest::StatusCode::OK,
+        "sam(A) resolves only its own principal-scoped attention"
+    );
+    assert_eq!(
+        resolve_a(&session_b, &attention_b).await.unwrap().status(),
+        reqwest::StatusCode::OK,
+        "sam(B)'s own attention remains independently resolvable"
     );
 
     let _ = std::fs::remove_file(&db);

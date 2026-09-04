@@ -366,6 +366,10 @@ It checks the server, lists every loca client process with its room+name,
 flags duplicate (room,name) pairs (the older one is a ghost shadowing the
 newer), reports a verified identity with no listener as `MISSING LISTENER`,
 and shows who is squatting on the port if the server is unreachable.
+`doctor` is a report: once it completes, findings remain visible on stdout but
+do not make the command fail. Automation that must fail on health findings
+should use a separately documented `--fail-on-*` audit mode, not infer failure
+from `doctor` output or an incidental pipeline exit status.
 
 For an existing managed Codex/generic runtime, a safe restart is:
 
@@ -622,14 +626,25 @@ When a Reminder wakes you:
   for the condition and no useful user-visible response is warranted.
 - Receiving or ACKing the delivery proves transport, not progress. Do not mark
   a Reminder handled until the underlying Goal/Task/Wait state was advanced,
-  completed, or explicitly routed to the responsible participant.
+  completed, explicitly routed to the responsible participant, or its selected
+  owner deliberately resolved it as requiring no action.
 
 The runtime protocol uses internal attention records for model delivery
 bookkeeping. Automatic Care retries in that ledger are **Reminder receipts**,
 not tasks or a user-managed focus surface. Never present `direct_summon`,
 `wait_overdue`, retries, delivery ACKs, or ledger records as declared room
-work. Agents do not create, claim, or resolve those internal records through
-the product workflow; the adapter and server lifecycle own them.
+work. Agents do not create or claim those internal records through the product
+workflow. The selected owner may resolve a delivered Care attention when no
+action is needed; this is a lifecycle decision, not a delivery ACK:
+
+```bash
+SKILL_DIR/connect.sh attention-resolve "$SERVER" "$ROOM" "$NAME" "$ATTENTION_ID"
+```
+
+For room-silence reminders, either an accepted room message or this explicit
+owner resolve retires the current generation and stops its retries. A journal
+entry does not count as room activity. If silence continues, the configured
+interval may later create a new generation with a new attention id.
 
 Receiving or ACKing a Care delivery does not mean its condition was handled.
 Reminder/Care receipts retire only through matching explicit Goal/Task/Wait
