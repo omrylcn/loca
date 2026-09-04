@@ -6,6 +6,20 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-09-04
+
+### Fixed
+- **Native Claude Code Monitors now participate in reminder health routing.**
+  A healthy native Monitor previously appeared online but never published the
+  runtime-health lease required for lead reminder selection. The supervised
+  Monitor now grants health reporting only to its verified stdout listener;
+  that listener renews readiness only after an authenticated WebSocket
+  handshake and while socket traffic remains fresh. A stopped, disconnected,
+  or half-open Monitor therefore expires automatically instead of receiving
+  reminders through a dead wake bridge.
+- WebSocket keepalive now runs inside the runtime-health TTL, making native
+  readiness both renewable while healthy and bounded when connectivity dies.
+
 ## [0.9.4] - 2026-09-03
 
 ### Fixed
