@@ -19,13 +19,14 @@ SHELL_SCRIPTS := \
 
 .PHONY: help check rust-check python-check shell-check docs-check \
 	compose-check smoke package-check container-check browser-check benchmark-local \
-	runtime-v2-soak
+	runtime-v2-soak delivery-check
 
 help:
 	@printf '%s\n' \
 		'make check           Run the same non-container gates as CI' \
 		'make container-check Build the production container' \
 		'make browser-check   Run the Chromium identity/reconnect gate' \
+		'make delivery-check  Run real all/lead reminder delivery gates' \
 		'make benchmark-local Measure disposable local SQLite message paths' \
 		'make package-check   Build and verify the remote-agent ZIP' \
 		'make runtime-v2-soak Run the three-hour real v1+v2 shadow gate'
@@ -80,6 +81,18 @@ container-check:
 
 browser-check:
 	npm run test:browser
+
+DELIVERY_BINARY ?= target/debug/room-server
+DELIVERY_LISTENER ?= skill/agent-room/listen.py
+DELIVERY_PORT ?= 18990
+
+delivery-check:
+	$(PYTHON) scripts/delivery-harness.py --binary $(DELIVERY_BINARY) \
+		--listener $(DELIVERY_LISTENER) --agents alice,bob,carol \
+		--lead alice --recipient all --supervised --restart --port $(DELIVERY_PORT)
+	$(PYTHON) scripts/delivery-harness.py --binary $(DELIVERY_BINARY) \
+		--listener $(DELIVERY_LISTENER) --agents alice,bob,carol \
+		--lead alice --recipient lead --supervised --restart --port $$(( $(DELIVERY_PORT) + 1 ))
 
 benchmark-local:
 	$(PYTHON) scripts/benchmark-local.py
