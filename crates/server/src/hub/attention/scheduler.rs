@@ -204,14 +204,12 @@ impl Hub {
             let is_everyone = rooms
                 .get(&room_name)
                 .is_some_and(|room| matches!(room.settings.care_recipient, ReminderRecipient::All));
-            if owner.is_none() && !is_everyone {
-                // Lead/Person reminders need a single live owner: without one,
-                // leave counters untouched. The explicit wait remains persisted
-                // and the next sweep delivers it once an owner is present. An
-                // Everyone reminder instead fans out to the whole roster, so it
-                // proceeds even with no single owner (offline members included).
-                continue;
-            }
+            // Reminder generation is room state, not transport state. A
+            // Lead/Person reminder must still become a durable Attention and a
+            // visible room receipt when no healthy runtime can currently own
+            // its Care delivery. `write_care` deliberately persists that
+            // owner-less Attention without creating an outbox row; a later
+            // sweep can attach a recovered owner to the same generation.
             let Some(room) = rooms.get_mut(&room_name) else {
                 continue;
             };
@@ -219,7 +217,14 @@ impl Hub {
             let cooldown_ms = room.settings.care_cooldown_secs as u64 * 1_000;
             let max_attempts = room.settings.care_max_attempts;
             let mut room_signal: Option<(CareSignal, bool)> = None;
-            let cycles = Self::wait_cycles(room);
+            // Explicit waits remain delivery work: unlike room reminders they
+            // do not consume attempts or create a receipt until somebody can
+            // actually own the wake-up.
+            let cycles = if owner.is_some() {
+                Self::wait_cycles(room)
+            } else {
+                Vec::new()
+            };
             let cycle_members: std::collections::HashSet<String> =
                 cycles.iter().flatten().cloned().collect();
             for cycle in &cycles {
@@ -290,7 +295,7 @@ impl Hub {
                     }
                 }
             }
-            let mut names: Vec<String> = if room_signal.is_none() {
+            let mut names: Vec<String> = if room_signal.is_none() && owner.is_some() {
                 room.waits
                     .keys()
                     .filter(|name| !cycle_members.contains(*name))
@@ -596,6 +601,22 @@ impl Hub {
                     }
                     // Re-homed at construction: envelope room == delivery room.
                     let delivery_room = signal.room.as_str();
+                    if owner.is_none() {
+                        let already_visible = room.attentions.contains_key(&signal.attention_id)
+                            || self.store.attention(&signal.attention_id).is_some();
+                        if already_visible {
+                            continue;
+                        }
+                        if let Err(error) = self.store.enqueue_care(delivery_room, &signal) {
+                            tracing::error!(%error, room = %room_name, signal_key = %key, "owner-less reminder persistence failed");
+                            continue;
+                        }
+                        // Do not burn a delivery attempt while no delivery was
+                        // possible. The room sees attempt 1 now; a recovered
+                        // owner later receives attempt 1 for this same id.
+                        room_signal = Some((signal, true));
+                        break;
+                    }
                     if let Err(error) = self.store.enqueue_care_with_mark(
                         &room_name,
                         &key,

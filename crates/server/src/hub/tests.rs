@@ -1825,6 +1825,107 @@ fn wait_cycle_survives_missing_owner_and_uses_bounded_scheduler() {
 }
 
 #[test]
+fn reminder_is_recorded_and_published_before_a_healthy_owner_exists() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(|lock| lock.into_inner());
+    let dir = tempfile::tempdir().expect("temp store");
+    let mut hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        Arc::new(Store::open(dir.path().join("ownerless.sqlite").to_str()).expect("store")),
+        RoomSettings {
+            care_cooldown_secs: 0,
+            care_max_attempts: 3,
+            care_silence_secs: 1,
+            care_recipient: ReminderRecipient::Lead,
+            ..RoomSettings::default()
+        },
+        1,
+    );
+    hub.now_ms = test_now_ms;
+    TEST_NOW.store(1_000, Ordering::Relaxed);
+    hub.set_lead("proj", Some("lead".into()), "operator")
+        .expect("lead");
+    assert!(hub.join("proj", "member:lead", "lead", SenderType::Agent, 1));
+    let (mut events, _) = hub.subscribe("proj");
+    let first_message = hub
+        .post(
+            "proj",
+            PostMessage {
+                kind: Default::default(),
+                sender: "operator".into(),
+                sender_type: SenderType::User,
+                target: None,
+                text: "start silence clock".into(),
+                reply_to: None,
+                op_id: None,
+                attachments: Vec::new(),
+            },
+            true,
+            "operator",
+        )
+        .expect("seed message");
+    while events.try_recv().is_ok() {}
+
+    TEST_NOW.store(first_message.ts + 1_001, Ordering::Relaxed);
+    hub.tick_care();
+
+    let attention = hub
+        .attentions("proj")
+        .into_iter()
+        .find(|attention| attention.reason == CareReason::RoomSilence)
+        .expect("room-visible reminder exists without a healthy owner");
+    assert_eq!(attention.owner, None);
+    assert_eq!(attention.delivered_at, None);
+    assert!(hub.pending_care("proj", "lead").is_empty());
+    let mut published = false;
+    while let Ok(frame) = events.try_recv() {
+        if matches!(
+            frame,
+            ServerFrame::Attention { attention }
+                if attention.reason == CareReason::RoomSilence && attention.owner.is_none()
+        ) {
+            published = true;
+        }
+    }
+    assert!(published, "the room receives the owner-less reminder state");
+
+    hub.report_runtime_health(
+        "lead",
+        RuntimeHealthUpdate {
+            wake: "IDLE".into(),
+            ack: "OK".into(),
+            delivery_id: None,
+            attention_id: None,
+            stored: false,
+            accepted: false,
+            first_response: false,
+            final_response: false,
+            turn_completed: false,
+        },
+    )
+    .expect("runtime health");
+    TEST_NOW.store(first_message.ts + 2_001, Ordering::Relaxed);
+    hub.tick_care();
+    let recovered = hub
+        .attentions("proj")
+        .into_iter()
+        .find(|candidate| candidate.id == attention.id)
+        .expect("same reminder generation survives owner recovery");
+    assert_eq!(recovered.owner.as_deref(), Some("lead"));
+    assert_eq!(recovered.attempt, 1);
+    assert_eq!(hub.pending_care("proj", "lead").len(), 1);
+}
+
+#[test]
 fn accepted_chat_retires_old_silence_attention_and_starts_a_new_generation() {
     let _clock = TEST_CLOCK_LOCK
         .lock()

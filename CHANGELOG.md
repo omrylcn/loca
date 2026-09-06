@@ -6,6 +6,24 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-09-06
+
+### Fixed
+- Automatic reminders now become durable, room-visible Attention records even
+  when no healthy runtime can currently own the Care delivery. The pending
+  reminder appears in Chat and Focus immediately, then the same generation is
+  delivered when an eligible owner recovers instead of failing silently.
+
+## [0.9.8] - 2026-09-06
+
+### Fixed
+- Resolved reminders keep their delivered chat receipt instead of disappearing
+  and making a successful delivery look like a missing message. Retry and
+  escalation still stop when the reminder is resolved.
+- The lead picker now gives native select options an explicit dark background
+  and readable foreground instead of inheriting pale yellow text on an
+  operating-system white menu.
+
 ## [0.9.7] - 2026-09-05
 
 ### Fixed
