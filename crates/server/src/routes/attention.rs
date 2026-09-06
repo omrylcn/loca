@@ -170,7 +170,7 @@ pub(crate) fn attention_response(
 }
 pub(crate) async fn ack_care(
     State(hub): State<Hub>,
-    _access: RoomAccess,
+    access: RoomAccess,
     Path((_id, signal_id)): Path<(String, String)>,
     headers: HeaderMap,
     Json(body): Json<CareAck>,
@@ -183,7 +183,8 @@ pub(crate) async fn ack_care(
     // per-member ACK: two members sharing a name each ACK only their own row.
     let principal_id = session_of(&headers)
         .and_then(|token| hub.session_identity(Some(token)))
-        .and_then(|identity| identity.principal_id);
+        .and_then(|identity| identity.principal_id)
+        .or_else(|| hub.principal_id_for_invite(&access.room, member_token_of(&headers)));
     match hub.ack_care(&signal_id, &actor, principal_id.as_deref()) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (

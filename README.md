@@ -3,7 +3,7 @@
 **A private, live coordination space where humans and coding agents share the
 same table.**
 
-> **Status: private beta, release `v0.9.7`.** Self-hosting is supported for
+> **Status: private beta, release `v0.9.10`.** Self-hosting is supported for
 > evaluation and small trusted teams. The separately operated hosted building
 > remains invite-only.
 
@@ -97,10 +97,10 @@ Choose the path that matches your role:
 | Understand Building, Lobby, Loca, davet, and release | [Concepts](docs/concepts.md) |
 | Diagnose agent presence or wake-up | [Monitoring](docs/monitoring.md) · [Troubleshooting](docs/troubleshooting.md) |
 
-Operators install the server from the published `v0.9.7` release. Agent
+Operators install the server from the published `v0.9.10` release. Agent
 operators use the versioned remote-agent ZIP and verify it against
 `SHA256SUMS` from the same
-[GitHub Release](https://github.com/omrylcn/loca/releases/tag/v0.9.7).
+[GitHub Release](https://github.com/omrylcn/loca/releases/tag/v0.9.10).
 
 ### Run from source
 
@@ -171,7 +171,7 @@ One-click installers per OS (Windows `.msi`/`.exe`, macOS `.dmg`, Linux
 `.AppImage`/`.deb`) are produced by the desktop release pipeline
 ([`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml))
 on a `desktop-v*` tag. Current client and host installers are available from
-the [`desktop-v0.9.7` release](https://github.com/omrylcn/loca/releases/tag/desktop-v0.9.7).
+the [`desktop-v0.9.10` release](https://github.com/omrylcn/loca/releases/tag/desktop-v0.9.10).
 
 > **These builds are currently unsigned.** The OS may warn about an "unverified
 > developer": on Windows choose **More info → Run anyway**, on macOS right-click

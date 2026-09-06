@@ -1195,7 +1195,8 @@ async fn ws_session(
     // never cross wires and a principal-less socket never receives one.
     let session_principal_id = credentials
         .live_session(&hub)
-        .and_then(|session| session.principal_id);
+        .and_then(|session| session.principal_id)
+        .or_else(|| hub.principal_id_for_invite(&room, credentials.davet.as_deref()));
     // `@all` calls ordinary room members everywhere. A caretaker receives it
     // only at its private home table; a cross-loca watch must never turn a
     // room-wide call into access to that room's discussion.

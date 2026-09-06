@@ -196,6 +196,12 @@ The open release must prove all of the following:
 9. Codex and Claude Code each pass delivery → wake → reply → ACK conformance.
 10. Runtime-v2 live relay remains a separate canary promotion; shipping its
     shadow code does not silently replace the proven responder.
+11. `make delivery-check` runs real listeners in both Everyone and Lead modes;
+    both modes must pass before release, including a same-database server restart.
+    Exit codes are `0` pass, `2` setup/control failure, `3` inconclusive because
+    no healthy owner was selected, and `5` delivery or ACK failure. Run the
+    harness without a pipeline so its exit status cannot be replaced by `tail`
+    or another downstream command.
 
 ## Consequences
 

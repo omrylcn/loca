@@ -1626,8 +1626,10 @@ async fn everyone_reminder_wakes_each_member_exactly_once_over_websockets() {
 
     // Three real members, each with a davet and a principal-bound session in proj.
     let mut session = std::collections::HashMap::new();
+    let mut davets = std::collections::HashMap::new();
     for name in ["alice", "bob", "carol"] {
         let davet = davet_for(&base, "MASTER", "proj", name).await;
+        davets.insert(name, davet.clone());
         session.insert(
             name,
             session_with(&base, ("x-room-token", davet.as_str()), name, Some("proj")).await,
@@ -1655,9 +1657,18 @@ async fn everyone_reminder_wakes_each_member_exactly_once_over_websockets() {
     let (mut alice, _) = tokio_tungstenite::connect_async(ws_url("alice"))
         .await
         .unwrap();
-    let (mut bob, _) = tokio_tungstenite::connect_async(ws_url("bob"))
-        .await
-        .unwrap();
+    // Native listeners authenticate directly with their loca davet. This used
+    // to leave the socket without a principal even though the davet itself is
+    // principal-bound, so the Everyone branch created Bob's Care row but the
+    // principal filter silently withheld the frame.
+    let bob_url = format!(
+        "ws://127.0.0.1:{port}/ws?room=proj&name=bob&type=agent&filter=mentions&turn_max=1"
+    );
+    let mut bob = connect_ws_protocols(
+        bob_url,
+        &["loca.v1".into(), format!("loca.room.{}", davets["bob"])],
+    )
+    .await;
 
     // One message sets last_msg_ms; then the room goes quiet and silence elapses.
     client
