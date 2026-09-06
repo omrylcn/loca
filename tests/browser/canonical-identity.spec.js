@@ -18,6 +18,50 @@ test("door credentials are masked", async ({ page }) => {
   await expect(page.locator("#roomToken")).toHaveAttribute("type", "password");
 });
 
+test("lead picker options keep readable dark-theme contrast", async ({ page }) => {
+  await page.goto("/");
+  const colors = await page.locator("#leadSelect option").first().evaluate((option) => {
+    const style = getComputedStyle(option);
+    return { background: style.backgroundColor, foreground: style.color };
+  });
+  expect(colors).toEqual({
+    background: "rgb(22, 27, 35)",
+    foreground: "rgb(215, 221, 230)",
+  });
+});
+
+test("resolving a delivered reminder does not erase its chat receipt", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    state.name = "alice";
+    state.room = "e2e";
+    state.attentions = {
+      receipt: {
+        id: "attention:e2e:silence:receipt",
+        room: "e2e",
+        reason: "room_silence",
+        subject: "room has been quiet",
+        owner: "alice",
+        created_at: 1,
+        delivered_at: 2,
+        attempt: 1,
+        status: "open",
+      },
+    };
+    rebuildReminderChatProjection();
+  });
+  const receipt = page.locator("#feed .row.locareminder");
+  await expect(receipt).toHaveCount(1);
+
+  await page.evaluate(() => {
+    state.attentions.receipt.status = "resolved";
+    state.attentions.receipt.resolved_at = 3;
+    rebuildReminderChatProjection();
+  });
+  await expect(receipt).toHaveCount(1);
+  await expect(receipt).toContainText("@alice, room has been quiet");
+});
+
 test("a reminder owner can resolve no-action-needed without operator UI", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => {

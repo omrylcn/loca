@@ -6,6 +6,16 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-09-06
+
+### Fixed
+- Resolved reminders keep their delivered chat receipt instead of disappearing
+  and making a successful delivery look like a missing message. Retry and
+  escalation still stop when the reminder is resolved.
+- The lead picker now gives native select options an explicit dark background
+  and readable foreground instead of inheriting pale yellow text on an
+  operating-system white menu.
+
 ## [0.9.7] - 2026-09-05
 
 ### Fixed

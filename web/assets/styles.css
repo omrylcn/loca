@@ -369,9 +369,10 @@
     padding: 1px 9px; border-radius: 12px; }
   .roomactions { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
   .leadkey { color: #f5c76b; font: 800 10px var(--mono); letter-spacing: .04em; }
-  .leadselect { max-width: 170px; background: rgba(245,199,107,.10);
+  .leadselect { max-width: 170px; color-scheme: dark; background: rgba(245,199,107,.10);
     border: 1px solid rgba(245,199,107,.48); color: #ffe0a0; border-radius: 7px;
     padding: 4px 7px; font: 700 10px var(--mono); cursor: pointer; }
+  .leadselect option { background: var(--panel2); color: var(--txt); }
   .leadselect:focus { outline: 1px solid #f5c76b; }
   .admintoggle { background: none; border: 0; color: var(--muted);
     cursor: pointer; font: 11px var(--mono); }

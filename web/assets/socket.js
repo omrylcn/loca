@@ -100,15 +100,15 @@ function rebuildReminderChatProjection() {
     .filter(attention => ["goal_reminder", "task_reminder", "wait_overdue", "wait_cycle", "room_silence"]
       .includes(attention.reason))
     .filter(attention => !attention.room || attention.room === state.room)
-    .filter(attention => attention.status !== "resolved")
     .filter(attention => attention.delivered_at && attention.owner)
     .sort((a, b) => Number(b.delivered_at || b.created_at || 0)
       - Number(a.delivered_at || a.created_at || 0))[0];
   // Chat is a conversation, not the Reminder audit log. Keep at most the
-  // newest actionable reminder visible here; retries and completed history
-  // remain durable in Focus > Reminders without flooding the transcript.
+  // newest delivered reminder visible here without flooding the transcript.
+  // Resolution stops retries; it must not erase the visible proof that the
+  // reminder was delivered and make a healthy delivery look like a failure.
   // A reconnect rebuilds durable reminders after message history. The newest
-  // actionable receipt must remain visible in Chat even when conversation
+  // delivered receipt must remain visible in Chat even when conversation
   // continued afterwards; addMsg places an older reminder at its timestamp
   // instead of falsely appending it as the newest message.
   if (latest) addReminderChatBubble(latest);
