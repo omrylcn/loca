@@ -59,16 +59,20 @@ function reminderChatText(attention) {
   // An "Everyone" reminder fans out to a per-member attention each, all sharing a
   // server-derived `group` (generation) id. Chat shows it as one @all line, not
   // one member's name, so it reads as addressed to the whole loca.
-  const owner = attention.group
+  const owner = attention.group || attention.audience?.kind === "group"
     ? "@all"
-    : attention.owner ? `@${attention.owner}` : "a healthy recipient";
+    : attention.owner
+      ? `@${attention.owner}`
+      : attention.audience?.kind === "person"
+        ? `@${attention.audience.name}`
+        : "@lead";
   const timing = reminderTiming(attention).match(/waiting [^·]+/)?.[0]?.trim();
   const subject = boundedChatText(attention.subject || "Reminder");
   return `${owner}, ${subject}${timing ? ` · ${timing}` : ""}`;
 }
 
 function addReminderChatBubble(attention) {
-  if (!attention.delivered_at || !attention.owner) return false;
+  if (!attention.id) return false;
   const attempt = Math.max(1, Number(attention.attempt || 1));
   // One visible message per bounded attempt. A replayed Attention frame keeps
   // the same durable identity + attempt and must not duplicate the bubble.
@@ -81,7 +85,7 @@ function addReminderChatBubble(attention) {
     // it has no one person as target, so addMsg must not prepend an owner
     // mention on top of it. Lead/Person reminders keep their directed target.
     sender_type: "agent",
-    target: attention.group ? null : attention.owner,
+    target: attention.group ? null : attention.owner || null,
     text: reminderChatText(attention),
     kind: "reminder",
     ts: attention.delivered_at || attention.created_at,
@@ -100,7 +104,6 @@ function rebuildReminderChatProjection() {
     .filter(attention => ["goal_reminder", "task_reminder", "wait_overdue", "wait_cycle", "room_silence"]
       .includes(attention.reason))
     .filter(attention => !attention.room || attention.room === state.room)
-    .filter(attention => attention.delivered_at && attention.owner)
     .sort((a, b) => Number(b.delivered_at || b.created_at || 0)
       - Number(a.delivered_at || a.created_at || 0))[0];
   // Chat is a conversation, not the Reminder audit log. Keep at most the

@@ -6,6 +6,14 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-09-06
+
+### Fixed
+- Automatic reminders now become durable, room-visible Attention records even
+  when no healthy runtime can currently own the Care delivery. The pending
+  reminder appears in Chat and Focus immediately, then the same generation is
+  delivered when an eligible owner recovers instead of failing silently.
+
 ## [0.9.8] - 2026-09-06
 
 ### Fixed

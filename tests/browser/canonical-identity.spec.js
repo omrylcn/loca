@@ -62,6 +62,37 @@ test("resolving a delivered reminder does not erase its chat receipt", async ({ 
   await expect(receipt).toContainText("@alice, room has been quiet");
 });
 
+test("a room reminder is visible before any healthy owner can receive Care", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    state.room = "e2e";
+    state.attentions = {
+      pending: {
+        id: "attention:e2e:silence:pending",
+        room: "e2e",
+        reason: "room_silence",
+        subject: "operator-enabled room silence check",
+        audience: { kind: "lead" },
+        owner: null,
+        created_at: 10,
+        delivered_at: null,
+        attempt: 1,
+        status: "open",
+      },
+    };
+    rebuildReminderChatProjection();
+    renderReminderHistory();
+  });
+
+  await expect(page.locator("#feed .row.locareminder")).toHaveCount(1);
+  await expect(page.locator("#feed .row.locareminder")).toContainText(
+    "@lead, operator-enabled room silence check",
+  );
+  await expect(page.locator("#reminderHistoryList .reminderhistoryrow")).toContainText(
+    "waiting for a healthy recipient · pending",
+  );
+});
+
 test("a reminder owner can resolve no-action-needed without operator UI", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => {
