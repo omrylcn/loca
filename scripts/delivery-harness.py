@@ -40,7 +40,12 @@ def http(method, url, body=None, headers=None, timeout=10):
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode()
-            return r.status, (json.loads(raw) if raw.strip() else None)
+            if not raw.strip():
+                return r.status, None
+            try:
+                return r.status, json.loads(raw)
+            except json.JSONDecodeError:
+                return r.status, raw[:200]
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()[:200]
 
@@ -96,6 +101,9 @@ def main():
             "DB_PATH": str(work / "harness.db"),
             "CARE_SILENCE_SECS": str(args.silence_secs),
             "CARE_COOLDOWN_SECS": str(args.cooldown_secs),
+            "REQUIRE_SESSIONS": "1",
+            "ROOM_TOKEN": "building",
+            "LEGACY_WS_QUERY_AUTH": "0",
         }
         server_log = open(work / "server.log", "w")
         procs.append(subprocess.Popen([args.binary], env=env, stdout=server_log, stderr=server_log))
@@ -104,6 +112,18 @@ def main():
 
         # 2. real members + davets + sessions + identity envs
         admin_h = {"x-admin-token": ADMIN}
+        http("POST", f"{base}/members", {"name": "harness", "kind": "user"}, admin_h)
+        hc, hinv = http("POST", f"{base}/rooms/{args.room}/invites",
+                        {"name": "harness"}, admin_h)
+        if not isinstance(hinv, dict) or not hinv.get("token"):
+            raise SystemExit(f"harness davet failed: {hc} {hinv}")
+        _, hs = http("POST", f"{base}/sessions",
+                     {"name": "harness", "kind": "user", "loca": args.room},
+                     {"x-room-token": hinv["token"]})
+        htok = hs.get("session_token") if isinstance(hs, dict) else None
+        if not htok:
+            raise SystemExit(f"harness session mint failed: {hs}")
+        post_h = {**admin_h, "x-session-token": htok}
         envs = {}
         for name in agents:
             http("POST", f"{base}/members", {"name": name, "kind": "agent"}, admin_h)
@@ -111,10 +131,17 @@ def main():
             if code not in (200, 201) or not isinstance(inv, dict):
                 raise SystemExit(f"davet failed for {name}: {code} {inv}")
             davet = inv["token"]
+            scode, sess = http("POST", f"{base}/sessions",
+                               {"name": name, "kind": "agent", "loca": args.room},
+                               {"x-room-token": davet})
+            token = sess.get("session_token") if isinstance(sess, dict) else None
+            if not token:
+                raise SystemExit(f"session mint failed for {name}: {scode}")
             envp = work / f"{name}.env"
             envp.write_text(
                 f"ROOM_SERVER_URL={base}\nLOCA_NAME={name}\n"
-                f"DAVET_{args.room.replace('-', '_')}={davet}\n",
+                f"DAVET_{args.room.replace('-', '_')}={davet}\n"
+                f"LOCA_SESSION={token}\n",
                 encoding="utf-8",
             )
             envp.chmod(0o600)
@@ -152,8 +179,11 @@ def main():
         # a reminder failed. A red without a control is indistinguishable from a
         # broken harness.
         for name in agents:
-            http("POST", f"{base}/rooms/{args.room}/messages",
-                 {"sender": "harness", "sender_type": "user", "text": f"@{name} control ping"}, admin_h)
+            pc, pb = http("POST", f"{base}/rooms/{args.room}/messages",
+                          {"sender": "harness", "sender_type": "user",
+                           "text": f"@{name} control ping"}, post_h)
+            if pc not in (200, 201):
+                print(f"  control post for {name} REJECTED: {pc} {pb}")
         control_deadline = time.time() + 12
         control = {}
         while time.time() < control_deadline and len(control) < len(agents):
@@ -198,12 +228,15 @@ def main():
             marks = {n: (work / f"{n}.deliveries").stat().st_size for n in agents}
             http("POST", f"{base}/rooms/{args.room}/messages",
                  {"sender": "harness", "sender_type": "user",
-                  "text": f"arming silence ({label})"}, admin_h)
+                  "text": f"arming silence ({label})"}, post_h)
             print(f"\n[{label}] armed: recipient={args.recipient} lead={args.lead}; "
                   f"watching {args.wait}s")
             got = {}
+            # Wait for the expected recipients, not every connected agent.
+            # Lead mode intentionally targets only one agent, so waiting for
+            # all of them would consume the retry budget before restart.
             deadline = time.time() + args.wait
-            while time.time() < deadline and len(got) < len(agents):
+            while time.time() < deadline and not expected.issubset(got.keys()):
                 for name in agents:
                     if name in got:
                         continue
@@ -213,6 +246,20 @@ def main():
                     if "room_silence" in fresh or "silence check" in fresh:
                         got[name] = True
                 time.sleep(1)
+            # Keep observing non-recipients briefly so the early success exit
+            # cannot hide a delayed fan-out leak.
+            if expected.issubset(got.keys()) and len(expected) < len(agents):
+                leak_deadline = time.time() + 5
+                while time.time() < leak_deadline:
+                    for name in agents:
+                        if name in got:
+                            continue
+                        with open(work / f"{name}.deliveries", errors="replace") as fh:
+                            fh.seek(marks[name])
+                            fresh = fh.read()
+                        if "room_silence" in fresh or "silence check" in fresh:
+                            got[name] = True
+                    time.sleep(1)
 
             print(f"=== DELIVERY RESULT [{label}] ===")
             for name in agents:
