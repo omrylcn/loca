@@ -1074,6 +1074,17 @@ impl Hub {
         (inv.room == room).then_some(inv)
     }
 
+    /// Resolve the canonical principal carried by an active davet for this
+    /// loca. Native listeners commonly authenticate their WebSocket directly
+    /// with the davet instead of first minting a session; principal-scoped
+    /// Everyone Care must work for both credential forms.
+    pub fn principal_id_for_invite(&self, room: &str, token: Option<&str>) -> Option<String> {
+        let invite = self.invite_for(room, token)?;
+        (!invite.member.is_empty())
+            .then(|| self.store.principal_id_for_member_record(&invite.member))
+            .flatten()
+    }
+
     /// May this room credential enter `room`? An active per-device credential
     /// inherits the transitional building-key access of its durable Member
     /// record; loca-specific davets remain separate, scoped bearers.
