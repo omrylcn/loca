@@ -6,6 +6,16 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.10] - 2026-09-06
+
+### Fixed
+- Everyone reminders now authenticate davet-connected native listeners by the
+  davet's canonical principal, so every selected room member receives exactly
+  one Care frame instead of the principal-scoped delivery being silently
+  withheld. The same canonical resolution now secures listener ACKs, allowing
+  each per-member Attention to record its real `delivered_at` receipt without
+  falling back to display-name trust.
+
 ## [0.9.9] - 2026-09-06
 
 ### Fixed
