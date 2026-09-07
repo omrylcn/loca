@@ -323,6 +323,38 @@ ACK_AUTH_BASE_BACKOFF = 2.0
 ACK_AUTH_MAX_BACKOFF = 300.0
 
 
+CARE_ACK_REFUSALS = {
+    "unauthorized": "care_ack_unauthorized",
+    "forbidden": "care_ack_forbidden",
+}
+
+
+def care_ack_degrade(status, state, *, base=None, cap=None, now=None):
+    """Record one auth-refused care ACK and decide how long to wait.
+
+    Mutates ``state`` (count/first/last) and returns ``(reason, delay)``. The
+    delay grows exponentially from ``base`` and stops at ``cap`` so a
+    permanently refused credential settles into a slow, visible degrade
+    instead of riding the generic 2s reconnect tail.
+    """
+    base = ACK_AUTH_BASE_BACKOFF if base is None else base
+    cap = ACK_AUTH_MAX_BACKOFF if cap is None else cap
+    reason = CARE_ACK_REFUSALS[status]
+    stamp = now or time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    state["count"] += 1
+    state["first"] = state["first"] or stamp
+    state["last"] = stamp
+    state["reason"] = reason
+    return reason, min(cap, base * (2 ** (state["count"] - 1)))
+
+
+def care_ack_recover(state):
+    """Clear a degrade after a successful ACK. Returns the cleared count."""
+    cleared = state.get("count", 0)
+    state.update(count=0, first=None, last=None, reason=None)
+    return cleared
+
+
 def renew_backoff_plan(
     attempts,
     *,
@@ -846,9 +878,15 @@ def acknowledge_care(url, signal_id, name):
             return "ok" if response.status == 204 else "error"
     except HTTPError as error:
         sys.stderr.write(f"[{room}] care ACK failed: {error}\n")
-        # 401/403 mean this credential will not be accepted however fast we
-        # retry; everything else may be transient.
-        return "auth" if error.code in (401, 403) else "error"
+        # 401 and 403 both mean "retrying sooner will not help", but they are
+        # NOT the same fault: 401 is a credential problem, 403 is a policy
+        # refusal (muted, restricted mode). They share the backoff and keep
+        # separate names so the degraded record does not misreport the cause.
+        if error.code == 401:
+            return "unauthorized"
+        if error.code == 403:
+            return "forbidden"
+        return "error"
     except Exception as error:
         sys.stderr.write(f"[{room}] care ACK failed: {error}\n")
         return "error"
@@ -1082,7 +1120,7 @@ def main():
         # reconnects (it lives in watch()'s scope, not the socket loop) so the
         # backoff actually grows across attempts instead of resetting to 2s
         # every time the connection is rebuilt.
-        ack_auth_state = {"count": 0, "first": None, "last": None}
+        ack_auth_state = {"count": 0, "first": None, "last": None, "reason": None}
         while True:
             s = None
             try:
@@ -1170,42 +1208,35 @@ def main():
                             ack = acknowledge_care(
                                 wurl, signal.get("id"), requested_name
                             )
-                            if ack == "auth":
-                                # Retrying sooner cannot fix an auth refusal.
-                                # Back off (bounded) so a permanently rejected
-                                # credential degrades slowly and VISIBLY instead
-                                # of hammering the server, and record the reason
-                                # plus first/last sighting for whoever debugs it.
-                                st = ack_auth_state
-                                st["count"] += 1
-                                now_iso = time.strftime("%Y-%m-%dT%H:%M:%S%z")
-                                st["first"] = st["first"] or now_iso
-                                st["last"] = now_iso
-                                delay = min(
-                                    ACK_AUTH_MAX_BACKOFF,
-                                    ACK_AUTH_BASE_BACKOFF * (2 ** (st["count"] - 1)),
-                                )
+                            if ack in CARE_ACK_REFUSALS:
+                                # Retrying sooner cannot fix an auth refusal, so
+                                # back off (bounded) instead of riding the
+                                # generic 2s reconnect tail, and record WHY.
+                                reason, delay = care_ack_degrade(ack, ack_auth_state)
                                 sys.stderr.write(
-                                    f"[{room}] degraded: care_ack_unauthorized "
-                                    f"count={st['count']} first={st['first']} "
-                                    f"last={st['last']} backoff={delay:.0f}s\n"
+                                    f"[{room}] degraded: {reason} "
+                                    f"count={ack_auth_state['count']} "
+                                    f"first={ack_auth_state['first']} "
+                                    f"last={ack_auth_state['last']} "
+                                    f"backoff={delay:.0f}s\n"
                                 )
                                 sys.stderr.flush()
                                 time.sleep(delay)
                                 raise BackfillError(
-                                    "care ACK refused (unauthorized); backing off"
+                                    f"care ACK refused ({reason}); backing off"
                                 )
                             if ack != "ok":
                                 raise BackfillError(
                                     "care event was persisted locally but server ACK failed"
                                 )
                             if ack_auth_state["count"]:
+                                prior = ack_auth_state.get("reason") or "care_ack_refused"
+                                cleared = care_ack_recover(ack_auth_state)
                                 sys.stderr.write(
-                                    f"[{room}] recovered: care_ack_unauthorized "
-                                    f"cleared after {ack_auth_state['count']} failure(s)\n"
+                                    f"[{room}] recovered: {prior} cleared after "
+                                    f"{cleared} failure(s)\n"
                                 )
                                 sys.stderr.flush()
-                                ack_auth_state.update(count=0, first=None, last=None)
                         continue
                     if t == "reaction":
                         reaction = f.get("reaction") or {}
