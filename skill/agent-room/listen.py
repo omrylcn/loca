@@ -314,6 +314,13 @@ def clear_room_invite(room, expected_token=None):
 RENEW_BASE_BACKOFF = 1.0
 RENEW_MAX_BACKOFF = 30.0
 RENEW_MAX_ATTEMPTS = 5
+# A care ACK the server refuses on AUTH grounds never succeeds by retrying
+# sooner. Without its own backoff the failure rides the generic 2s reconnect
+# tail: one stuck agent produced ~12 failed ACKs a minute for 14 hours (6601
+# and climbing) while still showing ONLINE in the roster. Bounded exponential
+# backoff turns that storm into a slow, visible degrade.
+ACK_AUTH_BASE_BACKOFF = 2.0
+ACK_AUTH_MAX_BACKOFF = 300.0
 
 
 def renew_backoff_plan(
@@ -836,10 +843,15 @@ def acknowledge_care(url, signal_id, name):
         req.add_header("x-session-token", os.environ["LOCA_SESSION"])
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
-            return response.status == 204
+            return "ok" if response.status == 204 else "error"
+    except HTTPError as error:
+        sys.stderr.write(f"[{room}] care ACK failed: {error}\n")
+        # 401/403 mean this credential will not be accepted however fast we
+        # retry; everything else may be transient.
+        return "auth" if error.code in (401, 403) else "error"
     except Exception as error:
         sys.stderr.write(f"[{room}] care ACK failed: {error}\n")
-        return False
+        return "error"
 
 
 def should_deliver_message(message, skip_own, only_direct, current_lead):
@@ -1066,6 +1078,11 @@ def main():
             return (message.get("id") or 0) > last[room]
 
         renew_attempts = 0
+        # Per-loca record of consecutive auth-refused care ACKs. Survives
+        # reconnects (it lives in watch()'s scope, not the socket loop) so the
+        # backoff actually grows across attempts instead of resetting to 2s
+        # every time the connection is rebuilt.
+        ack_auth_state = {"count": 0, "first": None, "last": None}
         while True:
             s = None
             try:
@@ -1150,12 +1167,45 @@ def main():
                             continue
                         if str(signal.get("owner") or "").casefold() == requested_name.casefold():
                             emit(room, f, current_lead)
-                            if not acknowledge_care(
+                            ack = acknowledge_care(
                                 wurl, signal.get("id"), requested_name
-                            ):
+                            )
+                            if ack == "auth":
+                                # Retrying sooner cannot fix an auth refusal.
+                                # Back off (bounded) so a permanently rejected
+                                # credential degrades slowly and VISIBLY instead
+                                # of hammering the server, and record the reason
+                                # plus first/last sighting for whoever debugs it.
+                                st = ack_auth_state
+                                st["count"] += 1
+                                now_iso = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+                                st["first"] = st["first"] or now_iso
+                                st["last"] = now_iso
+                                delay = min(
+                                    ACK_AUTH_MAX_BACKOFF,
+                                    ACK_AUTH_BASE_BACKOFF * (2 ** (st["count"] - 1)),
+                                )
+                                sys.stderr.write(
+                                    f"[{room}] degraded: care_ack_unauthorized "
+                                    f"count={st['count']} first={st['first']} "
+                                    f"last={st['last']} backoff={delay:.0f}s\n"
+                                )
+                                sys.stderr.flush()
+                                time.sleep(delay)
+                                raise BackfillError(
+                                    "care ACK refused (unauthorized); backing off"
+                                )
+                            if ack != "ok":
                                 raise BackfillError(
                                     "care event was persisted locally but server ACK failed"
                                 )
+                            if ack_auth_state["count"]:
+                                sys.stderr.write(
+                                    f"[{room}] recovered: care_ack_unauthorized "
+                                    f"cleared after {ack_auth_state['count']} failure(s)\n"
+                                )
+                                sys.stderr.flush()
+                                ack_auth_state.update(count=0, first=None, last=None)
                         continue
                     if t == "reaction":
                         reaction = f.get("reaction") or {}
