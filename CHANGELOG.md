@@ -6,6 +6,15 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.11] - 2026-09-08
+
+### Fixed
+- Native listeners now apply a bounded exponential backoff when a Care ACK is
+  rejected with `401` or `403`, preventing a stale credential or policy denial
+  from causing a rapid reconnect storm. Credential and policy failures remain
+  separately labelled, include failure counts and first/last-seen timestamps,
+  and clear after a successful ACK.
+
 ## [0.9.10] - 2026-09-06
 
 ### Fixed
