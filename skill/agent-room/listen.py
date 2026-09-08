@@ -314,6 +314,45 @@ def clear_room_invite(room, expected_token=None):
 RENEW_BASE_BACKOFF = 1.0
 RENEW_MAX_BACKOFF = 30.0
 RENEW_MAX_ATTEMPTS = 5
+# A care ACK the server refuses on AUTH grounds never succeeds by retrying
+# sooner. Without its own backoff the failure rides the generic 2s reconnect
+# tail: one stuck agent produced ~12 failed ACKs a minute for 14 hours (6601
+# and climbing) while still showing ONLINE in the roster. Bounded exponential
+# backoff turns that storm into a slow, visible degrade.
+ACK_AUTH_BASE_BACKOFF = 2.0
+ACK_AUTH_MAX_BACKOFF = 300.0
+
+
+CARE_ACK_REFUSALS = {
+    "unauthorized": "care_ack_unauthorized",
+    "forbidden": "care_ack_forbidden",
+}
+
+
+def care_ack_degrade(status, state, *, base=None, cap=None, now=None):
+    """Record one auth-refused care ACK and decide how long to wait.
+
+    Mutates ``state`` (count/first/last) and returns ``(reason, delay)``. The
+    delay grows exponentially from ``base`` and stops at ``cap`` so a
+    permanently refused credential settles into a slow, visible degrade
+    instead of riding the generic 2s reconnect tail.
+    """
+    base = ACK_AUTH_BASE_BACKOFF if base is None else base
+    cap = ACK_AUTH_MAX_BACKOFF if cap is None else cap
+    reason = CARE_ACK_REFUSALS[status]
+    stamp = now or time.strftime("%Y-%m-%dT%H:%M:%S%z")
+    state["count"] += 1
+    state["first"] = state["first"] or stamp
+    state["last"] = stamp
+    state["reason"] = reason
+    return reason, min(cap, base * (2 ** (state["count"] - 1)))
+
+
+def care_ack_recover(state):
+    """Clear a degrade after a successful ACK. Returns the cleared count."""
+    cleared = state.get("count", 0)
+    state.update(count=0, first=None, last=None, reason=None)
+    return cleared
 
 
 def renew_backoff_plan(
@@ -836,10 +875,21 @@ def acknowledge_care(url, signal_id, name):
         req.add_header("x-session-token", os.environ["LOCA_SESSION"])
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
-            return response.status == 204
+            return "ok" if response.status == 204 else "error"
+    except HTTPError as error:
+        sys.stderr.write(f"[{room}] care ACK failed: {error}\n")
+        # 401 and 403 both mean "retrying sooner will not help", but they are
+        # NOT the same fault: 401 is a credential problem, 403 is a policy
+        # refusal (muted, restricted mode). They share the backoff and keep
+        # separate names so the degraded record does not misreport the cause.
+        if error.code == 401:
+            return "unauthorized"
+        if error.code == 403:
+            return "forbidden"
+        return "error"
     except Exception as error:
         sys.stderr.write(f"[{room}] care ACK failed: {error}\n")
-        return False
+        return "error"
 
 
 def should_deliver_message(message, skip_own, only_direct, current_lead):
@@ -1066,6 +1116,11 @@ def main():
             return (message.get("id") or 0) > last[room]
 
         renew_attempts = 0
+        # Per-loca record of consecutive auth-refused care ACKs. Survives
+        # reconnects (it lives in watch()'s scope, not the socket loop) so the
+        # backoff actually grows across attempts instead of resetting to 2s
+        # every time the connection is rebuilt.
+        ack_auth_state = {"count": 0, "first": None, "last": None, "reason": None}
         while True:
             s = None
             try:
@@ -1150,12 +1205,38 @@ def main():
                             continue
                         if str(signal.get("owner") or "").casefold() == requested_name.casefold():
                             emit(room, f, current_lead)
-                            if not acknowledge_care(
+                            ack = acknowledge_care(
                                 wurl, signal.get("id"), requested_name
-                            ):
+                            )
+                            if ack in CARE_ACK_REFUSALS:
+                                # Retrying sooner cannot fix an auth refusal, so
+                                # back off (bounded) instead of riding the
+                                # generic 2s reconnect tail, and record WHY.
+                                reason, delay = care_ack_degrade(ack, ack_auth_state)
+                                sys.stderr.write(
+                                    f"[{room}] degraded: {reason} "
+                                    f"count={ack_auth_state['count']} "
+                                    f"first={ack_auth_state['first']} "
+                                    f"last={ack_auth_state['last']} "
+                                    f"backoff={delay:.0f}s\n"
+                                )
+                                sys.stderr.flush()
+                                time.sleep(delay)
+                                raise BackfillError(
+                                    f"care ACK refused ({reason}); backing off"
+                                )
+                            if ack != "ok":
                                 raise BackfillError(
                                     "care event was persisted locally but server ACK failed"
                                 )
+                            if ack_auth_state["count"]:
+                                prior = ack_auth_state.get("reason") or "care_ack_refused"
+                                cleared = care_ack_recover(ack_auth_state)
+                                sys.stderr.write(
+                                    f"[{room}] recovered: {prior} cleared after "
+                                    f"{cleared} failure(s)\n"
+                                )
+                                sys.stderr.flush()
                         continue
                     if t == "reaction":
                         reaction = f.get("reaction") or {}
