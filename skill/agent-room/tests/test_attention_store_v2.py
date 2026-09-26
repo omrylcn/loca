@@ -311,6 +311,94 @@ class AttentionStoreV2Tests(unittest.TestCase):
             )
             self.assertEqual(second_epoch, first_epoch + 1)
 
+    def test_recovery_adopts_live_turn_then_reaps_only_stale_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inbox = root / "inbox.jsonl"
+            store = AttentionStore(root / "state.sqlite3")
+            append(inbox, delivery(31))
+            append(inbox, delivery(32))
+            store.ingest_inbox(inbox, "reviewer")
+            first_epoch = store.claim_lease(
+                "reviewer", "adapter-a", 100, now_ms=1_000
+            )
+            first = store.next_pending("reviewer", now_ms=1_001)
+            store.mark_accepted(
+                first["attention_id"], "thread-1", "turn-live",
+                "adapter-a", first_epoch, now_ms=1_002,
+            )
+            second = store.next_pending("reviewer", now_ms=1_003)
+            store.mark_accepted(
+                second["attention_id"], "thread-2", "turn-stale",
+                "adapter-a", first_epoch, now_ms=1_004,
+            )
+            second_epoch = store.claim_lease(
+                "reviewer", "adapter-b", 100, now_ms=1_101
+            )
+
+            # Positive recovery evidence adopts one turn before stale reaping.
+            store.adopt_recovered_turn(
+                "turn-live", "adapter-b", second_epoch, now_ms=1_102
+            )
+            self.assertEqual(
+                store.reap_stale_turns_after_recovery(
+                    "reviewer", "adapter-b", second_epoch, now_ms=1_103
+                ),
+                1,
+            )
+            with store.connect() as connection:
+                stale = connection.execute(
+                    """
+                    SELECT COUNT(*) AS count FROM turns t
+                    JOIN leases l USING(identity)
+                    WHERE t.identity = 'reviewer'
+                      AND t.completed_at_ms IS NULL
+                      AND t.terminal_status IS NULL
+                      AND t.lease_epoch < l.lease_epoch
+                    """
+                ).fetchone()["count"]
+                live = connection.execute(
+                    "SELECT * FROM turns WHERE turn_id = 'turn-live'"
+                ).fetchone()
+                reaped = connection.execute(
+                    "SELECT * FROM turns WHERE turn_id = 'turn-stale'"
+                ).fetchone()
+            self.assertEqual(stale, 0)
+            self.assertEqual(live["lease_epoch"], second_epoch)
+            self.assertIsNone(live["terminal_status"])
+            self.assertEqual(reaped["terminal_status"], "interrupted")
+
+    def test_reaping_keeps_required_reply_pending_but_excludes_it_from_flight(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inbox = root / "inbox.jsonl"
+            store = AttentionStore(root / "state.sqlite3")
+            append(inbox, delivery(33, priority="direct_user"))
+            store.ingest_inbox(inbox, "reviewer")
+            first_epoch = store.claim_lease(
+                "reviewer", "adapter-a", 100, now_ms=1_000
+            )
+            attention = store.next_pending("reviewer", now_ms=1_001)
+            store.mark_accepted(
+                attention["attention_id"], "thread-1", "turn-stale",
+                "adapter-a", first_epoch, now_ms=1_002,
+            )
+            second_epoch = store.claim_lease(
+                "reviewer", "adapter-b", 100, now_ms=1_101
+            )
+            store.reap_stale_turns_after_recovery(
+                "reviewer", "adapter-b", second_epoch, now_ms=1_102
+            )
+            row = store.snapshot("reviewer")["attentions"][0]
+            self.assertEqual(row["reply_required"], 1)
+            self.assertIsNone(row["final_response_at_ms"])
+            self.assertIsNone(row["terminal_status"])
+            self.assertEqual(row["turn_id"], "turn-stale")
+            progress = store.progress_summary("reviewer")
+            self.assertEqual(progress["reply_required_pending"], 1)
+            self.assertEqual(progress["turns_in_progress"], 0)
+            self.assertEqual(progress["attentions_in_flight"], 0)
+
     def test_invalid_record_rolls_back_offset_and_prior_insert_in_batch(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

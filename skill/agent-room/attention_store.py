@@ -499,6 +499,87 @@ class AttentionStore:
                 (now + ttl_ms, now, identity, owner, epoch),
             )
 
+    def adopt_recovered_turn(
+        self, turn_id: str, owner: str, epoch: int, *, now_ms: int | None = None
+    ) -> None:
+        """Fence a Codex turn positively observed during restart recovery."""
+        now = wall_time_ms() if now_ms is None else now_ms
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT identity FROM turns WHERE turn_id = ?", (turn_id,)
+            ).fetchone()
+            if row is None:
+                return
+            identity = str(row["identity"])
+            self._assert_fence(connection, identity, owner, epoch, now)
+            connection.execute(
+                """
+                UPDATE turns SET lease_epoch = ?
+                WHERE turn_id = ? AND completed_at_ms IS NULL
+                  AND terminal_status IS NULL
+                """,
+                (epoch, turn_id),
+            )
+            connection.execute(
+                """
+                UPDATE attentions SET lease_epoch = ?
+                WHERE turn_id = ? AND turn_completed_at_ms IS NULL
+                  AND terminal_status IS NULL
+                """,
+                (epoch, turn_id),
+            )
+
+    def reap_stale_turns_after_recovery(
+        self, identity: str, owner: str, epoch: int, *, now_ms: int | None = None
+    ) -> int:
+        """Close old-epoch turns only after authoritative Codex recovery.
+
+        Reply-required attentions remain durable pending obligations; optional
+        attentions become terminal with their abandoned turn.
+        """
+        now = wall_time_ms() if now_ms is None else now_ms
+        reason = f"turn absent after adapter recovery at lease epoch {epoch}"
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._assert_fence(connection, identity, owner, epoch, now)
+            rows = connection.execute(
+                """
+                SELECT turn_id FROM turns
+                WHERE identity = ? AND lease_epoch < ?
+                  AND completed_at_ms IS NULL AND terminal_status IS NULL
+                """,
+                (identity, epoch),
+            ).fetchall()
+            for row in rows:
+                turn_id = str(row["turn_id"])
+                connection.execute(
+                    """
+                    UPDATE turns SET completed_at_ms = ?,
+                        terminal_status = 'interrupted', terminal_reason = ?
+                    WHERE turn_id = ?
+                    """,
+                    (now, reason, turn_id),
+                )
+                connection.execute(
+                    """
+                    UPDATE attentions SET turn_completed_at_ms = ?,
+                        terminal_status = 'interrupted', terminal_reason = ?
+                    WHERE turn_id = ? AND terminal_status IS NULL
+                      AND reply_required = 0
+                    """,
+                    (now, reason, turn_id),
+                )
+                connection.execute(
+                    """
+                    UPDATE relay_items SET status = 'suppressed',
+                        last_error = COALESCE(last_error, ?), next_attempt_at_ms = 0
+                    WHERE turn_id = ? AND status IN ('pending', 'held')
+                    """,
+                    (reason, turn_id),
+                )
+            return len(rows)
+
     def release_lease(
         self,
         identity: str,
@@ -1496,11 +1577,11 @@ class AttentionStore:
         *,
         now_ms: int | None = None,
     ) -> int:
-        """Close attentions when the model explicitly elects not to reply.
+        """Close only optional attentions when the model elects not to reply.
 
-        A suppressed ``LOCA_NO_REPLY`` item is a terminal outcome, not a
-        response milestone.  Leaving its reply-required attentions open makes
-        health remain DEGRADED forever even though no relay is pending.
+        The model cannot waive a reply-required obligation. Such an attention
+        stays overdue (ADR 0001), even when its turn completes; transport ACK
+        or silence is not proof that the operator received an answer.
         """
         now = wall_time_ms() if now_ms is None else now_ms
         with self.connect() as connection:
@@ -1517,7 +1598,7 @@ class AttentionStore:
                 UPDATE attentions SET terminal_status = 'cancelled',
                     terminal_reason = 'model explicitly chose no reply'
                 WHERE turn_id = ? AND final_response_at_ms IS NULL
-                  AND terminal_status IS NULL
+                  AND terminal_status IS NULL AND reply_required = 0
                 """,
                 (turn_id,),
             )
@@ -1601,12 +1682,23 @@ class AttentionStore:
                 """,
                 (identity,),
             ).fetchone()
+            open_turns = connection.execute(
+                """
+                SELECT COUNT(*) AS count FROM turns
+                WHERE identity = ? AND completed_at_ms IS NULL
+                  AND terminal_status IS NULL
+                """,
+                (identity,),
+            ).fetchone()
             accepted = connection.execute(
                 """
-                SELECT COUNT(*) AS count FROM attentions
-                WHERE identity = ? AND accepted_at_ms IS NOT NULL
-                  AND turn_completed_at_ms IS NULL
-                  AND terminal_status IS NULL
+                SELECT COUNT(*) AS count FROM attentions a
+                JOIN turns t ON t.turn_id = a.turn_id
+                WHERE a.identity = ? AND a.accepted_at_ms IS NOT NULL
+                  AND a.turn_completed_at_ms IS NULL
+                  AND a.terminal_status IS NULL
+                  AND t.completed_at_ms IS NULL
+                  AND t.terminal_status IS NULL
                 """,
                 (identity,),
             ).fetchone()
@@ -1618,7 +1710,8 @@ class AttentionStore:
                 if row["oldest_stored_at_ms"] is not None
                 else None
             ),
-            "turns_in_progress": int(accepted["count"] or 0),
+            "turns_in_progress": int(open_turns["count"] or 0),
+            "attentions_in_flight": int(accepted["count"] or 0),
         }
 
     def latest_lifecycle(self, identity: str) -> dict[str, Any] | None:

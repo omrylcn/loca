@@ -400,6 +400,11 @@ async function doConnect(room) {
   // too, or the WS handshake is refused and you sit at a table you can't
   // speak at. Cheap and harmless when the server doesn't require it.
   await takeSession();
+  if (state.authStatus === "unknown") {
+    showAuthUnavailable();
+    return;
+  }
+  document.body.classList.remove("auth-pending");
   startHealthPoll();
   $("adminbar").classList.toggle("on", isAdmin());
   $("adminToggle").classList.toggle("hidden", !isAdmin());

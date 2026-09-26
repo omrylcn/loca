@@ -27,6 +27,7 @@ $("leaveYes").onclick = async () => {
     } catch (e) { /* local logout still completes if the server is unavailable */ }
   }
   state.session = null; state.roomToken = ""; state.pairing = ""; state.adminSession = false; state.sessionExpires = null; state.room = null;
+  state.authStatus = "unauthenticated";
   resetRoomPreferenceIdentity();
   state.profile = null;
   $("roomToken").value = ""; $("pairingCode").value = "";
@@ -435,20 +436,37 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-// Start behind the door; /health tells us whether a key is even needed.
-setLocked(true);
+// Identity has a real third state. While it is unknown, neither the room nor
+// the login door may claim an authentication verdict.
+document.body.classList.add("auth-pending");
 // Default server = where this page is served from. A host that wraps this UI
 // (e.g. the desktop shell) can inject window.__LOCA_DEFAULT_SERVER__ at
 // document-start to point the first connect at a different server; in a plain
 // browser that global is undefined and this falls back to the page origin.
 $("server").value = window.__LOCA_DEFAULT_SERVER__ || location.origin;
-// Retake a remembered seat (auto-reload / next visit): no click needed.
-try {
-  const seat = JSON.parse(localStorage.getItem("loca-seat") || "null");
-  if (seat && seat.name) {
+let authRetryTimer = null;
+function showAuthUnavailable() {
+  document.body.classList.add("auth-pending");
+  $("doorline").textContent = "connection unavailable — keeping your session and retrying…";
+  if (authRetryTimer) clearTimeout(authRetryTimer);
+  authRetryTimer = setTimeout(bootstrapIdentity, 2000);
+}
+
+async function bootstrapIdentity() {
+  let seat = null;
+  try { seat = JSON.parse(localStorage.getItem("loca-seat") || "null"); } catch (e) {}
+  if (seat?.name) {
     $("name").value = seat.name;
     $("roomToken").value = seat.roomToken || "";
-    doConnect(seat.room || state.homeRoom);
+    await doConnect(seat.room || state.homeRoom);
+    return;
   }
-} catch (e) {}
-refreshRooms();
+  await takeSession();
+  if (state.authStatus === "unknown") {
+    showAuthUnavailable();
+    return;
+  }
+  document.body.classList.remove("auth-pending");
+  await refreshRooms();
+}
+bootstrapIdentity();

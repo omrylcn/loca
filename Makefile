@@ -13,6 +13,7 @@ SHELL_SCRIPTS := \
 	scripts/build-remote-agent-kit.sh \
 	scripts/architecture-baseline.sh \
 	scripts/check-release.sh \
+	scripts/require-release-workflows.sh \
 	scripts/init-self-host.sh \
 	scripts/version.sh \
 	scripts/smoke.sh

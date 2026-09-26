@@ -11,20 +11,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use tokio::net::TcpListener;
-
 struct ServerGuard {
     _child: tokio::process::Child,
 }
 
 async fn spawn(db_path: &str, env: &[(&str, &str)]) -> (String, ServerGuard) {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    drop(listener);
+    let port_file = format!("{db_path}.port");
+    let _ = std::fs::remove_file(&port_file);
 
     let bin = env!("CARGO_BIN_EXE_room-server");
     let mut cmd = tokio::process::Command::new(bin);
-    cmd.env("PORT", port.to_string())
+    cmd.env("PORT", "0")
+        .env("BOUND_PORT_FILE", &port_file)
         .env("RUST_LOG", "warn")
         .env("ADMIN_TOKEN", "")
         .env("DB_PATH", db_path);
@@ -40,14 +38,22 @@ async fn spawn(db_path: &str, env: &[(&str, &str)]) -> (String, ServerGuard) {
     let guard = ServerGuard { _child: child };
 
     let client = reqwest::Client::new();
+    let mut port = None;
     for _ in 0..100 {
-        if let Ok(r) = client
-            .get(format!("http://127.0.0.1:{port}/health"))
-            .send()
-            .await
-        {
-            if r.status().is_success() {
-                return (format!("http://127.0.0.1:{port}"), guard);
+        if port.is_none() {
+            port = std::fs::read_to_string(&port_file)
+                .ok()
+                .and_then(|value| value.parse::<u16>().ok());
+        }
+        if let Some(port) = port {
+            if let Ok(r) = client
+                .get(format!("http://127.0.0.1:{port}/health"))
+                .send()
+                .await
+            {
+                if r.status().is_success() {
+                    return (format!("http://127.0.0.1:{port}"), guard);
+                }
             }
         }
         tokio::time::sleep(Duration::from_millis(100)).await;

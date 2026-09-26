@@ -188,6 +188,7 @@ async fn filter_msg_suppresses_noise_but_delivers_messages() {
     // Connect an events-only listener (?filter=msg).
     let url = format!("ws://127.0.0.1:{port}/ws?room=general&name=filtered&type=agent&filter=msg");
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    wait_for_member(&client, &base, "general", "filtered", None).await;
 
     // Cause noise (a typing frame from someone else) then a real message.
     use futures_util::SinkExt;
@@ -239,6 +240,7 @@ async fn filter_mentions_only_delivers_addressed_messages() {
          &filter=mentions&turn_max=1"
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    wait_for_member(&client, &base, "general", "bob", None).await;
 
     let post = |target: Option<&'static str>, text: &'static str| {
         let (client, base) = (client.clone(), base.clone());
@@ -343,6 +345,7 @@ async fn reply_wakes_owner_even_when_older_than_the_tail() {
          &filter=mentions&turn_max=1"
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    wait_for_member(&client, &base, "general", "bob", None).await;
 
     // A reply to the long-evicted root: only Store::message_owner can still name
     // the author, and bob must still be woken.
@@ -392,6 +395,8 @@ async fn a_reply_and_an_explicit_target_wake_both() {
     ))
     .await
     .unwrap();
+    wait_for_member(&client, &base, "general", "bob", None).await;
+    wait_for_member(&client, &base, "general", "carol", None).await;
 
     // Reply to bob's message, explicitly targeting carol. Both must wake: carol
     // via target, bob via reply_to_sender — the reply author is a SEPARATE
@@ -668,6 +673,7 @@ async fn mention_turn_queue_flushes_on_max_or_quiet_window() {
          &filter=mentions&turn_max=3&turn_idle_ms=250&turn_max_wait_ms=700"
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    wait_for_member(&client, &base, "general", "bob", None).await;
 
     let post = |text: &'static str| {
         let (client, base) = (client.clone(), base.clone());
@@ -726,6 +732,7 @@ async fn turn_quiet_window_slides_but_hard_deadline_does_not() {
          &filter=mentions&turn_max=4&turn_idle_ms=220&turn_max_wait_ms=500"
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    wait_for_member(&client, &base, "general", "bob", None).await;
     let post = |text: &'static str| {
         let (client, base) = (client.clone(), base.clone());
         async move {
@@ -1098,35 +1105,21 @@ async fn a_reconnect_leaves_no_ghost() {
     // name stuck in the roster forever. Now join() resets the count to one, so
     // no ghost forms in the first place.
     let a = connect_ws(port, "oda", "reconnector", "agent").await;
-    let b = connect_ws(port, "oda", "reconnector", "agent").await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let mut b = connect_ws(port, "oda", "reconnector", "agent").await;
+    let _ = wait_for(&mut b, |frame| frame["t"] == "history").await;
 
     // The evicted first connection never sends a clean leave (forget its Drop).
     std::mem::forget(a);
     // The live second connection then closes cleanly.
     drop(b);
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-
-    let members: Value = client
-        .get(format!("{base}/rooms/oda/members"))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert!(
-        !members
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|m| m["name"] == "reconnector"),
-        "no ghost: the count was reset on reconnect, so a clean leave empties it"
-    );
+    // Closing the socket schedules cleanup asynchronously. Under a loaded CI
+    // runner a fixed sleep races that cleanup, so poll the externally visible
+    // invariant within a bounded deadline instead of asserting scheduler speed.
+    wait_for_member_absent(&client, &base, "oda", "reconnector").await;
 
     // And kick still removes an entry outright, even a stale one.
-    let c = connect_ws(port, "oda", "leftover", "agent").await;
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let mut c = connect_ws(port, "oda", "leftover", "agent").await;
+    let _ = wait_for(&mut c, |frame| frame["t"] == "history").await;
     std::mem::forget(c); // reader dies without a clean leave
     client
         .post(format!("{base}/rooms/oda/moderate"))
@@ -1135,23 +1128,7 @@ async fn a_reconnect_leaves_no_ghost() {
         .send()
         .await
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    let after: Value = client
-        .get(format!("{base}/rooms/oda/members"))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert!(
-        !after
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|m| m["name"] == "leftover"),
-        "kick removes the entry whether or not a socket is still listening"
-    );
+    wait_for_member_absent(&client, &base, "oda", "leftover").await;
 }
 
 /// A human may keep the same operator identity open on a laptop and a phone.
@@ -1229,7 +1206,6 @@ async fn the_same_user_can_read_from_two_web_clients_without_reconnect_ping_pong
     }
 
     drop(laptop);
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     let while_phone_remains: Value = client
         .get(format!("{base}/rooms/oda/members"))
         .send()
@@ -1248,21 +1224,5 @@ async fn the_same_user_can_read_from_two_web_clients_without_reconnect_ping_pong
     );
 
     drop(phone);
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    let after_both_close: Value = client
-        .get(format!("{base}/rooms/oda/members"))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert!(
-        !after_both_close
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|member| member["name"] == "operator"),
-        "one identity still occupies only one seat and leaves cleanly"
-    );
+    wait_for_member_absent(&client, &base, "oda", "operator").await;
 }

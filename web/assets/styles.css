@@ -32,6 +32,9 @@
     border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.55); }
   body.locked .rooms, body.locked .newroom, body.locked .online, body.locked .whoami,
   body.locked .sideviewtabs, body.locked .sideview { display: none; }
+  body.auth-pending .conn, body.auth-pending .sideviewtabs,
+  body.auth-pending .sideview, body.auth-pending .main { visibility: hidden; }
+  body.auth-pending .doorline { display: block; }
   body.locked .side h1 button { display: none; }
   /* ...but a first-time Host arrives at the locked door — keep the Getting
      Started "?" reachable there so the guide can be reopened before connecting. */
@@ -173,15 +176,20 @@
   .omem.is-lead { background: linear-gradient(90deg, rgba(245,199,107,.22), rgba(245,199,107,.04) 82%);
     box-shadow: inset 3px 0 #f5c76b; }
   .omem.is-lead .oname { color: #ffe0a0; font-weight: 800; }
-  .prow { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); }
-  .pname { flex: 0 0 140px; }
-  .pwhere { flex: 1; font-size: 12px; color: var(--dim); }
+  .peoplehead, .prow { display: grid; grid-template-columns: minmax(130px,1.3fr) 92px 92px minmax(130px,1fr);
+    align-items: center; gap: 10px; }
+  .peoplehead { padding: 5px 4px; color: var(--dim); font-size: 9px; letter-spacing: .08em;
+    text-transform: uppercase; border-bottom: 1px solid var(--line); }
+  .prow { padding: 8px 4px; border-bottom: 1px solid var(--line); }
+  .pname { min-width: 0; }
+  .pwhere { min-width: 0; font-size: 12px; color: var(--dim); }
   .pban { color: var(--bad); font-size: 11px; }
-  .pon { color: var(--ok, #4a4); font-size: 9px; }
-  .pwake { margin-left: 5px; font-size: 10px; }
-  .pwake.ok { color: var(--accent); }
-  .pwake.bad { color: var(--danger, #e06c75); font-weight: 700; }
-  .pwake.unknown { color: var(--muted); }
+  .pstatus { width: max-content; max-width: 100%; padding: 2px 6px; border: 1px solid var(--line);
+    border-radius: 999px; font-size: 9px; white-space: nowrap; }
+  .pstatus.ok { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .pstatus.off, .pstatus.unknown { color: var(--muted); }
+  .pstatus.na { color: var(--dim); border-style: dashed; }
+  .pstatus.bad { color: var(--danger, #e06c75); border-color: color-mix(in srgb, var(--danger, #e06c75) 45%, var(--line)); }
   .pstage { margin-left: 6px; padding: 1px 5px; border: 1px solid var(--line);
     border-radius: 999px; color: var(--muted); font-size: 9px; letter-spacing: .04em; }
   .pstage.accepted, .pstage.first { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }

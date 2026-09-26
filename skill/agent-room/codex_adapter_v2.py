@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -57,6 +58,21 @@ def inactive_turn_error(error: str) -> bool:
             "turn is not in progress",
         )
     )
+
+
+def mismatched_active_turn(error: str, expected: str) -> str | None:
+    """Use only the exact rejected-steer diagnostic from our own RPC.
+
+    A mismatch rejects the input before acceptance. Retrying that same input
+    against the reported live turn is safe; it is not a new turn or replay of
+    any previously accepted attention.
+    """
+    match = re.fullmatch(
+        r"expected active turn id `([^`\s]+)` but found `([^`\s]+)`", error
+    )
+    if match and match[1] == expected and match[2] != expected:
+        return match[2]
+    return None
 
 
 def save_health(path: Path | None, values: dict[str, Any]) -> None:
@@ -235,9 +251,18 @@ def attention_prompt(
     context: list[dict[str, Any]],
 ) -> str:
     reply_rule = (
-        "A user-visible reply is required."
+        "A user-visible reply is required. You must not choose LOCA_NO_REPLY "
+        "for this attention. Answer the user's question, or state the exact "
+        "blocker honestly. An explicit ping or request for status warrants "
+        "a brief response even if there is no new technical progress."
         if attention["reply_required"]
         else "Reply only if the event requires a useful user-visible response."
+    )
+    silence_rule = (
+        ""
+        if attention["reply_required"]
+        else f"If no useful room reply is warranted AND there is no unanswered "
+        f"reply-required attention in this turn, respond exactly {NO_REPLY_SENTINEL}. "
     )
     recovery_rule = ""
     if int(attention.get("attempts") or 0) > 0:
@@ -257,6 +282,11 @@ def attention_prompt(
         )
     return (
         f"Loca attention for {identity} in private room {attention['room']}.\n"
+        "Runtime context: this is an automatically dispatched headless Loca "
+        "adapter turn, not a human-opened IDE conversation. This proves this "
+        "attention reached the model, not that its reply has already reached "
+        "Loca. Do not repeat historical runtime failure claims as current "
+        "facts without a fresh check.\n"
         f"Attention id: {attention['attention_id']}\n"
         f"Priority: {attention['priority']}\n"
         f"{reply_rule}{recovery_rule}\n\n"
@@ -266,7 +296,7 @@ def attention_prompt(
         "a Care attention you own, attention-resolve is the only permitted "
         "connect.sh control when no action is needed. Never request or reveal room "
         "credentials. The runtime adapter relays completed assistant messages. "
-        f"If no useful room reply is warranted, respond exactly {NO_REPLY_SENTINEL}. "
+        f"{silence_rule}"
         "Avoid acknowledgement-only chatter, never answer your own output, and "
         "after a useful reply wait for another participant before continuing."
     )
@@ -515,13 +545,28 @@ class PersistentCodexAdapter:
                     "name": "loca_runtime_v2",
                     "title": "Loca persistent runtime",
                     "version": "2.0.0",
-                }
+                },
+                "capabilities": {"experimentalApi": True},
             },
         )
         if error := response_error(initialized):
             raise RuntimeError(f"Codex initialize failed: {error}")
         self.client.send_notification("initialized", {})
+        self.health.update(
+            {"reconciliation": "RUNNING", "reconciliation_epoch": self.epoch}
+        )
+        save_health(self.health_file, self.health)
         self.recover_existing_threads()
+        reaped = self.store.reap_stale_turns_after_recovery(
+            self.identity, self.owner, self.epoch
+        )
+        self.health.update(
+            {
+                "reconciliation": "OK",
+                "reconciliation_epoch": self.epoch,
+                "reconciliation_reaped_turns": reaped,
+            }
+        )
         self.next_turn_reconcile_ms = (
             wall_time_ms() + ACTIVE_TURN_RECONCILE_MS
         )
@@ -582,13 +627,20 @@ class PersistentCodexAdapter:
             thread = result.get("thread") if isinstance(result, dict) else None
             turns = self.authoritative_turns(thread_id, thread)
             self.reconcile_dispatches(thread_id, turns)
-            self.reconcile_accepted_turns(thread_id, turns)
+            # Startup recovery must classify every incomplete turn before the
+            # stale-epoch reaper runs; the periodic grace window is only for
+            # live history lag during normal operation.
+            self.reconcile_accepted_turns(thread_id, turns, force=True)
             if not isinstance(turns, list):
                 continue
+            unfinished = set(self.store.incomplete_turn_ids(self.identity, thread_id))
             for turn in turns:
                 if not isinstance(turn, dict) or not turn.get("id"):
                     continue
                 turn_id = str(turn["id"])
+                if turn_id not in unfinished and turn.get("status") != "inProgress":
+                    continue
+                self.renew_lease_if_needed()
                 if turn.get("status") == "inProgress":
                     self.active_turns[thread_id] = turn_id
                 self.recover_turn(turn_id, thread_id, turn)
@@ -601,6 +653,8 @@ class PersistentCodexAdapter:
             "thread/read", {"threadId": thread_id, "includeTurns": True}
         )
         if error := response_error(response):
+            if "paginated" in error.lower():
+                return self.paginated_turns(thread_id)
             raise RuntimeError(
                 f"Codex thread/read failed during dispatch reconciliation: {error}"
             )
@@ -610,6 +664,42 @@ class PersistentCodexAdapter:
             thread = fallback_thread
         turns = thread.get("turns") if isinstance(thread, dict) else []
         return [turn for turn in turns if isinstance(turn, dict)]
+
+    def paginated_turns(self, thread_id: str) -> list[dict[str, Any]]:
+        """Collect full authoritative history before any absence/retry decision.
+
+        A partial page or a failed read is never evidence that an accepted
+        dispatch is missing. Keep the lease alive while traversing long history.
+        """
+        turns: list[dict[str, Any]] = []
+        cursors: set[str] = set()
+        cursor = None
+        for _ in range(10_000):
+            self.renew_lease_if_needed()
+            params = {"threadId": thread_id, "limit": 100,
+                      "itemsView": "full", "sortDirection": "asc"}
+            if cursor is not None:
+                params["cursor"] = cursor
+            response = self.client.request("thread/turns/list", params)
+            if error := response_error(response):
+                raise RuntimeError(f"Codex paginated history unavailable: {error}")
+            result = response.get("result")
+            page = result.get("data") if isinstance(result, dict) else None
+            if not isinstance(page, list) or any(
+                not isinstance(turn, dict) or not turn.get("id")
+                or turn.get("itemsView") != "full"
+                or not isinstance(turn.get("items"), list)
+                for turn in page
+            ):
+                raise RuntimeError("Codex paginated history is incomplete; refusing replay")
+            turns.extend(page)
+            cursor = result.get("nextCursor")
+            if cursor is None:
+                return turns
+            if not isinstance(cursor, str) or not cursor or cursor in cursors:
+                raise RuntimeError("Codex paginated history cursor did not advance")
+            cursors.add(cursor)
+        raise RuntimeError("Codex paginated history exceeded page limit; refusing replay")
 
     @staticmethod
     def turn_for_client_message(
@@ -669,6 +759,17 @@ class PersistentCodexAdapter:
             self.identity, thread_id, older_than_ms=older_than_ms
         ):
             if turn_id in durable_ids:
+                self.store.adopt_recovered_turn(
+                    turn_id, self.owner, self.epoch
+                )
+                continue
+            if not self.thread_is_idle(thread_id):
+                # History may lag an accepted live turn, also after resume.
+                # Absence alone cannot authorize another execution.
+                self.store.adopt_recovered_turn(
+                    turn_id, self.owner, self.epoch
+                )
+                self.active_turns.setdefault(thread_id, turn_id)
                 continue
             reason = (
                 "Accepted Codex turn is absent from durable thread history "
@@ -683,6 +784,20 @@ class PersistentCodexAdapter:
                 self.epoch,
             )
         return requeued
+
+    def thread_is_idle(self, thread_id: str) -> bool:
+        """Require positive live idle evidence, not missing rollout history."""
+        response = self.client.request(
+            "thread/read", {"threadId": thread_id, "includeTurns": False}
+        )
+        if response_error(response):
+            return False
+        result = response.get("result")
+        thread = result.get("thread") if isinstance(result, dict) else None
+        if not isinstance(thread, dict) or thread.get("id") != thread_id:
+            return False
+        status = thread.get("status")
+        return isinstance(status, dict) and status.get("type") == "idle"
 
     def reconcile_active_turn(
         self,
@@ -709,8 +824,10 @@ class PersistentCodexAdapter:
             return True
         if turn is not None and not force_orphan:
             return False
+        if not force_orphan and not self.thread_is_idle(thread_id):
+            return False
         reason = (
-            "Codex reported no active turn and durable thread history has no "
+            "Codex confirmed no active turn and durable thread history has no "
             f"terminal record for {turn_id}; replaying output-free attention"
         )
         requeued = self.store.requeue_missing_turn(
@@ -726,7 +843,7 @@ class PersistentCodexAdapter:
                 self.active_turns.pop(thread_id, None)
             self.health.update(
                 {
-                    "wake": "RETRYING",
+                    "wake": "RESTARTING",
                     "ack": "PENDING",
                     "last_error": reason,
                 }
@@ -773,6 +890,7 @@ class PersistentCodexAdapter:
         """
         params: dict[str, Any] = {
             "threadId": thread_id,
+            "excludeTurns": True,
             "cwd": str(self.workdir),
             "approvalPolicy": "never",
             "developerInstructions": self.developer_instructions(room),
@@ -856,10 +974,14 @@ class PersistentCodexAdapter:
         self.reconcile_dispatches(thread_id, turns)
         self.reconcile_accepted_turns(thread_id, turns)
         if isinstance(turns, list):
+            unfinished = set(self.store.incomplete_turn_ids(self.identity, thread_id))
             for turn in turns:
                 if not isinstance(turn, dict) or not turn.get("id"):
                     continue
                 turn_id = str(turn["id"])
+                if turn_id not in unfinished and turn.get("status") != "inProgress":
+                    continue
+                self.renew_lease_if_needed()
                 if turn.get("status") == "inProgress":
                     self.active_turns[thread_id] = turn_id
                 self.recover_turn(turn_id, thread_id, turn)
@@ -913,6 +1035,22 @@ class PersistentCodexAdapter:
                     "clientUserMessageId": client_message_id,
                 },
             )
+            actual_turn = mismatched_active_turn(response_error(response), active_turn)
+            if actual_turn:
+                # No input was accepted by the failed steer. Correct only the
+                # runtime pointer, never detach/requeue accepted work. Bound
+                # this fast-path to one retry; later races use normal backoff.
+                self.active_turns[thread_id] = actual_turn
+                active_turn = actual_turn
+                response = self.client.request(
+                    "turn/steer",
+                    {
+                        "threadId": thread_id,
+                        "expectedTurnId": actual_turn,
+                        "input": inputs,
+                        "clientUserMessageId": client_message_id,
+                    },
+                )
             if error := response_error(response):
                 recovered_inactive = False
                 if inactive_turn_error(error):

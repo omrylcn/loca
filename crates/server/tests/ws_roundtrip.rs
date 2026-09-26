@@ -11,6 +11,12 @@ use tokio_tungstenite::tungstenite::{
     client::IntoClientRequest, http::HeaderValue, Message as WsMessage,
 };
 
+// Observable barriers normally return as soon as the room state converges.
+// This is only the upper bound for a genuinely stuck test, not an accepted
+// propagation budget: shared CI runners can take longer than five seconds to
+// schedule the room actor and polling requests under full-suite load.
+const ASYNC_STATE_HANG_GUARD: Duration = Duration::from_secs(30);
+
 // Pull the server's router together the same way main does. Since main.rs owns
 // the app wiring, we rebuild a minimal equivalent by spawning the actual binary
 // would be heavier; instead we exercise it over a real socket via the public
@@ -21,6 +27,12 @@ struct ServerGuard {
     _child: tokio::process::Child,
 }
 
+// Picking an ephemeral port and handing it to a child is not atomic: after the
+// probe listener is dropped, another parallel test can select the same port
+// before this child binds it. Keep that hand-off serialized through /health so
+// one test can never mistake another test's server for its own.
+static SERVER_SPAWN_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn spawn_server() -> (u16, ServerGuard) {
     spawn_server_with("").await
 }
@@ -30,27 +42,32 @@ async fn spawn_server_with(admin_token: &str) -> (u16, ServerGuard) {
 }
 
 /// Spawn with extra env vars (DB_PATH, RATE_LIMIT, …). A fixed `port` can be
-/// forced via the `PORT` entry in `env`; otherwise a free one is picked.
+/// forced via the `PORT` entry in `env`; otherwise the child binds port zero
+/// itself and reports the OS-selected port without a probe/drop race.
 async fn spawn_server_env(admin_token: &str, env: &[(&str, String)]) -> (u16, ServerGuard) {
-    let port = match env.iter().find(|(k, _)| *k == "PORT") {
-        Some((_, p)) => p.parse().unwrap(),
-        None => {
-            let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-            let p = listener.local_addr().unwrap().port();
-            drop(listener);
-            p
-        }
-    };
+    let _spawn_lock = SERVER_SPAWN_LOCK.lock().await;
+    let forced_port = env
+        .iter()
+        .find(|(k, _)| *k == "PORT")
+        .map(|(_, value)| value.parse::<u16>().unwrap());
+    let port_file = forced_port
+        .is_none()
+        .then(tempfile::NamedTempFile::new)
+        .transpose()
+        .unwrap();
 
     let bin = env!("CARGO_BIN_EXE_room-server");
     let mut cmd = tokio::process::Command::new(bin);
-    cmd.env("PORT", port.to_string())
+    cmd.env("PORT", forced_port.unwrap_or(0).to_string())
         .env("RUST_LOG", "warn")
         .env("ADMIN_TOKEN", admin_token)
         // Most historical cases exercise unrelated room semantics and still
         // spell auth in the old query form. Dedicated security tests below
         // run with this disabled and prove the public default/header path.
         .env("LEGACY_WS_QUERY_AUTH", "1");
+    if let Some(file) = &port_file {
+        cmd.env("BOUND_PORT_FILE", file.path());
+    }
     for (k, v) in env {
         if *k != "PORT" {
             cmd.env(k, v);
@@ -66,22 +83,31 @@ async fn spawn_server_env(admin_token: &str, env: &[(&str, String)]) -> (u16, Se
 
     // Wait for /health.
     let client = reqwest::Client::new();
+    let mut port = forced_port;
     let mut last_err = String::new();
     // 100×100ms = 10s: under a full parallel test run many servers boot at
     // once and a 5s window was occasionally too tight (flaky "did not come up").
     for _ in 0..100 {
-        match client
-            .get(format!("http://127.0.0.1:{port}/health"))
-            .send()
-            .await
-        {
-            Ok(r) if r.status().is_success() => return (port, guard),
-            Ok(r) => last_err = format!("status {}", r.status()),
-            Err(e) => last_err = e.to_string(),
+        if port.is_none() {
+            port = port_file
+                .as_ref()
+                .and_then(|file| std::fs::read_to_string(file.path()).ok())
+                .and_then(|value| value.parse::<u16>().ok());
+        }
+        if let Some(port) = port {
+            match client
+                .get(format!("http://127.0.0.1:{port}/health"))
+                .send()
+                .await
+            {
+                Ok(r) if r.status().is_success() => return (port, guard),
+                Ok(r) => last_err = format!("status {}", r.status()),
+                Err(e) => last_err = e.to_string(),
+            }
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    panic!("server did not come up on port {port}: {last_err}");
+    panic!("server did not come up on port {port:?}: {last_err}");
 }
 
 async fn connect_ws(
@@ -147,6 +173,77 @@ async fn wait_for<F: Fn(&Value) -> bool>(
             }
         }
     }
+}
+
+/// Wait until the public roster proves that a websocket has completed room
+/// registration. A successful websocket handshake only proves transport setup;
+/// publishing immediately afterwards can otherwise race the room actor.
+async fn wait_for_member(
+    client: &reqwest::Client,
+    base: &str,
+    room: &str,
+    name: &str,
+    auth: Option<(&str, &str)>,
+) {
+    tokio::time::timeout(ASYNC_STATE_HANG_GUARD, async {
+        loop {
+            let mut request = client.get(format!("{base}/rooms/{room}/members"));
+            if let Some((header, value)) = auth {
+                request = request.header(header, value);
+            }
+            if let Ok(response) = request.send().await {
+                if response.status().is_success() {
+                    if let Ok(members) = response.json::<Vec<Value>>().await {
+                        if members.iter().any(|member| member["name"] == name) {
+                            return;
+                        }
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("timed out waiting for {name} to join {room}"));
+}
+
+async fn wait_for_member_absent(client: &reqwest::Client, base: &str, room: &str, name: &str) {
+    tokio::time::timeout(ASYNC_STATE_HANG_GUARD, async {
+        loop {
+            if let Ok(response) = client
+                .get(format!("{base}/rooms/{room}/members"))
+                .send()
+                .await
+            {
+                if response.status().is_success() {
+                    if let Ok(members) = response.json::<Vec<Value>>().await {
+                        if !members.iter().any(|member| member["name"] == name) {
+                            return;
+                        }
+                    }
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("timed out waiting for {name} to leave {room}"));
+}
+
+async fn wait_for_server_shutdown(port: u16) {
+    tokio::time::timeout(ASYNC_STATE_HANG_GUARD, async {
+        loop {
+            if tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .is_err()
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("server on port {port} did not shut down"));
 }
 
 async fn report_ready_runtime(

@@ -64,7 +64,10 @@ The v2 Codex adapter requires:
 - `turn/completed`;
 - stable `clientUserMessageId`.
 - `thread/read(includeTurns=true)` exposing `userMessage.clientId` for
-  accepted-RPC crash reconciliation.
+  accepted-RPC crash reconciliation, or full `thread/turns/list` pagination
+  for paginated threads. Initialize with `experimentalApi` enabled and resume
+  with `excludeTurns=true`. Read every page before concluding a client id is
+  absent; summary items, failed pages, and repeating cursors forbid replay.
 
 `turn/interrupt` is an explicit emergency capability, not normal mention
 delivery. Message `phase` is optional. A null phase uses the compatibility

@@ -12,13 +12,24 @@ async function fetchLobby() {
   try {
     const r = await fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) });
     if (!r.ok) { state.lobby = []; renderLobby("lobby unavailable"); return; }
-    const residents = await r.json();
-    state.lobby = residents.filter(p => !(p.locas || []).length);
-    renderLobby();
+    applyResidentSnapshot(await r.json());
   } catch (e) {
     state.lobby = [];
     renderLobby("lobby unavailable");
   }
+}
+
+// Keep every surface that renders Building presence on the same resident
+// snapshot. The Building tab polls /residents while it is open; applying that
+// response only to state.people left the sidebar Lobby stale until a reload or
+// an unrelated websocket event arrived.
+function applyResidentSnapshot(residents, { people = false } = {}) {
+  if (people) state.people = residents;
+  // Lobby is a live location state: connected to the Building, but seated
+  // in no loca. Offline members remain visible in the Building directory as
+  // disconnected; they must not inflate the Lobby count.
+  state.lobby = residents.filter(p => p.online && !(p.locas || []).length);
+  renderLobby();
 }
 
 function renderLobby(error) {
@@ -37,8 +48,23 @@ function renderLobby(error) {
     const glyph = p.kind === "agent" ? "*" : ".";
     return `<div class="omem"><span class="glyph ${esc(p.kind)}">${glyph}</span>` +
       `<span class="oname">${esc(p.name)}</span><span class="otag">waiting</span>` +
+      `${residentStatusBadges(p)}` +
       `<button class="lobbycall" data-lobby-call="${esc(p.name)}">call</button></div>`;
   }).join("");
+}
+
+function residentStatusBadges(p) {
+  const connection = p?.online
+    ? `<span class="pstatus connection ok" title="live lobby or loca socket">connected</span>`
+    : `<span class="pstatus connection off" title="no live socket">disconnected</span>`;
+  const wake = p?.kind !== "agent"
+    ? `<span class="pstatus wake na" title="runtime wake does not apply to people">n/a</span>`
+    : p?.runtime?.ready
+    ? `<span class="pstatus wake ok" title="runtime wake + ACK healthy">ready</span>`
+    : p?.runtime
+      ? `<span class="pstatus wake bad" title="runtime heartbeat exists but wake is degraded">degraded</span>`
+      : `<span class="pstatus wake unknown" title="no runtime heartbeat has been observed">unverified</span>`;
+  return connection + wake;
 }
 
 /// Who is in the building but not in this loca — the people you can call in.
@@ -286,7 +312,7 @@ async function fetchPeople() {
       } catch (e) { /* one loca failing must not blank the whole page */ }
     }));
 
-    state.people = people;
+    applyResidentSnapshot(people, { people: true });
     state.bans = bans;
     renderPeople();
   } catch (e) {
@@ -342,17 +368,14 @@ function renderPeople() {
     box.innerHTML = jrHtml + `<div class="callnone">nobody in the building</div>`;
     return;
   }
-  box.innerHTML = jrHtml + [...names].sort().map(name => {
+  const statusHead = `<div class="peoplehead"><span>member</span>` +
+    `<span>connection</span><span>wake</span><span>location</span></div>`;
+  box.innerHTML = jrHtml + statusHead + [...names].sort().map(name => {
     const p = people.find(x => x.name === name);
     const glyph = p?.kind === "agent" ? "*" : ".";
     const locas = p?.locas || [];
     const barred = bans[name] || [];
-    const online = p?.online ? `<span class="pon">●</span> ` : "";
-    const wake = p?.runtime?.ready
-      ? `<span class="pwake ok" title="runtime wake + ACK healthy">⚡</span>`
-      : p?.runtime
-        ? `<span class="pwake bad" title="transport online; runtime wake degraded">!</span>`
-        : `<span class="pwake unknown" title="runtime wake unverified">?</span>`;
+    const statuses = residentStatusBadges(p);
     const rt = p?.runtime;
     let stage = "";
     if (rt?.attention_id) {
@@ -363,13 +386,17 @@ function renderPeople() {
       else if (rt.accepted) stage = `<span class="pstage accepted" title="runtime accepted this attention · ${esc(shortId)}">accepted</span>`;
       else if (rt.stored) stage = `<span class="pstage" title="attention stored durably · ${esc(shortId)}">queued</span>`;
     }
-    const where = locas.length ? `seated: ${locas.join(", ")}` : "lobby";
+    const where = locas.length
+      ? `in loca: ${locas.join(", ")}`
+      : p?.online
+        ? "lobby"
+        : "offline · history unknown";
     const banTxt = barred.length
       ? `<span class="pban">banned: ${esc(barred.join(", "))}</span>` : "";
     const unban = barred.map(r =>
       `<button data-unban="${esc(name)}" data-room="${esc(r)}">unban ${esc(r)}</button>`).join(" ");
-    return `<div class="prow"><span class="pname">${online}${glyph}${esc(name)}${wake}${stage}</span>` +
-           `<span class="pwhere">${esc(where)} ${banTxt}</span>${unban}</div>`;
+    return `<div class="prow"><span class="pname">${glyph}${esc(name)}${stage}</span>` +
+           `${statuses}<span class="pwhere">${esc(where)} ${banTxt}</span>${unban}</div>`;
   }).join("");
 }
 
@@ -382,7 +409,7 @@ async function refreshPeopleRuntime() {
       fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
     ]);
     if (!resPeople.ok) return;
-    state.people = await resPeople.json();
+    applyResidentSnapshot(await resPeople.json(), { people: true });
     // Keep the admissions panel live while the tab is open: a request that
     // arrives (or is approved elsewhere) shows up within the poll interval.
     if (resJoin.ok) {

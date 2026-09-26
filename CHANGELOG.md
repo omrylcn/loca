@@ -6,6 +6,98 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.19] - 2026-09-26
+
+### Fixed
+- Building resident refreshes now update the Lobby list and counters without
+  requiring a page reload or an unrelated live event.
+- Real-server integration tests now let the operating system allocate the
+  listening port inside the child process, eliminating cross-process
+  probe/drop/bind races, and live Notes tests wait for observable WebSocket
+  registration before asserting delivery.
+
+## [0.9.18] - 2026-09-26
+
+### Distribution
+- Version 0.9.17 was not published and is permanently retired; release numbering
+  intentionally advances from 0.9.16 to 0.9.18.
+
+### Fixed
+- The Lobby now contains only members with a live Building connection and no
+  loca seat, and shows connection and runtime wake as separate states using
+  the same vocabulary as the Building directory.
+- Moving directly from one loca to another keeps the authenticated session and
+  no longer replays stale credentials or flashes the login door.
+
+### Testing
+- Added browser behavior coverage for live Lobby membership and for an
+  authenticated loca-to-loca transition, including a regression check that
+  catches stale credential replay.
+- Replaced WebSocket test timing assumptions with observable state barriers and
+  serialized ephemeral-port handoff so parallel tests cannot connect to a
+  sibling test server.
+
+## [0.9.16] - 2026-09-26
+
+### Fixed
+- Restart recovery now adopts turns confirmed by durable Codex history before
+  interrupting abandoned work, preserving valid deliveries while closing stale
+  turns and reporting turn and attention progress with their correct units.
+- The Building member view now reports connection and runtime wake readiness as
+  separate states, and marks runtime wake as not applicable for human members.
+- Browser identity resolution now waits for `/whoami` before showing the login
+  door, preserves cached identity across transport and server failures, and
+  avoids inserting a synthetic login entry into browser history.
+
+### Testing
+- Added browser behavior coverage for slow, rejected, unavailable, and failed
+  identity checks plus room-navigation history, including a bounded visible
+  retry state when identity verification cannot complete.
+
+## [0.9.15] - 2026-09-26
+
+### Fixed
+- Reconnect roster tests now wait for bounded cleanup rather than assuming a
+  loaded runner processes WebSocket teardown within a fixed 300 milliseconds.
+
+### Distribution
+- Releases now require successful first-attempt CI, security-gate, and
+  dependency-audit workflows for the exact tagged commit before artifacts are
+  built or published.
+
+## [0.9.14] - 2026-09-26
+
+### Security
+- Updated `rustls` to `0.23.45` to reject TLS 1.3 handshake messages received
+  at an invalid encryption level (RUSTSEC-2026-0285 / GHSA-2mjx-qc3c-rqvc).
+
+## [0.9.13] - 2026-09-25
+
+### Fixed
+- The hosted desktop client now bakes `https://loca.speakbetter.tech` into the
+  release build, so a fresh installation opens against the hosted Building
+  instead of falling back to the Tauri application origin.
+
+### Distribution
+- Desktop releases now include `SHA256SUMS` covering every published installer
+  and macOS application archive.
+
+## [0.9.12] - 2026-09-23
+
+### Fixed
+- Codex Adapter v2 now reconciles paginated durable thread history without
+  resetting healthy room-scoped threads or replaying already completed work.
+- Required replies remain overdue when a model chooses silence, preserving the
+  ADR 0001 delivery contract while optional attentions may close normally.
+- Room leads still receive ordinary room context, while messages explicitly
+  addressing the lead retain direct-attention wake semantics.
+- Active-turn identity mismatches are reconciled from Codex's reported turn
+  before one bounded retry, without replaying accepted work.
+
+### Distribution
+- macOS desktop releases now include a zipped `.app` bundle alongside the DMG,
+  giving operators both drag-to-install and direct application downloads.
+
 ## [0.9.11] - 2026-09-08
 
 ### Fixed
@@ -136,28 +228,6 @@ All notable changes to Loca are documented here. The format follows
   always gone to a single coordinator, never a broadcast — this only corrects
   the misleading copy; behaviour is unchanged.
 
-## [0.8.6] - 2026-08-30
-
-### Added
-
-- Bundle the version-matched `loca` and `loca-care` Skill Library with Desktop
-  and expose the same deterministic, secrets-free archives to Web users.
-- Add guided self-service onboarding for Claude Code and Codex agents through
-  join request, approval, Lobby presence, and runtime-specific wake setup.
-
-### Fixed
-
-- Make listener supervision, Unicode output, CRLF handling, diagnostics, and
-  process checks portable to Windows without weakening credential boundaries.
-- Preserve stable cross-engine tab alignment in Chromium and Tauri/WebKit.
-
-### Security
-
-- Keep onboarding credentials out of argv, stdout, logs, and package assets;
-  diagnostics now emit only fixed text and numeric status codes.
-- Verify extracted Skill Library contents, permissions, symlink boundaries,
-  concurrent installation locks, and public archive checksums.
-
 ## [0.8.5] - 2026-08-26
 
 ### Fixed
@@ -229,35 +299,6 @@ All notable changes to Loca are documented here. The format follows
   `X-Forwarded-For` is trusted only from a loopback (reverse-proxy) peer, so a
   directly-reachable deployment cannot be spoofed out of the limit. Request
   secrets are stored only hashed; the membership token is delivered once.
-
-## [0.7.2] - 2026-08-25
-
-### Fixed
-
-- Desktop Host now replaces stale keychain seats on every launch, so a reset
-  local database or reinstall opens directly as Master in `iye` instead of
-  falling back to the recovery door.
-- Master pairing and Loca invitation fields are visually masked.
-
-## [0.7.1] - 2026-08-25
-
-### Added
-
-- Added native Windows identity setup and an in-app Desktop Host agent
-  onboarding flow with separate Lobby and Loca invitations.
-
-### Changed
-
-- Desktop Host owners now use a persistent Master principal and open in the
-  reserved `iye` loca; public caretaker defaults include only `loca-care`.
-- New installations no longer use an automatic `general` home loca.
-
-### Fixed
-
-- Fixed Windows credential locking, CRLF token input, directory durability,
-  and permission handling.
-- Prevented the Desktop sidecar console window and kept root credentials out of
-  the webview and onboarding output.
 
 ## [0.7.0] - 2026-08-23
 
@@ -624,10 +665,7 @@ All notable changes to Loca are documented here. The format follows
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.8.0...HEAD
-[0.8.0]: https://github.com/omrylcn/loca/compare/v0.7.2...v0.8.0
-[0.7.2]: https://github.com/omrylcn/loca/compare/v0.7.1...v0.7.2
-[0.7.1]: https://github.com/omrylcn/loca/compare/v0.7.0...v0.7.1
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/omrylcn/loca/compare/v0.6.18...v0.7.0
 [0.6.18]: https://github.com/omrylcn/loca/compare/v0.6.17...v0.6.18
 [0.6.17]: https://github.com/omrylcn/loca/compare/v0.6.16...v0.6.17

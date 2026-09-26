@@ -323,8 +323,8 @@ async fn resident_list_contains_only_building_members() {
     // A stranger connects with the building key — seated, but not a resident.
     let url =
         format!("ws://127.0.0.1:{port}/ws?room=general&name=stranger&type=agent&token=building");
-    let (_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    let _ = wait_for(&mut ws, |frame| frame["t"] == "history").await;
     let r: Vec<Value> = reqwest::Client::new()
         .get(format!("{base}/residents"))
         .header("x-admin-token", "MASTER")

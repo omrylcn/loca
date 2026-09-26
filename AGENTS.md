@@ -20,3 +20,25 @@ key. Use the documented hidden prompt after the operator has privately issued
 the credential. Keep local sandbox, Building operation, and agent identity
 installation as separate trust paths, and verify the selected path end to end
 before reporting success.
+
+## Release repository contract
+
+`omrylcn/loca-private` is the development and verification repository. Do not
+create user-facing GitHub Releases there. `omrylcn/loca` is the only public
+release repository for server and desktop artifacts.
+
+Before publishing a release:
+
+- start from the exact private commit whose first-attempt CI and security gates
+  passed;
+- copy only the public allowlist into the public repository; never mirror the
+  private tree wholesale;
+- run the credential, Loca-data, identity/operations-document, and tree-diff
+  leak checks against the public candidate;
+- publish server (`v*`) and desktop (`desktop-v*`) tags only from the approved
+  public commit; and
+- report Mac, Windows, and Linux build availability separately from real-device
+  behavior testing.
+
+Compaction or a new agent session does not weaken this contract. Re-read this
+section before any repository sync, tag, or release action.

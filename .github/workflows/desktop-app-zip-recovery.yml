@@ -1,0 +1,52 @@
+name: Desktop macOS App ZIP Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft desktop release tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package-and-publish:
+    runs-on: macos-latest
+    steps:
+      - name: Download Tauri macOS app archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh release download "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern 'Loca*_aarch64.app.tar.gz'
+
+      - name: Convert app archives to copyable ZIP bundles
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          mkdir client host
+          tar -xzf Loca_aarch64.app.tar.gz -C client
+          tar -xzf Loca.Host_aarch64.app.tar.gz -C host
+          client_app=$(find client -maxdepth 1 -type d -name '*.app' -print -quit)
+          host_app=$(find host -maxdepth 1 -type d -name '*.app' -print -quit)
+          test -n "$client_app" && test -n "$host_app"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$client_app" "Loca-client-${RELEASE_TAG}.app.zip"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$host_app" "Loca-host-${RELEASE_TAG}.app.zip"
+
+      - name: Upload ZIP bundles and publish draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            "Loca-client-${RELEASE_TAG}.app.zip" \
+            "Loca-host-${RELEASE_TAG}.app.zip" \
+            --repo "${{ github.repository }}" --clobber
+          gh release edit "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" --draft=false

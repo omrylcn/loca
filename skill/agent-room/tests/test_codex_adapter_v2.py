@@ -15,6 +15,7 @@ from codex_adapter_v2 import (  # noqa: E402
     PersistentCodexAdapter,
     attention_prompt,
     missing_thread_error,
+    mismatched_active_turn,
 )
 
 
@@ -161,6 +162,9 @@ class FakeAppServer:
                 "result": {
                     "thread": {
                         "id": thread_id,
+                        "status": {"type": "active" if any(
+                            t.get("status") == "inProgress" for t in self.threads[thread_id]
+                        ) else "idle"},
                         "turns": list(self.threads[thread_id]),
                     }
                 }
@@ -256,6 +260,229 @@ class AdapterFixture:
 
 
 class CodexAdapterV2Tests(unittest.TestCase):
+    def test_reconciliation_health_marks_current_epoch_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            health = fixture.adapter.health
+            self.assertEqual(health["reconciliation"], "OK")
+            self.assertEqual(
+                health["reconciliation_epoch"], fixture.adapter.epoch
+            )
+            self.assertEqual(health["reconciliation_reaped_turns"], 0)
+            fixture.adapter.close()
+
+    def test_reconciliation_failure_never_reports_ok(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = AttentionStore(root / "state.sqlite3")
+            seed = PersistentCodexAdapter(
+                store=store, inbox=root / "inbox.jsonl", identity="reviewer",
+                workdir=root, codex_bin="codex", relay_mode="live",
+                relay=RelayRecorder(), context_provider=lambda _attention: [],
+                app_server_factory=FakeAppServer,
+            )
+            seed.initialize()
+            store.set_thread(
+                "reviewer", "https://loca.example", "sb-dev", "thread-1",
+                seed.owner, seed.epoch,
+            )
+            seed.close()
+
+            class BrokenResume(FakeAppServer):
+                def request(self, method, params):
+                    if method == "thread/resume":
+                        return {"error": {"message": "temporary recovery failure"}}
+                    return super().request(method, params)
+
+            restarted = PersistentCodexAdapter(
+                store=AttentionStore(root / "state.sqlite3"),
+                inbox=root / "inbox.jsonl", identity="reviewer",
+                workdir=root, codex_bin="codex", relay_mode="live",
+                relay=RelayRecorder(), context_provider=lambda _attention: [],
+                app_server_factory=BrokenResume,
+            )
+            with self.assertRaisesRegex(RuntimeError, "recovery failure"):
+                restarted.initialize()
+            self.assertEqual(restarted.health["reconciliation"], "RUNNING")
+            self.assertNotEqual(restarted.health.get("reconciliation"), "OK")
+            restarted.close()
+
+    def test_mismatch_hint_is_exact_and_scoped_to_expected_turn(self):
+        self.assertEqual(mismatched_active_turn(
+            "expected active turn id `old` but found `live`", "old"), "live")
+        for error in (
+            "expected active turn id `other` but found `live`",
+            "expected active turn id `old` but found `old`",
+            "expected active turn id `old` but found `live` extra text",
+            "no active turn to steer",
+        ):
+            self.assertIsNone(mismatched_active_turn(error, "old"))
+
+    def test_restart_keeps_accepted_work_when_live_history_lags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(919))
+            fixture.adapter.dispatch_one()
+            with fixture.store.connect() as connection:
+                connection.execute("UPDATE turns SET started_at_ms=started_at_ms-61000")
+            original = fixture.fake.request
+            def lagging(method, params):
+                if method == "thread/read":
+                    return {"result": {"thread": {
+                        "id": "thread-1", "turns": [], "status": {"type": "active"}}}}
+                return original(method, params)
+            fixture.fake.request = lagging
+            fixture.adapter.active_turns.clear()
+            fixture.adapter.recover_existing_threads()
+            row = fixture.store.snapshot("reviewer")["attentions"][0]
+            self.assertIsNotNone(row["accepted_at_ms"])
+            self.assertEqual(row["turn_id"], "turn-1")
+            self.assertEqual(fixture.adapter.active_turns["thread-1"], "turn-1")
+            self.assertIsNone(fixture.store.next_pending("reviewer"))
+            fixture.adapter.close()
+
+    def test_history_lag_never_replays_live_turn_and_ten_calls_are_steered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(920, priority="care_signal"))
+            fixture.adapter.dispatch_one()
+            original = fixture.fake.request
+            def lagging_history(method, params):
+                if method == "thread/read":
+                    return {"result": {"thread": {
+                        "id": "thread-1", "status": {"type": "active", "activeFlags": []},
+                        "turns": [],
+                    }}}
+                return original(method, params)
+            fixture.fake.request = lagging_history
+            for message_id in range(921, 931):
+                fixture.ingest(delivery(message_id))
+                fixture.adapter.next_turn_reconcile_ms = 0
+                fixture.adapter.cycle()
+            rows = fixture.store.snapshot("reviewer")["attentions"]
+            self.assertEqual(len(rows), 11)
+            self.assertTrue(all(row["turn_id"] == "turn-1" for row in rows))
+            self.assertTrue(all(row["accepted_at_ms"] is not None for row in rows))
+            self.assertTrue(all(row["attempts"] == 1 for row in rows))
+            self.assertEqual(sum(m == "turn/start" for m, _ in fixture.fake.requests), 1)
+            self.assertEqual(sum(m == "turn/steer" for m, _ in fixture.fake.requests), 10)
+            fixture.adapter.close()
+
+    def test_active_id_mismatch_retries_same_attention_on_reported_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(940))
+            fixture.adapter.dispatch_one()
+            fixture.adapter.active_turns["thread-1"] = "stale-turn"
+            original = fixture.fake.request
+            def strict_steer(method, params):
+                if method == "turn/steer" and params["expectedTurnId"] != "turn-1":
+                    return {"error": {"message":
+                        "expected active turn id `stale-turn` but found `turn-1`"}}
+                return original(method, params)
+            fixture.fake.request = strict_steer
+            fixture.ingest(delivery(941))
+            self.assertTrue(fixture.adapter.dispatch_one())
+            row = fixture.store.snapshot("reviewer")["attentions"][-1]
+            self.assertEqual(row["turn_id"], "turn-1")
+            self.assertEqual(row["attempts"], 1)
+            self.assertEqual(fixture.adapter.active_turns["thread-1"], "turn-1")
+            methods = [m for m, _ in fixture.fake.requests]
+            self.assertEqual(methods.count("turn/start"), 1)
+            self.assertNotIn("turn/interrupt", methods)
+            fixture.adapter.close()
+
+    def test_unknown_live_status_does_not_authorize_missing_turn_replay(self):
+        for status in (None, {"type": "notLoaded"}, {"type": "systemError"}):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as tmp:
+                fixture = AdapterFixture(Path(tmp))
+                fixture.ingest(delivery(950))
+                fixture.adapter.dispatch_one()
+                original = fixture.fake.request
+                def unknown(method, params):
+                    if method == "thread/read":
+                        return {"result": {"thread": {
+                            "id": "thread-1", "status": status, "turns": []}}}
+                    return original(method, params)
+                fixture.fake.request = unknown
+                self.assertFalse(fixture.adapter.reconcile_active_turn("thread-1", "turn-1"))
+                row = fixture.store.snapshot("reviewer")["attentions"][0]
+                self.assertIsNotNone(row["accepted_at_ms"])
+                self.assertEqual(row["turn_id"], "turn-1")
+                fixture.adapter.close()
+
+    def test_recovery_does_not_reprocess_thousands_of_completed_turns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp), relay_mode="shadow")
+            fixture.ingest(delivery(899))
+            fixture.adapter.dispatch_one()
+            old = [{"id": f"old-{i}", "status": "completed", "items": []} for i in range(5000)]
+            fixture.fake.threads["thread-1"] = old + fixture.fake.threads["thread-1"]
+            recovered = []
+            recover = fixture.adapter.recover_turn
+            def record(turn_id, thread_id, turn):
+                recovered.append(turn_id)
+                return recover(turn_id, thread_id, turn)
+            fixture.adapter.recover_turn = record
+            fixture.adapter.recover_existing_threads()
+            self.assertEqual(recovered, ["turn-1"])
+            fixture.adapter.close()
+
+    def test_paginated_crash_reconciliation_preserves_accepted_dispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp), relay_mode="shadow")
+            fixture.ingest(delivery(900))
+            finalize = fixture.store.finalize_dispatch
+            def crash(*args, **kwargs):
+                raise RuntimeError("accepted before crash")
+            fixture.store.finalize_dispatch = crash
+            with self.assertRaisesRegex(RuntimeError, "accepted before crash"):
+                fixture.adapter.dispatch_one()
+            fixture.store.finalize_dispatch = finalize
+            request = fixture.fake.request
+            pages = []
+            def paginated(method, params):
+                if method == "thread/read":
+                    return {"error": {"message": "paginated threads do not support thread/read(includeTurns=true)"}}
+                if method == "thread/turns/list":
+                    pages.append(params)
+                    if not params.get("cursor"):
+                        return {"result": {"data": [{"id": "older", "status": "completed", "itemsView": "full", "items": []}], "nextCursor": "page2"}}
+                    turns = [dict(t, itemsView="full") for t in fixture.fake.threads[params["threadId"]]]
+                    return {"result": {"data": turns, "nextCursor": None}}
+                return request(method, params)
+            fixture.fake.request = paginated
+            fixture.adapter.recover_existing_threads()
+            self.assertIsNone(fixture.store.next_pending("reviewer"))
+            self.assertEqual(len(pages), 2)
+            self.assertTrue(all(p["itemsView"] == "full" for p in pages))
+            self.assertEqual(sum(m == "turn/start" for m, _ in fixture.fake.requests), 1)
+            fixture.adapter.close()
+
+    def test_paginated_incomplete_history_never_authorizes_replay(self):
+        bad_pages = [
+            {"error": {"message": "paginated_threads is not supported yet"}},
+            {"result": {"data": [{"id": "turn", "itemsView": "summary", "items": []}], "nextCursor": None}},
+            {"result": {"data": [], "nextCursor": "repeated"}},
+        ]
+        for page in bad_pages:
+            with self.subTest(page=page), tempfile.TemporaryDirectory() as tmp:
+                fixture = AdapterFixture(Path(tmp), relay_mode="shadow")
+                fixture.ingest(delivery(901))
+                original = fixture.fake.request
+                def request(method, params):
+                    if method == "thread/read":
+                        return {"error": {"message": "paginated threads do not support thread/read(includeTurns=true)"}}
+                    if method == "thread/turns/list":
+                        return page
+                    return original(method, params)
+                fixture.fake.request = request
+                with self.assertRaises(RuntimeError):
+                    fixture.adapter.authoritative_turns("thread", {"turns": []})
+                self.assertIsNotNone(fixture.store.next_pending("reviewer"))
+                self.assertFalse(any(m == "turn/start" for m, _ in fixture.fake.requests))
+                fixture.adapter.close()
+
     def test_resumed_thread_reapplies_sandbox_and_turn_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -784,6 +1011,89 @@ class CodexAdapterV2Tests(unittest.TestCase):
                 ],
                 0,
             )
+            fixture.adapter.close()
+
+    def test_required_direct_cannot_be_cancelled_by_no_reply(self):
+        # ADR: no-reply is legal only for optional attention. A mixed turn
+        # must not let a broadcast silence an operator's direct question.
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(136, text="@reviewer cevap ver!"))
+            fixture.adapter.dispatch_one()
+            required = fixture.store.snapshot("reviewer")["attentions"][0]
+            prompt = attention_prompt("reviewer", required, [])
+            self.assertNotIn("If no useful room reply is warranted", prompt)
+            self.assertIn("must not", prompt)
+            self.assertIn("automatically dispatched headless Loca", prompt)
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "silent-required", "type": "agentMessage",
+                "phase": "final_answer", "text": NO_REPLY_SENTINEL,
+            })
+            fixture.store.mark_turn_completed(
+                "turn-1", "completed", "", fixture.adapter.owner,
+                fixture.adapter.epoch,
+            )
+            fixture.adapter.process_relays()
+            row = fixture.store.snapshot("reviewer")["attentions"][0]
+            self.assertIsNone(row["terminal_status"])
+            self.assertIsNone(row["final_response_at_ms"])
+            self.assertEqual(fixture.store.progress_summary("reviewer")["reply_required_pending"], 1)
+            self.assertEqual(fixture.relay.calls, [])
+            fixture.adapter.close()
+
+    def test_mixed_turn_silence_only_closes_optional_attention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(137, text="status?"))
+            fixture.adapter.dispatch_one()
+            fixture.ingest(delivery(138, priority="broadcast"))
+            fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "silence", "type": "agentMessage",
+                "phase": None, "text": NO_REPLY_SENTINEL,
+            })
+            rows = fixture.store.snapshot("reviewer")["attentions"]
+            direct = next(r for r in rows if r["reply_required"])
+            optional = next(r for r in rows if not r["reply_required"])
+            self.assertIsNone(direct["terminal_status"])
+            self.assertEqual(optional["terminal_status"], "cancelled")
+            # Later real output can still fulfill the direct obligation.
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "real-final", "type": "agentMessage",
+                "phase": "final_answer", "text": "The build is still running.",
+            })
+            fixture.adapter.process_relays()
+            direct = next(r for r in fixture.store.snapshot("reviewer")["attentions"] if r["reply_required"])
+            self.assertIsNone(direct["terminal_status"])
+            self.assertIsNotNone(direct["final_response_at_ms"])
+            self.assertEqual(len(fixture.relay.calls), 1)
+            fixture.adapter.close()
+
+    def test_agent_mention_to_lead_reaches_dispatch_and_relay_once(self):
+        from test_listener_delivery import LISTENER
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            record = LISTENER.make_delivery("sb-dev", {
+                "id": 145433, "room": "sb-dev", "sender": "another-agent",
+                "sender_type": "agent", "text": "@reviewer neredesin?",
+            }, "reviewer", "https://loca.example", is_lead=True)
+            fixture.ingest(record)
+            self.assertTrue(fixture.adapter.dispatch_one())
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "lead-answer", "type": "agentMessage",
+                "phase": "final_answer", "text": "Review is running.",
+            })
+            fixture.adapter.handle_turn_completed("thread-1", {"id": "turn-1", "status": "completed"})
+            fixture.adapter.process_relays()
+            fixture.ingest(record)
+            self.assertFalse(fixture.adapter.dispatch_one())
+            rows = fixture.store.snapshot("reviewer")["attentions"]
+            self.assertEqual(len(rows), 1)
+            self.assertIsNotNone(rows[0]["accepted_at_ms"])
+            self.assertIsNotNone(rows[0]["final_response_at_ms"])
+            self.assertEqual(len(fixture.relay.calls), 1)
+            self.assertEqual(sum(m == "turn/start" for m, _ in fixture.fake.requests), 1)
             fixture.adapter.close()
 
     def test_relay_retry_keeps_same_operation_id_after_turn_completion(self):

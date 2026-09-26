@@ -404,8 +404,7 @@ async fn state_survives_restart() {
             .unwrap();
         // _guard drops here -> server killed.
     }
-    // Give the OS a moment to release the port.
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server_shutdown(port).await;
 
     // Boot 2: same DB + port. Everything should be back.
     let (_p2, _guard2) = spawn_server_env("tok", &env(port)).await;

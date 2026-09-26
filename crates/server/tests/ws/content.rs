@@ -10,6 +10,7 @@ async fn notes_create_update_and_soft_permission_push_live() {
 
     // A watcher WS connection observes live note frames.
     let mut watcher = connect_ws(port, "general", "watcher", "user").await;
+    wait_for_member(&client, &base, "general", "watcher", None).await;
 
     // Operator creates a note assigned to "backend".
     let created: Value = client
