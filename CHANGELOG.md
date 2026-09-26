@@ -6,6 +6,15 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.20] - 2026-09-27
+
+### Fixed
+- Desktop Skill Library fallback commands now download from the configured
+  Building instead of the non-network `tauri://localhost` application origin.
+- The full Getting Started guide is embedded in desktop packages, linked from
+  the Loca logo and onboarding, and remains available without a Building
+  connection instead of resolving against the Tauri application origin.
+
 ## [0.9.19] - 2026-09-26
 
 ### Fixed

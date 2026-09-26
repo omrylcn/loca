@@ -12,6 +12,8 @@ from urllib.parse import unquote
 ROOT = Path(__file__).resolve().parents[1]
 LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SKIP_DIRS = {".git", "target", "dist", "node_modules"}
+EMBEDDED_DOC = Path("web/docs/getting-started.md")
+EMBEDDED_DOC_SOURCE = Path("docs/getting-started.md")
 
 
 def markdown_files() -> list[Path]:
@@ -24,8 +26,23 @@ def markdown_files() -> list[Path]:
 
 def main() -> int:
     failures: list[str] = []
+    embedded = ROOT / EMBEDDED_DOC
+    embedded_source = ROOT / EMBEDDED_DOC_SOURCE
+    if not embedded.exists():
+        failures.append(f"missing required desktop asset: {EMBEDDED_DOC}")
+    elif embedded.read_bytes() != embedded_source.read_bytes():
+        failures.append(
+            f"{EMBEDDED_DOC} must exactly match {EMBEDDED_DOC_SOURCE}"
+        )
+
     documents = markdown_files()
     for document in documents:
+        relative_document = document.relative_to(ROOT)
+        if relative_document == EMBEDDED_DOC:
+            # This is a packaging snapshot of the canonical guide. Its relative
+            # links resolve from the canonical source tree, not the desktop
+            # asset directory; the preflight above prevents missing/drifted copies.
+            continue
         for raw_target in LINK.findall(document.read_text(encoding="utf-8")):
             target = raw_target.strip().split(maxsplit=1)[0].strip("<>")
             target = unquote(target.split("#", 1)[0])
