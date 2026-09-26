@@ -381,6 +381,14 @@ async fn caretaker_claims_source_attention_without_source_room_access() {
          &filter=mentions&turn_max=1&session={care_session}"
     );
     let (mut care_ws, _) = tokio_tungstenite::connect_async(care_url).await.unwrap();
+    wait_for_member(
+        &client,
+        &base,
+        "iye",
+        "loca-care",
+        Some(("x-session-token", care_session.as_str())),
+    )
+    .await;
 
     client
         .post(format!("{base}/rooms/project/messages"))
@@ -655,6 +663,7 @@ async fn explicit_wait_cycle_wakes_only_the_live_lead_with_bounded_context() {
          &filter=mentions&turn_max=1&admin=buyuk"
     );
     let (mut lead_ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    wait_for_member(&client, &base, "proj", "lead", None).await;
     for text in ["old", "relevant one", "relevant two"] {
         client
             .post(format!("{base}/rooms/proj/messages"))
@@ -1024,8 +1033,6 @@ async fn direct_goal_progress_and_care_reset_commit_atomically() {
          BEGIN SELECT RAISE(FAIL, 'injected care reset failure'); END;",
     )
     .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-
     let failed = client
         .patch(format!("{base}/rooms/proj/goals/{goal_id}"))
         .header("x-admin-token", "MASTER")
@@ -1151,6 +1158,7 @@ async fn wait_reply_wakes_the_live_waiter_exactly_once() {
     let since0 = created["since"].as_u64().unwrap();
 
     let mut a = connect_agent_mentions(port, "proj", "A").await;
+    wait_for_member(&client, &base, "proj", "A", None).await;
     post_direct(
         &client,
         &base,
@@ -1395,6 +1403,7 @@ async fn wait_reply_resets_the_overdue_generation() {
         "ws://127.0.0.1:{port}/ws?room=proj&name=L&type=agent&filter=mentions&turn_max=1&admin=buyuk"
     );
     let (mut lead, _) = tokio_tungstenite::connect_async(lead_url).await.unwrap();
+    wait_for_member(&client, &base, "proj", "L", None).await;
 
     let created = declare_wait(&client, &base, "proj", "A", "B").await;
     let g1_since = created["since"].as_u64().unwrap();
@@ -1410,8 +1419,22 @@ async fn wait_reply_resets_the_overdue_generation() {
         .to_string();
     assert_eq!(att_g1, format!("attention:proj:wait:A:{g1_since}"));
 
+    // Give the new generation a wide threshold while its reset state is
+    // inspected. Otherwise a slow runner can legitimately make G2 overdue
+    // before the REST assertion below observes the reset.
+    client
+        .put(format!("{base}/rooms/proj/settings"))
+        .header("x-admin-token", "buyuk")
+        .json(&serde_json::json!({ "care_wait_secs": 60 }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
     // B replies directly to A: A is re-woken and A's G1 overdue is retired.
     let mut a = connect_agent_mentions(port, "proj", "A").await;
+    wait_for_member(&client, &base, "proj", "A", None).await;
     post_direct(&client, &base, "proj", "B", Some("A"), "unblocking you").await;
     let _ = wait_for(&mut a, |v| {
         v["t"] == "care" && v["signal"]["reason"] == "wait_replied"
@@ -1448,6 +1471,16 @@ async fn wait_reply_resets_the_overdue_generation() {
     let g2_since = waits[0]["since"].as_u64().unwrap();
     assert!(g2_since > g1_since);
     assert_eq!(waits[0]["signal_count"], 0);
+
+    client
+        .put(format!("{base}/rooms/proj/settings"))
+        .header("x-admin-token", "buyuk")
+        .json(&serde_json::json!({ "care_wait_secs": 1 }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
 
     // Past the threshold again: a fresh overdue under the NEW generation.
     let overdue2 = wait_for(&mut lead, |v| {
@@ -2013,7 +2046,7 @@ async fn everyone_reminder_separates_two_same_named_principals_over_websockets()
             .unwrap();
         // _guard drops here -> server killed.
     }
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    wait_for_server_shutdown(port).await;
 
     // Rename the second identity to the SAME display name while the server is
     // down — in members (the fan-out roster name) AND principals (the session's

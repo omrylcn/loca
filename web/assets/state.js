@@ -1,7 +1,7 @@
 "use strict";
 // Shared browser state, identity, room navigation, and unread cursors.
 const $ = (id) => document.getElementById(id);
-const state = { server: "", name: "operator", room: null, rooms: [], ws: null, members: [], lobby: [], tab: "chat", sidebarView: "building", locaOperator: null, locaContext: null, principalId: null, roomPreferences: { pinned: [], hidden: [], order: [] }, notes: {}, editing: null, pairing: "", roomToken: "", session: null, adminSession: false, sessionExpires: null, profile: null, credentials: [], epoch: null, homeRoom: "iye", locaAgents: [], mode: { mode: "free" }, settings: { rate_limit: 10, rate_window_secs: 30 }, mod: { muted: [], banned: [] }, tasks: {}, goals: {}, attentions: {}, waits: {}, journal: [], lastId: 0, seen: new Set(), msgs: [], replyTo: null, reminderReceipts: new Set(), unread: {}, readCursors: {}, roomLatest: {}, unreadChecked: {}, readStorageKey: "", pendingAttachments: [], pinned: null, pinnedExpanded: false };
+const state = { server: "", name: "operator", room: null, rooms: [], ws: null, members: [], lobby: [], tab: "chat", sidebarView: "building", locaOperator: null, locaContext: null, principalId: null, roomPreferences: { pinned: [], hidden: [], order: [] }, notes: {}, editing: null, pairing: "", roomToken: "", session: null, authStatus: "unknown", adminSession: false, sessionExpires: null, profile: null, credentials: [], epoch: null, homeRoom: "iye", locaAgents: [], mode: { mode: "free" }, settings: { rate_limit: 10, rate_window_secs: 30 }, mod: { muted: [], banned: [] }, tasks: {}, goals: {}, attentions: {}, waits: {}, journal: [], lastId: 0, seen: new Set(), msgs: [], replyTo: null, reminderReceipts: new Set(), unread: {}, readCursors: {}, roomLatest: {}, unreadChecked: {}, readStorageKey: "", pendingAttachments: [], pinned: null, pinnedExpanded: false };
 
 function setMobileSidebar(open) {
   document.body.classList.toggle("sidebar-open", !!open);
@@ -29,7 +29,11 @@ function adminHeaders(base) {
 async function takeSession() {
   // Room navigation is not a new login. Keep the already-bound identity;
   // clearing it here made every loca click throw the master back to the door.
-  if (!state.roomToken && !state.pairing && state.session) return;
+  if (!state.roomToken && !state.pairing && state.session) {
+    state.authStatus = "authenticated";
+    return;
+  }
+  state.authStatus = "unknown";
   state.session = null;
   state.adminSession = false;
   state.sessionExpires = null;
@@ -48,28 +52,40 @@ async function takeSession() {
         state.session = cached.token;
         state.adminSession = true;
         state.sessionExpires = Number(cached.expiresAt);
-        if (cached.name) {
-          state.name = cached.name;
+        // A cached token is provisional until the server resolves it. Network
+        // and 5xx failures keep auth unknown; only an explicit 401 means absent.
+        let who;
+        const whoController = new AbortController();
+        const whoTimeout = setTimeout(() => whoController.abort(), 2000);
+        try {
+          who = await fetch(serverBase() + "/whoami", {
+            headers: { "x-session-token": state.session },
+            signal: whoController.signal,
+          });
+        } catch (e) {
+          return;
+        } finally {
+          clearTimeout(whoTimeout);
+        }
+        if (who.status === 401) {
+          state.session = null;
+          state.adminSession = false;
+          state.sessionExpires = null;
+          state.authStatus = "unauthenticated";
+          localStorage.removeItem("loca-admin-session");
+          sessionStorage.removeItem("loca-admin-session");
+          return;
+        }
+        if (!who.ok) return;
+        const identity = await who.json();
+        if (identity.name) {
+          state.name = identity.name;
           $("name").value = state.name;
-        } else {
-          // Compatibility for sessions cached before canonical names were
-          // persisted. The session itself is the identity authority.
-          try {
-            const who = await fetch(serverBase() + "/whoami", {
-              headers: { "x-session-token": state.session },
-            });
-            if (who.ok) {
-              const identity = await who.json();
-              if (identity.name) {
-                state.name = identity.name;
-                $("name").value = state.name;
-                cached.name = state.name;
-              }
-            }
-          } catch (e) {}
+          cached.name = state.name;
         }
         localStorage.setItem("loca-admin-session", JSON.stringify(cached));
         sessionStorage.removeItem("loca-admin-session");
+        state.authStatus = "authenticated";
         return;
       }
       localStorage.removeItem("loca-admin-session");
@@ -78,6 +94,7 @@ async function takeSession() {
       localStorage.removeItem("loca-admin-session");
       sessionStorage.removeItem("loca-admin-session");
     }
+    state.authStatus = "unauthenticated";
     return;      // open house or no current credential
   }
   // Admin wins when both fields were filled. Mixing credentials made the room
@@ -97,6 +114,7 @@ async function takeSession() {
     if (r.ok) {
       const info = await r.json();
       state.session = info.session_token || null;
+      state.authStatus = state.session ? "authenticated" : "unauthenticated";
       state.adminSession = info.admin === true;
       state.sessionExpires = info.expires_at || null;
       // Credentials name the seat. Never keep a user-entered alias after the
@@ -121,14 +139,17 @@ async function takeSession() {
         try { $("pairingCode").value = ""; } catch (e) {}
         try { $("roomToken").value = ""; } catch (e) {}
       }
+    } else if (r.status === 401 || r.status === 403) {
+      state.authStatus = "unauthenticated";
     }
-  } catch (e) { /* stay tokenless; reads will say so */ }
+  } catch (e) { /* retain unknown: transport failure is not an auth verdict */ }
 }
 // Admin with a live master session, or when the server has no ADMIN_TOKEN
 // configured (dev mode — open to everyone).
 function isAdmin() { return state.adminSession === true || state.adminOpen === true; }
 // The door: locked until this client is actually a member of the server.
 function setLocked(on) {
+  if (state.authStatus === "unknown") return;
   document.body.classList.toggle("locked", on);
   if (on) { setConnOpen(true); $("whoami").classList.remove("on"); }
 }
@@ -146,6 +167,7 @@ async function refreshRooms() {
   try {
     const r = await fetch(serverBase() + "/rooms", { headers: adminHeaders({}) });
     if (r.status === 401) {
+      if (state.authStatus === "unknown") return;
       // Wrong or missing key: back behind the door, nothing of the room shown.
       if (state.adminSession) {
         try {
@@ -155,6 +177,7 @@ async function refreshRooms() {
         state.session = null;
         state.adminSession = false;
         state.sessionExpires = null;
+        state.authStatus = "unauthenticated";
       }
       setLocked(true);
       setStatus("locked — key required", false);
@@ -205,9 +228,11 @@ function renderRooms() {
         : "";
       el.innerHTML = `<div class="rrow"><span class="rname">${esc(rm.room)}</span>${pres}</div>` +
         (rm.last || badge ? `<div class="rlastrow"><div class="rlast">${esc(rm.last || "")}</div>${badge}</div>` : "");
-      // Clicking a room IS connecting: identity is read from the inputs every
-      // time, so joining before/without pressing connect behaves identically.
-      el.onclick = () => doConnect(rm.room);
+      // The room list is only visible after identity resolution. Moving
+      // between locas is navigation, not a new login: re-reading an autofilled
+      // or already-spent credential here could replace a healthy session with
+      // the login door until refresh.
+      el.onclick = () => joinRoom(rm.room);
       const item = document.createElement("div");
       item.className = "roomitem";
       item.append(el, renderRoomPreferenceActions(rm.room));

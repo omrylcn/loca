@@ -303,7 +303,9 @@ async fn loca_seats_seven() {
     let (port, _guard) = spawn_server_env("master", &[]).await;
     let mut seated = Vec::new();
     for i in 1..=7 {
-        seated.push(connect_ws(port, "mobile", &format!("agent{i}"), "agent").await);
+        let mut ws = connect_ws(port, "mobile", &format!("agent{i}"), "agent").await;
+        let _ = wait_for(&mut ws, |frame| frame["t"] == "history").await;
+        seated.push(ws);
     }
     let members: Value = reqwest::Client::new()
         .get(format!("http://127.0.0.1:{port}/rooms/mobile/members"))
@@ -660,8 +662,6 @@ async fn a_deleted_loca_does_not_come_back() {
         "ws://127.0.0.1:{port}/ws?room=gecici&name=watcher&type=agent&admin=MASTER&watch=1"
     ))
     .await;
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
     let rooms: Value = client
         .get(format!("{base}/rooms"))
         .header("x-admin-token", "MASTER")
@@ -1229,20 +1229,7 @@ async fn release_leaves_no_ghost() {
         .send()
         .await
         .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-    let members: Vec<Value> = client
-        .get(format!("{base}/rooms/oda/members"))
-        .header("x-admin-token", "MASTER")
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert!(
-        !members.iter().any(|m| m["name"] == "worker"),
-        "release leaves no ghost in the roster"
-    );
+    wait_for_member_absent(&client, &base, "oda", "worker").await;
 }
 
 /// The call is not merely a new row in the database: an agent keeps a
@@ -1597,7 +1584,6 @@ async fn a_sealed_loca_is_not_revived_by_a_watcher() {
         "ws://127.0.0.1:{port}/ws?room=temp&name=nosy&type=agent&watch=1&admin=MASTER"
     ))
     .await;
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
     let rooms: Vec<Value> = client
         .get(format!("{base}/rooms"))
         .header("x-admin-token", "MASTER")

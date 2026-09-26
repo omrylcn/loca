@@ -21,15 +21,14 @@ def production_sources() -> list[Path]:
 
 
 def production_text(path: Path) -> str:
-    """Exclude an inline cfg(test) module from the production panic budget.
-
-    Server modules keep their unit tests in a final ``#[cfg(test)] mod tests``
-    block. Those unwraps are fixture assertions, not reachable production
-    panic surfaces.
-    """
+    """Source with a trailing inline `#[cfg(test)] mod tests { ... }` block
+    removed, so test-only unwraps/panics never count against the production
+    budget (tests are exercised, not shipped)."""
     text = path.read_text(encoding="utf-8")
-    marker = re.search(r"(?m)^#\[cfg\(test\)\]\s*\nmod tests\s*\{", text)
-    return text[: marker.start()] if marker else text
+    marker = re.search(r"(?m)^#\[cfg\(test\)\]\s*\nmod tests\b", text)
+    if marker:
+        return text[: marker.start()]
+    return text
 
 
 def main() -> int:

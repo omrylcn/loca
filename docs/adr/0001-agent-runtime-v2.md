@@ -120,11 +120,26 @@ Before either Codex RPC, the adapter commits a fenced `dispatch_intent` with
 that client message id. RPC acceptance and the attention's `accepted_at_ms`
 are then committed in one SQLite transaction. If the process dies after Codex
 accepted the RPC but before that transaction, restart performs
-`thread/read(includeTurns=true)`, matches the durable user item's `clientId`,
+`thread/read(includeTurns=true)` (or all full-item pages from
+`thread/turns/list` for paginated threads), matches the durable user item's `clientId`,
 and reconciles the original attention to the existing turn. When the client id
 is absent from authoritative rollout history, the failed intent is resolved
 and the attention may be retried. The adapter never blindly repeats an
 ambiguous accepted RPC.
+
+Recovery resumes thread metadata with `excludeTurns=true` and opts into the
+experimental pagination API during initialization. A partial, summary-only,
+failed or non-advancing history traversal is never proof of absence. Recovery
+keeps its ownership lease alive between pages. Existing thread history and
+pending attention are retained; pagination does not justify resetting either.
+
+Durable history may temporarily omit an active turn. Periodic reconciliation
+must retain accepted work unless the same app-server positively reports the
+thread idle (metadata read without turns), or a steer explicitly reports no
+active turn. Unknown/not-loaded/error status is not idle evidence. An exact
+expected/actual active-turn mismatch rejects the new input before acceptance:
+correct the pointer from that response and retry the same client message once,
+without replaying accepted work or interrupting the running turn.
 
 ### The adapter owns reply relay
 

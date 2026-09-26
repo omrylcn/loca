@@ -449,6 +449,35 @@ class ListenerDeliveryTests(unittest.TestCase):
             care["delivery_id"], "sb-dev:care:sb-dev:WaitCycle:10:1"
         )
 
+    def test_agent_direct_to_lead_is_attention_not_context_only(self):
+        from attention_store import AttentionStore
+
+        # Incident 145433: no target field, exact @lead-engineer in text.
+        for as_turn in (False, True):
+            for address in ({"text": "@lead-engineer neredesin?"},
+                            {"text": "neredesin?", "target": "lead-engineer"}):
+                with self.subTest(as_turn=as_turn, address=address), tempfile.TemporaryDirectory() as tmp:
+                    event = {"id": 145433, "room": "sb-dev", "sender": "omnelo-lead",
+                             "sender_type": "agent", **address}
+                    if as_turn:
+                        event = {"t": "turn", "messages": [event]}
+                    record = LISTENER.make_delivery("sb-dev", event, "lead-engineer",
+                                                   "https://loca.example", is_lead=True)
+                    self.assertEqual(record["priority"], "addressed_agent")
+                    root = Path(tmp)
+                    inbox = root / "inbox.jsonl"
+                    inbox.write_text(json.dumps(record) + "\n")
+                    store = AttentionStore(root / "ledger.sqlite3")
+                    result = store.ingest_inbox(inbox, "lead-engineer")
+                    self.assertEqual(result["inserted"], 1)
+                    self.assertEqual(result["context_only"], 0)
+                    self.assertEqual(store.next_pending("lead-engineer")["delivery_id"], "sb-dev:145433")
+
+    def test_lead_unaddressed_and_lookalike_posts_remain_context_only(self):
+        for text in ("review ready", "@lead-engineer-extra ready", "@other ready"):
+            event = {"id": 1, "sender": "debug", "sender_type": "agent", "text": text}
+            self.assertEqual(LISTENER.delivery_priority(event, "lead-engineer", True), "lead_room")
+
     def test_care_delivery_rejects_a_cross_room_signal(self):
         with self.assertRaisesRegex(ValueError, "cross-room care signal"):
             LISTENER.make_delivery(

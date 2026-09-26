@@ -26,9 +26,10 @@ async function sekmeler(page) {
   await page.goto("/");
   await page.evaluate(() => {
     document.querySelectorAll(".hidden").forEach((e) => e.classList.remove("hidden"));
-    // The initial Building view deliberately hides the room tab strip. Make
-    // the fixture represent an opened loca before measuring layout; otherwise
-    // every bounding box is zero and the test measures display:none.
+    // The initial Building view is locked and the room tab strip lives inside a
+    // display:none `.main.global`. Represent an opened loca before measuring;
+    // otherwise every tab bounding box is zero and the width asserts measure
+    // display:none instead of the reserved-dot layout.
     document.body.classList.remove("locked");
     const main = document.querySelector(".main");
     main?.classList.remove("global");
@@ -77,12 +78,14 @@ test("nokta gorunmezken de YER TUTAR, yaninca sekme genisligi ziplamaz", async (
   // yer tutmayinca genislik "degismiyor" ve assert bosa donuyordu.
   const noktaGen = await t.evaluateAll((els) =>
     els.map((el) => { const d = el.querySelector(".dot");
-      return d ? Number.parseFloat(getComputedStyle(d).width) : null; })
+      return d ? Math.round(d.getBoundingClientRect().width) : null; })
   );
   expect(noktaGen.filter((w) => w !== null).length).toBe(3);
   for (const w of noktaGen) if (w !== null) expect(w, "nokta gorunmezken yer tutmuyor").toBeGreaterThan(0);
 
   const kapali = await olc();
+  // Lock that the fixture is actually visible: a zero-width tab means the
+  // opened-loca setup regressed and the equality below would pass vacuously.
   for (const w of kapali) expect(w, "sekme fixture gorunur degil").toBeGreaterThan(0);
   await t.evaluateAll((els) => els.forEach((el) => {
     const d = el.querySelector(".dot");

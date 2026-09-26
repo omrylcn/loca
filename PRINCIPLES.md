@@ -118,6 +118,8 @@ olarak bekler ve agent açıldığında teslim edilir.
 
 - **DESIGN.md / PRINCIPLES.md** — bağlayıcı.
 - **PRODUCTION.md** — güncel işletim rehberi.
+- **docs/archive/public-release-readiness-2026-07-31.md** — tamamlanmış public
+  açılış auditinin tarihsel kaydıdır; güncel ürün anayasası veya backlog değildir.
 
 Sıradaki işi statik bir yön belgesi değil gerçek kullanım, açık GitHub issue'su
 ve operatör kararı belirler.

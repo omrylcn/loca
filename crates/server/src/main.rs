@@ -520,9 +520,15 @@ async fn main() {
         .and_then(|a| a.parse().ok())
         .unwrap_or_else(|| [127, 0, 0, 1].into());
     let addr = SocketAddr::from((bind_addr, port));
-    tracing::info!("room-server listening on http://{addr}  (web client at /)");
-
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
+    let bound_addr = listener.local_addr().expect("bound address");
+    tracing::info!("room-server listening on http://{bound_addr}  (web client at /)");
+    // Integration tests use PORT=0 so the OS owns port allocation without a
+    // probe/drop/bind race across separate test binaries. The optional file is
+    // a child-to-parent readiness channel; production does not set it.
+    if let Ok(path) = std::env::var("BOUND_PORT_FILE") {
+        std::fs::write(path, bound_addr.port().to_string()).expect("write bound port");
+    }
     // `into_make_service_with_connect_info` exposes the peer address so the
     // authless join-request create endpoint can rate-limit per source IP.
     axum::serve(

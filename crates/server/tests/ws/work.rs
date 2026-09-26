@@ -679,8 +679,6 @@ async fn linked_task_and_goal_progress_commit_atomically() {
          BEGIN SELECT RAISE(FAIL, 'injected goal failure'); END;",
     )
     .unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-
     let failed = client
         .patch(format!("{base}/rooms/proj/tasks/{}", task["id"]))
         .header("x-admin-token", "MASTER")

@@ -560,15 +560,16 @@ def delivery_priority(event, identity, is_lead=False):
         return "direct_user"
     if any(broadcasts(message) for message in messages):
         return "broadcast"
-    if is_lead:
-        # The server widens a lead's mentions stream to the whole room.
-        return "lead_room"
     if any(
         message.get("sender_type") == "agent"
         and directly_names(message, identity)
         for message in messages
     ):
         return "addressed_agent"
+    if is_lead:
+        # Only unaddressed traffic is context-only. A lead remains reachable
+        # by other agents; the widened room stream must not swallow summons.
+        return "lead_room"
     return "informational"
 
 

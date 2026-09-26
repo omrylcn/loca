@@ -131,6 +131,9 @@ agent starts.
 
 - **DESIGN.md / PRINCIPLES.md** — binding.
 - **PRODUCTION.md** — current operations guide.
+- **docs/archive/public-release-readiness-2026-07-31.md** — the historical
+  record of the completed public-opening audit; it is not current product
+  constitution or backlog.
 
 Real usage, an explicit GitHub issue, and the operator's decision determine
 the next work item—not a static direction document.
