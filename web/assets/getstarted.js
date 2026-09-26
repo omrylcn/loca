@@ -43,6 +43,19 @@
       return null;
     }
   }
+  function skillDownloadOrigin() {
+    try {
+      var configured = window.__LOCA_DEFAULT_SERVER__ || "";
+      if (configured && !/^tauri:/i.test(configured)) return configured.replace(/\/$/, "");
+      var input = $("server");
+      var selected = input && input.value ? input.value.trim() : "";
+      if (selected && !/^tauri:/i.test(selected)) return selected.replace(/\/$/, "");
+      var origin = (window.location && window.location.origin) || "";
+      return /^tauri:/i.test(origin) ? "" : origin.replace(/\/$/, "");
+    } catch (e) {
+      return "";
+    }
+  }
   // An IDEMPOTENT install command for one or more skills into `dir` — safe to
   // re-run for a fresh install OR an update, and it never nests `loca/loca`.
   // PRIMARY: copy from the local read-only library (offline). FALLBACK (web, or
@@ -55,7 +68,7 @@
         // Quote the library path — App Data can contain spaces (e.g. macOS).
         return "rm -rf " + dir + "/" + s + ' && cp -R "' + lib + "/" + s + '" ' + dir + "/" + s;
       }
-      var origin = (window.location && window.location.origin) || "";
+      var origin = skillDownloadOrigin();
       return (
         "curl -fsSL " + origin + "/downloads/skills/" + s + " -o /tmp/" + s + ".zip && " +
         "rm -rf " + dir + "/" + s + " && unzip -oq /tmp/" + s + ".zip -d " + dir

@@ -264,11 +264,11 @@ test("admin properties use progressive disclosure and mobile navigation", async 
   await expect(page.locator("#whoami")).toContainText("MASTER");
   await expect(page.locator("#whoami")).toContainText("OPERATOR");
   await expect(page.locator("#whoami")).toContainText("Bounded session");
-  await expect(page.locator(".brandlink")).toHaveAttribute("href", "/PRINCIPLES.md");
-  const principles = await request.get("/PRINCIPLES.md");
-  expect(principles.status()).toBe(200);
-  expect(principles.headers()["content-type"]).toContain("text/markdown");
-  expect(await principles.text()).toContain("Loca");
+  await expect(page.locator(".brandlink")).toHaveAttribute("href", "/docs/getting-started.md");
+  const embeddedGuide = await request.get("/docs/getting-started.md");
+  expect(embeddedGuide.status()).toBe(200);
+  expect(embeddedGuide.headers()["content-type"]).toContain("text/markdown");
+  expect(await embeddedGuide.text()).toContain("Getting started");
   await expect(page.locator("#sideBuildingTab")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("#sideLocaTab")).toBeVisible();
   await expect(page.locator("#sideLocaView")).toBeHidden();

@@ -37,7 +37,7 @@ test("Desktop Host: tabbed guide auto-opens; tabs switch; dismiss persists", asy
   await expect(page.locator("[data-gspanel='host']")).toContainText("Master");
 
   // The full-setup doc link exists and actually serves on a closed building.
-  await expect(host.locator("a[href='/docs/getting-started.md']")).toHaveCount(1);
+  await expect(host.locator("a[href$='/docs/getting-started.md']")).toHaveCount(1);
   const docResp = await page.request.get("/docs/getting-started.md");
   expect(docResp.status()).toBe(200);
 
@@ -140,6 +140,7 @@ test("Host with a local Skill Library shows the real path and a copy-from-disk c
 test("Host: a Skill Library failure shows a visible unavailable status and the download fallback", async ({ page }) => {
   await page.addInitScript(() => {
     window.__LOCA_HOST__ = true;
+    window.__LOCA_DEFAULT_SERVER__ = "https://loca.example.test";
     // The Desktop reports a failed local install; no path is injected.
     window.__LOCA_SKILL_LIBRARY_ERROR__ = "permission denied";
   });
@@ -155,5 +156,13 @@ test("Host: a Skill Library failure shows a visible unavailable status and the d
   await expect(page.locator("#gsLibPath")).toBeHidden();
 
   // The install command falls back to downloading from the Host.
-  await expect(page.locator("#gsInstallClaude")).toContainText("/downloads/skills/loca");
+  await expect(page.locator("#gsInstallClaude")).toContainText(
+    "https://loca.example.test/downloads/skills/loca",
+  );
+  await expect(page.locator("#gsInstallClaude")).not.toContainText("tauri://localhost");
+  await expect(page.locator("a", { hasText: "getting-started" }).first()).toHaveAttribute(
+    "href",
+    "/docs/getting-started.md",
+  );
+  await expect(page.locator(".brandlink")).toHaveAttribute("href", "/docs/getting-started.md");
 });
