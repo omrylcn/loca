@@ -8,6 +8,11 @@ on:
         required: true
         default: desktop-v0.9.20
         type: string
+      release_repo:
+        description: Repository containing the published desktop release
+        required: true
+        default: omrylcn/loca
+        type: string
 
 permissions:
   contents: read
@@ -22,10 +27,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_REPO: ${{ inputs.release_repo }}
         run: |
           set -euo pipefail
           gh release download "$RELEASE_TAG" \
-            --repo "${{ github.repository }}" \
+            --repo "$RELEASE_REPO" \
             --pattern "Loca-host-${RELEASE_TAG}.app.zip"
           ditto -x -k "Loca-host-${RELEASE_TAG}.app.zip" package
           app=$(find package -maxdepth 1 -type d -name '*.app' -print -quit)
