@@ -1,6 +1,16 @@
 name: Desktop Package Smoke
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Draft desktop release tag to test
+        required: true
+        type: string
+      release_repo:
+        description: Repository containing the draft desktop release
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
