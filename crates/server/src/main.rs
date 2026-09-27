@@ -1243,6 +1243,29 @@ async fn ws_session(
     }
     tracing::info!(%room, %name, ?kind, "ws join");
 
+    // Memory is server-pushed rather than client-fetched. Send it for every
+    // seated connection, including absent and empty state, before history so
+    // a freshly connected agent starts with an explicit memory envelope.
+    if !watch_only {
+        let memory = match hub.loca_memory(&room) {
+            Ok(memory) => memory,
+            Err(error) => {
+                tracing::warn!(%room, %name, %error, "could not read loca memory");
+                if !watch_only {
+                    hub.leave(&room, &identity);
+                }
+                return;
+            }
+        };
+        if send_frame(&mut sink, &ServerFrame::memory(&room, memory))
+            .await
+            .is_err()
+        {
+            hub.leave(&room, &identity);
+            return;
+        }
+    }
+
     // Care signals are a durable outbox, not a best-effort broadcast. Replay
     // anything this identity has not transport-ACKed; the listener ACKs only
     // after writing its durable inbox. Subscribe happened first, so remember

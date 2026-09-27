@@ -943,6 +943,20 @@ pub enum ServerFrame {
     History {
         messages: Vec<Message>,
     },
+    /// Durable loca memory, delivered automatically when an agent connects.
+    /// A frame is sent even when memory is absent or empty so clients never
+    /// have to infer state from silence.
+    Memory {
+        room: String,
+        owner: Option<String>,
+        status: LocaMemoryStatus,
+        short: String,
+        long: String,
+        short_updated_at: Option<u64>,
+        long_updated_at: Option<u64>,
+        over_budget: bool,
+        version: u64,
+    },
     /// A newly posted message (including the receiver's own, echoed back).
     Msg {
         message: Message,
@@ -1203,6 +1217,49 @@ pub struct LocaMemory {
     pub short_updated_at: Option<u64>,
     pub long_updated_at: Option<u64>,
     pub over_budget: bool,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LocaMemoryStatus {
+    Ready,
+    Absent,
+    Empty,
+}
+
+impl ServerFrame {
+    pub fn memory(room: &str, memory: Option<LocaMemory>) -> Self {
+        let Some(memory) = memory else {
+            return Self::Memory {
+                room: room.to_string(),
+                owner: None,
+                status: LocaMemoryStatus::Absent,
+                short: String::new(),
+                long: String::new(),
+                short_updated_at: None,
+                long_updated_at: None,
+                over_budget: false,
+                version: 0,
+            };
+        };
+        let status = if memory.short.is_empty() && memory.long.is_empty() {
+            LocaMemoryStatus::Empty
+        } else {
+            LocaMemoryStatus::Ready
+        };
+        Self::Memory {
+            room: memory.room,
+            owner: memory.owner,
+            status,
+            short: memory.short,
+            long: memory.long,
+            short_updated_at: memory.short_updated_at,
+            long_updated_at: memory.long_updated_at,
+            over_budget: memory.over_budget,
+            version: memory.version,
+        }
+    }
 }
 
 /// One append-only long-memory decision with explicit provenance.

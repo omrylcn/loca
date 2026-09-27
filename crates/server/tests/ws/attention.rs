@@ -777,6 +777,8 @@ async fn loca_care_owns_the_signal_in_iye_when_no_live_lead_exists() {
     assert_eq!(ack.status(), 204);
     drop(replay_ws);
     let (mut clean_ws, _) = tokio_tungstenite::connect_async(care_url).await.unwrap();
+    let memory = wait_for(&mut clean_ws, |value| value["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
     assert!(
         tokio::time::timeout(Duration::from_millis(150), clean_ws.next())
             .await

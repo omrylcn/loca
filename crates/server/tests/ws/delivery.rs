@@ -189,6 +189,8 @@ async fn filter_msg_suppresses_noise_but_delivers_messages() {
     let url = format!("ws://127.0.0.1:{port}/ws?room=general&name=filtered&type=agent&filter=msg");
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "general", "filtered", None).await;
+    let memory = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
 
     // Cause noise (a typing frame from someone else) then a real message.
     use futures_util::SinkExt;
@@ -241,6 +243,8 @@ async fn filter_mentions_only_delivers_addressed_messages() {
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "general", "bob", None).await;
+    let memory = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
 
     let post = |target: Option<&'static str>, text: &'static str| {
         let (client, base) = (client.clone(), base.clone());
@@ -346,6 +350,8 @@ async fn reply_wakes_owner_even_when_older_than_the_tail() {
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "general", "bob", None).await;
+    let memory = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
 
     // A reply to the long-evicted root: only Store::message_owner can still name
     // the author, and bob must still be woken.
@@ -674,6 +680,8 @@ async fn mention_turn_queue_flushes_on_max_or_quiet_window() {
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "general", "bob", None).await;
+    let memory = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
 
     let post = |text: &'static str| {
         let (client, base) = (client.clone(), base.clone());
@@ -733,6 +741,8 @@ async fn turn_quiet_window_slides_but_hard_deadline_does_not() {
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "general", "bob", None).await;
+    let memory = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
     let post = |text: &'static str| {
         let (client, base) = (client.clone(), base.clone());
         async move {

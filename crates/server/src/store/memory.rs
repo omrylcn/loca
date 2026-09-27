@@ -10,7 +10,7 @@ impl Store {
             return Ok(None);
         };
         c.query_row(
-            "SELECT owner, short, long, short_updated_at, long_updated_at
+            "SELECT owner, short, long, short_updated_at, long_updated_at, version
              FROM loca_memory WHERE room = ?1",
             params![room],
             |row| {
@@ -23,6 +23,7 @@ impl Store {
                     long,
                     short_updated_at: row.get(3)?,
                     long_updated_at: row.get(4)?,
+                    version: row.get(5)?,
                 })
             },
         )
@@ -61,8 +62,10 @@ impl Store {
     pub fn set_memory_owner(&self, room: &str, owner: Option<&str>) -> rusqlite::Result<()> {
         let Some(c) = self.conn() else { return Ok(()) };
         c.execute(
-            "INSERT INTO loca_memory (room, owner) VALUES (?1, ?2)
-             ON CONFLICT(room) DO UPDATE SET owner = excluded.owner",
+            "INSERT INTO loca_memory (room, owner, version) VALUES (?1, ?2, 1)
+             ON CONFLICT(room) DO UPDATE SET
+                owner = excluded.owner,
+                version = loca_memory.version + 1",
             params![room, owner],
         )
         .map(|_| ())
@@ -105,7 +108,9 @@ impl Store {
             return Err(MemoryWriteError::ShortTooLarge);
         }
         tx.execute(
-            "UPDATE loca_memory SET short = ?2, short_updated_at = ?3 WHERE room = ?1",
+            "UPDATE loca_memory
+             SET short = ?2, short_updated_at = ?3, version = version + 1
+             WHERE room = ?1",
             params![room, text, at],
         )
         .map_err(|_| MemoryWriteError::Storage)?;
@@ -153,7 +158,8 @@ impl Store {
         tx.execute(
             "UPDATE loca_memory
              SET long = CASE WHEN long = '' THEN ?2 ELSE long || '\n\n' || ?2 END,
-                 long_updated_at = ?3
+                 long_updated_at = ?3,
+                 version = version + 1
              WHERE room = ?1",
             params![room, text, at],
         )

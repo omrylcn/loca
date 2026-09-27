@@ -683,6 +683,74 @@ async fn memory_only_deployment_reports_permanent_unavailability() {
 }
 
 #[tokio::test]
+async fn fresh_connection_automatically_receives_ready_memory() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("memory-frame-ready.db");
+    let (port, _guard) =
+        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "INSERT INTO loca_memory
+             (room, owner, short, long, short_updated_at, long_updated_at, version)
+             VALUES ('remembered', 'owner', 'short fact', 'long decision', 10, 20, 2)",
+            [],
+        )
+        .unwrap();
+
+    let mut ws = connect_ws(port, "remembered", "owner", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["room"], "remembered");
+    assert_eq!(frame["status"], "ready");
+    assert_eq!(frame["short"], "short fact");
+    assert_eq!(frame["long"], "long decision");
+    assert_eq!(frame["version"], 2);
+}
+
+#[tokio::test]
+async fn memory_frame_distinguishes_absent_from_empty() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("memory-frame-status.db");
+    let (port, _guard) =
+        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "INSERT INTO loca_memory (room, owner) VALUES ('empty-memory', 'owner')",
+            [],
+        )
+        .unwrap();
+
+    let mut absent = connect_ws(port, "absent-memory", "absent-agent", "agent").await;
+    let absent_frame = wait_for(&mut absent, |frame| frame["t"] == "memory").await;
+    let mut empty = connect_ws(port, "empty-memory", "owner", "agent").await;
+    let empty_frame = wait_for(&mut empty, |frame| frame["t"] == "memory").await;
+
+    assert_eq!(absent_frame["status"], "absent");
+    assert_eq!(empty_frame["status"], "empty");
+    assert_ne!(
+        absent_frame["status"], empty_frame["status"],
+        "A5 fence: absent and empty memory must remain distinguishable"
+    );
+}
+
+#[tokio::test]
+async fn absent_memory_is_an_explicit_frame_not_silence() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("memory-frame-absent.db");
+    let (port, _guard) =
+        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+
+    let mut ws = connect_ws(port, "no-memory-row", "agent", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(
+        frame["status"], "absent",
+        "A5 fence: a missing row must still produce an explicit memory frame"
+    );
+    assert_eq!(frame["version"], 0);
+}
+
+#[tokio::test]
 async fn caretaker_memory_is_metadata_only_and_owner_assignment_is_master_only() {
     let directory = tempfile::tempdir().unwrap();
     let db = directory.path().join("memory-care.db");
