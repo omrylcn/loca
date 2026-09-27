@@ -393,12 +393,18 @@ mod standalone {
         data_dir: &std::path::Path,
         server: &str,
         library: &str,
+        provisioning_state: &str,
+        provisioning_stage: &str,
     ) -> Result<(), String> {
         std::fs::create_dir_all(data_dir)
             .map_err(|e| format!("create host data dir {}: {e}", data_dir.display()))?;
         let target = data_dir.join("host.env");
         let temp = data_dir.join(format!(".host.env-{}.tmp", std::process::id()));
-        let body = format!("ROOM_SERVER_URL={server}\nLOCA_SKILL_LIBRARY={library}\n");
+        let body = format!(
+            "ROOM_SERVER_URL={server}\nLOCA_SKILL_LIBRARY={library}\n\
+             HOST_PROVISIONING_STATE={provisioning_state}\n\
+             HOST_PROVISIONING_STAGE={provisioning_stage}\n"
+        );
         std::fs::write(&temp, body)
             .map_err(|e| format!("write host env {}: {e}", temp.display()))?;
         std::fs::rename(&temp, &target).map_err(|e| {
@@ -455,11 +461,20 @@ mod standalone {
                 std::thread::current().id()
             ));
             let _ = std::fs::remove_dir_all(&root);
-            super::write_host_env(&root, "http://127.0.0.1:62103", "/skills/0.9.20")
-                .expect("write host env");
+            super::write_host_env(
+                &root,
+                "http://127.0.0.1:62103",
+                "/skills/0.9.20",
+                "ready",
+                "none",
+            )
+            .expect("write host env");
             assert_eq!(
                 std::fs::read_to_string(root.join("host.env")).unwrap(),
-                "ROOM_SERVER_URL=http://127.0.0.1:62103\nLOCA_SKILL_LIBRARY=/skills/0.9.20\n"
+                "ROOM_SERVER_URL=http://127.0.0.1:62103\n\
+                 LOCA_SKILL_LIBRARY=/skills/0.9.20\n\
+                 HOST_PROVISIONING_STATE=ready\n\
+                 HOST_PROVISIONING_STAGE=none\n"
             );
             assert!(
                 std::fs::read_dir(&root).unwrap().all(|entry| !entry
@@ -734,7 +749,21 @@ fn main() {
                 skill_library.as_deref(),
                 app_data.as_ref(),
             ) {
-                if let Err(e) = standalone::write_host_env(data, server, library) {
+                let provisioning_state = host_provisioning
+                    .get("state")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("error");
+                let provisioning_stage = host_provisioning
+                    .get("stage")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("none");
+                if let Err(e) = standalone::write_host_env(
+                    data,
+                    server,
+                    library,
+                    provisioning_state,
+                    provisioning_stage,
+                ) {
                     eprintln!("host runtime marker failed: {e}");
                     host_provisioning =
                         serde_json::json!({ "state": "error", "stage": "host_env" });
