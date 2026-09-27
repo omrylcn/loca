@@ -392,7 +392,7 @@ mod standalone {
     pub fn write_host_env(
         data_dir: &std::path::Path,
         server: &str,
-        library: &str,
+        library: Option<&str>,
         provisioning_state: &str,
         provisioning_stage: &str,
     ) -> Result<(), String> {
@@ -401,9 +401,10 @@ mod standalone {
         let target = data_dir.join("host.env");
         let temp = data_dir.join(format!(".host.env-{}.tmp", std::process::id()));
         let body = format!(
-            "ROOM_SERVER_URL={server}\nLOCA_SKILL_LIBRARY={library}\n\
+            "ROOM_SERVER_URL={server}\nLOCA_SKILL_LIBRARY={}\n\
              HOST_PROVISIONING_STATE={provisioning_state}\n\
-             HOST_PROVISIONING_STAGE={provisioning_stage}\n"
+             HOST_PROVISIONING_STAGE={provisioning_stage}\n",
+            library.unwrap_or("")
         );
         std::fs::write(&temp, body)
             .map_err(|e| format!("write host env {}: {e}", temp.display()))?;
@@ -464,7 +465,7 @@ mod standalone {
             super::write_host_env(
                 &root,
                 "http://127.0.0.1:62103",
-                "/skills/0.9.20",
+                Some("/skills/0.9.20"),
                 "ready",
                 "none",
             )
@@ -483,6 +484,21 @@ mod standalone {
                     .to_string_lossy()
                     .ends_with(".tmp")),
                 "atomic publish must not leak temp files"
+            );
+            super::write_host_env(
+                &root,
+                "http://127.0.0.1:62104",
+                None,
+                "error",
+                "skill_library",
+            )
+            .expect("write diagnostic host env without a skill library");
+            assert_eq!(
+                std::fs::read_to_string(root.join("host.env")).unwrap(),
+                "ROOM_SERVER_URL=http://127.0.0.1:62104\n\
+                 LOCA_SKILL_LIBRARY=\n\
+                 HOST_PROVISIONING_STATE=error\n\
+                 HOST_PROVISIONING_STAGE=skill_library\n"
             );
             std::fs::remove_dir_all(root).unwrap();
         }
@@ -744,25 +760,20 @@ fn main() {
                     }
                 };
             #[cfg(feature = "bundled-server")]
-            if let (Some(server), Some(library), Ok(data)) = (
-                standalone_url.as_deref(),
-                skill_library.as_deref(),
-                app_data.as_ref(),
-            ) {
-                let provisioning_state = host_provisioning
-                    .get("state")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("error");
-                let provisioning_stage = host_provisioning
-                    .get("stage")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("none");
+            if skill_library_error.is_some() {
+                host_provisioning =
+                    serde_json::json!({ "state": "error", "stage": "skill_library" });
+            }
+            #[cfg(feature = "bundled-server")]
+            if let (Some(server), Ok(data)) = (standalone_url.as_deref(), app_data.as_ref()) {
+                let state = host_provisioning["state"].as_str().unwrap_or("error");
+                let stage = host_provisioning["stage"].as_str().unwrap_or("none");
                 if let Err(e) = standalone::write_host_env(
                     data,
                     server,
-                    library,
-                    provisioning_state,
-                    provisioning_stage,
+                    skill_library.as_deref(),
+                    state,
+                    stage,
                 ) {
                     eprintln!("host runtime marker failed: {e}");
                     host_provisioning =

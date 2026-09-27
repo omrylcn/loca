@@ -3415,6 +3415,40 @@ impl Hub {
 
     // ---- notes (living, keyed project state) ----
 
+    pub fn loca_memory(&self, room: &str) -> rusqlite::Result<Option<protocol::LocaMemory>> {
+        self.store.loca_memory(room)
+    }
+
+    pub fn memory_persistence_available(&self) -> bool {
+        self.store.memory_persistence_available()
+    }
+
+    pub fn loca_memory_metadata(&self) -> rusqlite::Result<Vec<protocol::LocaMemoryMetadata>> {
+        self.store.loca_memory_metadata()
+    }
+
+    pub fn set_memory_owner(&self, room: &str, owner: Option<&str>) -> rusqlite::Result<()> {
+        self.store.set_memory_owner(room, owner)
+    }
+
+    pub fn write_short_memory(
+        &self,
+        room: &str,
+        actor: &str,
+        text: &str,
+    ) -> Result<protocol::LocaMemory, crate::store::MemoryWriteError> {
+        self.store.write_short_memory(room, actor, text, self.now())
+    }
+
+    pub fn append_long_memory(
+        &self,
+        room: &str,
+        actor: &str,
+        text: &str,
+    ) -> Result<protocol::LocaMemoryEntry, crate::store::MemoryWriteError> {
+        self.store.append_long_memory(room, actor, text, self.now())
+    }
+
     /// All notes in a room (sorted by key for stable display).
     pub fn notes(&self, room: &str) -> Vec<Note> {
         let rooms = self.rooms.lock_or_recover();

@@ -82,8 +82,9 @@ fn extract_zip(zip_bytes: &[u8], dest: &Path) -> std::io::Result<()> {
 ///   matches the embedded manifest SHA-256. A missing, partial, or tampered tree
 ///   is re-extracted automatically (self-healing) — a stale marker alone is never
 ///   trusted.
-/// - A fresh install is staged under a unique sibling directory, made read-only,
-///   then atomically `rename`d into `root/<VERSION>`.
+/// - A fresh install is staged under a unique sibling directory. Its contents
+///   are made read-only; the staging directory itself is opened for the atomic
+///   `rename`, then the promoted version root is locked again.
 /// - The `current` pointer is updated atomically. Older versions are LEFT IN
 ///   PLACE for rollback.
 /// - Works with no server and no network: the bytes are embedded in the binary.
@@ -117,8 +118,12 @@ where
             // Defensive: nothing should have appeared while extraction ran.
             remove_tree(&version_dir)
                 .map_err(|e| path_error("remove competing version", &version_dir, None, e))?;
+            set_readonly(&staging, false)
+                .map_err(|e| path_error("open staging for promote", &staging, None, e))?;
             promote(&staging, &version_dir)
-                .map_err(|e| path_error("promote staging", &staging, Some(&version_dir), e))
+                .map_err(|e| path_error("promote staging", &staging, Some(&version_dir), e))?;
+            set_readonly(&version_dir, true)
+                .map_err(|e| path_error("lock promoted version", &version_dir, None, e))
         })();
 
         if let Err(primary) = staged {
@@ -335,9 +340,10 @@ fn make_readonly_recursive(path: &Path) -> std::io::Result<()> {
     // Post-order: children first, then the directory itself. The whole version
     // tree — DIRECTORIES included — becomes read-only, so a file cannot be
     // deleted or replaced (on Unix that needs write on the parent directory).
-    // Only the library root, staging, and the `current` pointer stay writable,
-    // and version replacement/rollback goes through `remove_tree` (which
-    // restores write first) — the installed contents are genuinely tamper-proof.
+    // Extraction locks the staging root too. Installation explicitly reopens
+    // that one directory for promote, then locks the promoted version root.
+    // Version replacement/rollback goes through `remove_tree`, which restores
+    // write first; installed contents remain tamper-proof.
     if path.is_dir() {
         for entry in std::fs::read_dir(path)? {
             make_readonly_recursive(&entry?.path())?;
@@ -446,6 +452,20 @@ mod tests {
         let dir2 = install_versioned(root.path()).unwrap();
         assert_eq!(dir1, dir2);
         assert!(verify(&dir1).unwrap());
+        cleanup(root.path());
+    }
+
+    #[test]
+    fn staging_is_writable_before_promote() {
+        let root = tempfile::tempdir().unwrap();
+        install_versioned_with(root.path(), |from, to| {
+            assert!(
+                !std::fs::metadata(from)?.permissions().readonly(),
+                "staging must be writable before promote"
+            );
+            std::fs::rename(from, to)
+        })
+        .unwrap();
         cleanup(root.path());
     }
 

@@ -1191,3 +1191,47 @@ pub struct CreateInvite {
     #[serde(default)]
     pub kind: Option<String>,
 }
+
+/// Durable, owner-written memory for one loca. Short and long memory carry
+/// independent clocks so changing one can never make the other look fresh.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocaMemory {
+    pub room: String,
+    pub owner: Option<String>,
+    pub short: String,
+    pub long: String,
+    pub short_updated_at: Option<u64>,
+    pub long_updated_at: Option<u64>,
+    pub over_budget: bool,
+}
+
+/// One append-only long-memory decision with explicit provenance.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocaMemoryEntry {
+    pub id: u64,
+    pub room: String,
+    pub text: String,
+    pub decided_by: String,
+    pub decided_at: u64,
+    pub over_budget: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct WriteLocaMemory {
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocaMemoryMetadata {
+    pub loca: String,
+    pub owner: Option<String>,
+    pub short_updated_at: Option<u64>,
+    pub long_updated_at: Option<u64>,
+    pub long_entries_without_provenance: u64,
+    pub over_budget: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetLocaMemoryOwner {
+    pub owner: Option<String>,
+}

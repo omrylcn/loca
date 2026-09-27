@@ -23,8 +23,9 @@ pub(crate) use attention::{
     resolve_attention,
 };
 pub(crate) use content::{
-    create_note, delete_note, get_journal, get_note, get_notes, get_reactions, note_history,
-    post_journal, post_message, search_room, set_reaction, update_note,
+    append_long_memory, caretaker_memory, create_note, delete_note, get_journal, get_loca_memory,
+    get_note, get_notes, get_reactions, note_history, post_journal, post_message, search_room,
+    set_loca_memory_owner, set_reaction, update_note, write_short_memory,
 };
 pub(crate) use downloads::{download_skill_bundle, skill_bundle_manifest, skill_bundles_index};
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};

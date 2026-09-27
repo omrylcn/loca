@@ -1,5 +1,159 @@
 use crate::*;
 
+fn memory_actor(hub: &Hub, headers: &HeaderMap) -> Result<String, axum::response::Response> {
+    let Some(token) = session_of(headers) else {
+        return Err((StatusCode::UNAUTHORIZED, "session token required").into_response());
+    };
+    hub.session_identity(Some(token))
+        .map(|identity| identity.name)
+        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "invalid session token").into_response())
+}
+
+fn memory_write_error(error: crate::store::MemoryWriteError) -> axum::response::Response {
+    match error {
+        crate::store::MemoryWriteError::PersistenceUnavailable => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "loca memory requires persistent storage in this deployment",
+        )
+            .into_response(),
+        crate::store::MemoryWriteError::OwnerUnassigned => (
+            StatusCode::CONFLICT,
+            "memory owner is not assigned for this loca",
+        )
+            .into_response(),
+        crate::store::MemoryWriteError::NotOwner => {
+            (StatusCode::FORBIDDEN, "only the memory owner may write").into_response()
+        }
+        crate::store::MemoryWriteError::ShortTooLarge => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "short memory exceeds the 4 KB limit",
+        )
+            .into_response(),
+        crate::store::MemoryWriteError::LongTooLarge => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "long memory exceeds the 64 KB hard limit; consolidate it before adding more",
+        )
+            .into_response(),
+        crate::store::MemoryWriteError::Storage => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not save loca memory — try again",
+        )
+            .into_response(),
+    }
+}
+
+pub(crate) async fn caretaker_memory(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let actor = session_of(&headers)
+        .and_then(|token| hub.session_identity(Some(token)))
+        .map(|identity| identity.name)
+        .or_else(|| {
+            let token = member_token_of(&headers)?;
+            hub.member_for_credential(Some(token))
+                .map(|member| member.name)
+                .or_else(|| hub.invite_by_token(token).map(|invite| invite.name))
+        });
+    if actor.as_deref().is_none_or(|name| !hub.is_caretaker(name)) {
+        return (StatusCode::FORBIDDEN, "configured caretaker only").into_response();
+    }
+    match hub.loca_memory_metadata() {
+        Ok(rows) => Json(rows).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+pub(crate) async fn set_loca_memory_owner(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+    headers: HeaderMap,
+    Json(body): Json<protocol::SetLocaMemoryOwner>,
+) -> impl IntoResponse {
+    if !is_master_req(&hub, &headers) {
+        return (
+            StatusCode::FORBIDDEN,
+            "only the master may assign memory ownership",
+        )
+            .into_response();
+    }
+    let owner = body
+        .owner
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    match hub.set_memory_owner(&access.room, owner) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+pub(crate) async fn get_loca_memory(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+) -> impl IntoResponse {
+    if !hub.memory_persistence_available() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "loca memory requires persistent storage in this deployment",
+        )
+            .into_response();
+    }
+    match hub.loca_memory(&access.room) {
+        Ok(Some(memory)) => Json(memory).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            "memory is not configured for this loca",
+        )
+            .into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+pub(crate) async fn write_short_memory(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+    headers: HeaderMap,
+    Json(body): Json<protocol::WriteLocaMemory>,
+) -> impl IntoResponse {
+    if !hub.is_writable(&access.room) {
+        return (StatusCode::CONFLICT, "this loca is closed — read-only").into_response();
+    }
+    if body.text.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "memory text is empty").into_response();
+    }
+    let actor = match memory_actor(&hub, &headers) {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    match hub.write_short_memory(&access.room, &actor, body.text.trim()) {
+        Ok(memory) => Json(memory).into_response(),
+        Err(error) => memory_write_error(error),
+    }
+}
+
+pub(crate) async fn append_long_memory(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+    headers: HeaderMap,
+    Json(body): Json<protocol::WriteLocaMemory>,
+) -> impl IntoResponse {
+    if !hub.is_writable(&access.room) {
+        return (StatusCode::CONFLICT, "this loca is closed — read-only").into_response();
+    }
+    if body.text.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, "memory text is empty").into_response();
+    }
+    let actor = match memory_actor(&hub, &headers) {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    match hub.append_long_memory(&access.room, &actor, body.text.trim()) {
+        Ok(entry) => (StatusCode::CREATED, Json(entry)).into_response(),
+        Err(error) => memory_write_error(error),
+    }
+}
+
 /// The loca's journal — what has already been done here.
 pub(crate) async fn get_journal(State(hub): State<Hub>, access: RoomAccess) -> impl IntoResponse {
     Json(hub.journal(&access.room)).into_response()
