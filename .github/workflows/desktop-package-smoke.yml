@@ -168,8 +168,18 @@ jobs:
             -H "x-join-secret: $request_secret" >/dev/null || red "agent bootstrap could not be acknowledged"
 
           ws="ws://127.0.0.1:$listen/lobby/ws?membership=$membership"
-          node -e 'const ws=new WebSocket(process.argv[1]); ws.onopen=()=>setTimeout(()=>{},15000); ws.onerror=()=>process.exit(1); setTimeout(()=>process.exit(0),15000)' "$ws" &
+          ready="$work/presence-open"
+          node -e 'const fs=require("fs"); const ws=new WebSocket(process.argv[1]); ws.onopen=()=>fs.writeFileSync(process.argv[2], "open\n"); ws.onerror=()=>process.exit(1); setTimeout(()=>process.exit(0),15000)' "$ws" "$ready" &
           ws_pid=$!
+          for _ in {1..10}; do
+            test -f "$ready" && break
+            kill -0 "$ws_pid" 2>/dev/null || break
+            sleep 1
+          done
+          if test ! -f "$ready"; then
+            kill "$ws_pid" 2>/dev/null || true
+            inconclusive "presence client could not connect"
+          fi
           online=false
           for _ in {1..10}; do
             curl -fsS "$server/residents" -H "x-session-token: $admin_session" >"$work/residents.json" || true
@@ -189,3 +199,13 @@ jobs:
         run: |
           pkill -f "$HOST_EXECUTABLE_PATH" 2>/dev/null || true
           pkill -x room-server 2>/dev/null || true
+
+      - name: Require T1 to pass
+        if: always()
+        env:
+          T1_OUTCOME: ${{ steps.t1.outcome }}
+        run: |
+          test "$T1_OUTCOME" = success || {
+            echo "T1 verdict: runtime boot contract did not pass" >&2
+            exit 1
+          }
