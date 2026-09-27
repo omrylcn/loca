@@ -1,0 +1,221 @@
+name: Desktop Package Smoke
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Draft desktop release tag to test
+        required: true
+        type: string
+      release_repo:
+        description: Repository containing the draft desktop release
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published desktop release tag to test
+        required: true
+        default: desktop-v0.9.20
+        type: string
+      release_repo:
+        description: Repository containing the published desktop release
+        required: true
+        default: omrylcn/loca
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  macos-host-t1:
+    name: macOS Host T1 (published package)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download the published Host application
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_REPO: ${{ inputs.release_repo }}
+        run: |
+          set -euo pipefail
+          gh release download "$RELEASE_TAG" \
+            --repo "$RELEASE_REPO" \
+            --pattern "Loca-host-${RELEASE_TAG}.app.zip"
+          ditto -x -k "Loca-host-${RELEASE_TAG}.app.zip" package
+          app=$(find package -maxdepth 1 -type d -name '*.app' -print -quit)
+          test -n "$app"
+          echo "HOST_APP=$PWD/$app" >> "$GITHUB_ENV"
+
+      - name: Verify and launch the installed artifact
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          expected=${RELEASE_TAG#desktop-v}
+          actual=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
+            "$HOST_APP/Contents/Info.plist")
+          test "$actual" = "$expected"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' \
+            "$HOST_APP/Contents/Info.plist")
+          test -n "$executable"
+          echo "HOST_EXECUTABLE_PATH=$HOST_APP/Contents/MacOS/$executable" >> "$GITHUB_ENV"
+          xattr -dr com.apple.quarantine "$HOST_APP" || true
+          open "$HOST_APP"
+
+      - name: T1 — prove the packaged Host boot contract
+        id: t1
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          # Distinguish a product failure from a runner that never launched the
+          # GUI bundle. Only an already-running packaged Host may produce RED.
+          host_pid=""
+          for _ in {1..15}; do
+            host_pid=$(pgrep -f "$HOST_EXECUTABLE_PATH" | head -1 || true)
+            test -n "$host_pid" && break
+            sleep 1
+          done
+          if test -z "$host_pid"; then
+            echo "T1 INCONCLUSIVE: packaged Host process did not start: $HOST_EXECUTABLE_PATH" >&2
+            exit 2
+          fi
+          echo "T1 prerequisite: packaged Host process is running (pid=$host_pid)"
+
+          # The packaged app must publish its dynamic sidecar origin and promoted
+          # offline Skill Library path. This is runtime evidence, not source or
+          # archive inspection. v0.9.20 is expected to fail here because it
+          # publishes no host.env and therefore cannot prove either value.
+          marker="$HOME/Library/Application Support/tech.speakbetter.loca.desktop.standalone/host.env"
+          for _ in {1..30}; do
+            test -f "$marker" && break
+            sleep 1
+          done
+          if test ! -f "$marker"; then
+            echo "T1 RED: packaged Host did not publish host.env runtime evidence: $marker" >&2
+            exit 1
+          fi
+
+          server=$(sed -n 's/^ROOM_SERVER_URL=//p' "$marker")
+          library=$(sed -n 's/^LOCA_SKILL_LIBRARY=//p' "$marker")
+          test -n "$server" && test -n "$library"
+          case "$server" in
+            http://127.0.0.1:[0-9]*) ;;
+            *) echo "T1 RED: invalid dynamic sidecar origin: $server" >&2; exit 1 ;;
+          esac
+          case "$server" in
+            tauri:*) echo "T1 RED: install origin uses tauri scheme" >&2; exit 1 ;;
+          esac
+          test -d "$library"
+          test -f "$library/loca/SKILL.md"
+          test -f "$library/loca-care/SKILL.md"
+
+          port=${server##*:}
+          curl -fsS --max-time 2 "http://127.0.0.1:${port}/health" >/dev/null
+          if find "$(dirname "$library")" -maxdepth 1 -type d -name '.staging-*' | grep -q .; then
+            echo "T1 RED: failed Skill Library staging directory remains" >&2
+            exit 1
+          fi
+          echo "T1 GREEN: packaged Host boot contract verified"
+
+      - name: T2 — prove join request through agent online
+        run: |
+          set -euo pipefail
+          red() { echo "T2 RED: $*" >&2; exit 1; }
+          inconclusive() { echo "T2 INCONCLUSIVE: $*" >&2; exit 2; }
+
+          host_pid=$(pgrep -f "$HOST_EXECUTABLE_PATH" | head -1 || true)
+          test -n "$host_pid" || inconclusive "packaged Host process is not running"
+          sidecar_pid=""
+          for _ in {1..15}; do
+            sidecar_pid=$(pgrep -P "$host_pid" -f room-server | head -1 || true)
+            test -n "$sidecar_pid" && break
+            sleep 1
+          done
+          test -n "$sidecar_pid" || inconclusive "room-server sidecar process was not found"
+          listen=$(lsof -nP -a -p "$sidecar_pid" -iTCP -sTCP:LISTEN -F n \
+            | sed -n 's/^n127\.0\.0\.1:\([0-9][0-9]*\)$/\1/p' | head -1)
+          test -n "$listen" || inconclusive "sidecar has no loopback listener"
+          server="http://127.0.0.1:$listen"
+          curl -fsS --max-time 2 "$server/health" >/dev/null \
+            || inconclusive "sidecar /health did not answer"
+          echo "T2 prerequisite: packaged Host and sidecar /health are running (host=$host_pid sidecar=$sidecar_pid)"
+
+          work=$(mktemp -d)
+          curl -fsS -X POST "$server/join-requests" \
+            -H 'content-type: application/json' \
+            --data '{"name":"t2-agent","kind":"agent"}' >"$work/request.json" \
+            || red "join request could not be created"
+          request_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_id"])' "$work/request.json")
+          request_secret=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_secret"])' "$work/request.json")
+          test -n "$request_id" && test -n "$request_secret" || red "join request response was incomplete"
+
+          service=tech.speakbetter.loca.desktop.standalone
+          if ! security find-generic-password -w -s "$service" -a loca-admin-session >"$work/admin.json" 2>/dev/null; then
+            red "bounded admin session is unavailable, so BUILDING cannot approve the pending request"
+          fi
+          admin_session=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$work/admin.json")
+          test -n "$admin_session" || red "bounded admin session has no token"
+
+          curl -fsS -X POST "$server/admission-stock" \
+            -H "x-session-token: $admin_session" -H 'content-type: application/json' \
+            --data '{"count":1}' >/dev/null || red "Master could not mint admission stock"
+          curl -fsS -X POST "$server/join-requests/$request_id/approve" \
+            -H "x-session-token: $admin_session" >/dev/null || red "Master could not approve join request"
+          curl -fsS -X POST "$server/join-requests/$request_id/bootstrap" \
+            -H "x-join-secret: $request_secret" >"$work/bootstrap.json" \
+            || red "approved agent could not collect membership"
+          membership=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["davet"])' "$work/bootstrap.json")
+          test -n "$membership" || red "bootstrap returned no membership"
+
+          curl -fsS -X POST "$server/sessions" -H "x-room-token: $membership" \
+            -H 'content-type: application/json' --data '{"name":"t2-agent","kind":"agent"}' \
+            >"$work/agent-session.json" || red "agent session could not be created"
+          agent_session=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session_token"])' "$work/agent-session.json")
+          curl -fsS -X POST "$server/join-requests/$request_id/ack" \
+            -H "x-join-secret: $request_secret" >/dev/null || red "agent bootstrap could not be acknowledged"
+
+          ws="ws://127.0.0.1:$listen/lobby/ws?membership=$membership"
+          ready="$work/presence-open"
+          node -e 'const fs=require("fs"); const ws=new WebSocket(process.argv[1]); ws.onopen=()=>fs.writeFileSync(process.argv[2], "open\n"); ws.onerror=()=>process.exit(1); setTimeout(()=>process.exit(0),15000)' "$ws" "$ready" &
+          ws_pid=$!
+          for _ in {1..10}; do
+            test -f "$ready" && break
+            kill -0 "$ws_pid" 2>/dev/null || break
+            sleep 1
+          done
+          if test ! -f "$ready"; then
+            kill "$ws_pid" 2>/dev/null || true
+            inconclusive "presence client could not connect"
+          fi
+          online=false
+          for _ in {1..10}; do
+            curl -fsS "$server/residents" -H "x-session-token: $admin_session" >"$work/residents.json" || true
+            if python3 -c 'import json,sys; rows=json.load(open(sys.argv[1])); raise SystemExit(0 if any(r.get("name")=="t2-agent" and r.get("online") for r in rows) else 1)' "$work/residents.json"; then
+              online=true
+              break
+            fi
+            sleep 1
+          done
+          kill "$ws_pid" 2>/dev/null || true
+          test "$online" = true || red "approved agent never became online"
+          test -n "$agent_session"
+          echo "T2 GREEN: join request approved and agent became online"
+
+      - name: Stop packaged Host
+        if: always()
+        run: |
+          pkill -f "$HOST_EXECUTABLE_PATH" 2>/dev/null || true
+          pkill -x room-server 2>/dev/null || true
+
+      - name: Require T1 to pass
+        if: always()
+        env:
+          T1_OUTCOME: ${{ steps.t1.outcome }}
+        run: |
+          test "$T1_OUTCOME" = success || {
+            echo "T1 verdict: runtime boot contract did not pass" >&2
+            exit 1
+          }

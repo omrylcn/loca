@@ -3,6 +3,19 @@
 const $ = (id) => document.getElementById(id);
 const state = { server: "", name: "operator", room: null, rooms: [], ws: null, members: [], lobby: [], tab: "chat", sidebarView: "building", locaOperator: null, locaContext: null, principalId: null, roomPreferences: { pinned: [], hidden: [], order: [] }, notes: {}, editing: null, pairing: "", roomToken: "", session: null, authStatus: "unknown", adminSession: false, sessionExpires: null, profile: null, credentials: [], epoch: null, homeRoom: "iye", locaAgents: [], mode: { mode: "free" }, settings: { rate_limit: 10, rate_window_secs: 30 }, mod: { muted: [], banned: [] }, tasks: {}, goals: {}, attentions: {}, waits: {}, journal: [], lastId: 0, seen: new Set(), msgs: [], replyTo: null, reminderReceipts: new Set(), unread: {}, readCursors: {}, roomLatest: {}, unreadChecked: {}, readStorageKey: "", pendingAttachments: [], pinned: null, pinnedExpanded: false };
 
+function renderHostProvisioningStatus() {
+  const box = $("hostProvisionError");
+  if (!box) return;
+  const status = window.__LOCA_HOST_PROVISIONING__;
+  const failed = status && status.state === "error";
+  box.textContent = failed
+    ? "Master session could not be prepared. Building administration is unavailable. Restart Loca Host to retry."
+    : "";
+  box.classList.toggle("hidden", !failed);
+}
+
+window.addEventListener("DOMContentLoaded", renderHostProvisioningStatus);
+
 function setMobileSidebar(open) {
   document.body.classList.toggle("sidebar-open", !!open);
   $("sideToggle").setAttribute("aria-expanded", String(!!open));

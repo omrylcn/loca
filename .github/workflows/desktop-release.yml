@@ -149,8 +149,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$RELEASE_TAG" "${{ steps.macos-app.outputs.asset }}" --clobber
 
-  publish:
+  package-smoke:
+    name: Gate draft package on macOS Host T1/T2
     needs: [create-release, build]
+    uses: ./.github/workflows/desktop-package-smoke.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+      release_repo: ${{ github.repository }}
+    secrets: inherit
+
+  publish:
+    needs: [create-release, build, package-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Generate desktop artifact checksums

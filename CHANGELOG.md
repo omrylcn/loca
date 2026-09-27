@@ -6,6 +6,23 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.21] - 2026-09-27
+
+### Fixed
+- Loca Host now provisions a short-lived Master session directly into the
+  current app launch, so BUILDING and join approvals work without exposing the
+  underlying administrator token to the webview.
+- Host startup failures now remain visible after connecting instead of making
+  BUILDING disappear without an explanation.
+- Skill Library installation now reports the failing operation and paths,
+  removes incomplete staging directories, and publishes the promoted library
+  together with the dynamic local Building address in an atomic runtime marker.
+
+### Distribution
+- Desktop releases now run the packaged macOS Host startup and end-to-end
+  admission checks against the draft artifacts; failed checks keep the release
+  private as a draft instead of publishing it.
+
 ## [0.9.20] - 2026-09-27
 
 ### Fixed
