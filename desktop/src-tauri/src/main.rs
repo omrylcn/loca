@@ -534,27 +534,37 @@ fn main() {
             // ready, closed-door server. Any failure here degrades gracefully — the
             // UI just shows a connect prompt rather than the app dying.
             #[cfg(feature = "bundled-server")]
-            let standalone_url: Option<String> = match standalone::spawn(app) {
+            let (standalone_url, host_provisioning): (Option<String>, serde_json::Value) = match standalone::spawn(app) {
                 Ok((mut child, base)) => {
                     // Check readiness (and child liveness) BEFORE moving the child
                     // into managed state.
-                    if standalone::wait_ready(&base, &mut child) {
-                        if let Err(e) = standalone::provision_if_needed(&base) {
-                            eprintln!("standalone provisioning failed: {e}");
+                    let provisioning = if standalone::wait_ready(&base, &mut child) {
+                        match standalone::provision_if_needed(&base) {
+                            Ok(()) => serde_json::json!({ "state": "ready" }),
+                            Err(e) => {
+                                // The detailed error may contain transport or OS internals. Keep
+                                // it in the native log; the webview receives only a stable,
+                                // credential-free state and recovery instruction.
+                                eprintln!("standalone provisioning failed: {e}");
+                                serde_json::json!({ "state": "error", "stage": "master_session" })
+                            }
                         }
                     } else {
                         eprintln!("standalone server did not become ready (or exited)");
-                    }
+                        serde_json::json!({ "state": "error", "stage": "server_start" })
+                    };
                     app.manage(standalone::ServerProc {
                         child: std::sync::Mutex::new(Some(child)),
                     });
-                    Some(base)
+                    (Some(base), provisioning)
                 }
                 Err(e) => {
                     eprintln!("bundled room-server failed to start: {e}");
-                    None
+                    (None, serde_json::json!({ "state": "error", "stage": "server_start" }))
                 }
             };
+            #[cfg(not(feature = "bundled-server"))]
+            let host_provisioning = serde_json::json!({ "state": "not_applicable" });
 
             // Synchronously pull the credential keys out of the OS keychain and
             // inject them so the JS proxy can answer getItem() with no async race.
@@ -610,12 +620,15 @@ fn main() {
                 serde_json::to_string(&skill_library).unwrap_or_else(|_| "null".to_string());
             let skill_library_error_json =
                 serde_json::to_string(&skill_library_error).unwrap_or_else(|_| "null".to_string());
+            let host_provisioning_json = serde_json::to_string(&host_provisioning)
+                .unwrap_or_else(|_| "{\"state\":\"error\",\"stage\":\"bootstrap\"}".to_string());
 
             let init = format!(
                 "window.__LOCA_LOCK_SERVER__ = {lock_server};\n\
                  window.__LOCA_DEFAULT_SERVER__ = {default_server};\n\
                  window.__LOCA_SKILL_LIBRARY__ = {skill_library_json};\n\
                  window.__LOCA_SKILL_LIBRARY_ERROR__ = {skill_library_error_json};\n\
+                 window.__LOCA_HOST_PROVISIONING__ = {host_provisioning_json};\n\
                  window.__LOCA_KC_BOOT__ = {boot_json};\n{KEYCHAIN_SHIM}\n{SERVER_SHIM}\n{NOTIFY_SHIM}"
             );
 
