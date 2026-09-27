@@ -161,9 +161,28 @@ jobs:
           request_secret=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_secret"])' "$work/request.json")
           test -n "$request_id" && test -n "$request_secret" || red "join request response was incomplete"
 
+          marker="$HOME/Library/Application Support/tech.speakbetter.loca.desktop.standalone/host.env"
+          provisioning_state=$(sed -n 's/^HOST_PROVISIONING_STATE=//p' "$marker")
+          provisioning_stage=$(sed -n 's/^HOST_PROVISIONING_STAGE=//p' "$marker")
+          case "$provisioning_state" in
+            ready) ;;
+            error) red "Host provisioning failed at stage ${provisioning_stage:-unknown}" ;;
+            *) red "Host provisioning marker has invalid state: ${provisioning_state:-missing}" ;;
+          esac
+          echo "T2 provisioning: state=ready stage=${provisioning_stage:-none}"
+
           service=tech.speakbetter.loca.desktop.standalone
-          if ! security find-generic-password -w -s "$service" -a loca-admin-session >"$work/admin.json" 2>/dev/null; then
-            red "bounded admin session is unavailable, so BUILDING cannot approve the pending request"
+          set +e
+          security find-generic-password -w -s "$service" -a loca-admin-session \
+            >"$work/admin.json" 2>"$work/keychain.err"
+          keychain_status=$?
+          set -e
+          if test "$keychain_status" -ne 0; then
+            keychain_error=$(tr '\n' ' ' <"$work/keychain.err")
+            if grep -qiE 'could not be found|item.*not found' "$work/keychain.err"; then
+              red "Host reported ready but persisted admin session is missing (keychain status=$keychain_status)"
+            fi
+            inconclusive "admin session record could not be read (keychain status=$keychain_status): $keychain_error"
           fi
           admin_session=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$work/admin.json")
           test -n "$admin_session" || red "bounded admin session has no token"

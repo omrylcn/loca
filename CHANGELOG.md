@@ -6,6 +6,13 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.23] - 2026-09-27
+
+### Distribution
+- The packaged Host gate now distinguishes provisioning failure, missing
+  session persistence, and CI keychain access failure before evaluating the
+  end-to-end BUILDING admission flow.
+
 ## [0.9.22] - 2026-09-27
 
 ### Distribution
