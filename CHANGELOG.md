@@ -6,6 +6,13 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.22] - 2026-09-27
+
+### Distribution
+- The packaged macOS Host gate can now inspect draft release artifacts before
+  publication, while download and launch harness failures are reported
+  separately from product failures.
+
 ## [0.9.21] - 2026-09-27
 
 ### Fixed
