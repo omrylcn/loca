@@ -342,18 +342,26 @@ mod standalone {
             &format!("{{\"name\":\"{LOCAL_NAME}\",\"kind\":\"user\"}}"),
         )
         .map_err(|e| format!("mint admin session: {e}"))?;
+        parse_master_session(&resp)
+    }
+
+    fn parse_master_session(resp: &str) -> Result<String, String> {
         let v: serde_json::Value =
-            serde_json::from_str(&resp).map_err(|e| format!("parse session: {e}"))?;
+            serde_json::from_str(resp).map_err(|e| format!("parse session: {e}"))?;
+        if v.get("admin").and_then(|a| a.as_bool()) != Some(true) {
+            return Err("minted session is not an admin session".to_string());
+        }
         let token = v
             .get("session_token")
             .and_then(|t| t.as_str())
             .ok_or_else(|| format!("no session_token in {resp}"))?;
         let name = v.get("name").and_then(|n| n.as_str()).unwrap_or(LOCAL_NAME);
-        // expires_at may be null (no expiry) -> a far-future stamp the UI accepts.
+        // A Master stand-in must be finite. Never turn a missing/null expiry into
+        // an invented far-future timestamp in the privileged desktop client.
         let expires = v
             .get("expires_at")
             .and_then(|e| e.as_i64())
-            .unwrap_or(4_102_444_800_000);
+            .ok_or_else(|| "admin session has no finite expires_at".to_string())?;
         let admin_session =
             format!("{{\"token\":\"{token}\",\"expiresAt\":{expires},\"name\":\"{name}\"}}");
         // Persistence is recovery convenience, not an authority boundary. The
@@ -395,6 +403,28 @@ mod standalone {
 
     #[cfg(test)]
     mod tests {
+        #[test]
+        fn master_session_requires_admin_and_finite_expiry() {
+            let good = super::parse_master_session(
+                r#"{"session_token":"sess","name":"you","admin":true,"expires_at":2000000000000}"#,
+            )
+            .expect("valid bounded admin session");
+            assert!(good.contains(r#""token":"sess""#));
+            assert!(good.contains(r#""expiresAt":2000000000000"#));
+
+            for invalid in [
+                r#"{"session_token":"sess","admin":false,"expires_at":2000000000000}"#,
+                r#"{"session_token":"sess","expires_at":2000000000000}"#,
+                r#"{"session_token":"sess","admin":true,"expires_at":null}"#,
+                r#"{"session_token":"sess","admin":true}"#,
+            ] {
+                assert!(
+                    super::parse_master_session(invalid).is_err(),
+                    "must reject unbounded or non-admin session: {invalid}"
+                );
+            }
+        }
+
         #[test]
         fn host_provisioning_overwrites_a_stale_davet_seat() {
             for initial in [
