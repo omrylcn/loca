@@ -25,7 +25,9 @@ on:
         type: string
 
 permissions:
-  contents: read
+  # The release gate reads artifacts from the caller's draft release. GitHub
+  # hides draft releases from a read-only token; this workflow never mutates it.
+  contents: write
 
 jobs:
   macos-host-t1:
@@ -33,19 +35,22 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - name: Download the published Host application
+      - name: Download the Host application artifact
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_REPO: ${{ inputs.release_repo }}
         run: |
           set -euo pipefail
+          setup_failure() { echo "SETUP FAILURE: $*" >&2; exit 2; }
           gh release download "$RELEASE_TAG" \
             --repo "$RELEASE_REPO" \
-            --pattern "Loca-host-${RELEASE_TAG}.app.zip"
-          ditto -x -k "Loca-host-${RELEASE_TAG}.app.zip" package
+            --pattern "Loca-host-${RELEASE_TAG}.app.zip" \
+            || setup_failure "Host artifact could not be downloaded from release $RELEASE_TAG"
+          ditto -x -k "Loca-host-${RELEASE_TAG}.app.zip" package \
+            || setup_failure "Host artifact could not be extracted"
           app=$(find package -maxdepth 1 -type d -name '*.app' -print -quit)
-          test -n "$app"
+          test -n "$app" || setup_failure "Host application bundle was not found in the artifact"
           echo "HOST_APP=$PWD/$app" >> "$GITHUB_ENV"
 
       - name: Verify and launch the installed artifact
@@ -53,16 +58,20 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          setup_failure() { echo "SETUP FAILURE: $*" >&2; exit 2; }
           expected=${RELEASE_TAG#desktop-v}
           actual=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
-            "$HOST_APP/Contents/Info.plist")
-          test "$actual" = "$expected"
+            "$HOST_APP/Contents/Info.plist") \
+            || setup_failure "Host bundle version could not be read"
+          test "$actual" = "$expected" \
+            || setup_failure "Host bundle version $actual does not match $expected"
           executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' \
-            "$HOST_APP/Contents/Info.plist")
-          test -n "$executable"
+            "$HOST_APP/Contents/Info.plist") \
+            || setup_failure "Host executable identity could not be read"
+          test -n "$executable" || setup_failure "Host executable identity is empty"
           echo "HOST_EXECUTABLE_PATH=$HOST_APP/Contents/MacOS/$executable" >> "$GITHUB_ENV"
           xattr -dr com.apple.quarantine "$HOST_APP" || true
-          open "$HOST_APP"
+          open "$HOST_APP" || setup_failure "Host application could not be launched"
 
       - name: T1 — prove the packaged Host boot contract
         id: t1
