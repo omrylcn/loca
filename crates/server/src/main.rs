@@ -399,6 +399,7 @@ async fn main() {
         .route("/members", get(list_members).post(admit_member))
         .route("/profiles", get(list_profiles))
         .route("/care/residents", get(caretaker_residents))
+        .route("/care/memory", get(caretaker_memory))
         .route(
             "/runtime/health",
             axum::routing::post(report_runtime_health),
@@ -457,6 +458,20 @@ async fn main() {
             get(get_note).put(update_note).delete(delete_note),
         )
         .route("/rooms/:id/notes/:key/history", get(note_history))
+        // Memory is not a note: deliberately no DELETE method is attached.
+        .route("/rooms/:id/memory", get(get_loca_memory))
+        .route(
+            "/rooms/:id/memory/owner",
+            axum::routing::put(set_loca_memory_owner),
+        )
+        .route(
+            "/rooms/:id/memory/short",
+            axum::routing::put(write_short_memory),
+        )
+        .route(
+            "/rooms/:id/memory/entries",
+            axum::routing::post(append_long_memory),
+        )
         .route("/rooms/:id/search", get(search_room))
         .route("/rooms/:id/journal", get(get_journal).post(post_journal))
         .route("/rooms/:id/tasks", get(list_tasks).post(create_task))

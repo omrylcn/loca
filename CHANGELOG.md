@@ -6,6 +6,16 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.25] - 2026-09-27
+
+### Fixed
+- Desktop Skill Library promotion now reopens the staged directory before the
+  atomic rename and locks the installed version afterward, fixing Host startup
+  on macOS when directory permissions prohibit promoting a read-only source.
+- The Host runtime marker now records the dynamic local Building address and
+  provisioning failure even when Skill Library installation fails, so startup
+  diagnostics no longer disappear with the component they diagnose.
+
 ## [0.9.24] - 2026-09-27
 
 ### Distribution

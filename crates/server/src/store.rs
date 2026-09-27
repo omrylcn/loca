@@ -18,6 +18,7 @@ mod attention;
 pub(crate) use attachment_index::{AttachError, BlobServe};
 mod content;
 mod identity;
+mod memory;
 mod messages;
 mod operators;
 mod rooms;
@@ -32,6 +33,16 @@ use protocol::{
     Attention, AttentionStatus, ChatMode, Goal, GoalCompletion, GoalStatus, Invite, Message,
     MessageReaction, Note, RoomSettings, SenderType, Task, TaskStatus, WaitState,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryWriteError {
+    PersistenceUnavailable,
+    OwnerUnassigned,
+    NotOwner,
+    ShortTooLarge,
+    LongTooLarge,
+    Storage,
+}
 
 use crate::sync::RecoverMutex;
 
@@ -175,6 +186,25 @@ impl Store {
                 updated_at INTEGER NOT NULL,
                 PRIMARY KEY (room, key, rev)
             );
+            -- Loca memory is deliberately separate from notes. Notes have a
+            -- general DELETE path; memory has no DELETE operation anywhere.
+            CREATE TABLE IF NOT EXISTS loca_memory (
+                room TEXT PRIMARY KEY,
+                owner TEXT,
+                short TEXT NOT NULL DEFAULT '',
+                long TEXT NOT NULL DEFAULT '',
+                short_updated_at INTEGER,
+                long_updated_at INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS loca_memory_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room TEXT NOT NULL,
+                text TEXT NOT NULL,
+                decided_by TEXT NOT NULL,
+                decided_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS loca_memory_entries_room
+                ON loca_memory_entries(room, id);
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER NOT NULL,
                 room TEXT NOT NULL,
