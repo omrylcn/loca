@@ -88,23 +88,72 @@ fn extract_zip(zip_bytes: &[u8], dest: &Path) -> std::io::Result<()> {
 ///   PLACE for rollback.
 /// - Works with no server and no network: the bytes are embedded in the binary.
 pub fn install_versioned(root: &Path) -> std::io::Result<PathBuf> {
-    std::fs::create_dir_all(root)?;
-    let _lock = InstallLock::acquire(root)?;
+    install_versioned_with(root, |from, to| std::fs::rename(from, to))
+}
+
+fn install_versioned_with<F>(root: &Path, mut promote: F) -> std::io::Result<PathBuf>
+where
+    F: FnMut(&Path, &Path) -> std::io::Result<()>,
+{
+    std::fs::create_dir_all(root)
+        .map_err(|e| path_error("create skill-library root", root, None, e))?;
+    let _lock = InstallLock::acquire(root)
+        .map_err(|e| path_error("acquire install lock", root, None, e))?;
     let version_dir = root.join(VERSION);
 
     // Accept an existing install ONLY if it verifies against the manifests.
     let intact = version_dir.is_dir() && verify(&version_dir).unwrap_or(false);
     if !intact {
-        remove_tree(&version_dir)?; // clear a missing / partial / tampered tree
+        remove_tree(&version_dir)
+            .map_err(|e| path_error("remove invalid version", &version_dir, None, e))?;
         let staging = root.join(format!(".staging-{}", unique_suffix()));
-        remove_tree(&staging)?;
-        std::fs::create_dir_all(&staging)?;
-        extract_all(&staging)?; // extracts, then makes the whole tree read-only
-        remove_tree(&version_dir)?; // defensive: nothing should have appeared
-        std::fs::rename(&staging, &version_dir)?;
+        remove_tree(&staging).map_err(|e| path_error("remove stale staging", &staging, None, e))?;
+        std::fs::create_dir_all(&staging)
+            .map_err(|e| path_error("create staging", &staging, None, e))?;
+
+        let staged = (|| {
+            extract_all(&staging)
+                .map_err(|e| path_error("extract embedded skills", &staging, None, e))?;
+            // Defensive: nothing should have appeared while extraction ran.
+            remove_tree(&version_dir)
+                .map_err(|e| path_error("remove competing version", &version_dir, None, e))?;
+            promote(&staging, &version_dir)
+                .map_err(|e| path_error("promote staging", &staging, Some(&version_dir), e))
+        })();
+
+        if let Err(primary) = staged {
+            // Extraction makes the tree read-only, so cleanup must restore write
+            // permissions. Never leak a new .staging-* directory on a failed boot.
+            if let Err(cleanup) = remove_tree(&staging) {
+                return Err(std::io::Error::new(
+                    primary.kind(),
+                    format!(
+                        "{primary}; cleanup staging {} failed: {cleanup}",
+                        staging.display()
+                    ),
+                ));
+            }
+            return Err(primary);
+        }
     }
-    set_current(root, VERSION)?;
+    set_current(root, VERSION)
+        .map_err(|e| path_error("update current pointer", root, Some(&version_dir), e))?;
     Ok(version_dir)
+}
+
+fn path_error(
+    operation: &str,
+    path: &Path,
+    destination: Option<&Path>,
+    source: std::io::Error,
+) -> std::io::Error {
+    let target = destination
+        .map(|to| format!(" -> {}", to.display()))
+        .unwrap_or_default();
+    std::io::Error::new(
+        source.kind(),
+        format!("{operation}: {}{target}: {source}", path.display()),
+    )
 }
 
 /// Verify that `dir` is EXACTLY the embedded library: the file set matches the
@@ -398,6 +447,32 @@ mod tests {
         assert_eq!(dir1, dir2);
         assert!(verify(&dir1).unwrap());
         cleanup(root.path());
+    }
+
+    #[test]
+    fn failed_promote_reports_paths_and_removes_readonly_staging() {
+        let root = tempfile::tempdir().unwrap();
+        let error = install_versioned_with(root.path(), |_, _| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "injected promote failure",
+            ))
+        })
+        .expect_err("promote must fail");
+
+        let message = error.to_string();
+        assert!(message.contains("promote staging"), "{message}");
+        assert!(message.contains(".staging-"), "{message}");
+        assert!(message.contains(VERSION), "{message}");
+        let leftovers: Vec<_> = std::fs::read_dir(root.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".staging-"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "failed promote leaked staging directories: {leftovers:?}"
+        );
     }
 
     #[test]
