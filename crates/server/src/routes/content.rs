@@ -1,12 +1,16 @@
 use crate::*;
 
-fn memory_actor(hub: &Hub, headers: &HeaderMap) -> Result<String, axum::response::Response> {
+fn memory_actor(hub: &Hub, headers: &HeaderMap) -> Result<String, Box<axum::response::Response>> {
     let Some(token) = session_of(headers) else {
-        return Err((StatusCode::UNAUTHORIZED, "session token required").into_response());
+        return Err(Box::new(
+            (StatusCode::UNAUTHORIZED, "session token required").into_response(),
+        ));
     };
     hub.session_identity(Some(token))
         .map(|identity| identity.name)
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "invalid session token").into_response())
+        .ok_or_else(|| {
+            Box::new((StatusCode::UNAUTHORIZED, "invalid session token").into_response())
+        })
 }
 
 fn memory_write_error(error: crate::store::MemoryWriteError) -> axum::response::Response {
@@ -124,7 +128,7 @@ pub(crate) async fn write_short_memory(
     }
     let actor = match memory_actor(&hub, &headers) {
         Ok(actor) => actor,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match hub.write_short_memory(&access.room, &actor, body.text.trim()) {
         Ok(memory) => Json(memory).into_response(),
@@ -146,7 +150,7 @@ pub(crate) async fn append_long_memory(
     }
     let actor = match memory_actor(&hub, &headers) {
         Ok(actor) => actor,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     match hub.append_long_memory(&access.room, &actor, body.text.trim()) {
         Ok(entry) => (StatusCode::CREATED, Json(entry)).into_response(),
