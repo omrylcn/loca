@@ -28,8 +28,8 @@
 // exact keyring feature flags for the Secret Service backend at build time.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::{WebviewUrl, WebviewWindowBuilder};
-use tauri::Manager; // app.path()/app.manage()
+use tauri::Manager;
+use tauri::{WebviewUrl, WebviewWindowBuilder}; // app.path()/app.manage()
 
 // Keychain service namespace + the exact credential keys mirrored from the web
 // UI. Keep this list in sync with the localStorage keys above; any key NOT here
@@ -79,7 +79,9 @@ fn kc_set(key: String, value: String) -> Result<(), String> {
     if !KC_KEYS.contains(&key.as_str()) {
         return Err(format!("refusing to store unknown key: {key}"));
     }
-    kc_entry(&key)?.set_password(&value).map_err(|e| e.to_string())
+    kc_entry(&key)?
+        .set_password(&value)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -156,24 +158,23 @@ mod standalone {
 
     const ADMIN_KEY: &str = "loca-local-admin"; // keychain entry for the local master token
     const LOCAL_NAME: &str = "you"; // seat label for the Host's own Master session
-    // The fixed private home loca present in every install: the Master (this
-    // Host's owner) + this install's loca-care, and no one else. The app opens
-    // straight into it.
+                                    // The fixed private home loca present in every install: the Master (this
+                                    // Host's owner) + this install's loca-care, and no one else. The app opens
+                                    // straight into it.
     const LOCAL_ROOM: &str = "iye";
 
     fn canonical_host_seat() -> String {
-        format!(
-            "{{\"name\":\"{LOCAL_NAME}\",\"roomToken\":\"\",\"room\":\"{LOCAL_ROOM}\"}}"
-        )
+        format!("{{\"name\":\"{LOCAL_NAME}\",\"roomToken\":\"\",\"room\":\"{LOCAL_ROOM}\"}}")
     }
 
-    fn provision_host<M, W>(mut mint_master: M, mut write_seat: W) -> Result<(), String>
+    fn provision_host<M, W>(mut mint_master: M, mut write_seat: W) -> Result<String, String>
     where
-        M: FnMut() -> Result<(), String>,
+        M: FnMut() -> Result<String, String>,
         W: FnMut(&str) -> Result<(), String>,
     {
-        mint_master()?;
-        write_seat(&canonical_host_seat())
+        let admin_session = mint_master()?;
+        write_seat(&canonical_host_seat())?;
+        Ok(admin_session)
     }
 
     // Holds the child so the run-loop can stop it on exit. Managed as Tauri state.
@@ -220,7 +221,11 @@ mod standalone {
     // that dir (glob `binaries/room-server*`, so the platform's `.exe` suffix is
     // handled), which lands at `resource_dir()/binaries/<name>`.
     fn server_binary(app: &tauri::App) -> Result<std::path::PathBuf, String> {
-        let name = if cfg!(windows) { "room-server.exe" } else { "room-server" };
+        let name = if cfg!(windows) {
+            "room-server.exe"
+        } else {
+            "room-server"
+        };
         let dir = app
             .path()
             .resource_dir()
@@ -264,7 +269,10 @@ mod standalone {
             // The bundled UI runs from the Tauri origin, not 127.0.0.1, so REST is
             // cross-origin: allow the EXACT Tauri origins, never "*". (loca-dev to
             // confirm the exact Origin the webview sends per target platform.)
-            .env("CORS_ALLOW_ORIGIN", "tauri://localhost,http://tauri.localhost");
+            .env(
+                "CORS_ALLOW_ORIGIN",
+                "tauri://localhost,http://tauri.localhost",
+            );
         // Windows: the room-server is a console binary; without this it pops a
         // separate terminal window next to the app. CREATE_NO_WINDOW keeps the
         // sidecar headless so the user sees only the app.
@@ -307,7 +315,7 @@ mod standalone {
     // Always replace it with the canonical Host seat: iye navigation with no
     // davet. Identity and authority come exclusively from the derived Master
     // session below; the raw admin token never reaches the webview.
-    pub fn provision_if_needed(base: &str) -> Result<(), String> {
+    pub fn provision_if_needed(base: &str) -> Result<String, String> {
         provision_host(
             // The owner of the local server is its MASTER — refresh the admin
             // session on every launch so master survives restart/expiry.
@@ -326,7 +334,7 @@ mod standalone {
     // loca-admin-session (the UI reads it via state.js and opens master surfaces:
     // Lobby, This Loca/Call, master desk). The raw token never leaves
     // Rust; only the derived session (revocable, expiring) reaches the webview.
-    pub fn provision_master_session(base: &str) -> Result<(), String> {
+    pub fn provision_master_session(base: &str) -> Result<String, String> {
         let admin = local_admin_token()?;
         let resp = post_json(
             &format!("{base}/sessions"),
@@ -348,9 +356,18 @@ mod standalone {
             .unwrap_or(4_102_444_800_000);
         let admin_session =
             format!("{{\"token\":\"{token}\",\"expiresAt\":{expires},\"name\":\"{name}\"}}");
-        super::kc_entry("loca-admin-session")?
-            .set_password(&admin_session)
-            .map_err(|e| e.to_string())
+        // Persistence is recovery convenience, not an authority boundary. The
+        // freshly minted bounded session is returned to this launch even when
+        // keychain persistence is unavailable; the raw ADMIN_TOKEN stays here.
+        match super::kc_entry("loca-admin-session") {
+            Ok(entry) => {
+                if let Err(e) = entry.set_password(&admin_session) {
+                    eprintln!("cannot persist bounded admin session: {e}");
+                }
+            }
+            Err(e) => eprintln!("cannot open bounded admin session keychain entry: {e}"),
+        }
+        Ok(admin_session)
     }
 
     fn post_json(url: &str, admin: &str, body: &str) -> Result<String, String> {
@@ -387,10 +404,10 @@ mod standalone {
                 let stored = std::cell::RefCell::new(initial.to_string());
                 let mut minted = 0;
                 let mut writes = 0;
-                super::provision_host(
+                let session = super::provision_host(
                     || {
                         minted += 1;
-                        Ok(())
+                        Ok("bounded-session".to_string())
                     },
                     |seat| {
                         writes += 1;
@@ -400,6 +417,7 @@ mod standalone {
                 )
                 .expect("host provisioning");
 
+                assert_eq!(session, "bounded-session");
                 assert_eq!(minted, 1, "Master session refreshes on every launch");
                 assert_eq!(writes, 1, "Host seat is authoritative on every launch");
                 let seat: serde_json::Value =
@@ -534,33 +552,40 @@ fn main() {
             // ready, closed-door server. Any failure here degrades gracefully — the
             // UI just shows a connect prompt rather than the app dying.
             #[cfg(feature = "bundled-server")]
-            let (standalone_url, host_provisioning): (Option<String>, serde_json::Value) = match standalone::spawn(app) {
+            let (standalone_url, host_provisioning, fresh_admin_session): (Option<String>, serde_json::Value, Option<String>) = match standalone::spawn(app) {
                 Ok((mut child, base)) => {
                     // Check readiness (and child liveness) BEFORE moving the child
                     // into managed state.
-                    let provisioning = if standalone::wait_ready(&base, &mut child) {
+                    if standalone::wait_ready(&base, &mut child) {
                         match standalone::provision_if_needed(&base) {
-                            Ok(()) => serde_json::json!({ "state": "ready" }),
+                            Ok(session) => {
+                                app.manage(standalone::ServerProc {
+                                    child: std::sync::Mutex::new(Some(child)),
+                                });
+                                (Some(base), serde_json::json!({ "state": "ready" }), Some(session))
+                            }
                             Err(e) => {
                                 // The detailed error may contain transport or OS internals. Keep
                                 // it in the native log; the webview receives only a stable,
                                 // credential-free state and recovery instruction.
                                 eprintln!("standalone provisioning failed: {e}");
-                                serde_json::json!({ "state": "error", "stage": "master_session" })
+                                app.manage(standalone::ServerProc {
+                                    child: std::sync::Mutex::new(Some(child)),
+                                });
+                                (Some(base), serde_json::json!({ "state": "error", "stage": "master_session" }), None)
                             }
                         }
                     } else {
                         eprintln!("standalone server did not become ready (or exited)");
-                        serde_json::json!({ "state": "error", "stage": "server_start" })
-                    };
-                    app.manage(standalone::ServerProc {
-                        child: std::sync::Mutex::new(Some(child)),
-                    });
-                    (Some(base), provisioning)
+                        app.manage(standalone::ServerProc {
+                            child: std::sync::Mutex::new(Some(child)),
+                        });
+                        (Some(base), serde_json::json!({ "state": "error", "stage": "server_start" }), None)
+                    }
                 }
                 Err(e) => {
                     eprintln!("bundled room-server failed to start: {e}");
-                    (None, serde_json::json!({ "state": "error", "stage": "server_start" }))
+                    (None, serde_json::json!({ "state": "error", "stage": "server_start" }), None)
                 }
             };
             #[cfg(not(feature = "bundled-server"))]
@@ -579,6 +604,15 @@ fn main() {
                     // the user just re-enters the seat this once.
                     Err(e) => eprintln!("keychain read failed for {key}: {e}"),
                 }
+            }
+            #[cfg(feature = "bundled-server")]
+            if let Some(session) = fresh_admin_session {
+                // Use the session minted in this exact launch. Do not depend on
+                // a write-then-read keychain round trip before opening BUILDING.
+                boot.insert(
+                    "loca-admin-session".to_string(),
+                    serde_json::Value::String(session),
+                );
             }
             let boot_json = serde_json::to_string(&serde_json::Value::Object(boot))
                 .unwrap_or_else(|_| "{}".to_string());
