@@ -180,13 +180,26 @@ test("Host: provisioning failure remains visible after the connection panel clos
   // A successful ordinary seat connection closes this panel. The Master
   // provisioning warning must live outside it so BUILDING never disappears
   // without a visible explanation.
-  await page.locator("#connBox").evaluate((element) => {
-    element.style.display = "none";
-  });
+  await page.evaluate(() => setConnOpen(false));
 
   const warning = page.locator("#hostProvisionError");
   await expect(page.locator("#connBox")).toBeHidden();
   await expect(warning).toBeVisible();
   await expect(warning).toContainText("Master session could not be prepared");
   await expect(warning).toContainText("Building administration is unavailable");
+});
+
+test("Host: successful provisioning keeps the warning hidden", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__LOCA_HOST__ = true;
+    window.__LOCA_HOST_PROVISIONING__ = {
+      state: "ready",
+      stage: "master_session",
+    };
+  });
+  await page.goto("/");
+  await page.evaluate(() => setConnOpen(false));
+
+  await expect(page.locator("#connBox")).toBeHidden();
+  await expect(page.locator("#hostProvisionError")).toBeHidden();
 });
