@@ -389,6 +389,28 @@ mod standalone {
             .map_err(|e| e.to_string())
     }
 
+    pub fn write_host_env(
+        data_dir: &std::path::Path,
+        server: &str,
+        library: &str,
+    ) -> Result<(), String> {
+        std::fs::create_dir_all(data_dir)
+            .map_err(|e| format!("create host data dir {}: {e}", data_dir.display()))?;
+        let target = data_dir.join("host.env");
+        let temp = data_dir.join(format!(".host.env-{}.tmp", std::process::id()));
+        let body = format!("ROOM_SERVER_URL={server}\nLOCA_SKILL_LIBRARY={library}\n");
+        std::fs::write(&temp, body)
+            .map_err(|e| format!("write host env {}: {e}", temp.display()))?;
+        std::fs::rename(&temp, &target).map_err(|e| {
+            let _ = std::fs::remove_file(&temp);
+            format!(
+                "promote host env {} -> {}: {e}",
+                temp.display(),
+                target.display()
+            )
+        })
+    }
+
     // Best-effort stop; called from the run-loop on exit so we don't orphan it.
     pub fn stop(app: &tauri::AppHandle) {
         if let Some(state) = app.try_state::<ServerProc>() {
@@ -423,6 +445,31 @@ mod standalone {
                     "must reject unbounded or non-admin session: {invalid}"
                 );
             }
+        }
+
+        #[test]
+        fn host_env_is_atomically_published_with_runtime_values() {
+            let root = std::env::temp_dir().join(format!(
+                "loca-host-env-test-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let _ = std::fs::remove_dir_all(&root);
+            super::write_host_env(&root, "http://127.0.0.1:62103", "/skills/0.9.20")
+                .expect("write host env");
+            assert_eq!(
+                std::fs::read_to_string(root.join("host.env")).unwrap(),
+                "ROOM_SERVER_URL=http://127.0.0.1:62103\nLOCA_SKILL_LIBRARY=/skills/0.9.20\n"
+            );
+            assert!(
+                std::fs::read_dir(&root).unwrap().all(|entry| !entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with(".tmp")),
+                "atomic publish must not leak temp files"
+            );
+            std::fs::remove_dir_all(root).unwrap();
         }
 
         #[test]
@@ -582,7 +629,7 @@ fn main() {
             // ready, closed-door server. Any failure here degrades gracefully — the
             // UI just shows a connect prompt rather than the app dying.
             #[cfg(feature = "bundled-server")]
-            let (standalone_url, host_provisioning, fresh_admin_session): (Option<String>, serde_json::Value, Option<String>) = match standalone::spawn(app) {
+            let (standalone_url, mut host_provisioning, fresh_admin_session): (Option<String>, serde_json::Value, Option<String>) = match standalone::spawn(app) {
                 Ok((mut child, base)) => {
                     // Check readiness (and child liveness) BEFORE moving the child
                     // into managed state.
@@ -666,8 +713,9 @@ fn main() {
             // no network. On failure we do NOT hide the reason: the error is
             // logged AND surfaced to the guide, which shows a visible "Skill
             // Library unavailable" status and falls back to the download command.
+            let app_data = app.path().app_data_dir();
             let (skill_library, skill_library_error): (Option<String>, Option<String>) =
-                match app.path().app_data_dir() {
+                match &app_data {
                     Ok(data) => match skill_bundles::install_versioned(&data.join("skill-library")) {
                         Ok(dir) => (Some(dir.to_string_lossy().into_owned()), None),
                         Err(e) => {
@@ -680,6 +728,18 @@ fn main() {
                         (None, Some(e.to_string()))
                     }
                 };
+            #[cfg(feature = "bundled-server")]
+            if let (Some(server), Some(library), Ok(data)) = (
+                standalone_url.as_deref(),
+                skill_library.as_deref(),
+                app_data.as_ref(),
+            ) {
+                if let Err(e) = standalone::write_host_env(data, server, library) {
+                    eprintln!("host runtime marker failed: {e}");
+                    host_provisioning =
+                        serde_json::json!({ "state": "error", "stage": "host_env" });
+                }
+            }
             let skill_library_json =
                 serde_json::to_string(&skill_library).unwrap_or_else(|_| "null".to_string());
             let skill_library_error_json =
