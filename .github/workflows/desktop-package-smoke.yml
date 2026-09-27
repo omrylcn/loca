@@ -47,6 +47,10 @@ jobs:
           actual=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
             "$HOST_APP/Contents/Info.plist")
           test "$actual" = "$expected"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' \
+            "$HOST_APP/Contents/Info.plist")
+          test -n "$executable"
+          echo "HOST_EXECUTABLE_PATH=$HOST_APP/Contents/MacOS/$executable" >> "$GITHUB_ENV"
           xattr -dr com.apple.quarantine "$HOST_APP" || true
           open "$HOST_APP"
 
@@ -58,6 +62,20 @@ jobs:
             pkill -x room-server 2>/dev/null || true
           }
           trap cleanup EXIT
+
+          # Distinguish a product failure from a runner that never launched the
+          # GUI bundle. Only an already-running packaged Host may produce RED.
+          host_pid=""
+          for _ in {1..15}; do
+            host_pid=$(pgrep -f "$HOST_EXECUTABLE_PATH" | head -1 || true)
+            test -n "$host_pid" && break
+            sleep 1
+          done
+          if test -z "$host_pid"; then
+            echo "T1 INCONCLUSIVE: packaged Host process did not start: $HOST_EXECUTABLE_PATH" >&2
+            exit 2
+          fi
+          echo "T1 prerequisite: packaged Host process is running (pid=$host_pid)"
 
           # The packaged app must publish its dynamic sidecar origin and promoted
           # offline Skill Library path. This is runtime evidence, not source or
