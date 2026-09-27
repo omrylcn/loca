@@ -1,0 +1,90 @@
+name: Desktop Package Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published desktop release tag to test
+        required: true
+        default: desktop-v0.9.20
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  macos-host-t1:
+    name: macOS Host T1 (published package)
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download the published Host application
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release download "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "Loca-host-${RELEASE_TAG}.app.zip"
+          ditto -x -k "Loca-host-${RELEASE_TAG}.app.zip" package
+          app=$(find package -maxdepth 1 -type d -name '*.app' -print -quit)
+          test -n "$app"
+          echo "HOST_APP=$PWD/$app" >> "$GITHUB_ENV"
+
+      - name: Verify and launch the installed artifact
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          expected=${RELEASE_TAG#desktop-v}
+          actual=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' \
+            "$HOST_APP/Contents/Info.plist")
+          test "$actual" = "$expected"
+          xattr -dr com.apple.quarantine "$HOST_APP" || true
+          open "$HOST_APP"
+
+      - name: T1 — prove the packaged Host boot contract
+        run: |
+          set -euo pipefail
+          cleanup() {
+            pkill -x 'Loca Host' 2>/dev/null || true
+            pkill -x room-server 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          # The packaged app must publish its dynamic sidecar origin and promoted
+          # offline Skill Library path. This is runtime evidence, not source or
+          # archive inspection. v0.9.20 is expected to fail here because it
+          # publishes no host.env and therefore cannot prove either value.
+          marker="$HOME/Library/Application Support/tech.speakbetter.loca.desktop.standalone/host.env"
+          for _ in {1..30}; do
+            test -f "$marker" && break
+            sleep 1
+          done
+          if test ! -f "$marker"; then
+            echo "T1 RED: packaged Host did not publish host.env runtime evidence: $marker" >&2
+            exit 1
+          fi
+
+          server=$(sed -n 's/^ROOM_SERVER_URL=//p' "$marker")
+          library=$(sed -n 's/^LOCA_SKILL_LIBRARY=//p' "$marker")
+          test -n "$server" && test -n "$library"
+          case "$server" in
+            http://127.0.0.1:[0-9]*) ;;
+            *) echo "T1 RED: invalid dynamic sidecar origin: $server" >&2; exit 1 ;;
+          esac
+          case "$server" in
+            tauri:*) echo "T1 RED: install origin uses tauri scheme" >&2; exit 1 ;;
+          esac
+          test -d "$library"
+          test -f "$library/loca/SKILL.md"
+          test -f "$library/loca-care/SKILL.md"
+
+          port=${server##*:}
+          curl -fsS --max-time 2 "http://127.0.0.1:${port}/health" >/dev/null
+          if find "$(dirname "$library")" -maxdepth 1 -type d -name '.staging-*' | grep -q .; then
+            echo "T1 RED: failed Skill Library staging directory remains" >&2
+            exit 1
+          fi
+          echo "T1 GREEN: packaged Host boot contract verified"
