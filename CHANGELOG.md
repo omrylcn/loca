@@ -6,6 +6,14 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.24] - 2026-09-27
+
+### Distribution
+- The mandatory macOS Host gate now verifies startup, provisioning, and a real
+  join request without depending on interactive Keychain export; the extended
+  approve-to-online probe remains visible but does not block publication when
+  CI cannot authorize Keychain access.
+
 ## [0.9.23] - 2026-09-27
 
 ### Distribution
