@@ -6,6 +6,15 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.26] - 2026-09-29
+
+### Fixed
+- Desktop applications now expose the standard native File, Edit, View,
+  Window, and Help menus, including copy/paste commands and visible packaged
+  version information.
+- Desktop zoom now works from the View menu and the standard keyboard
+  shortcuts for zoom in, zoom out, and actual size.
+
 ## [0.9.25] - 2026-09-27
 
 ### Fixed

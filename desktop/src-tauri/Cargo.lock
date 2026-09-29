@@ -2117,6 +2117,7 @@ version = "0.9.10"
 dependencies = [
  "getrandom 0.3.4",
  "keyring",
+ "muda",
  "serde",
  "serde_json",
  "skill-bundles",

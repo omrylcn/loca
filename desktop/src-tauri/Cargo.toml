@@ -50,3 +50,6 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 # ADMIN_TOKEN. Both are pulled in ONLY by the `bundled-server` feature.
 ureq = { version = "2", default-features = false, optional = true }
 getrandom = { version = "0.3", optional = true }
+
+[dev-dependencies]
+muda = { version = "=0.19.3", default-features = false }
