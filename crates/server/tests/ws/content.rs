@@ -414,6 +414,18 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
     assert!(legacy_page["entries"][0]["decided_by"].is_null());
     assert!(legacy_page["entries"][0]["decided_at"].is_null());
 
+    let absent = client
+        .get(format!("{base}/rooms/unconfigured/memory/entries"))
+        .header("x-session-token", &alice)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(absent.status(), reqwest::StatusCode::NOT_FOUND);
+    assert_eq!(
+        absent.text().await.unwrap(),
+        "memory is not configured for this loca"
+    );
+
     // A2(b): another seated identity in the same loca is rejected.
     let other_write = client
         .put(format!("{base}/rooms/general/memory/short"))
@@ -765,6 +777,20 @@ async fn memory_only_deployment_reports_permanent_unavailability() {
     assert!(
         !message.contains("try again"),
         "A5-EK fence: a permanent deployment limitation must not look transient"
+    );
+    let entries = client
+        .get(format!("{base}/rooms/general/memory/entries"))
+        .header(
+            "x-session-token",
+            session["session_token"].as_str().unwrap(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(entries.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        entries.text().await.unwrap(),
+        "loca memory requires persistent storage in this deployment"
     );
 }
 

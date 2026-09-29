@@ -76,7 +76,7 @@ impl Store {
             )
             .optional()
             .map_err(|_| MemoryReadError::Storage)?
-            .ok_or(MemoryReadError::Storage)?;
+            .ok_or(MemoryReadError::NotConfigured)?;
 
         // `long` is the product's bounded injection view; entries are its
         // provenance view. Refuse to serve two silently divergent truths.

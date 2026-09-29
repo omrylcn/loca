@@ -47,6 +47,7 @@ pub enum MemoryWriteError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryReadError {
     PersistenceUnavailable,
+    NotConfigured,
     InvariantViolation,
     Storage,
 }

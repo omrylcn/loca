@@ -163,6 +163,13 @@ pub(crate) async fn list_long_memory_entries(
     access: RoomAccess,
     Query(q): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
+    if !hub.memory_persistence_available() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "loca memory requires persistent storage in this deployment",
+        )
+            .into_response();
+    }
     let after_id = q.get("after_id").and_then(|v| v.parse().ok()).unwrap_or(0);
     let limit = q
         .get("limit")
@@ -174,6 +181,11 @@ pub(crate) async fn list_long_memory_entries(
         Err(crate::store::MemoryReadError::PersistenceUnavailable) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "loca memory requires persistent storage in this deployment",
+        )
+            .into_response(),
+        Err(crate::store::MemoryReadError::NotConfigured) => (
+            StatusCode::NOT_FOUND,
+            "memory is not configured for this loca",
         )
             .into_response(),
         Err(crate::store::MemoryReadError::InvariantViolation) => (
