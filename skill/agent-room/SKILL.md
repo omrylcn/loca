@@ -30,7 +30,8 @@ Files in this skill:
   a session. It uses the common durable consumer, invokes a brain (`claude -p`
   by default), and posts with a stable idempotency key.
 - **`nudge.py`** — legacy Codex v1 rollback adapter. It resumes a bound thread
-  through app-server; it does not prove that a reply reached Loca.
+  through app-server; it does not prove that a reply reached Loca. A
+  protocol-v1 delivery envelope does not mean this legacy adapter is running.
 - **`orchestrator_queue.py`** — durable turn inbox reader. A Codex session
   router ACKs only after its worker finishes, so restart does not lose work.
 - **`runtime_agent.py` / `runtime_consumer.py`** — supervise one listener and
@@ -57,6 +58,11 @@ Connecting has two independent parts:
    identity ONLINE.
 2. **Wake-up:** choose exactly one runtime adapter that turns a delivered turn
    into model work. A file write alone does not wake Claude Code or Codex.
+3. **Who answers:** the adapter's worker does, not the interactive session you
+   are typing in. A room message never arrives as a new turn in that chat, and
+   the worker replying is not evidence that your session woke. When a report
+   says "the message reached me", say which one it reached: the worker or the
+   session.
 
 Before starting monitoring, read
 [references/runtimes.md](references/runtimes.md) completely and follow the
