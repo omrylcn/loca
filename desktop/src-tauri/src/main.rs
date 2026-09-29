@@ -28,8 +28,34 @@
 // exact keyring feature flags for the Secret Service backend at build time.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::Manager;
 use tauri::{WebviewUrl, WebviewWindowBuilder}; // app.path()/app.manage()
+
+const ZOOM_LEVELS: [f64; 11] = [0.5, 0.67, 0.75, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0];
+const DEFAULT_ZOOM_INDEX: usize = 5;
+const ZOOM_IN_ACCELERATOR: &str = "CmdOrCtrl+=";
+const ZOOM_OUT_ACCELERATOR: &str = "CmdOrCtrl+-";
+const ZOOM_RESET_ACCELERATOR: &str = "CmdOrCtrl+0";
+static ZOOM_INDEX: AtomicUsize = AtomicUsize::new(DEFAULT_ZOOM_INDEX);
+
+fn next_zoom_index(current: usize, direction: i8) -> usize {
+    match direction.cmp(&0) {
+        std::cmp::Ordering::Greater => (current + 1).min(ZOOM_LEVELS.len() - 1),
+        std::cmp::Ordering::Less => current.saturating_sub(1),
+        std::cmp::Ordering::Equal => DEFAULT_ZOOM_INDEX,
+    }
+}
+
+fn apply_zoom(app: &tauri::AppHandle, direction: i8) {
+    let next = next_zoom_index(ZOOM_INDEX.load(Ordering::Relaxed), direction);
+    ZOOM_INDEX.store(next, Ordering::Relaxed);
+    if let Some(window) = app.get_webview_window("main") {
+        if let Err(error) = window.set_zoom(ZOOM_LEVELS[next]) {
+            eprintln!("failed to set desktop zoom: {error}");
+        }
+    }
+}
 
 // Keychain service namespace + the exact credential keys mirrored from the web
 // UI. Keep this list in sync with the localStorage keys above; any key NOT here
@@ -648,6 +674,89 @@ const NOTIFY_SHIM: &str = r#"
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .menu(|app| {
+            use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+            // Tauri v2 does not create the native application menu for us.
+            // Start from its standard menu so macOS receives the expected Edit
+            // commands (Undo/Redo/Cut/Copy/Paste/Select All), then extend View.
+            let menu = Menu::default(app)?;
+            let zoom_in = MenuItem::with_id(
+                app,
+                "zoom_in",
+                "Zoom In",
+                true,
+                Some(ZOOM_IN_ACCELERATOR),
+            )?;
+            let zoom_out = MenuItem::with_id(
+                app,
+                "zoom_out",
+                "Zoom Out",
+                true,
+                Some(ZOOM_OUT_ACCELERATOR),
+            )?;
+            let zoom_reset = MenuItem::with_id(
+                app,
+                "zoom_reset",
+                "Actual Size",
+                true,
+                Some(ZOOM_RESET_ACCELERATOR),
+            )?;
+            let separator = PredefinedMenuItem::separator(app)?;
+
+            let mut view_menu_found = false;
+            for item in menu.items()? {
+                if let Some(submenu) = item.as_submenu() {
+                    if submenu.text()? == "View" {
+                        submenu.append_items(&[
+                            &separator,
+                            &zoom_in,
+                            &zoom_out,
+                            &zoom_reset,
+                        ])?;
+                        view_menu_found = true;
+                        break;
+                    }
+                }
+            }
+            if !view_menu_found {
+                menu.append(&Submenu::with_items(
+                    app,
+                    "View",
+                    true,
+                    &[&zoom_in, &zoom_out, &zoom_reset],
+                )?)?;
+            }
+
+            // Menu::default leaves Help empty on macOS because About normally
+            // lives only under the application-name menu. Keep that native
+            // placement, but also make Help useful and give the operator an
+            // obvious, platform-independent place to find the packaged version.
+            for item in menu.items()? {
+                if let Some(submenu) = item.as_submenu() {
+                    if submenu.text()? == "Help" {
+                        let package = app.package_info();
+                        submenu.append(&PredefinedMenuItem::about(
+                            app,
+                            Some("About Loca"),
+                            Some(AboutMetadata {
+                                name: Some("Loca".to_string()),
+                                version: Some(package.version.to_string()),
+                                ..Default::default()
+                            }),
+                        )?)?;
+                        break;
+                    }
+                }
+            }
+            Ok(menu)
+        })
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "zoom_in" => apply_zoom(app, 1),
+            "zoom_out" => apply_zoom(app, -1),
+            "zoom_reset" => apply_zoom(app, 0),
+            _ => {}
+        })
         .invoke_handler(tauri::generate_handler![
             kc_set,
             kc_get,
@@ -846,5 +955,40 @@ mod admin_token_boundary {
         // kc_set refuses any key outside KC_KEYS, so the webview cannot smuggle the
         // admin token (or any unknown key) into the keychain.
         assert!(kc_set(ADMIN_TOKEN_KEY.to_string(), "attacker".to_string()).is_err());
+    }
+
+    #[test]
+    fn zoom_steps_are_bounded_and_reset_to_actual_size() {
+        assert_eq!(next_zoom_index(0, -1), 0);
+        assert_eq!(
+            next_zoom_index(ZOOM_LEVELS.len() - 1, 1),
+            ZOOM_LEVELS.len() - 1
+        );
+        assert_eq!(
+            next_zoom_index(DEFAULT_ZOOM_INDEX, 1),
+            DEFAULT_ZOOM_INDEX + 1
+        );
+        assert_eq!(
+            next_zoom_index(DEFAULT_ZOOM_INDEX, -1),
+            DEFAULT_ZOOM_INDEX - 1
+        );
+        assert_eq!(next_zoom_index(0, 0), DEFAULT_ZOOM_INDEX);
+        assert_eq!(ZOOM_LEVELS[DEFAULT_ZOOM_INDEX], 1.0);
+    }
+
+    #[test]
+    fn zoom_accelerators_are_accepted_by_the_runtime_parser() {
+        use std::str::FromStr;
+
+        for accelerator in [
+            ZOOM_IN_ACCELERATOR,
+            ZOOM_OUT_ACCELERATOR,
+            ZOOM_RESET_ACCELERATOR,
+        ] {
+            assert!(
+                muda::accelerator::Accelerator::from_str(accelerator).is_ok(),
+                "unsupported desktop accelerator: {accelerator}"
+            );
+        }
     }
 }
