@@ -59,6 +59,78 @@ impl Store {
         rows.collect()
     }
 
+    pub fn loca_memory_entries(
+        &self,
+        room: &str,
+        after_id: u64,
+        limit: usize,
+    ) -> Result<protocol::LocaMemoryEntryPage, MemoryReadError> {
+        let Some(c) = self.conn() else {
+            return Err(MemoryReadError::PersistenceUnavailable);
+        };
+        let long = c
+            .query_row(
+                "SELECT long FROM loca_memory WHERE room = ?1",
+                params![room],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|_| MemoryReadError::Storage)?
+            .ok_or(MemoryReadError::Storage)?;
+
+        // `long` is the product's bounded injection view; entries are its
+        // provenance view. Refuse to serve two silently divergent truths.
+        let flattened = {
+            let mut stmt = c
+                .prepare("SELECT text FROM loca_memory_entries WHERE room = ?1 ORDER BY id ASC")
+                .map_err(|_| MemoryReadError::Storage)?;
+            let rows = stmt
+                .query_map(params![room], |row| row.get::<_, String>(0))
+                .map_err(|_| MemoryReadError::Storage)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(|_| MemoryReadError::Storage)?
+                .join("\n\n")
+        };
+        if flattened != long {
+            return Err(MemoryReadError::InvariantViolation);
+        }
+
+        let fetch_limit = limit.saturating_add(1);
+        let mut stmt = c
+            .prepare(
+                "SELECT id, text, decided_by, decided_at
+                 FROM loca_memory_entries
+                 WHERE room = ?1 AND id > ?2
+                 ORDER BY id ASC
+                 LIMIT ?3",
+            )
+            .map_err(|_| MemoryReadError::Storage)?;
+        let rows = stmt
+            .query_map(params![room, after_id, fetch_limit as u64], |row| {
+                let decided_by: String = row.get(2)?;
+                let decided_at: u64 = row.get(3)?;
+                Ok(protocol::LocaMemoryEntry {
+                    id: row.get(0)?,
+                    room: room.to_string(),
+                    text: row.get(1)?,
+                    decided_by: (!decided_by.trim().is_empty()).then_some(decided_by),
+                    decided_at: (decided_at != 0).then_some(decided_at),
+                    over_budget: long.len() > LONG_MEMORY_SOFT_BYTES,
+                })
+            })
+            .map_err(|_| MemoryReadError::Storage)?;
+        let mut entries = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|_| MemoryReadError::Storage)?;
+        let has_more = entries.len() > limit;
+        entries.truncate(limit);
+        let next_after_id = has_more.then(|| entries.last().expect("non-empty page").id);
+        Ok(protocol::LocaMemoryEntryPage {
+            entries,
+            next_after_id,
+        })
+    }
+
     pub fn set_memory_owner(&self, room: &str, owner: Option<&str>) -> rusqlite::Result<()> {
         let Some(c) = self.conn() else { return Ok(()) };
         c.execute(
@@ -169,8 +241,8 @@ impl Store {
             id,
             room: room.to_string(),
             text: text.to_string(),
-            decided_by: actor.to_string(),
-            decided_at: at,
+            decided_by: Some(actor.to_string()),
+            decided_at: Some(at),
             over_budget: next_bytes > LONG_MEMORY_SOFT_BYTES,
         })
     }

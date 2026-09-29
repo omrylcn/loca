@@ -1268,9 +1268,15 @@ pub struct LocaMemoryEntry {
     pub id: u64,
     pub room: String,
     pub text: String,
-    pub decided_by: String,
-    pub decided_at: u64,
+    pub decided_by: Option<String>,
+    pub decided_at: Option<u64>,
     pub over_budget: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocaMemoryEntryPage {
+    pub entries: Vec<LocaMemoryEntry>,
+    pub next_after_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

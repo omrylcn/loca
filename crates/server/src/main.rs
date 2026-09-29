@@ -470,7 +470,7 @@ async fn main() {
         )
         .route(
             "/rooms/:id/memory/entries",
-            axum::routing::post(append_long_memory),
+            axum::routing::post(append_long_memory).get(list_long_memory_entries),
         )
         .route("/rooms/:id/search", get(search_room))
         .route("/rooms/:id/journal", get(get_journal).post(post_journal))

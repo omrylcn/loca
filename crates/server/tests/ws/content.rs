@@ -358,6 +358,62 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
         "long memory must represent the complete ordered decision history"
     );
 
+    // A10-G1/G3: provenance is readable in stable id order, with an id cursor
+    // that always names the final row in a non-terminal page.
+    let first_page: Value = client
+        .get(format!(
+            "{base}/rooms/general/memory/entries?after_id=0&limit=1"
+        ))
+        .header("x-session-token", &alice)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let first_id = first_page["entries"][0]["id"].as_u64().unwrap();
+    assert_eq!(first_page["next_after_id"].as_u64(), Some(first_id));
+    assert_eq!(first_page["entries"][0]["decided_by"], "alice");
+    let second_page: Value = client
+        .get(format!(
+            "{base}/rooms/general/memory/entries?after_id={first_id}&limit=1"
+        ))
+        .header("x-session-token", &alice)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(second_page["entries"][0]["id"].as_u64().unwrap() > first_id);
+    assert!(second_page["next_after_id"].is_null());
+
+    // Legacy rows are not assigned invented provenance.
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute(
+        "UPDATE loca_memory_entries SET decided_by = '', decided_at = 0 WHERE id = ?1",
+        [first_id],
+    )
+    .unwrap();
+    drop(conn);
+    let legacy_page: Value = client
+        .get(format!("{base}/rooms/general/memory/entries?limit=1"))
+        .header("x-session-token", &alice)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(legacy_page["entries"][0]["decided_by"].is_null());
+    assert!(legacy_page["entries"][0]["decided_at"].is_null());
+
     // A2(b): another seated identity in the same loca is rejected.
     let other_write = client
         .put(format!("{base}/rooms/general/memory/short"))
@@ -440,6 +496,35 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
         reqwest::StatusCode::OK,
         "A2-EK fence: archived memory must remain readable"
     );
+    assert_eq!(
+        client
+            .get(format!("{base}/rooms/general/memory/entries"))
+            .header("x-session-token", &alice)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::OK,
+        "A2-EK fence: archived provenance must remain readable"
+    );
+
+    // A10-G1 red-proof: direct/legacy writes to flattened long cannot create
+    // a second truth that the provenance endpoint silently serves.
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "UPDATE loca_memory SET long = long || '\n\nHAYALET' WHERE room = 'general'",
+            [],
+        )
+        .unwrap();
+    let divergent = client
+        .get(format!("{base}/rooms/general/memory/entries"))
+        .header("x-session-token", &alice)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(divergent.status(), reqwest::StatusCode::CONFLICT);
+    assert!(divergent.text().await.unwrap().contains("inconsistent"));
 }
 
 #[tokio::test]
@@ -635,6 +720,7 @@ async fn assert_cross_loca_memory_denied(method: &str, path: &str) {
 #[tokio::test]
 async fn loca_memory_isolation_rejects_cross_loca_read() {
     assert_cross_loca_memory_denied("GET", "memory").await;
+    assert_cross_loca_memory_denied("GET", "memory/entries").await;
 }
 
 #[tokio::test]

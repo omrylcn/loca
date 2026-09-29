@@ -44,6 +44,13 @@ pub enum MemoryWriteError {
     Storage,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryReadError {
+    PersistenceUnavailable,
+    InvariantViolation,
+    Storage,
+}
+
 use crate::sync::RecoverMutex;
 
 pub struct Store {

@@ -3427,6 +3427,15 @@ impl Hub {
         self.store.loca_memory_metadata()
     }
 
+    pub fn loca_memory_entries(
+        &self,
+        room: &str,
+        after_id: u64,
+        limit: usize,
+    ) -> Result<protocol::LocaMemoryEntryPage, crate::store::MemoryReadError> {
+        self.store.loca_memory_entries(room, after_id, limit)
+    }
+
     pub fn set_memory_owner(&self, room: &str, owner: Option<&str>) -> rusqlite::Result<()> {
         self.store.set_memory_owner(room, owner)
     }

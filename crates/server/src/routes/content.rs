@@ -158,6 +158,35 @@ pub(crate) async fn append_long_memory(
     }
 }
 
+pub(crate) async fn list_long_memory_entries(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let after_id = q.get("after_id").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let limit = q
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50)
+        .clamp(1, 200);
+    match hub.loca_memory_entries(&access.room, after_id, limit) {
+        Ok(page) => Json(page).into_response(),
+        Err(crate::store::MemoryReadError::PersistenceUnavailable) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "loca memory requires persistent storage in this deployment",
+        )
+            .into_response(),
+        Err(crate::store::MemoryReadError::InvariantViolation) => (
+            StatusCode::CONFLICT,
+            "loca memory provenance is inconsistent with long memory",
+        )
+            .into_response(),
+        Err(crate::store::MemoryReadError::Storage) => {
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
 /// The loca's journal — what has already been done here.
 pub(crate) async fn get_journal(State(hub): State<Hub>, access: RoomAccess) -> impl IntoResponse {
     Json(hub.journal(&access.room)).into_response()
