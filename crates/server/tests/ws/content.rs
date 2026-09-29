@@ -376,6 +376,20 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
     let first_id = first_page["entries"][0]["id"].as_u64().unwrap();
     assert_eq!(first_page["next_after_id"].as_u64(), Some(first_id));
     assert_eq!(first_page["entries"][0]["decided_by"], "alice");
+    let fields = first_page["entries"][0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        fields,
+        ["decided_at", "decided_by", "id", "text"]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        "the provenance list must not mislabel aggregate room state as entry state"
+    );
     let second_page: Value = client
         .get(format!(
             "{base}/rooms/general/memory/entries?after_id={first_id}&limit=1"

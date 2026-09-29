@@ -1275,8 +1275,19 @@ pub struct LocaMemoryEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LocaMemoryEntryPage {
-    pub entries: Vec<LocaMemoryEntry>,
+    pub entries: Vec<LocaMemoryEntryProvenance>,
     pub next_after_id: Option<u64>,
+}
+
+/// The stable read shape for one long-memory decision. Room identity and the
+/// aggregate budget state belong to the enclosing memory resource, not to an
+/// individual provenance row.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocaMemoryEntryProvenance {
+    pub id: u64,
+    pub text: String,
+    pub decided_by: Option<String>,
+    pub decided_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

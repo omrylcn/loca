@@ -109,13 +109,11 @@ impl Store {
             .query_map(params![room, after_id, fetch_limit as u64], |row| {
                 let decided_by: String = row.get(2)?;
                 let decided_at: u64 = row.get(3)?;
-                Ok(protocol::LocaMemoryEntry {
+                Ok(protocol::LocaMemoryEntryProvenance {
                     id: row.get(0)?,
-                    room: room.to_string(),
                     text: row.get(1)?,
                     decided_by: (!decided_by.trim().is_empty()).then_some(decided_by),
                     decided_at: (decided_at != 0).then_some(decided_at),
-                    over_budget: long.len() > LONG_MEMORY_SOFT_BYTES,
                 })
             })
             .map_err(|_| MemoryReadError::Storage)?;
