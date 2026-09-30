@@ -1065,10 +1065,12 @@ def main():
             try:
                 if sink is not None:
                     # The file is durable message history for the runtime, not
-                    # the wake channel. Preserve one original message per line.
-                    for message in messages:
-                        sink.write(json.dumps(message, ensure_ascii=False) + "\n")
-                    sink.flush()
+                    # the wake channel. Memory is a durable wake type, but it
+                    # is not chat history and must never enter this file.
+                    if event.get("t") != "memory":
+                        for message in messages:
+                            sink.write(json.dumps(message, ensure_ascii=False) + "\n")
+                        sink.flush()
                 else:
                     # Claude Monitor treats stdout as the wake channel: exactly
                     # one line here means exactly one model turn.
