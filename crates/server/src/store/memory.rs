@@ -1,6 +1,7 @@
 use super::*;
 
 pub const SHORT_MEMORY_MAX_BYTES: usize = 4 * 1024;
+pub const LONG_MEMORY_ENTRY_MAX_BYTES: usize = 8 * 1024;
 pub const LONG_MEMORY_SOFT_BYTES: usize = 32 * 1024;
 pub const LONG_MEMORY_HARD_BYTES: usize = 64 * 1024;
 
@@ -203,6 +204,9 @@ impl Store {
         };
         let tx = c.transaction().map_err(|_| MemoryWriteError::Storage)?;
         Self::require_memory_owner(&tx, room, actor)?;
+        if text.len() > LONG_MEMORY_ENTRY_MAX_BYTES {
+            return Err(MemoryWriteError::EntryTooLarge);
+        }
         let current_bytes = tx
             .query_row(
                 "SELECT length(CAST(long AS BLOB)) FROM loca_memory WHERE room = ?1",

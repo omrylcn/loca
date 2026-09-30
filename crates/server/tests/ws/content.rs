@@ -579,6 +579,11 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         [],
     )
     .unwrap();
+    conn.execute(
+        "INSERT INTO loca_memory (room, owner) VALUES ('entry-budget', 'owner')",
+        [],
+    )
+    .unwrap();
     drop(conn);
 
     let short_at_limit = "ş".repeat(2 * 1024); // 4096 UTF-8 bytes.
@@ -603,19 +608,51 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         "A9 short fence: UTF-8 byte length beyond 4096 must be rejected"
     );
 
-    let first = "a".repeat(32 * 1024);
-    let at_soft: Value = client
-        .post(format!("{base}/rooms/budget/memory/entries"))
+    let at_entry_limit = client
+        .post(format!("{base}/rooms/entry-budget/memory/entries"))
         .header("x-session-token", session)
-        .json(&serde_json::json!({"text": first}))
+        .json(&serde_json::json!({"text": "ğ".repeat(4 * 1024)}))
         .send()
         .await
-        .unwrap()
-        .error_for_status()
-        .unwrap()
-        .json()
+        .unwrap();
+    assert_eq!(
+        at_entry_limit.status(),
+        reqwest::StatusCode::CREATED,
+        "K10(a): exactly 8192 UTF-8 bytes must remain writable"
+    );
+    let over_entry_limit = client
+        .post(format!("{base}/rooms/entry-budget/memory/entries"))
+        .header("x-session-token", session)
+        .json(&serde_json::json!({"text": format!("{}x", "ğ".repeat(4 * 1024))}))
+        .send()
         .await
         .unwrap();
+    assert_eq!(
+        over_entry_limit.status(),
+        reqwest::StatusCode::PAYLOAD_TOO_LARGE,
+        "K10(b): 8193 UTF-8 bytes must be rejected"
+    );
+    assert!(over_entry_limit
+        .text()
+        .await
+        .unwrap()
+        .contains("wake-injection budget"));
+
+    let mut at_soft = Value::Null;
+    for bytes in [8192, 8192, 8192, 8186] {
+        at_soft = client
+            .post(format!("{base}/rooms/budget/memory/entries"))
+            .header("x-session-token", session)
+            .json(&serde_json::json!({"text": "a".repeat(bytes)}))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+    }
     assert_eq!(at_soft["over_budget"], false);
 
     let over_soft: Value = client
@@ -635,6 +672,20 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         "A9 soft fence: crossing 32 KB must be visible while the write succeeds"
     );
 
+    // Reach the 64 KiB aggregate limit using individually injectable entries.
+    // Separators count only between entries, never before the first entry.
+    for bytes in [8192, 8192, 8192, 8181] {
+        client
+            .post(format!("{base}/rooms/budget/memory/entries"))
+            .header("x-session-token", session)
+            .json(&serde_json::json!({"text": "c".repeat(bytes)}))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    }
+
     let before: Value = client
         .get(format!("{base}/rooms/budget/memory"))
         .header("x-session-token", session)
@@ -648,6 +699,7 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         .unwrap();
     assert_eq!(before["over_budget"], true);
     let before_long = before["long"].as_str().unwrap().to_string();
+    assert_eq!(before_long.len(), 64 * 1024);
     let before_entries: i64 = rusqlite::Connection::open(&db)
         .unwrap()
         .query_row(
@@ -657,11 +709,10 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         )
         .unwrap();
 
-    let remaining_to_exceed = 64 * 1024 + 1 - before_long.len() - 2;
     let hard = client
         .post(format!("{base}/rooms/budget/memory/entries"))
         .header("x-session-token", session)
-        .json(&serde_json::json!({"text": "x".repeat(remaining_to_exceed)}))
+        .json(&serde_json::json!({"text": "x"}))
         .send()
         .await
         .unwrap();

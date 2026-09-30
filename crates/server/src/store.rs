@@ -40,6 +40,7 @@ pub enum MemoryWriteError {
     OwnerUnassigned,
     NotOwner,
     ShortTooLarge,
+    EntryTooLarge,
     LongTooLarge,
     Storage,
 }
