@@ -3419,6 +3419,10 @@ impl Hub {
         self.store.loca_memory(room)
     }
 
+    pub fn loca_memory_version(&self, room: &str) -> rusqlite::Result<u64> {
+        self.store.loca_memory_version(room)
+    }
+
     pub fn loca_memory_snapshot(
         &self,
         room: &str,
@@ -3455,7 +3459,9 @@ impl Hub {
         actor: &str,
         text: &str,
     ) -> Result<protocol::LocaMemory, crate::store::MemoryWriteError> {
-        let memory = self.store.write_short_memory(room, actor, text, self.now())?;
+        let memory = self
+            .store
+            .write_short_memory(room, actor, text, self.now())?;
         self.broadcast_memory_snapshot(room);
         Ok(memory)
     }
@@ -3466,7 +3472,9 @@ impl Hub {
         actor: &str,
         text: &str,
     ) -> Result<protocol::LocaMemoryEntry, crate::store::MemoryWriteError> {
-        let entry = self.store.append_long_memory(room, actor, text, self.now())?;
+        let entry = self
+            .store
+            .append_long_memory(room, actor, text, self.now())?;
         self.broadcast_memory_snapshot(room);
         Ok(entry)
     }

@@ -916,6 +916,46 @@ async fn fresh_connection_automatically_receives_ready_memory() {
     .await;
     assert_eq!(updated["long"], "long decision\n\nnew decision");
     assert!(updated["long_updated_at"].as_u64().is_some());
+
+    client
+        .post(format!("{base}/rooms/remembered/messages"))
+        .json(&serde_json::json!({
+            "sender": "operator",
+            "sender_type": "user",
+            "target": "owner",
+            "text": "wake"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let checkpoint = wait_for(&mut ws, |frame| frame["t"] == "memoryversion").await;
+    assert_eq!(checkpoint["room"], "remembered");
+    assert_eq!(checkpoint["version"], 3);
+    let message = wait_for(&mut ws, |frame| frame["t"] == "msg").await;
+    assert_eq!(message["message"]["text"], "wake");
+
+    let prior_long_clock = updated["long_updated_at"].clone();
+    client
+        .put(format!("{base}/rooms/remembered/memory/short"))
+        .header(
+            "x-session-token",
+            session["session_token"].as_str().unwrap(),
+        )
+        .json(&serde_json::json!({"text": "new short"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let short_only = wait_for(&mut ws, |frame| {
+        frame["t"] == "memory" && frame["version"] == 4
+    })
+    .await;
+    assert_eq!(short_only["short"], "new short");
+    assert_ne!(short_only["short_updated_at"], 10);
+    assert_eq!(short_only["long_updated_at"], prior_long_clock);
 }
 
 #[tokio::test]
@@ -1000,7 +1040,10 @@ async fn memory_frame_selects_a_bounded_complete_entry_suffix() {
     let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
     assert_eq!(frame["long"], format!("{old}\n\n{newest}"));
     assert_eq!(frame["long_uninjectable_entries"], 1);
-    assert_eq!(frame["long_uninjectable_entry_ids"], serde_json::json!([legacy_id]));
+    assert_eq!(
+        frame["long_uninjectable_entry_ids"],
+        serde_json::json!([legacy_id])
+    );
     assert_eq!(frame["long_omitted_entries"], 1);
 }
 

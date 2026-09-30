@@ -964,6 +964,13 @@ pub enum ServerFrame {
         /// IDs for the uninjectable subset of omitted entries.
         long_uninjectable_entry_ids: Vec<u64>,
     },
+    /// Positive freshness checkpoint sent immediately before a chat wake.
+    /// Clients compare it with their last bounded `memory` snapshot instead
+    /// of inferring freshness from the absence of a change notification.
+    MemoryVersion {
+        room: String,
+        version: u64,
+    },
     /// A newly posted message (including the receiver's own, echoed back).
     Msg {
         message: Message,

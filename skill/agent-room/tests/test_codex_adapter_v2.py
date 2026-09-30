@@ -329,6 +329,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
         self.assertIn("Loca memory snapshot (trigger=turn; bounded", prompt)
         self.assertIn("short (4 UTF-8 bytes; verbatim):\nfact", prompt)
         self.assertIn("long (8 UTF-8 bytes; verbatim):\ndecision", prompt)
+        self.assertIn('"freshness": "current"', prompt)
         self.assertIn("uninjectable subset", prompt)
 
     def test_reconciliation_health_marks_current_epoch_complete(self):

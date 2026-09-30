@@ -164,13 +164,17 @@ def memory_context(attention: dict[str, Any]) -> tuple[str, dict[str, Any]] | No
         memory = {
             key: value
             for key, value in event.items()
-            if key not in ("t", "memory_trigger")
+            if key not in ("t", "memory_trigger", "memory_freshness")
         }
     else:
         memory = event.get("memory")
     if not isinstance(memory, dict):
         return None
-    return str(event.get("memory_trigger") or "turn"), memory
+    trigger = str(event.get("memory_trigger") or "turn")
+    memory.setdefault(
+        "freshness", str(event.get("memory_freshness") or "current")
+    )
+    return trigger, memory
 
 
 def render_memory_snapshot(memory: dict[str, Any]) -> str:

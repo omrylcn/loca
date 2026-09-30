@@ -6,6 +6,19 @@ pub const LONG_MEMORY_SOFT_BYTES: usize = 32 * 1024;
 pub const LONG_MEMORY_HARD_BYTES: usize = 64 * 1024;
 
 impl Store {
+    pub fn loca_memory_version(&self, room: &str) -> rusqlite::Result<u64> {
+        let Some(c) = self.conn() else {
+            return Ok(0);
+        };
+        Ok(c.query_row(
+            "SELECT version FROM loca_memory WHERE room = ?1",
+            params![room],
+            |row| row.get(0),
+        )
+        .optional()?
+        .unwrap_or(0))
+    }
+
     pub fn loca_memory(&self, room: &str) -> rusqlite::Result<Option<protocol::LocaMemory>> {
         let Some(c) = self.conn() else {
             return Ok(None);
@@ -47,9 +60,8 @@ impl Store {
         let Some(c) = self.conn() else {
             return Ok(None);
         };
-        let mut stmt = c.prepare(
-            "SELECT id, text FROM loca_memory_entries WHERE room = ?1 ORDER BY id DESC",
-        )?;
+        let mut stmt =
+            c.prepare("SELECT id, text FROM loca_memory_entries WHERE room = ?1 ORDER BY id DESC")?;
         let entries = stmt
             .query_map(params![room], |row| {
                 Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?))
