@@ -669,7 +669,7 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         .unwrap();
     assert_eq!(
         over_soft["over_budget"], true,
-        "A9 soft fence: crossing 32 KB must be visible while the write succeeds"
+        "A9 soft fence: crossing 32 KiB must be visible while the write succeeds"
     );
 
     // Reach the 64 KiB aggregate limit using individually injectable entries.
@@ -719,9 +719,9 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
     assert_eq!(
         hard.status(),
         reqwest::StatusCode::PAYLOAD_TOO_LARGE,
-        "A9 hard fence: a write beyond 64 KB must be rejected"
+        "A9 hard fence: a write beyond 64 KiB must be rejected"
     );
-    assert!(hard.text().await.unwrap().contains("64 KB hard limit"));
+    assert!(hard.text().await.unwrap().contains("64 KiB hard limit"));
 
     let after: Value = client
         .get(format!("{base}/rooms/budget/memory"))

@@ -30,7 +30,7 @@ fn memory_write_error(error: crate::store::MemoryWriteError) -> axum::response::
         }
         crate::store::MemoryWriteError::ShortTooLarge => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            "short memory exceeds the 4 KB limit",
+            "short memory exceeds the 4 KiB limit",
         )
             .into_response(),
         crate::store::MemoryWriteError::EntryTooLarge => (
@@ -40,7 +40,7 @@ fn memory_write_error(error: crate::store::MemoryWriteError) -> axum::response::
             .into_response(),
         crate::store::MemoryWriteError::LongTooLarge => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            "long memory exceeds the 64 KB hard limit; consolidate it before adding more",
+            "long memory exceeds the 64 KiB hard limit; consolidate it before adding more",
         )
             .into_response(),
         crate::store::MemoryWriteError::Storage => (
