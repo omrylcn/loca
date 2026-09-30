@@ -42,7 +42,8 @@ impl Store {
         let Some(mut memory) = self.loca_memory(room)? else {
             return Ok(None);
         };
-        let full_long_bytes = memory.long.len();
+        let full_long = memory.long.clone();
+        let full_long_bytes = full_long.len();
         let Some(c) = self.conn() else {
             return Ok(None);
         };
@@ -54,6 +55,13 @@ impl Store {
                 Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
+        let flattened = entries
+            .iter()
+            .rev()
+            .map(|(_, text)| text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let provenance_inconsistent = flattened != full_long;
 
         let mut selected = Vec::new();
         let mut selected_bytes = 0usize;
@@ -84,7 +92,8 @@ impl Store {
         let long_omitted_bytes = full_long_bytes.saturating_sub(memory.long.len());
         Ok(Some(protocol::LocaMemorySnapshot {
             memory,
-            long_truncated: long_omitted_entries > 0,
+            provenance_inconsistent,
+            long_truncated: long_omitted_bytes > 0,
             long_omitted_bytes,
             long_omitted_entries,
             long_uninjectable_entry_ids: uninjectable_ids,

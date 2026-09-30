@@ -1032,6 +1032,30 @@ async fn memory_frame_distinguishes_absent_from_empty() {
 }
 
 #[tokio::test]
+async fn memory_frame_exposes_inconsistent_provenance_as_a_red_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("memory-frame-inconsistent.db");
+    let (port, _guard) =
+        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "INSERT INTO loca_memory (room, owner, long, version)
+             VALUES ('inconsistent-memory', 'owner', 'ghost text', 1)",
+            [],
+        )
+        .unwrap();
+
+    let mut ws = connect_ws(port, "inconsistent-memory", "owner", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["status"], "inconsistent");
+    assert_eq!(frame["long"], "");
+    assert_eq!(frame["long_truncated"], true);
+    assert_eq!(frame["long_omitted_bytes"], 10);
+    assert_eq!(frame["long_omitted_entries"], 0);
+}
+
+#[tokio::test]
 async fn absent_memory_is_an_explicit_frame_not_silence() {
     let directory = tempfile::tempdir().unwrap();
     let db = directory.path().join("memory-frame-absent.db");

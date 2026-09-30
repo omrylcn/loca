@@ -1231,6 +1231,7 @@ pub struct LocaMemory {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LocaMemorySnapshot {
     pub memory: LocaMemory,
+    pub provenance_inconsistent: bool,
     pub long_truncated: bool,
     pub long_omitted_bytes: usize,
     pub long_omitted_entries: usize,
@@ -1245,6 +1246,7 @@ pub enum LocaMemoryStatus {
     Ready,
     Absent,
     Empty,
+    Inconsistent,
 }
 
 impl ServerFrame {
@@ -1268,7 +1270,9 @@ impl ServerFrame {
             };
         };
         let memory = snapshot.memory;
-        let status = if memory.short.is_empty() && memory.long.is_empty() {
+        let status = if snapshot.provenance_inconsistent {
+            LocaMemoryStatus::Inconsistent
+        } else if memory.short.is_empty() && memory.long.is_empty() {
             LocaMemoryStatus::Empty
         } else {
             LocaMemoryStatus::Ready
