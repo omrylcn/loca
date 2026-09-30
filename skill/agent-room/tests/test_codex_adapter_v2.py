@@ -14,6 +14,7 @@ from codex_adapter_v2 import (  # noqa: E402
     NO_REPLY_SENTINEL,
     PersistentCodexAdapter,
     attention_prompt,
+    render_memory_snapshot,
     missing_thread_error,
     mismatched_active_turn,
 )
@@ -260,6 +261,26 @@ class AdapterFixture:
 
 
 class CodexAdapterV2Tests(unittest.TestCase):
+    def test_turkish_memory_json_preserves_the_bounded_wire_budget(self):
+        memory = {
+            "status": "ready",
+            "short": "ö" * (4 * 1024 // 2),
+            "long": "ğ" * (8 * 1024 // 2),
+            "short_updated_at": 10,
+            "long_updated_at": 20,
+            "version": 3,
+            "long_truncated": False,
+            "long_omitted_bytes": 0,
+            "long_omitted_entries": 0,
+            "long_uninjectable_entries": 0,
+            "long_uninjectable_entry_ids": [],
+        }
+        rendered = render_memory_snapshot(memory)
+        self.assertIn("ö", rendered)
+        self.assertIn("ğ", rendered)
+        self.assertNotIn("\\u00", rendered)
+        self.assertLessEqual(len(rendered.encode("utf-8")), 13 * 1024)
+
     def test_attention_prompt_renders_bounded_memory_snapshot(self):
         event = {
             "id": 7,

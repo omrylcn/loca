@@ -173,6 +173,13 @@ def memory_context(attention: dict[str, Any]) -> tuple[str, dict[str, Any]] | No
     return str(event.get("memory_trigger") or "turn"), memory
 
 
+def render_memory_snapshot(memory: dict[str, Any]) -> str:
+    # `ensure_ascii=False` is part of the bounded-memory wire contract, not a
+    # cosmetic choice: escaping Turkish text can inflate a 12 KiB raw snapshot
+    # to roughly three times that size.
+    return json.dumps(memory, ensure_ascii=False, sort_keys=True)
+
+
 def care_context_lines(
     signal: dict[str, Any], context: list[dict[str, Any]]
 ) -> list[str]:
@@ -303,7 +310,7 @@ def attention_prompt(
             "\n\nLoca memory snapshot "
             f"(trigger={trigger}; bounded; omitted counters include the "
             "uninjectable subset):\n"
-            + json.dumps(memory, ensure_ascii=False, sort_keys=True)
+            + render_memory_snapshot(memory)
         )
     return (
         f"Loca attention for {identity} in private room {attention['room']}.\n"
