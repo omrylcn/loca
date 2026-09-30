@@ -40,7 +40,16 @@ pub enum MemoryWriteError {
     OwnerUnassigned,
     NotOwner,
     ShortTooLarge,
+    EntryTooLarge,
     LongTooLarge,
+    Storage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryReadError {
+    PersistenceUnavailable,
+    NotConfigured,
+    InvariantViolation,
     Storage,
 }
 
@@ -194,7 +203,8 @@ impl Store {
                 short TEXT NOT NULL DEFAULT '',
                 long TEXT NOT NULL DEFAULT '',
                 short_updated_at INTEGER,
-                long_updated_at INTEGER
+                long_updated_at INTEGER,
+                version INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS loca_memory_entries (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -529,6 +539,12 @@ impl Store {
         // durable together. NULL/absent means no attachments. Older databases
         // predate the column; adding it is a no-op once present.
         let _ = conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT", []);
+        // Memory frames carry a durable monotonic revision. Existing rows begin
+        // at zero and advance on every owner or body mutation.
+        let _ = conn.execute(
+            "ALTER TABLE loca_memory ADD COLUMN version INTEGER NOT NULL DEFAULT 0",
+            [],
+        );
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_operation
              ON messages(room, principal, op_id)

@@ -1815,6 +1815,8 @@ async fn lead_endpoint_announces() {
     );
     let (mut lead, _) = tokio_tungstenite::connect_async(lead_url).await.unwrap();
     let (mut other, _) = tokio_tungstenite::connect_async(other_url).await.unwrap();
+    let other_memory = wait_for(&mut other, |frame| frame["t"] == "memory").await;
+    assert_eq!(other_memory["status"], "absent");
 
     client
         .post(format!("{base}/rooms/oda/lead"))

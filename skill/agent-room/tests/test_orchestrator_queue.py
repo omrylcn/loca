@@ -300,6 +300,35 @@ class OrchestratorQueueTests(unittest.TestCase):
             second = MODULE.next_record(inbox, cursor, 0, 0.05)
             self.assertEqual(first["delivery_id"], second["delivery_id"])
 
+    def test_unacked_idless_memory_delivery_is_reoffered_after_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            inbox = root / "inbox.jsonl"
+            cursor = root / "cursor.json"
+            append(
+                inbox,
+                {
+                    "protocol_version": 1,
+                    "delivery_id": "iye:memory:connection:1",
+                    "priority": "addressed_agent",
+                    "room": "iye",
+                    "last_id": None,
+                    "event": {
+                        "t": "memory",
+                        "memory_trigger": "connection",
+                        "status": "ready",
+                        "version": 1,
+                    },
+                },
+            )
+
+            first = MODULE.next_record(inbox, cursor, 0, 0.05)
+            # No ACK: reopening from the durable files models a runtime restart.
+            second = MODULE.next_record(inbox, cursor, 0, 0.05)
+            self.assertEqual(first["delivery_id"], second["delivery_id"])
+            self.assertEqual(second["event"]["t"], "memory")
+            self.assertIsNone(second["last_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

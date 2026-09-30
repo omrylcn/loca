@@ -3419,6 +3419,17 @@ impl Hub {
         self.store.loca_memory(room)
     }
 
+    pub fn loca_memory_version(&self, room: &str) -> rusqlite::Result<u64> {
+        self.store.loca_memory_version(room)
+    }
+
+    pub fn loca_memory_snapshot(
+        &self,
+        room: &str,
+    ) -> rusqlite::Result<Option<protocol::LocaMemorySnapshot>> {
+        self.store.loca_memory_snapshot(room)
+    }
+
     pub fn memory_persistence_available(&self) -> bool {
         self.store.memory_persistence_available()
     }
@@ -3427,8 +3438,19 @@ impl Hub {
         self.store.loca_memory_metadata()
     }
 
+    pub fn loca_memory_entries(
+        &self,
+        room: &str,
+        after_id: u64,
+        limit: usize,
+    ) -> Result<protocol::LocaMemoryEntryPage, crate::store::MemoryReadError> {
+        self.store.loca_memory_entries(room, after_id, limit)
+    }
+
     pub fn set_memory_owner(&self, room: &str, owner: Option<&str>) -> rusqlite::Result<()> {
-        self.store.set_memory_owner(room, owner)
+        self.store.set_memory_owner(room, owner)?;
+        self.broadcast_memory_snapshot(room);
+        Ok(())
     }
 
     pub fn write_short_memory(
@@ -3437,7 +3459,11 @@ impl Hub {
         actor: &str,
         text: &str,
     ) -> Result<protocol::LocaMemory, crate::store::MemoryWriteError> {
-        self.store.write_short_memory(room, actor, text, self.now())
+        let memory = self
+            .store
+            .write_short_memory(room, actor, text, self.now())?;
+        self.broadcast_memory_snapshot(room);
+        Ok(memory)
     }
 
     pub fn append_long_memory(
@@ -3446,7 +3472,25 @@ impl Hub {
         actor: &str,
         text: &str,
     ) -> Result<protocol::LocaMemoryEntry, crate::store::MemoryWriteError> {
-        self.store.append_long_memory(room, actor, text, self.now())
+        let entry = self
+            .store
+            .append_long_memory(room, actor, text, self.now())?;
+        self.broadcast_memory_snapshot(room);
+        Ok(entry)
+    }
+
+    fn broadcast_memory_snapshot(&self, room: &str) {
+        let snapshot = match self.store.loca_memory_snapshot(room) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::warn!(%room, %error, "could not broadcast loca memory snapshot");
+                return;
+            }
+        };
+        let rooms = self.rooms.lock_or_recover();
+        if let Some(state) = rooms.get(room) {
+            let _ = state.tx.send(ServerFrame::memory(room, snapshot));
+        }
     }
 
     /// All notes in a room (sorted by key for stable display).

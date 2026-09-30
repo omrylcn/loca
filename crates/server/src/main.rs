@@ -470,7 +470,7 @@ async fn main() {
         )
         .route(
             "/rooms/:id/memory/entries",
-            axum::routing::post(append_long_memory),
+            axum::routing::post(append_long_memory).get(list_long_memory_entries),
         )
         .route("/rooms/:id/search", get(search_room))
         .route("/rooms/:id/journal", get(get_journal).post(post_journal))
@@ -1243,6 +1243,29 @@ async fn ws_session(
     }
     tracing::info!(%room, %name, ?kind, "ws join");
 
+    // Memory is server-pushed rather than client-fetched. Send it for every
+    // seated connection, including absent and empty state, before history so
+    // a freshly connected agent starts with an explicit memory envelope.
+    if !watch_only {
+        let memory = match hub.loca_memory_snapshot(&room) {
+            Ok(memory) => memory,
+            Err(error) => {
+                tracing::warn!(%room, %name, %error, "could not read loca memory");
+                if !watch_only {
+                    hub.leave(&room, &identity);
+                }
+                return;
+            }
+        };
+        if send_frame(&mut sink, &ServerFrame::memory(&room, memory))
+            .await
+            .is_err()
+        {
+            hub.leave(&room, &identity);
+            return;
+        }
+    }
+
     // Care signals are a durable outbox, not a best-effort broadcast. Replay
     // anything this identity has not transport-ACKed; the listener ACKs only
     // after writing its durable inbox. Subscribe happened first, so remember
@@ -1361,7 +1384,12 @@ async fn ws_session(
                     // nudge stream, so an operator control such as /stop must
                     // bypass the conversational queue and arrive immediately.
                     if events_only {
-                        let allowed = matches!(frame, ServerFrame::Msg { .. })
+                        let allowed = matches!(
+                            frame,
+                            ServerFrame::Msg { .. }
+                                | ServerFrame::Memory { .. }
+                                | ServerFrame::MemoryVersion { .. }
+                        )
                             || matches!(&frame, ServerFrame::Reaction { reaction } if reaction.owner == name)
                             || (filter == WsFilter::Mentions
                                 && matches!(
@@ -1448,7 +1476,7 @@ async fn ws_session(
                                 let messages = std::mem::take(&mut pending_turn);
                                 turn_idle_deadline = None;
                                 turn_hard_deadline = None;
-                                if send_turn(&mut sink, messages).await.is_err() {
+                                if send_turn(&hub, &room, &mut sink, messages).await.is_err() {
                                     break;
                                 }
                                 continue;
@@ -1473,12 +1501,23 @@ async fn ws_session(
                                 let messages = std::mem::take(&mut pending_turn);
                                 turn_idle_deadline = None;
                                 turn_hard_deadline = None;
-                                if send_turn(&mut sink, messages).await.is_err() {
+                                if send_turn(&hub, &room, &mut sink, messages).await.is_err() {
                                     break;
                                 }
                             }
                             continue;
                         }
+                    }
+                    if matches!(
+                        frame,
+                        ServerFrame::Msg { .. }
+                            | ServerFrame::Turn { .. }
+                            | ServerFrame::Care { .. }
+                            | ServerFrame::Reaction { .. }
+                    )
+                        && send_memory_version(&hub, &room, &mut sink).await.is_err()
+                    {
+                        break;
                     }
                     if send_frame(&mut sink, &frame).await.is_err() { break; }
                 }
@@ -1511,7 +1550,9 @@ async fn ws_session(
                 let messages = std::mem::take(&mut pending_turn);
                 turn_idle_deadline = None;
                 turn_hard_deadline = None;
-                if !messages.is_empty() && send_turn(&mut sink, messages).await.is_err() {
+                if !messages.is_empty()
+                    && send_turn(&hub, &room, &mut sink, messages).await.is_err()
+                {
                     break;
                 }
             },
@@ -1630,7 +1671,30 @@ where
 
 /// Preserve the legacy single-message frame and use a batch only when it
 /// actually saves a wake-up.
-async fn send_turn<S>(sink: &mut S, mut messages: Vec<protocol::Message>) -> Result<(), ()>
+async fn send_memory_version<S>(hub: &Hub, room: &str, sink: &mut S) -> Result<(), ()>
+where
+    S: futures_util::Sink<WsMessage> + Unpin,
+{
+    let version = hub.loca_memory_version(room).unwrap_or_else(|error| {
+        tracing::warn!(%room, %error, "could not read loca memory version");
+        0
+    });
+    send_frame(
+        sink,
+        &ServerFrame::MemoryVersion {
+            room: room.to_string(),
+            version,
+        },
+    )
+    .await
+}
+
+async fn send_turn<S>(
+    hub: &Hub,
+    room: &str,
+    sink: &mut S,
+    mut messages: Vec<protocol::Message>,
+) -> Result<(), ()>
 where
     S: futures_util::Sink<WsMessage> + Unpin,
 {
@@ -1641,5 +1705,6 @@ where
     } else {
         ServerFrame::Turn { messages }
     };
+    send_memory_version(hub, room, sink).await?;
     send_frame(sink, &frame).await
 }

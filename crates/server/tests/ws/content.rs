@@ -358,6 +358,88 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
         "long memory must represent the complete ordered decision history"
     );
 
+    // A10-G1/G3: provenance is readable in stable id order, with an id cursor
+    // that always names the final row in a non-terminal page.
+    let first_page: Value = client
+        .get(format!(
+            "{base}/rooms/general/memory/entries?after_id=0&limit=1"
+        ))
+        .header("x-session-token", &alice)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let first_id = first_page["entries"][0]["id"].as_u64().unwrap();
+    assert_eq!(first_page["next_after_id"].as_u64(), Some(first_id));
+    assert_eq!(first_page["entries"][0]["decided_by"], "alice");
+    let fields = first_page["entries"][0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        fields,
+        ["decided_at", "decided_by", "id", "text"]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+        "the provenance list must not mislabel aggregate room state as entry state"
+    );
+    let second_page: Value = client
+        .get(format!(
+            "{base}/rooms/general/memory/entries?after_id={first_id}&limit=1"
+        ))
+        .header("x-session-token", &alice)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(second_page["entries"][0]["id"].as_u64().unwrap() > first_id);
+    assert!(second_page["next_after_id"].is_null());
+
+    // Legacy rows are not assigned invented provenance.
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute(
+        "UPDATE loca_memory_entries SET decided_by = '', decided_at = 0 WHERE id = ?1",
+        [first_id],
+    )
+    .unwrap();
+    drop(conn);
+    let legacy_page: Value = client
+        .get(format!("{base}/rooms/general/memory/entries?limit=1"))
+        .header("x-session-token", &alice)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(legacy_page["entries"][0]["decided_by"].is_null());
+    assert!(legacy_page["entries"][0]["decided_at"].is_null());
+
+    let absent = client
+        .get(format!("{base}/rooms/unconfigured/memory/entries"))
+        .header("x-session-token", &alice)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(absent.status(), reqwest::StatusCode::NOT_FOUND);
+    assert_eq!(
+        absent.text().await.unwrap(),
+        "memory is not configured for this loca"
+    );
+
     // A2(b): another seated identity in the same loca is rejected.
     let other_write = client
         .put(format!("{base}/rooms/general/memory/short"))
@@ -440,6 +522,35 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
         reqwest::StatusCode::OK,
         "A2-EK fence: archived memory must remain readable"
     );
+    assert_eq!(
+        client
+            .get(format!("{base}/rooms/general/memory/entries"))
+            .header("x-session-token", &alice)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::OK,
+        "A2-EK fence: archived provenance must remain readable"
+    );
+
+    // A10-G1 red-proof: direct/legacy writes to flattened long cannot create
+    // a second truth that the provenance endpoint silently serves.
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "UPDATE loca_memory SET long = long || '\n\nHAYALET' WHERE room = 'general'",
+            [],
+        )
+        .unwrap();
+    let divergent = client
+        .get(format!("{base}/rooms/general/memory/entries"))
+        .header("x-session-token", &alice)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(divergent.status(), reqwest::StatusCode::CONFLICT);
+    assert!(divergent.text().await.unwrap().contains("inconsistent"));
 }
 
 #[tokio::test]
@@ -468,6 +579,11 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         [],
     )
     .unwrap();
+    conn.execute(
+        "INSERT INTO loca_memory (room, owner) VALUES ('entry-budget', 'owner')",
+        [],
+    )
+    .unwrap();
     drop(conn);
 
     let short_at_limit = "ş".repeat(2 * 1024); // 4096 UTF-8 bytes.
@@ -492,19 +608,51 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         "A9 short fence: UTF-8 byte length beyond 4096 must be rejected"
     );
 
-    let first = "a".repeat(32 * 1024);
-    let at_soft: Value = client
-        .post(format!("{base}/rooms/budget/memory/entries"))
+    let at_entry_limit = client
+        .post(format!("{base}/rooms/entry-budget/memory/entries"))
         .header("x-session-token", session)
-        .json(&serde_json::json!({"text": first}))
+        .json(&serde_json::json!({"text": "ğ".repeat(4 * 1024)}))
         .send()
         .await
-        .unwrap()
-        .error_for_status()
-        .unwrap()
-        .json()
+        .unwrap();
+    assert_eq!(
+        at_entry_limit.status(),
+        reqwest::StatusCode::CREATED,
+        "K10(a): exactly 8192 UTF-8 bytes must remain writable"
+    );
+    let over_entry_limit = client
+        .post(format!("{base}/rooms/entry-budget/memory/entries"))
+        .header("x-session-token", session)
+        .json(&serde_json::json!({"text": format!("{}x", "ğ".repeat(4 * 1024))}))
+        .send()
         .await
         .unwrap();
+    assert_eq!(
+        over_entry_limit.status(),
+        reqwest::StatusCode::PAYLOAD_TOO_LARGE,
+        "K10(b): 8193 UTF-8 bytes must be rejected"
+    );
+    assert!(over_entry_limit
+        .text()
+        .await
+        .unwrap()
+        .contains("wake-injection budget"));
+
+    let mut at_soft = Value::Null;
+    for bytes in [8192, 8192, 8192, 8186] {
+        at_soft = client
+            .post(format!("{base}/rooms/budget/memory/entries"))
+            .header("x-session-token", session)
+            .json(&serde_json::json!({"text": "a".repeat(bytes)}))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+    }
     assert_eq!(at_soft["over_budget"], false);
 
     let over_soft: Value = client
@@ -521,8 +669,22 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         .unwrap();
     assert_eq!(
         over_soft["over_budget"], true,
-        "A9 soft fence: crossing 32 KB must be visible while the write succeeds"
+        "A9 soft fence: crossing 32 KiB must be visible while the write succeeds"
     );
+
+    // Reach the 64 KiB aggregate limit using individually injectable entries.
+    // Separators count only between entries, never before the first entry.
+    for bytes in [8192, 8192, 8192, 8181] {
+        client
+            .post(format!("{base}/rooms/budget/memory/entries"))
+            .header("x-session-token", session)
+            .json(&serde_json::json!({"text": "c".repeat(bytes)}))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    }
 
     let before: Value = client
         .get(format!("{base}/rooms/budget/memory"))
@@ -537,6 +699,7 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         .unwrap();
     assert_eq!(before["over_budget"], true);
     let before_long = before["long"].as_str().unwrap().to_string();
+    assert_eq!(before_long.len(), 64 * 1024);
     let before_entries: i64 = rusqlite::Connection::open(&db)
         .unwrap()
         .query_row(
@@ -546,20 +709,19 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         )
         .unwrap();
 
-    let remaining_to_exceed = 64 * 1024 + 1 - before_long.len() - 2;
     let hard = client
         .post(format!("{base}/rooms/budget/memory/entries"))
         .header("x-session-token", session)
-        .json(&serde_json::json!({"text": "x".repeat(remaining_to_exceed)}))
+        .json(&serde_json::json!({"text": "x"}))
         .send()
         .await
         .unwrap();
     assert_eq!(
         hard.status(),
         reqwest::StatusCode::PAYLOAD_TOO_LARGE,
-        "A9 hard fence: a write beyond 64 KB must be rejected"
+        "A9 hard fence: a write beyond 64 KiB must be rejected"
     );
-    assert!(hard.text().await.unwrap().contains("64 KB hard limit"));
+    assert!(hard.text().await.unwrap().contains("64 KiB hard limit"));
 
     let after: Value = client
         .get(format!("{base}/rooms/budget/memory"))
@@ -635,6 +797,7 @@ async fn assert_cross_loca_memory_denied(method: &str, path: &str) {
 #[tokio::test]
 async fn loca_memory_isolation_rejects_cross_loca_read() {
     assert_cross_loca_memory_denied("GET", "memory").await;
+    assert_cross_loca_memory_denied("GET", "memory/entries").await;
 }
 
 #[tokio::test]
@@ -680,6 +843,275 @@ async fn memory_only_deployment_reports_permanent_unavailability() {
         !message.contains("try again"),
         "A5-EK fence: a permanent deployment limitation must not look transient"
     );
+    let entries = client
+        .get(format!("{base}/rooms/general/memory/entries"))
+        .header(
+            "x-session-token",
+            session["session_token"].as_str().unwrap(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(entries.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        entries.text().await.unwrap(),
+        "loca memory requires persistent storage in this deployment"
+    );
+}
+
+#[tokio::test]
+async fn fresh_connection_automatically_receives_ready_memory() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("memory-frame-ready.db");
+    let (port, _guard) =
+        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute_batch(
+            "INSERT INTO loca_memory
+             (room, owner, short, long, short_updated_at, long_updated_at, version)
+             VALUES ('remembered', 'owner', 'short fact', 'long decision', 10, 20, 2);
+             INSERT INTO loca_memory_entries
+             (room, text, decided_by, decided_at)
+             VALUES ('remembered', 'long decision', 'owner', 20);",
+        )
+        .unwrap();
+
+    let mut ws = connect_ws(port, "remembered", "owner", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["room"], "remembered");
+    assert_eq!(frame["status"], "ready");
+    assert_eq!(frame["short"], "short fact");
+    assert_eq!(frame["long"], "long decision");
+    assert_eq!(frame["version"], 2);
+
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let session: Value = client
+        .post(format!("{base}/sessions"))
+        .json(&serde_json::json!({"name": "owner", "kind": "agent"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/rooms/remembered/memory/entries"))
+        .header(
+            "x-session-token",
+            session["session_token"].as_str().unwrap(),
+        )
+        .json(&serde_json::json!({"text": "new decision"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let updated = wait_for(&mut ws, |frame| {
+        frame["t"] == "memory" && frame["version"] == 3
+    })
+    .await;
+    assert_eq!(updated["long"], "long decision\n\nnew decision");
+    assert!(updated["long_updated_at"].as_u64().is_some());
+
+    client
+        .post(format!("{base}/rooms/remembered/messages"))
+        .json(&serde_json::json!({
+            "sender": "operator",
+            "sender_type": "user",
+            "target": "owner",
+            "text": "wake"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let checkpoint = wait_for(&mut ws, |frame| frame["t"] == "memoryversion").await;
+    assert_eq!(checkpoint["room"], "remembered");
+    assert_eq!(checkpoint["version"], 3);
+    let message = wait_for(&mut ws, |frame| frame["t"] == "msg").await;
+    assert_eq!(message["message"]["text"], "wake");
+
+    let prior_long_clock = updated["long_updated_at"].clone();
+    client
+        .put(format!("{base}/rooms/remembered/memory/short"))
+        .header(
+            "x-session-token",
+            session["session_token"].as_str().unwrap(),
+        )
+        .json(&serde_json::json!({"text": "new short"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let short_only = wait_for(&mut ws, |frame| {
+        frame["t"] == "memory" && frame["version"] == 4
+    })
+    .await;
+    assert_eq!(short_only["short"], "new short");
+    assert_ne!(short_only["short_updated_at"], 10);
+    assert_eq!(short_only["long_updated_at"], prior_long_clock);
+}
+
+#[tokio::test]
+async fn memory_frame_selects_a_bounded_complete_entry_suffix() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("memory-frame-bounded.db");
+    let (port, _guard) =
+        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    let exact = "ö".repeat(4 * 1024); // exactly 8192 UTF-8 bytes
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute(
+        "INSERT INTO loca_memory
+         (room, owner, long, long_updated_at, version)
+         VALUES ('exact-entry', 'owner', ?1, 20, 1)",
+        [&exact],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
+         VALUES ('exact-entry', ?1, 'owner', 20)",
+        [&exact],
+    )
+    .unwrap();
+
+    let half_old = "a".repeat(4096);
+    let half_new = "b".repeat(4096);
+    let split_long = format!("{half_old}\n\n{half_new}");
+    conn.execute(
+        "INSERT INTO loca_memory (room, owner, long, long_updated_at, version)
+         VALUES ('separator-budget', 'owner', ?1, 20, 2)",
+        [&split_long],
+    )
+    .unwrap();
+    for text in [&half_old, &half_new] {
+        conn.execute(
+            "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
+             VALUES ('separator-budget', ?1, 'owner', 20)",
+            [text],
+        )
+        .unwrap();
+    }
+
+    let old = "old".repeat(100);
+    let legacy = "x".repeat(9 * 1024);
+    let newest = "new".repeat(100);
+    let legacy_long = format!("{old}\n\n{legacy}\n\n{newest}");
+    conn.execute(
+        "INSERT INTO loca_memory (room, owner, long, long_updated_at, version)
+         VALUES ('legacy-entry', 'owner', ?1, 20, 3)",
+        [&legacy_long],
+    )
+    .unwrap();
+    let mut legacy_id = 0u64;
+    for text in [&old, &legacy, &newest] {
+        conn.execute(
+            "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
+             VALUES ('legacy-entry', ?1, 'owner', 20)",
+            [text],
+        )
+        .unwrap();
+        if text.len() > 8 * 1024 {
+            legacy_id = conn.last_insert_rowid() as u64;
+        }
+    }
+    drop(conn);
+
+    let mut ws = connect_ws(port, "exact-entry", "owner", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["long"].as_str().unwrap().len(), 8 * 1024);
+    assert_eq!(frame["long"], exact);
+    assert_eq!(frame["long_truncated"], false);
+    assert_eq!(frame["long_omitted_bytes"], 0);
+    assert_eq!(frame["long_omitted_entries"], 0);
+
+    let mut ws = connect_ws(port, "separator-budget", "owner", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["long"], half_new);
+    assert_eq!(frame["long_truncated"], true);
+    assert_eq!(frame["long_omitted_entries"], 1);
+
+    let mut ws = connect_ws(port, "legacy-entry", "owner", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["long"], format!("{old}\n\n{newest}"));
+    assert_eq!(frame["long_uninjectable_entries"], 1);
+    assert_eq!(
+        frame["long_uninjectable_entry_ids"],
+        serde_json::json!([legacy_id])
+    );
+    assert_eq!(frame["long_omitted_entries"], 1);
+}
+
+#[tokio::test]
+async fn memory_frame_distinguishes_absent_from_empty() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("memory-frame-status.db");
+    let (port, _guard) =
+        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "INSERT INTO loca_memory (room, owner) VALUES ('empty-memory', 'owner')",
+            [],
+        )
+        .unwrap();
+
+    let mut absent = connect_ws(port, "absent-memory", "absent-agent", "agent").await;
+    let absent_frame = wait_for(&mut absent, |frame| frame["t"] == "memory").await;
+    let mut empty = connect_ws(port, "empty-memory", "owner", "agent").await;
+    let empty_frame = wait_for(&mut empty, |frame| frame["t"] == "memory").await;
+
+    assert_eq!(absent_frame["status"], "absent");
+    assert_eq!(empty_frame["status"], "empty");
+    assert_ne!(
+        absent_frame["status"], empty_frame["status"],
+        "A5 fence: absent and empty memory must remain distinguishable"
+    );
+}
+
+#[tokio::test]
+async fn memory_frame_exposes_inconsistent_provenance_as_a_red_status() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("memory-frame-inconsistent.db");
+    let (port, _guard) =
+        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "INSERT INTO loca_memory (room, owner, long, version)
+             VALUES ('inconsistent-memory', 'owner', 'ghost text', 1)",
+            [],
+        )
+        .unwrap();
+
+    let mut ws = connect_ws(port, "inconsistent-memory", "owner", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["status"], "inconsistent");
+    assert_eq!(frame["long"], "");
+    assert_eq!(frame["long_truncated"], true);
+    assert_eq!(frame["long_omitted_bytes"], 10);
+    assert_eq!(frame["long_omitted_entries"], 0);
+}
+
+#[tokio::test]
+async fn absent_memory_is_an_explicit_frame_not_silence() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("memory-frame-absent.db");
+    let (port, _guard) =
+        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+
+    let mut ws = connect_ws(port, "no-memory-row", "agent", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(
+        frame["status"], "absent",
+        "A5 fence: a missing row must still produce an explicit memory frame"
+    );
+    assert_eq!(frame["version"], 0);
 }
 
 #[tokio::test]

@@ -157,6 +157,44 @@ def care_signal(attention: dict[str, Any]) -> dict[str, Any] | None:
     return signal if isinstance(signal, dict) else {}
 
 
+def memory_context(attention: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """Return the bounded memory snapshot carried by this wake, if any."""
+    event = json.loads(str(attention["event_json"]))
+    if event.get("t") == "memory":
+        memory = {
+            key: value
+            for key, value in event.items()
+            if key not in ("t", "memory_trigger", "memory_freshness")
+        }
+    else:
+        memory = event.get("memory")
+    if not isinstance(memory, dict):
+        return None
+    trigger = str(event.get("memory_trigger") or "turn")
+    memory.setdefault(
+        "freshness", str(event.get("memory_freshness") or "current")
+    )
+    return trigger, memory
+
+
+def render_memory_snapshot(memory: dict[str, Any]) -> str:
+    """Render bounded bodies verbatim so JSON escaping cannot double them."""
+    metadata = {
+        key: value for key, value in memory.items() if key not in ("short", "long")
+    }
+    # `ensure_ascii=False` remains part of the metadata wire contract. The two
+    # bounded bodies deliberately stay outside JSON: newlines, quotes and
+    # backslashes must retain their one-byte representation in the prompt.
+    rendered_metadata = json.dumps(metadata, ensure_ascii=False, sort_keys=True)
+    short = str(memory.get("short") or "")
+    long = str(memory.get("long") or "")
+    return (
+        f"metadata: {rendered_metadata}\n"
+        f"short ({len(short.encode('utf-8'))} UTF-8 bytes; verbatim):\n{short}\n"
+        f"long ({len(long.encode('utf-8'))} UTF-8 bytes; verbatim):\n{long}"
+    )
+
+
 def care_context_lines(
     signal: dict[str, Any], context: list[dict[str, Any]]
 ) -> list[str]:
@@ -279,6 +317,15 @@ def attention_prompt(
         body = (
             "Bounded room context:\n"
             f"{bounded_context_text(attention, context)}"
+        )
+    carried_memory = memory_context(attention)
+    if carried_memory is not None:
+        trigger, memory = carried_memory
+        body += (
+            "\n\nLoca memory snapshot "
+            f"(trigger={trigger}; bounded; omitted counters include the "
+            "uninjectable subset):\n"
+            + render_memory_snapshot(memory)
         )
     return (
         f"Loca attention for {identity} in private room {attention['room']}.\n"

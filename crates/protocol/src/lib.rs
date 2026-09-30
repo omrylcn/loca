@@ -943,6 +943,34 @@ pub enum ServerFrame {
     History {
         messages: Vec<Message>,
     },
+    /// Durable loca memory, delivered automatically when an agent connects.
+    /// A frame is sent even when memory is absent or empty so clients never
+    /// have to infer state from silence.
+    Memory {
+        room: String,
+        owner: Option<String>,
+        status: LocaMemoryStatus,
+        short: String,
+        long: String,
+        short_updated_at: Option<u64>,
+        long_updated_at: Option<u64>,
+        over_budget: bool,
+        version: u64,
+        long_truncated: bool,
+        long_omitted_bytes: usize,
+        long_omitted_entries: usize,
+        /// Subset of `long_omitted_entries`; never add these two counts.
+        long_uninjectable_entries: usize,
+        /// IDs for the uninjectable subset of omitted entries.
+        long_uninjectable_entry_ids: Vec<u64>,
+    },
+    /// Positive freshness checkpoint sent immediately before a chat wake.
+    /// Clients compare it with their last bounded `memory` snapshot instead
+    /// of inferring freshness from the absence of a change notification.
+    MemoryVersion {
+        room: String,
+        version: u64,
+    },
     /// A newly posted message (including the receiver's own, echoed back).
     Msg {
         message: Message,
@@ -1203,6 +1231,76 @@ pub struct LocaMemory {
     pub short_updated_at: Option<u64>,
     pub long_updated_at: Option<u64>,
     pub over_budget: bool,
+    pub version: u64,
+}
+
+/// Bounded, entry-aligned memory body suitable for automatic model delivery.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocaMemorySnapshot {
+    pub memory: LocaMemory,
+    pub provenance_inconsistent: bool,
+    pub long_truncated: bool,
+    pub long_omitted_bytes: usize,
+    pub long_omitted_entries: usize,
+    /// Subset of omitted entries whose individual UTF-8 body exceeds the
+    /// automatic injection budget. Consumers must not add the two counts.
+    pub long_uninjectable_entry_ids: Vec<u64>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum LocaMemoryStatus {
+    Ready,
+    Absent,
+    Empty,
+    Inconsistent,
+}
+
+impl ServerFrame {
+    pub fn memory(room: &str, snapshot: Option<LocaMemorySnapshot>) -> Self {
+        let Some(snapshot) = snapshot else {
+            return Self::Memory {
+                room: room.to_string(),
+                owner: None,
+                status: LocaMemoryStatus::Absent,
+                short: String::new(),
+                long: String::new(),
+                short_updated_at: None,
+                long_updated_at: None,
+                over_budget: false,
+                version: 0,
+                long_truncated: false,
+                long_omitted_bytes: 0,
+                long_omitted_entries: 0,
+                long_uninjectable_entries: 0,
+                long_uninjectable_entry_ids: Vec::new(),
+            };
+        };
+        let memory = snapshot.memory;
+        let status = if snapshot.provenance_inconsistent {
+            LocaMemoryStatus::Inconsistent
+        } else if memory.short.is_empty() && memory.long.is_empty() {
+            LocaMemoryStatus::Empty
+        } else {
+            LocaMemoryStatus::Ready
+        };
+        Self::Memory {
+            room: memory.room,
+            owner: memory.owner,
+            status,
+            short: memory.short,
+            long: memory.long,
+            short_updated_at: memory.short_updated_at,
+            long_updated_at: memory.long_updated_at,
+            over_budget: memory.over_budget,
+            version: memory.version,
+            long_truncated: snapshot.long_truncated,
+            long_omitted_bytes: snapshot.long_omitted_bytes,
+            long_omitted_entries: snapshot.long_omitted_entries,
+            long_uninjectable_entries: snapshot.long_uninjectable_entry_ids.len(),
+            long_uninjectable_entry_ids: snapshot.long_uninjectable_entry_ids,
+        }
+    }
 }
 
 /// One append-only long-memory decision with explicit provenance.
@@ -1211,9 +1309,26 @@ pub struct LocaMemoryEntry {
     pub id: u64,
     pub room: String,
     pub text: String,
-    pub decided_by: String,
-    pub decided_at: u64,
+    pub decided_by: Option<String>,
+    pub decided_at: Option<u64>,
     pub over_budget: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocaMemoryEntryPage {
+    pub entries: Vec<LocaMemoryEntryProvenance>,
+    pub next_after_id: Option<u64>,
+}
+
+/// The stable read shape for one long-memory decision. Room identity and the
+/// aggregate budget state belong to the enclosing memory resource, not to an
+/// individual provenance row.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocaMemoryEntryProvenance {
+    pub id: u64,
+    pub text: String,
+    pub decided_by: Option<String>,
+    pub decided_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

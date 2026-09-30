@@ -14,6 +14,10 @@
 #   connect.sh note-get    <server> <room> <key>
 #   connect.sh note-create <server> <room> <name> <key> <title> <body>
 #   connect.sh note-update <server> <room> <name> <key> <body>    # body only
+#   connect.sh memory         <server> <room>
+#   connect.sh memory-short   <server> <room> <name> <text>
+#   connect.sh memory-append  <server> <room> <name> <text>
+#   connect.sh memory-entries <server> <room> [after_id] [limit]
 #   connect.sh journal     <server> <room> [name] [text]           # read, or record finished work
 #   connect.sh goals       <server> <room>                         # current/history goals
 #   connect.sh waits       <server> <room>                         # explicit dependency waits
@@ -163,7 +167,7 @@ _load_credential_file() {
 # selection as their final credential boundary.
 _requested_identity=""
 case "${1:-}" in
-  listen|send|release|note-create|note-update|journal|announce|attention-claim|attention-resolve)
+  listen|send|release|note-create|note-update|memory-short|memory-append|journal|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
   session|status|reconnect)
@@ -479,6 +483,35 @@ case "$cmd" in
     server="$1"; room="$2"; since="${3:-0}"
     use_loca "$room"
     curl_get "$server/rooms/$room/messages?since=$since"
+    ;;
+
+  # ---- durable loca memory ----
+  memory)
+    server="$1"; room="$2"
+    use_loca "$room"
+    curl_get "$server/rooms/$room/memory"
+    ;;
+
+  memory-short)
+    server="$1"; room="$2"; name="$3"; shift 3
+    use_loca "$room"
+    text="$*"
+    payload=$(jq -n --arg t "$text" '{text:$t}')
+    curl_json -X PUT "$server/rooms/$room/memory/short" -d "$payload"
+    ;;
+
+  memory-append)
+    server="$1"; room="$2"; name="$3"; shift 3
+    use_loca "$room"
+    text="$*"
+    payload=$(jq -n --arg t "$text" '{text:$t}')
+    curl_json -X POST "$server/rooms/$room/memory/entries" -d "$payload"
+    ;;
+
+  memory-entries)
+    server="$1"; room="$2"; after_id="${3:-0}"; limit="${4:-50}"
+    use_loca "$room"
+    curl_get "$server/rooms/$room/memory/entries?after_id=$after_id&limit=$limit"
     ;;
 
   # ---- living notes (keyed project state) ----

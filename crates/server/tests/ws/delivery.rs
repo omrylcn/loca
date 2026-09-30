@@ -189,6 +189,8 @@ async fn filter_msg_suppresses_noise_but_delivers_messages() {
     let url = format!("ws://127.0.0.1:{port}/ws?room=general&name=filtered&type=agent&filter=msg");
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "general", "filtered", None).await;
+    let memory = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
 
     // Cause noise (a typing frame from someone else) then a real message.
     use futures_util::SinkExt;
@@ -206,7 +208,9 @@ async fn filter_msg_suppresses_noise_but_delivers_messages() {
         .await
         .unwrap();
 
-    // The filtered client's FIRST frame must be the message, not typing/history/members.
+    // The filtered client's first frame is the positive memory revision
+    // checkpoint immediately preceding the message. It still receives no
+    // typing/history/members noise.
     let first = {
         let deadline = tokio::time::sleep(Duration::from_secs(3));
         tokio::pin!(deadline);
@@ -222,10 +226,11 @@ async fn filter_msg_suppresses_noise_but_delivers_messages() {
         }
     };
     assert_eq!(
-        first["t"], "msg",
-        "events-only client should only get msg frames"
+        first["t"], "memoryversion",
+        "events-only clients must get the positive memory checkpoint"
     );
-    assert_eq!(first["message"]["text"], "real one");
+    let message = wait_for(&mut ws, |frame| frame["t"] == "msg").await;
+    assert_eq!(message["message"]["text"], "real one");
 }
 
 #[tokio::test]
@@ -241,6 +246,8 @@ async fn filter_mentions_only_delivers_addressed_messages() {
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "general", "bob", None).await;
+    let memory = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
 
     let post = |target: Option<&'static str>, text: &'static str| {
         let (client, base) = (client.clone(), base.clone());
@@ -266,7 +273,8 @@ async fn filter_mentions_only_delivers_addressed_messages() {
     // @all -> must arrive.
     post(Some("all"), "everyone listen").await;
 
-    // First frame bob receives should be the @all one (the earlier two dropped).
+    // First frame bob receives is the positive memory checkpoint for the @all
+    // wake; the earlier two messages and their checkpoints were dropped.
     let first = {
         let deadline = tokio::time::sleep(Duration::from_secs(3));
         tokio::pin!(deadline);
@@ -281,7 +289,9 @@ async fn filter_mentions_only_delivers_addressed_messages() {
             }
         }
     };
-    assert_eq!(first["message"]["text"], "everyone listen");
+    assert_eq!(first["t"], "memoryversion");
+    let addressed = wait_for(&mut ws, |frame| frame["t"] == "msg").await;
+    assert_eq!(addressed["message"]["text"], "everyone listen");
 
     // An @bob mention in text (no target) should also arrive.
     post(None, "ping @bob you there").await;
@@ -346,6 +356,8 @@ async fn reply_wakes_owner_even_when_older_than_the_tail() {
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "general", "bob", None).await;
+    let memory = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
 
     // A reply to the long-evicted root: only Store::message_owner can still name
     // the author, and bob must still be woken.
@@ -674,6 +686,8 @@ async fn mention_turn_queue_flushes_on_max_or_quiet_window() {
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "general", "bob", None).await;
+    let memory = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
 
     let post = |text: &'static str| {
         let (client, base) = (client.clone(), base.clone());
@@ -733,6 +747,8 @@ async fn turn_quiet_window_slides_but_hard_deadline_does_not() {
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "general", "bob", None).await;
+    let memory = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(memory["status"], "absent");
     let post = |text: &'static str| {
         let (client, base) = (client.clone(), base.clone());
         async move {

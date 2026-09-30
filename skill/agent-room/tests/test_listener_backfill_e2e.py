@@ -228,9 +228,20 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
                     json.loads(line)
                     for line in inbox.read_text(encoding="utf-8").splitlines()
                 ]
+                chat_deliveries = [
+                    delivery
+                    for delivery in deliveries
+                    if delivery["event"].get("t") == "turn"
+                    or delivery["event"].get("t") is None
+                ]
+                memory_deliveries = [
+                    delivery
+                    for delivery in deliveries
+                    if delivery["event"].get("t") == "memory"
+                ]
                 delivered_ids = [
                     message["id"]
-                    for delivery in deliveries
+                    for delivery in chat_deliveries
                     for message in delivery["event"].get(
                         "messages", [delivery["event"]]
                     )
@@ -239,11 +250,15 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
                     [message["id"] for message in history_rows], expected_ids
                 )
                 self.assertEqual(delivered_ids, expected_ids)
-                self.assertEqual(len(deliveries), 252)
+                self.assertEqual(len(chat_deliveries), 252)
+                self.assertEqual(len(memory_deliveries), 1)
+                self.assertEqual(
+                    memory_deliveries[0]["event"]["memory_trigger"], "connection"
+                )
                 self.assertTrue(
                     all(
                         len(delivery["event"].get("messages", [])) <= 4
-                        for delivery in deliveries
+                        for delivery in chat_deliveries
                     )
                 )
                 self.assertLess(
@@ -251,8 +266,10 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
                     10_000,
                 )
 
-                # The persisted cursor is the replay boundary. A clean restart
-                # must not append any duplicate history or inbox delivery.
+                # The persisted cursor is the chat replay boundary. A clean
+                # restart must not append duplicate chat, but it deliberately
+                # emits one fresh connection-memory delivery so a reset model
+                # context is repopulated without waiting for a message.
                 history_size = history.stat().st_size
                 inbox_size = inbox.stat().st_size
                 log_handle = listener_log.open("ab")
@@ -280,7 +297,16 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
                 time.sleep(1)
                 self.assertIsNone(listener.poll())
                 self.assertEqual(history.stat().st_size, history_size)
-                self.assertEqual(inbox.stat().st_size, inbox_size)
+                self.assertGreater(inbox.stat().st_size, inbox_size)
+                restarted = [
+                    json.loads(line)
+                    for line in inbox.read_text(encoding="utf-8").splitlines()
+                ][len(deliveries) :]
+                self.assertEqual(len(restarted), 1)
+                self.assertEqual(restarted[0]["event"]["t"], "memory")
+                self.assertEqual(
+                    restarted[0]["event"]["memory_trigger"], "connection"
+                )
                 self.stop_process(listener, log_handle)
                 listener = None
             finally:

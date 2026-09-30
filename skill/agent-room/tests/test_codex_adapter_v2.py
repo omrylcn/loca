@@ -14,6 +14,7 @@ from codex_adapter_v2 import (  # noqa: E402
     NO_REPLY_SENTINEL,
     PersistentCodexAdapter,
     attention_prompt,
+    render_memory_snapshot,
     missing_thread_error,
     mismatched_active_turn,
 )
@@ -260,6 +261,77 @@ class AdapterFixture:
 
 
 class CodexAdapterV2Tests(unittest.TestCase):
+    def test_memory_prompt_preserves_the_bounded_wire_budget(self):
+        base = {
+            "status": "ready",
+            "owner": "İye sahibi",
+            "short_updated_at": 10,
+            "long_updated_at": 20,
+            "version": 3,
+            "long_truncated": False,
+            "long_omitted_bytes": 0,
+            "long_omitted_entries": 0,
+            "long_uninjectable_entries": 0,
+            "long_uninjectable_entry_ids": [],
+        }
+        fixtures = {
+            "turkish": ("ö" * (4 * 1024 // 2), "ğ" * (8 * 1024 // 2)),
+            "ascii": ("s" * (4 * 1024), "l" * (8 * 1024)),
+            "multiline": (
+                ("short-line\n" * 400)[: 4 * 1024],
+                ("long karar\n\n" * 700)[: 8 * 1024],
+            ),
+            "escaping_ceiling": ("\n" * (4 * 1024), "\n" * (8 * 1024)),
+        }
+        serialized_sizes = []
+        for name, (short, long) in fixtures.items():
+            memory = dict(base, short=short, long=long)
+            rendered = render_memory_snapshot(memory)
+            with self.subTest(name=name):
+                self.assertLessEqual(len(rendered.encode("utf-8")), 13 * 1024)
+                self.assertIn(short, rendered)
+                self.assertIn(long, rendered)
+                self.assertNotIn("\\u", rendered)
+                self.assertNotIn('"short"', rendered.splitlines()[0])
+                self.assertNotIn('"long"', rendered.splitlines()[0])
+                serialized_sizes.append(len(rendered.encode("utf-8")))
+        self.assertLess(
+            max(serialized_sizes) - min(serialized_sizes),
+            64,
+            "verbatim body cost must remain independent of content escaping",
+        )
+
+    def test_attention_prompt_renders_bounded_memory_snapshot(self):
+        event = {
+            "id": 7,
+            "sender": "operator",
+            "sender_type": "user",
+            "text": "wake",
+            "memory_trigger": "turn",
+            "memory": {
+                "status": "ready",
+                "short": "fact",
+                "long": "decision",
+                "version": 3,
+                "long_omitted_entries": 1,
+                "long_uninjectable_entries": 1,
+            },
+        }
+        attention = {
+            "attention_id": "attention:1",
+            "room": "sb-dev",
+            "priority": "direct_user",
+            "reply_required": True,
+            "attempts": 0,
+            "event_json": json.dumps(event),
+        }
+        prompt = attention_prompt("reviewer", attention, [])
+        self.assertIn("Loca memory snapshot (trigger=turn; bounded", prompt)
+        self.assertIn("short (4 UTF-8 bytes; verbatim):\nfact", prompt)
+        self.assertIn("long (8 UTF-8 bytes; verbatim):\ndecision", prompt)
+        self.assertIn('"freshness": "current"', prompt)
+        self.assertIn("uninjectable subset", prompt)
+
     def test_reconciliation_health_marks_current_epoch_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
             fixture = AdapterFixture(Path(tmp))

@@ -551,6 +551,8 @@ def delivery_priority(event, identity, is_lead=False):
         return "explicit_task"
     if event.get("t") == "reaction":
         return "direct_user"
+    if event.get("t") == "memory":
+        return "addressed_agent"
     messages = event.get("messages") if event.get("t") == "turn" else [event]
     messages = [message for message in messages if isinstance(message, dict)]
     user_messages = [
@@ -728,6 +730,34 @@ def make_delivery(
         "last_id": last_id or None,
         "event": event,
     }
+
+
+def with_memory(event, memory, trigger="turn", observed_version=None):
+    """Attach the latest bounded room snapshot to one model wake."""
+    event = dict(event)
+    if event.get("t") == "memory":
+        event["memory_trigger"] = trigger
+        event["memory_freshness"] = (
+            "missing_replaced" if trigger == "connection" else "stale_replaced"
+        )
+    elif isinstance(memory, dict):
+        cached_version = int(memory.get("version") or 0)
+        stale = observed_version is None or int(observed_version) != cached_version
+        attached = {key: value for key, value in memory.items() if key != "t"}
+        if stale:
+            # Never present a cached body as authoritative after the server's
+            # positive revision checkpoint says it is stale. The next memory
+            # frame will replace it, while this wake remains explicitly red.
+            attached["short"] = ""
+            attached["long"] = ""
+            attached["cached_version"] = cached_version
+            attached["observed_version"] = (
+                int(observed_version) if observed_version is not None else None
+            )
+        event["memory"] = attached
+        event["memory_trigger"] = trigger
+        event["memory_freshness"] = "stale_detected" if stale else "current"
+    return event
 
 
 def addresses(m, name):
@@ -1029,7 +1059,14 @@ def main():
         with lock:
             advance_cursor_locked(room, message_id)
 
-    def emit(room, messages, is_lead=False):
+    def emit(
+        room,
+        messages,
+        is_lead=False,
+        memory=None,
+        memory_trigger="turn",
+        observed_memory_version=None,
+    ):
         """Deliver one queued agent turn and advance that room's cursor once."""
         if isinstance(messages, dict):
             messages = [messages]
@@ -1040,6 +1077,12 @@ def main():
             "room": room,
             "messages": messages,
         }
+        event = with_memory(
+            event,
+            memory,
+            memory_trigger,
+            observed_memory_version,
+        )
         delivery = make_delivery(
             room,
             event,
@@ -1051,10 +1094,12 @@ def main():
             try:
                 if sink is not None:
                     # The file is durable message history for the runtime, not
-                    # the wake channel. Preserve one original message per line.
-                    for message in messages:
-                        sink.write(json.dumps(message, ensure_ascii=False) + "\n")
-                    sink.flush()
+                    # the wake channel. Memory is a durable wake type, but it
+                    # is not chat history and must never enter this file.
+                    if event.get("t") != "memory":
+                        for message in messages:
+                            sink.write(json.dumps(message, ensure_ascii=False) + "\n")
+                        sink.flush()
                 else:
                     # Claude Monitor treats stdout as the wake channel: exactly
                     # one line here means exactly one model turn.
@@ -1126,6 +1171,9 @@ def main():
             s = None
             try:
                 s, leftover = connect(wurl, room_protocols(room))
+                current_memory = None
+                observed_memory_version = None
+                memory_seen = False
                 if runtime_health is not None:
                     runtime_health.connected()
                 # A live handshake means the (possibly renewed) session works;
@@ -1156,7 +1204,7 @@ def main():
                             message for message in page_messages if eligible(message)
                         ]
                         for batch in chunk_messages(eligible_messages, turn_limit):
-                            emit(room, batch, current_lead)
+                            emit(room, batch, current_lead, current_memory)
                             recovered += len(batch)
                         # Filtered/self-authored messages were deliberately
                         # consumed too. Checkpoint the raw page watermark only
@@ -1178,6 +1226,21 @@ def main():
                     except Exception:
                         continue
                     t = f.get("t")
+                    if t == "memoryversion":
+                        observed_memory_version = int(f.get("version") or 0)
+                        continue
+                    if t == "memory":
+                        current_memory = f
+                        observed_memory_version = int(f.get("version") or 0)
+                        trigger = "memory_changed" if memory_seen else "connection"
+                        memory_seen = True
+                        emit(
+                            room,
+                            f,
+                            current_lead,
+                            memory_trigger=trigger,
+                        )
+                        continue
                     if t == "evicted":
                         # A newer session took our name (deliberate takeover).
                         # Reconnecting would steal it back and the two processes
@@ -1205,7 +1268,13 @@ def main():
                             sys.stderr.flush()
                             continue
                         if str(signal.get("owner") or "").casefold() == requested_name.casefold():
-                            emit(room, f, current_lead)
+                            emit(
+                                room,
+                                f,
+                                current_lead,
+                                current_memory,
+                                observed_memory_version=observed_memory_version,
+                            )
                             ack = acknowledge_care(
                                 wurl, signal.get("id"), requested_name
                             )
@@ -1244,7 +1313,13 @@ def main():
                         if str(reaction.get("owner") or "").casefold() == requested_name.casefold():
                             event = dict(f)
                             event.setdefault("room", room)
-                            emit(room, event, current_lead)
+                            emit(
+                                room,
+                                event,
+                                current_lead,
+                                current_memory,
+                                observed_memory_version=observed_memory_version,
+                            )
                         continue
                     if t in ("msg", "turn"):
                         incoming = (
@@ -1273,6 +1348,8 @@ def main():
                             room,
                             [m for m in incoming if eligible(m)],
                             current_lead,
+                            current_memory,
+                            observed_memory_version=observed_memory_version,
                         )
             except Exception as e:
                 # A 401 on the handshake means our session died with the

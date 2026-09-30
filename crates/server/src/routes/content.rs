@@ -30,12 +30,17 @@ fn memory_write_error(error: crate::store::MemoryWriteError) -> axum::response::
         }
         crate::store::MemoryWriteError::ShortTooLarge => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            "short memory exceeds the 4 KB limit",
+            "short memory exceeds the 4 KiB limit",
+        )
+            .into_response(),
+        crate::store::MemoryWriteError::EntryTooLarge => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "long-memory entry exceeds the 8 KiB wake-injection budget",
         )
             .into_response(),
         crate::store::MemoryWriteError::LongTooLarge => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            "long memory exceeds the 64 KB hard limit; consolidate it before adding more",
+            "long memory exceeds the 64 KiB hard limit; consolidate it before adding more",
         )
             .into_response(),
         crate::store::MemoryWriteError::Storage => (
@@ -155,6 +160,47 @@ pub(crate) async fn append_long_memory(
     match hub.append_long_memory(&access.room, &actor, body.text.trim()) {
         Ok(entry) => (StatusCode::CREATED, Json(entry)).into_response(),
         Err(error) => memory_write_error(error),
+    }
+}
+
+pub(crate) async fn list_long_memory_entries(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+    Query(q): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    if !hub.memory_persistence_available() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "loca memory requires persistent storage in this deployment",
+        )
+            .into_response();
+    }
+    let after_id = q.get("after_id").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let limit = q
+        .get("limit")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50)
+        .clamp(1, 200);
+    match hub.loca_memory_entries(&access.room, after_id, limit) {
+        Ok(page) => Json(page).into_response(),
+        Err(crate::store::MemoryReadError::PersistenceUnavailable) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "loca memory requires persistent storage in this deployment",
+        )
+            .into_response(),
+        Err(crate::store::MemoryReadError::NotConfigured) => (
+            StatusCode::NOT_FOUND,
+            "memory is not configured for this loca",
+        )
+            .into_response(),
+        Err(crate::store::MemoryReadError::InvariantViolation) => (
+            StatusCode::CONFLICT,
+            "loca memory provenance is inconsistent with long memory",
+        )
+            .into_response(),
+        Err(crate::store::MemoryReadError::Storage) => {
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
     }
 }
 
