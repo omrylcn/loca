@@ -27,6 +27,41 @@ if [ "$SKILL_VERSION" != "$VERSION" ]; then
   exit 1
 fi
 
+CARE_SKILL_VERSION=$(tr -d '[:space:]' < "$ROOT/skill/loca-care/VERSION")
+if [ "$CARE_SKILL_VERSION" != "$VERSION" ]; then
+  echo "loca-care skill version $CARE_SKILL_VERSION does not match canonical $VERSION" >&2
+  exit 1
+fi
+
+DESKTOP_VERSION=$(jq -r '.version // empty' "$ROOT/desktop/src-tauri/tauri.conf.json")
+if [ "$DESKTOP_VERSION" != "$VERSION" ]; then
+  echo "desktop version $DESKTOP_VERSION does not match canonical $VERSION" >&2
+  exit 1
+fi
+
+DESKTOP_SKILL_VERSION=$(awk '
+  $0 == "name = \"skill-bundles\"" { in_package = 1; next }
+  in_package && /^version = / {
+    value = $0
+    sub(/^[^=]*=[[:space:]]*"/, "", value)
+    sub(/".*$/, "", value)
+    print value
+    exit
+  }
+' "$ROOT/desktop/src-tauri/Cargo.lock")
+if [ -z "$DESKTOP_SKILL_VERSION" ] || [ "$DESKTOP_SKILL_VERSION" != "$VERSION" ]; then
+  echo "desktop skill-bundles lock version ${DESKTOP_SKILL_VERSION:-missing} does not match canonical $VERSION" >&2
+  exit 1
+fi
+
+# The desktop is a separate Cargo workspace with its own lock. A textual
+# version check is not enough: this command detects every stale transitive or
+# path-package lock entry without rewriting the release candidate.
+if ! (cd "$ROOT/desktop/src-tauri" && cargo metadata --locked --no-deps --format-version 1 >/dev/null); then
+  echo "desktop Cargo.lock is stale; refresh it before release" >&2
+  exit 1
+fi
+
 if ! grep -Fq "## [$VERSION]" "$ROOT/CHANGELOG.md"; then
   echo "CHANGELOG.md has no section for $VERSION" >&2
   exit 1
