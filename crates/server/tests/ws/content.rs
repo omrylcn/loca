@@ -867,11 +867,13 @@ async fn fresh_connection_automatically_receives_ready_memory() {
         spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
     rusqlite::Connection::open(&db)
         .unwrap()
-        .execute(
+        .execute_batch(
             "INSERT INTO loca_memory
              (room, owner, short, long, short_updated_at, long_updated_at, version)
-             VALUES ('remembered', 'owner', 'short fact', 'long decision', 10, 20, 2)",
-            [],
+             VALUES ('remembered', 'owner', 'short fact', 'long decision', 10, 20, 2);
+             INSERT INTO loca_memory_entries
+             (room, text, decided_by, decided_at)
+             VALUES ('remembered', 'long decision', 'owner', 20);",
         )
         .unwrap();
 
@@ -882,6 +884,92 @@ async fn fresh_connection_automatically_receives_ready_memory() {
     assert_eq!(frame["short"], "short fact");
     assert_eq!(frame["long"], "long decision");
     assert_eq!(frame["version"], 2);
+}
+
+#[tokio::test]
+async fn memory_frame_selects_a_bounded_complete_entry_suffix() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("memory-frame-bounded.db");
+    let (port, _guard) =
+        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    let exact = "ö".repeat(4 * 1024); // exactly 8192 UTF-8 bytes
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute(
+        "INSERT INTO loca_memory
+         (room, owner, long, long_updated_at, version)
+         VALUES ('exact-entry', 'owner', ?1, 20, 1)",
+        [&exact],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
+         VALUES ('exact-entry', ?1, 'owner', 20)",
+        [&exact],
+    )
+    .unwrap();
+
+    let half_old = "a".repeat(4096);
+    let half_new = "b".repeat(4096);
+    let split_long = format!("{half_old}\n\n{half_new}");
+    conn.execute(
+        "INSERT INTO loca_memory (room, owner, long, long_updated_at, version)
+         VALUES ('separator-budget', 'owner', ?1, 20, 2)",
+        [&split_long],
+    )
+    .unwrap();
+    for text in [&half_old, &half_new] {
+        conn.execute(
+            "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
+             VALUES ('separator-budget', ?1, 'owner', 20)",
+            [text],
+        )
+        .unwrap();
+    }
+
+    let old = "old".repeat(100);
+    let legacy = "x".repeat(9 * 1024);
+    let newest = "new".repeat(100);
+    let legacy_long = format!("{old}\n\n{legacy}\n\n{newest}");
+    conn.execute(
+        "INSERT INTO loca_memory (room, owner, long, long_updated_at, version)
+         VALUES ('legacy-entry', 'owner', ?1, 20, 3)",
+        [&legacy_long],
+    )
+    .unwrap();
+    let mut legacy_id = 0u64;
+    for text in [&old, &legacy, &newest] {
+        conn.execute(
+            "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
+             VALUES ('legacy-entry', ?1, 'owner', 20)",
+            [text],
+        )
+        .unwrap();
+        if text.len() > 8 * 1024 {
+            legacy_id = conn.last_insert_rowid() as u64;
+        }
+    }
+    drop(conn);
+
+    let mut ws = connect_ws(port, "exact-entry", "owner", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["long"].as_str().unwrap().len(), 8 * 1024);
+    assert_eq!(frame["long"], exact);
+    assert_eq!(frame["long_truncated"], false);
+    assert_eq!(frame["long_omitted_bytes"], 0);
+    assert_eq!(frame["long_omitted_entries"], 0);
+
+    let mut ws = connect_ws(port, "separator-budget", "owner", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["long"], half_new);
+    assert_eq!(frame["long_truncated"], true);
+    assert_eq!(frame["long_omitted_entries"], 1);
+
+    let mut ws = connect_ws(port, "legacy-entry", "owner", "agent").await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["long"], format!("{old}\n\n{newest}"));
+    assert_eq!(frame["long_uninjectable_entries"], 1);
+    assert_eq!(frame["long_uninjectable_entry_ids"], serde_json::json!([legacy_id]));
+    assert_eq!(frame["long_omitted_entries"], 1);
 }
 
 #[tokio::test]

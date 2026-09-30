@@ -956,6 +956,11 @@ pub enum ServerFrame {
         long_updated_at: Option<u64>,
         over_budget: bool,
         version: u64,
+        long_truncated: bool,
+        long_omitted_bytes: usize,
+        long_omitted_entries: usize,
+        long_uninjectable_entries: usize,
+        long_uninjectable_entry_ids: Vec<u64>,
     },
     /// A newly posted message (including the receiver's own, echoed back).
     Msg {
@@ -1220,6 +1225,16 @@ pub struct LocaMemory {
     pub version: u64,
 }
 
+/// Bounded, entry-aligned memory body suitable for automatic model delivery.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocaMemorySnapshot {
+    pub memory: LocaMemory,
+    pub long_truncated: bool,
+    pub long_omitted_bytes: usize,
+    pub long_omitted_entries: usize,
+    pub long_uninjectable_entry_ids: Vec<u64>,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum LocaMemoryStatus {
@@ -1229,8 +1244,8 @@ pub enum LocaMemoryStatus {
 }
 
 impl ServerFrame {
-    pub fn memory(room: &str, memory: Option<LocaMemory>) -> Self {
-        let Some(memory) = memory else {
+    pub fn memory(room: &str, snapshot: Option<LocaMemorySnapshot>) -> Self {
+        let Some(snapshot) = snapshot else {
             return Self::Memory {
                 room: room.to_string(),
                 owner: None,
@@ -1241,8 +1256,14 @@ impl ServerFrame {
                 long_updated_at: None,
                 over_budget: false,
                 version: 0,
+                long_truncated: false,
+                long_omitted_bytes: 0,
+                long_omitted_entries: 0,
+                long_uninjectable_entries: 0,
+                long_uninjectable_entry_ids: Vec::new(),
             };
         };
+        let memory = snapshot.memory;
         let status = if memory.short.is_empty() && memory.long.is_empty() {
             LocaMemoryStatus::Empty
         } else {
@@ -1258,6 +1279,11 @@ impl ServerFrame {
             long_updated_at: memory.long_updated_at,
             over_budget: memory.over_budget,
             version: memory.version,
+            long_truncated: snapshot.long_truncated,
+            long_omitted_bytes: snapshot.long_omitted_bytes,
+            long_omitted_entries: snapshot.long_omitted_entries,
+            long_uninjectable_entries: snapshot.long_uninjectable_entry_ids.len(),
+            long_uninjectable_entry_ids: snapshot.long_uninjectable_entry_ids,
         }
     }
 }

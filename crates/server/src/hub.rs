@@ -3419,6 +3419,13 @@ impl Hub {
         self.store.loca_memory(room)
     }
 
+    pub fn loca_memory_snapshot(
+        &self,
+        room: &str,
+    ) -> rusqlite::Result<Option<protocol::LocaMemorySnapshot>> {
+        self.store.loca_memory_snapshot(room)
+    }
+
     pub fn memory_persistence_available(&self) -> bool {
         self.store.memory_persistence_available()
     }

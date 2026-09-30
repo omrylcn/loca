@@ -1247,7 +1247,7 @@ async fn ws_session(
     // seated connection, including absent and empty state, before history so
     // a freshly connected agent starts with an explicit memory envelope.
     if !watch_only {
-        let memory = match hub.loca_memory(&room) {
+        let memory = match hub.loca_memory_snapshot(&room) {
             Ok(memory) => memory,
             Err(error) => {
                 tracing::warn!(%room, %name, %error, "could not read loca memory");

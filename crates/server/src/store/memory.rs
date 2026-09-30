@@ -35,6 +35,62 @@ impl Store {
         self.conn.is_some()
     }
 
+    pub fn loca_memory_snapshot(
+        &self,
+        room: &str,
+    ) -> rusqlite::Result<Option<protocol::LocaMemorySnapshot>> {
+        let Some(mut memory) = self.loca_memory(room)? else {
+            return Ok(None);
+        };
+        let full_long_bytes = memory.long.len();
+        let Some(c) = self.conn() else {
+            return Ok(None);
+        };
+        let mut stmt = c.prepare(
+            "SELECT id, text FROM loca_memory_entries WHERE room = ?1 ORDER BY id DESC",
+        )?;
+        let entries = stmt
+            .query_map(params![room], |row| {
+                Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        let mut selected = Vec::new();
+        let mut selected_bytes = 0usize;
+        let mut suffix_closed = false;
+        let mut uninjectable_ids = Vec::new();
+        for (id, text) in &entries {
+            if text.len() > LONG_MEMORY_ENTRY_MAX_BYTES {
+                uninjectable_ids.push(*id);
+                continue;
+            }
+            if suffix_closed {
+                continue;
+            }
+            // The canonical separator costs two bytes only BETWEEN selected
+            // entries. A single exactly-8192-byte entry therefore fits.
+            let separator_bytes = usize::from(!selected.is_empty()) * 2;
+            let candidate_bytes = selected_bytes + separator_bytes + text.len();
+            if candidate_bytes <= LONG_MEMORY_ENTRY_MAX_BYTES {
+                selected.push(text.as_str());
+                selected_bytes = candidate_bytes;
+            } else {
+                suffix_closed = true;
+            }
+        }
+        selected.reverse();
+        memory.long = selected.join("\n\n");
+        let long_omitted_entries = entries.len().saturating_sub(selected.len());
+        let long_omitted_bytes = full_long_bytes.saturating_sub(memory.long.len());
+        Ok(Some(protocol::LocaMemorySnapshot {
+            memory,
+            long_truncated: long_omitted_entries > 0,
+            long_omitted_bytes,
+            long_omitted_entries,
+            long_uninjectable_entry_ids: uninjectable_ids,
+        }))
+    }
+
     pub fn loca_memory_metadata(&self) -> rusqlite::Result<Vec<protocol::LocaMemoryMetadata>> {
         let Some(c) = self.conn() else {
             return Ok(Vec::new());
