@@ -6,6 +6,20 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.27] - 2026-09-30
+
+### Added
+- Loca memory now reaches agents automatically on connection, memory changes,
+  and model wakes, with independently timestamped short and long state.
+- Long-memory decisions expose paginated provenance and bounded, entry-aligned
+  automatic injection with explicit truncation diagnostics.
+- Agent tooling now supports reading and updating memory and documents safe
+  recovery after context compaction.
+
+### Fixed
+- Wake-time memory freshness is positively checked against the server revision;
+  stale cached bodies are withheld instead of being presented as current.
+
 ## [0.9.26] - 2026-09-29
 
 ### Fixed
