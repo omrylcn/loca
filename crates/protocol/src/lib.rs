@@ -959,7 +959,9 @@ pub enum ServerFrame {
         long_truncated: bool,
         long_omitted_bytes: usize,
         long_omitted_entries: usize,
+        /// Subset of `long_omitted_entries`; never add these two counts.
         long_uninjectable_entries: usize,
+        /// IDs for the uninjectable subset of omitted entries.
         long_uninjectable_entry_ids: Vec<u64>,
     },
     /// A newly posted message (including the receiver's own, echoed back).
@@ -1232,6 +1234,8 @@ pub struct LocaMemorySnapshot {
     pub long_truncated: bool,
     pub long_omitted_bytes: usize,
     pub long_omitted_entries: usize,
+    /// Subset of omitted entries whose individual UTF-8 body exceeds the
+    /// automatic injection budget. Consumers must not add the two counts.
     pub long_uninjectable_entry_ids: Vec<u64>,
 }
 

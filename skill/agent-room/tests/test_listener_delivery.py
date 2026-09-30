@@ -449,6 +449,28 @@ class ListenerDeliveryTests(unittest.TestCase):
             care["delivery_id"], "sb-dev:care:sb-dev:WaitCycle:10:1"
         )
 
+    def test_memory_snapshot_is_carried_by_connection_and_turn_wakes(self):
+        memory = {
+            "t": "memory",
+            "status": "ready",
+            "short": "fact",
+            "long": "decision",
+            "short_updated_at": 10,
+            "long_updated_at": 20,
+            "version": 2,
+        }
+        connection = LISTENER.with_memory(memory, None, "connection")
+        self.assertEqual(connection["memory_trigger"], "connection")
+        self.assertEqual(LISTENER.delivery_priority(connection, "agent"), "addressed_agent")
+
+        turn = LISTENER.with_memory(
+            {"t": "turn", "messages": [{"id": 7, "text": "wake"}]},
+            memory,
+        )
+        self.assertEqual(turn["memory_trigger"], "turn")
+        self.assertNotIn("t", turn["memory"])
+        self.assertEqual(turn["memory"]["version"], 2)
+
     def test_agent_direct_to_lead_is_attention_not_context_only(self):
         from attention_store import AttentionStore
 

@@ -157,6 +157,22 @@ def care_signal(attention: dict[str, Any]) -> dict[str, Any] | None:
     return signal if isinstance(signal, dict) else {}
 
 
+def memory_context(attention: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """Return the bounded memory snapshot carried by this wake, if any."""
+    event = json.loads(str(attention["event_json"]))
+    if event.get("t") == "memory":
+        memory = {
+            key: value
+            for key, value in event.items()
+            if key not in ("t", "memory_trigger")
+        }
+    else:
+        memory = event.get("memory")
+    if not isinstance(memory, dict):
+        return None
+    return str(event.get("memory_trigger") or "turn"), memory
+
+
 def care_context_lines(
     signal: dict[str, Any], context: list[dict[str, Any]]
 ) -> list[str]:
@@ -279,6 +295,15 @@ def attention_prompt(
         body = (
             "Bounded room context:\n"
             f"{bounded_context_text(attention, context)}"
+        )
+    carried_memory = memory_context(attention)
+    if carried_memory is not None:
+        trigger, memory = carried_memory
+        body += (
+            "\n\nLoca memory snapshot "
+            f"(trigger={trigger}; bounded; omitted counters include the "
+            "uninjectable subset):\n"
+            + json.dumps(memory, ensure_ascii=False, sort_keys=True)
         )
     return (
         f"Loca attention for {identity} in private room {attention['room']}.\n"

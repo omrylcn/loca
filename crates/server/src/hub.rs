@@ -3444,7 +3444,9 @@ impl Hub {
     }
 
     pub fn set_memory_owner(&self, room: &str, owner: Option<&str>) -> rusqlite::Result<()> {
-        self.store.set_memory_owner(room, owner)
+        self.store.set_memory_owner(room, owner)?;
+        self.broadcast_memory_snapshot(room);
+        Ok(())
     }
 
     pub fn write_short_memory(
@@ -3453,7 +3455,9 @@ impl Hub {
         actor: &str,
         text: &str,
     ) -> Result<protocol::LocaMemory, crate::store::MemoryWriteError> {
-        self.store.write_short_memory(room, actor, text, self.now())
+        let memory = self.store.write_short_memory(room, actor, text, self.now())?;
+        self.broadcast_memory_snapshot(room);
+        Ok(memory)
     }
 
     pub fn append_long_memory(
@@ -3462,7 +3466,23 @@ impl Hub {
         actor: &str,
         text: &str,
     ) -> Result<protocol::LocaMemoryEntry, crate::store::MemoryWriteError> {
-        self.store.append_long_memory(room, actor, text, self.now())
+        let entry = self.store.append_long_memory(room, actor, text, self.now())?;
+        self.broadcast_memory_snapshot(room);
+        Ok(entry)
+    }
+
+    fn broadcast_memory_snapshot(&self, room: &str) {
+        let snapshot = match self.store.loca_memory_snapshot(room) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::warn!(%room, %error, "could not broadcast loca memory snapshot");
+                return;
+            }
+        };
+        let rooms = self.rooms.lock_or_recover();
+        if let Some(state) = rooms.get(room) {
+            let _ = state.tx.send(ServerFrame::memory(room, snapshot));
+        }
     }
 
     /// All notes in a room (sorted by key for stable display).

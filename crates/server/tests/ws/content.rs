@@ -884,6 +884,38 @@ async fn fresh_connection_automatically_receives_ready_memory() {
     assert_eq!(frame["short"], "short fact");
     assert_eq!(frame["long"], "long decision");
     assert_eq!(frame["version"], 2);
+
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let session: Value = client
+        .post(format!("{base}/sessions"))
+        .json(&serde_json::json!({"name": "owner", "kind": "agent"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    client
+        .post(format!("{base}/rooms/remembered/memory/entries"))
+        .header(
+            "x-session-token",
+            session["session_token"].as_str().unwrap(),
+        )
+        .json(&serde_json::json!({"text": "new decision"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let updated = wait_for(&mut ws, |frame| {
+        frame["t"] == "memory" && frame["version"] == 3
+    })
+    .await;
+    assert_eq!(updated["long"], "long decision\n\nnew decision");
+    assert!(updated["long_updated_at"].as_u64().is_some());
 }
 
 #[tokio::test]

@@ -260,6 +260,35 @@ class AdapterFixture:
 
 
 class CodexAdapterV2Tests(unittest.TestCase):
+    def test_attention_prompt_renders_bounded_memory_snapshot(self):
+        event = {
+            "id": 7,
+            "sender": "operator",
+            "sender_type": "user",
+            "text": "wake",
+            "memory_trigger": "turn",
+            "memory": {
+                "status": "ready",
+                "short": "fact",
+                "long": "decision",
+                "version": 3,
+                "long_omitted_entries": 1,
+                "long_uninjectable_entries": 1,
+            },
+        }
+        attention = {
+            "attention_id": "attention:1",
+            "room": "sb-dev",
+            "priority": "direct_user",
+            "reply_required": True,
+            "attempts": 0,
+            "event_json": json.dumps(event),
+        }
+        prompt = attention_prompt("reviewer", attention, [])
+        self.assertIn("Loca memory snapshot (trigger=turn; bounded", prompt)
+        self.assertIn('"short": "fact"', prompt)
+        self.assertIn("uninjectable subset", prompt)
+
     def test_reconciliation_health_marks_current_epoch_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
             fixture = AdapterFixture(Path(tmp))

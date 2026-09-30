@@ -551,6 +551,8 @@ def delivery_priority(event, identity, is_lead=False):
         return "explicit_task"
     if event.get("t") == "reaction":
         return "direct_user"
+    if event.get("t") == "memory":
+        return "addressed_agent"
     messages = event.get("messages") if event.get("t") == "turn" else [event]
     messages = [message for message in messages if isinstance(message, dict)]
     user_messages = [
@@ -728,6 +730,17 @@ def make_delivery(
         "last_id": last_id or None,
         "event": event,
     }
+
+
+def with_memory(event, memory, trigger="turn"):
+    """Attach the latest bounded room snapshot to one model wake."""
+    event = dict(event)
+    if event.get("t") == "memory":
+        event["memory_trigger"] = trigger
+    elif isinstance(memory, dict):
+        event["memory"] = {key: value for key, value in memory.items() if key != "t"}
+        event["memory_trigger"] = trigger
+    return event
 
 
 def addresses(m, name):
@@ -1029,7 +1042,7 @@ def main():
         with lock:
             advance_cursor_locked(room, message_id)
 
-    def emit(room, messages, is_lead=False):
+    def emit(room, messages, is_lead=False, memory=None, memory_trigger="turn"):
         """Deliver one queued agent turn and advance that room's cursor once."""
         if isinstance(messages, dict):
             messages = [messages]
@@ -1040,6 +1053,7 @@ def main():
             "room": room,
             "messages": messages,
         }
+        event = with_memory(event, memory, memory_trigger)
         delivery = make_delivery(
             room,
             event,
@@ -1126,6 +1140,8 @@ def main():
             s = None
             try:
                 s, leftover = connect(wurl, room_protocols(room))
+                current_memory = None
+                memory_seen = False
                 if runtime_health is not None:
                     runtime_health.connected()
                 # A live handshake means the (possibly renewed) session works;
@@ -1156,7 +1172,7 @@ def main():
                             message for message in page_messages if eligible(message)
                         ]
                         for batch in chunk_messages(eligible_messages, turn_limit):
-                            emit(room, batch, current_lead)
+                            emit(room, batch, current_lead, current_memory)
                             recovered += len(batch)
                         # Filtered/self-authored messages were deliberately
                         # consumed too. Checkpoint the raw page watermark only
@@ -1178,6 +1194,17 @@ def main():
                     except Exception:
                         continue
                     t = f.get("t")
+                    if t == "memory":
+                        current_memory = f
+                        trigger = "memory_changed" if memory_seen else "connection"
+                        memory_seen = True
+                        emit(
+                            room,
+                            f,
+                            current_lead,
+                            memory_trigger=trigger,
+                        )
+                        continue
                     if t == "evicted":
                         # A newer session took our name (deliberate takeover).
                         # Reconnecting would steal it back and the two processes
@@ -1205,7 +1232,7 @@ def main():
                             sys.stderr.flush()
                             continue
                         if str(signal.get("owner") or "").casefold() == requested_name.casefold():
-                            emit(room, f, current_lead)
+                            emit(room, f, current_lead, current_memory)
                             ack = acknowledge_care(
                                 wurl, signal.get("id"), requested_name
                             )
@@ -1244,7 +1271,7 @@ def main():
                         if str(reaction.get("owner") or "").casefold() == requested_name.casefold():
                             event = dict(f)
                             event.setdefault("room", room)
-                            emit(room, event, current_lead)
+                            emit(room, event, current_lead, current_memory)
                         continue
                     if t in ("msg", "turn"):
                         incoming = (
@@ -1273,6 +1300,7 @@ def main():
                             room,
                             [m for m in incoming if eligible(m)],
                             current_lead,
+                            current_memory,
                         )
             except Exception as e:
                 # A 401 on the handshake means our session died with the
