@@ -264,6 +264,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
     def test_memory_prompt_preserves_the_bounded_wire_budget(self):
         base = {
             "status": "ready",
+            "owner": "İye sahibi",
             "short_updated_at": 10,
             "long_updated_at": 20,
             "version": 3,
@@ -275,12 +276,14 @@ class CodexAdapterV2Tests(unittest.TestCase):
         }
         fixtures = {
             "turkish": ("ö" * (4 * 1024 // 2), "ğ" * (8 * 1024 // 2)),
+            "ascii": ("s" * (4 * 1024), "l" * (8 * 1024)),
             "multiline": (
                 ("short-line\n" * 400)[: 4 * 1024],
                 ("long karar\n\n" * 700)[: 8 * 1024],
             ),
             "escaping_ceiling": ("\n" * (4 * 1024), "\n" * (8 * 1024)),
         }
+        serialized_sizes = []
         for name, (short, long) in fixtures.items():
             memory = dict(base, short=short, long=long)
             rendered = render_memory_snapshot(memory)
@@ -288,9 +291,15 @@ class CodexAdapterV2Tests(unittest.TestCase):
                 self.assertLessEqual(len(rendered.encode("utf-8")), 13 * 1024)
                 self.assertIn(short, rendered)
                 self.assertIn(long, rendered)
-                self.assertNotIn("\\u00", rendered)
+                self.assertNotIn("\\u", rendered)
                 self.assertNotIn('"short"', rendered.splitlines()[0])
                 self.assertNotIn('"long"', rendered.splitlines()[0])
+                serialized_sizes.append(len(rendered.encode("utf-8")))
+        self.assertLess(
+            max(serialized_sizes) - min(serialized_sizes),
+            64,
+            "verbatim body cost must remain independent of content escaping",
+        )
 
     def test_attention_prompt_renders_bounded_memory_snapshot(self):
         event = {
