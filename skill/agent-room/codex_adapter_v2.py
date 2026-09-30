@@ -174,10 +174,21 @@ def memory_context(attention: dict[str, Any]) -> tuple[str, dict[str, Any]] | No
 
 
 def render_memory_snapshot(memory: dict[str, Any]) -> str:
-    # `ensure_ascii=False` is part of the bounded-memory wire contract, not a
-    # cosmetic choice: escaping Turkish text can inflate a 12 KiB raw snapshot
-    # to roughly three times that size.
-    return json.dumps(memory, ensure_ascii=False, sort_keys=True)
+    """Render bounded bodies verbatim so JSON escaping cannot double them."""
+    metadata = {
+        key: value for key, value in memory.items() if key not in ("short", "long")
+    }
+    # `ensure_ascii=False` remains part of the metadata wire contract. The two
+    # bounded bodies deliberately stay outside JSON: newlines, quotes and
+    # backslashes must retain their one-byte representation in the prompt.
+    rendered_metadata = json.dumps(metadata, ensure_ascii=False, sort_keys=True)
+    short = str(memory.get("short") or "")
+    long = str(memory.get("long") or "")
+    return (
+        f"metadata: {rendered_metadata}\n"
+        f"short ({len(short.encode('utf-8'))} UTF-8 bytes; verbatim):\n{short}\n"
+        f"long ({len(long.encode('utf-8'))} UTF-8 bytes; verbatim):\n{long}"
+    )
 
 
 def care_context_lines(

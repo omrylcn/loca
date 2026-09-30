@@ -261,11 +261,9 @@ class AdapterFixture:
 
 
 class CodexAdapterV2Tests(unittest.TestCase):
-    def test_turkish_memory_json_preserves_the_bounded_wire_budget(self):
-        memory = {
+    def test_memory_prompt_preserves_the_bounded_wire_budget(self):
+        base = {
             "status": "ready",
-            "short": "ö" * (4 * 1024 // 2),
-            "long": "ğ" * (8 * 1024 // 2),
             "short_updated_at": 10,
             "long_updated_at": 20,
             "version": 3,
@@ -275,11 +273,24 @@ class CodexAdapterV2Tests(unittest.TestCase):
             "long_uninjectable_entries": 0,
             "long_uninjectable_entry_ids": [],
         }
-        rendered = render_memory_snapshot(memory)
-        self.assertIn("ö", rendered)
-        self.assertIn("ğ", rendered)
-        self.assertNotIn("\\u00", rendered)
-        self.assertLessEqual(len(rendered.encode("utf-8")), 13 * 1024)
+        fixtures = {
+            "turkish": ("ö" * (4 * 1024 // 2), "ğ" * (8 * 1024 // 2)),
+            "multiline": (
+                ("short-line\n" * 400)[: 4 * 1024],
+                ("long karar\n\n" * 700)[: 8 * 1024],
+            ),
+            "escaping_ceiling": ("\n" * (4 * 1024), "\n" * (8 * 1024)),
+        }
+        for name, (short, long) in fixtures.items():
+            memory = dict(base, short=short, long=long)
+            rendered = render_memory_snapshot(memory)
+            with self.subTest(name=name):
+                self.assertLessEqual(len(rendered.encode("utf-8")), 13 * 1024)
+                self.assertIn(short, rendered)
+                self.assertIn(long, rendered)
+                self.assertNotIn("\\u00", rendered)
+                self.assertNotIn('"short"', rendered.splitlines()[0])
+                self.assertNotIn('"long"', rendered.splitlines()[0])
 
     def test_attention_prompt_renders_bounded_memory_snapshot(self):
         event = {
@@ -307,7 +318,8 @@ class CodexAdapterV2Tests(unittest.TestCase):
         }
         prompt = attention_prompt("reviewer", attention, [])
         self.assertIn("Loca memory snapshot (trigger=turn; bounded", prompt)
-        self.assertIn('"short": "fact"', prompt)
+        self.assertIn("short (4 UTF-8 bytes; verbatim):\nfact", prompt)
+        self.assertIn("long (8 UTF-8 bytes; verbatim):\ndecision", prompt)
         self.assertIn("uninjectable subset", prompt)
 
     def test_reconciliation_health_marks_current_epoch_complete(self):
