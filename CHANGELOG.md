@@ -6,6 +6,20 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.28] - 2026-10-03
+
+### Added
+- Every Loca now has a dedicated Memory panel showing current state, durable
+  decisions, provenance, ownership, freshness, and budget health.
+- Memory owners can update current state and append durable decisions from the
+  web interface while non-owners, including administrators, remain read-only.
+
+### Fixed
+- Live memory snapshots now update the panel and warning indicator without a
+  refresh, ignore frames for other Locas, and reject stale version rollbacks.
+- Unknown future memory states are surfaced visibly instead of leaving stale
+  data looking healthy.
+
 ## [0.9.27] - 2026-09-30
 
 ### Added

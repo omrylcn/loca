@@ -2,6 +2,7 @@
 // Shared browser state, identity, room navigation, and unread cursors.
 const $ = (id) => document.getElementById(id);
 const state = { server: "", name: "operator", room: null, rooms: [], ws: null, members: [], lobby: [], tab: "chat", sidebarView: "building", locaOperator: null, locaContext: null, principalId: null, roomPreferences: { pinned: [], hidden: [], order: [] }, notes: {}, editing: null, pairing: "", roomToken: "", session: null, authStatus: "unknown", adminSession: false, sessionExpires: null, profile: null, credentials: [], epoch: null, homeRoom: "iye", locaAgents: [], mode: { mode: "free" }, settings: { rate_limit: 10, rate_window_secs: 30 }, mod: { muted: [], banned: [] }, tasks: {}, goals: {}, attentions: {}, waits: {}, journal: [], lastId: 0, seen: new Set(), msgs: [], replyTo: null, reminderReceipts: new Set(), unread: {}, readCursors: {}, roomLatest: {}, unreadChecked: {}, readStorageKey: "", pendingAttachments: [], pinned: null, pinnedExpanded: false };
+Object.assign(state, { memory: null, memoryEntries: [], memoryStatus: "loading", memoryError: "" });
 
 function renderHostProvisioningStatus() {
   const box = $("hostProvisionError");

@@ -104,6 +104,7 @@
         <button class="tab" id="tabNotes" data-tab="notes" role="tab" aria-selected="false">Notes<span class="dot" id="notesDot"></span></button>
         <button class="tab" id="tabTasks" data-tab="tasks" role="tab" aria-selected="false">Focus<span class="dot" id="tasksDot"></span></button>
         <button class="tab" id="tabJournal" data-tab="journal" role="tab" aria-selected="false">Journal<span class="dot" id="journalDot"></span></button>
+        <button class="tab" id="tabMemory" data-tab="memory" role="tab" aria-selected="false">Memory<span class="dot" id="memoryDot"></span></button>
       </div>
       <div class="roomactions">
         <span id="leadKey" class="leadkey hidden">@lead</span>
@@ -319,6 +320,26 @@
         <span class="nwrite" style="margin-left:10px">you post as <b id="nnYou">operator</b> · operator may (re)assign can_write</span>
       </div>
     </div>
+
+    <div class="notes hidden" id="memoryPanel">
+      <div class="memorytitle"><span>Memory</span><b id="memoryHeading">—</b></div>
+      <div id="memoryOverview"></div>
+      <div class="sectionlabel">Current state</div>
+      <div id="memoryShort" class="memorybody"></div>
+      <div id="memoryShortEditor" class="memoryeditor hidden">
+        <textarea id="memoryShortInput" aria-label="Current state editor"></textarea>
+        <div class="memoryeditbar"><span id="memoryShortBytes">0 / 4096 bytes</span><button id="memorySaveShort">Save current state</button></div>
+      </div>
+      <div class="sectionlabel">Durable decisions</div>
+      <div id="memoryEntries"></div>
+      <div id="memoryDecisionEditor" class="memoryeditor hidden">
+        <textarea id="memoryDecisionInput" aria-label="New durable decision" placeholder="Add a durable decision with its source or rationale"></textarea>
+        <div class="memoryeditbar"><span id="memoryDecisionBytes">0 / 8192 bytes</span><button id="memoryAddDecision">Add decision</button></div>
+      </div>
+      <div id="memoryWriteResult" class="sysline hidden" role="status"></div>
+      <div class="sectionlabel">Health &amp; limits</div>
+      <div id="memoryHealth"></div>
+    </div>
   </main>
 
   <!-- GETTING STARTED: first-open guide; reopen from the ? Help button (top-left). -->
@@ -419,6 +440,7 @@
 <script src="/assets/chat.js"></script>
 <script src="/assets/admin.js"></script>
 <script src="/assets/focus.js"></script>
+<script src="/assets/notes.js"></script>
 <script src="/assets/memory.js"></script>
 <script src="/assets/profile.js"></script>
 <script src="/assets/sidebar.js"></script>

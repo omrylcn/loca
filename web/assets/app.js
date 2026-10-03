@@ -390,6 +390,11 @@ $("clearBtn").onclick = () => { revokeInlineAttachmentUrls(); $("feed").innerHTM
 // tabs
 $("tabChat").onclick = () => switchTab("chat");
 $("tabNotes").onclick = () => switchTab("notes");
+$("tabMemory").onclick = () => switchTab("memory");
+$("memorySaveShort").onclick = saveShortMemory;
+$("memoryAddDecision").onclick = addMemoryDecision;
+$("memoryShortInput").oninput = renderMemoryByteCounts;
+$("memoryDecisionInput").oninput = renderMemoryByteCounts;
 
 // notes create + edit (event delegation on the list)
 $("nnCreate").onclick = createNote;

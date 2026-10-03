@@ -168,9 +168,14 @@ function joinRoom(room) {
   state.attentions = {};
   resetReminderChatProjection();
   state.notes = {};
+  state.memory = null;
+  state.memoryEntries = [];
+  state.memoryStatus = "loading";
+  state.memoryError = "";
   $("notesDot").classList.remove("on");
   refreshRooms();
   fetchNotes();
+  fetchMemory();
   fetchMode();
   fetchSettings();
   fetchMod();
@@ -303,6 +308,7 @@ function onFrame(f) {
     else { addSys("control: /" + f.cmd); scrollFeed(); }
   }
   else if (f.t === "note") { onNoteFrame(f.note); }
+  else if (f.t === "memory") { onMemoryFrame(f); }
   else if (f.t === "notewarn") {
     addSys(`⚠ ${f.by} edited note "${f.key}" but can_write = [${f.can_write.join(", ")}]`);
     if (state.tab === "chat") scrollFeed();
