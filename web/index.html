@@ -325,6 +325,14 @@
     <div class="notes hidden" id="memoryPanel">
       <div class="memorytitle"><span>Memory</span><b id="memoryHeading">—</b></div>
       <div id="memoryOverview"></div>
+      <div id="memoryOwnerEditor" class="memoryeditor hidden">
+        <label for="memoryOwnerSelect">Memory owner</label>
+        <div class="memoryeditbar">
+          <select id="memoryOwnerSelect" aria-label="Memory owner"></select>
+          <button id="memorySaveOwner">Change owner</button>
+        </div>
+        <span class="markdownhint">Building master only. Choose an active identity; ownership is bound to that identity, not just its name.</span>
+      </div>
       <div class="sectionlabel">Current state</div>
       <div id="memoryShort" class="memorybody"></div>
       <div id="memoryShortEditor" class="memoryeditor hidden">

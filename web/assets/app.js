@@ -393,6 +393,8 @@ $("tabNotes").onclick = () => switchTab("notes");
 $("tabMemory").onclick = () => switchTab("memory");
 $("memorySaveShort").onclick = saveShortMemory;
 $("memoryAddDecision").onclick = addMemoryDecision;
+$("memorySaveOwner").onclick = saveMemoryOwner;
+$("memoryOwnerSelect").onchange = updateMemoryOwnerButton;
 $("memoryShortInput").oninput = editShortMemory;
 $("memoryDecisionInput").oninput = renderMemoryByteCounts;
 

@@ -98,12 +98,21 @@ async function writeMemory(path, request, text) {
     });
     if (state.room !== room || state.locaContext !== context) return false;
     if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+    let writtenDecision = null;
+    if (path === "entries") {
+      // HTTP acceptance is already real even if its receipt is unreadable.
+      // Without the exact new ID, an older identical decision is not proof.
+      try { writtenDecision = await response.json(); } catch (_) {}
+      if (state.room !== room || state.locaContext !== context) return false;
+    }
     if (path === "short" && $("memoryShortInput").value.trim() === text) memoryDrafts.delete(room);
     const readback = await fetchMemory(true);
     if (state.room !== room || state.locaContext !== context) return false;
     const verified = readback && (path === "short"
       ? state.memory?.short === text
-      : state.memoryEntries.some(entry => entry.text === text));
+      : Number.isSafeInteger(writtenDecision?.id) && writtenDecision.id > 0
+        && writtenDecision.room === room && writtenDecision.text === text
+        && state.memoryEntries.some(entry => entry.id === writtenDecision.id && entry.text === text));
     showMemoryWriteResult(verified
       ? "Saved and verified from the server."
       : "Saved by the server; verification could not complete. Retry the refresh.", !verified);
@@ -130,6 +139,62 @@ async function addMemoryDecision() {
   if (await writeMemory("entries", { method: "POST" }, text) && state.room === room && $("memoryDecisionInput").value.trim() === text) {
     $("memoryDecisionInput").value = "";
     renderMemoryByteCounts();
+  }
+}
+
+function renderMemoryOwnerEditor() {
+  const editor = $("memoryOwnerEditor");
+  if (!editor) return;
+  const allowed = isAdmin() && !!state.room;
+  editor.classList.toggle("hidden", !allowed);
+  if (!allowed) return;
+  const select = $("memoryOwnerSelect");
+  const current = state.memory?.owner || "";
+  const identities = new Set([
+    ...state.members.map(member => member.name),
+    ...(state.seatedAway || []).map(member => member.name),
+  ].filter(Boolean));
+  if (current) identities.add(current);
+  select.innerHTML = `<option value="">not assigned</option>` + [...identities]
+    .sort((a, b) => a.localeCompare(b))
+    .map(name => `<option value="${esc(name)}">${esc(name)}</option>`)
+    .join("");
+  select.value = current;
+  updateMemoryOwnerButton();
+}
+
+function updateMemoryOwnerButton() {
+  $("memorySaveOwner").disabled = $("memoryOwnerSelect").value === (state.memory?.owner || "")
+    || memoryWrites.has(state.locaContext);
+}
+
+async function saveMemoryOwner() {
+  if (!isAdmin() || !state.room) return;
+  const room = state.room;
+  const context = state.locaContext;
+  const owner = $("memoryOwnerSelect").value || null;
+  if (memoryWrites.has(context)) return;
+  memoryWrites.add(context);
+  renderMemoryOwnerEditor();
+  try {
+    const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/memory/owner`, {
+      method: "PUT",
+      headers: adminHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ owner }),
+    });
+    if (state.room !== room || state.locaContext !== context) return;
+    if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+    await fetchMemory(true);
+    if (state.room !== room || state.locaContext !== context) return;
+    const verified = (state.memory?.owner || null) === owner;
+    showMemoryWriteResult(verified
+      ? "Memory owner changed and verified from the server."
+      : "Owner change was accepted; verification could not complete. Refresh and check again.", !verified);
+  } catch (error) {
+    if (state.room === room && state.locaContext === context) showMemoryWriteResult(String(error.message || error), true);
+  } finally {
+    memoryWrites.delete(context);
+    if (state.room === room && state.locaContext === context) renderMemoryOwnerEditor();
   }
 }
 
@@ -203,6 +268,7 @@ function renderMemory() {
     $("memoryShort").textContent = "";
     $("memoryEntries").innerHTML = "";
     $("memoryHealth").innerHTML = "";
+    $("memoryOwnerEditor").classList.add("hidden");
     $("memoryShortEditor").classList.add("hidden");
     $("memoryDecisionEditor").classList.add("hidden");
     $("memoryWriteResult").classList.add("hidden");
@@ -225,6 +291,7 @@ function renderMemory() {
     <div class="memorycard"><small>Long updated</small><b>${esc(memoryWhen(memory?.long_updated_at))}</b></div>
     <div class="memorycard"><small>Revision</small><b>${Number(memory?.version || 0)}</b></div>
   </div>`;
+  renderMemoryOwnerEditor();
   $("memoryShort").textContent = memory?.short || (status === "absent" ? "Memory owner not assigned." : "No current state has been written.");
   $("memoryShortEditor").classList.toggle("hidden", !canWrite);
   $("memoryDecisionEditor").classList.toggle("hidden", !canWrite);

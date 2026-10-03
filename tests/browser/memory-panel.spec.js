@@ -74,6 +74,37 @@ test("Memory paneli loca adini ve ayri short/long saatlerini gosterir", async ({
   await expect(page.locator("#memoryHealth")).toContainText("owner");
 });
 
+test("Building master memory owner secip sunucudan dogrular", async ({ page }) => {
+  await page.route("**/rooms/memory-test-room/memory/owner", async route => {
+    expect(route.request().method()).toBe("PUT");
+    expect(route.request().postDataJSON()).toEqual({ owner: "next-owner" });
+    await route.fulfill({ status: 204 });
+  });
+  await page.route("**/rooms/memory-test-room/memory", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ room: "memory-test-room", owner: "next-owner", short: "", long: "", version: 2 }),
+  }));
+  await page.route("**/rooms/memory-test-room/memory/entries**", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ entries: [], next_after_id: null }),
+  }));
+  await renderPeopleWithMemory(page, { name: "operator", owner: "memory-owner", admin: true });
+  await showMemoryPanel(page);
+  await expect(page.locator("#memoryOwnerEditor")).toBeVisible();
+  await page.locator("#memoryOwnerSelect").selectOption("next-owner");
+  await page.locator("#memorySaveOwner").click();
+  await expect(page.locator("#memoryWriteResult")).toContainText("changed and verified");
+  await expect(page.locator("#memoryOverview")).toContainText("next-owner");
+});
+
+test("normal uye memory owner secicisini goremez", async ({ page }) => {
+  await renderPeopleWithMemory(page, { name: "memory-owner", owner: "memory-owner", admin: false });
+  await showMemoryPanel(page);
+  await expect(page.locator("#memoryOwnerEditor")).toBeHidden();
+});
+
 for (const example of [
   { name: "over_budget", status: "ready", memory: { owner: "memory-owner", over_budget: true } },
   { name: "inconsistent", status: "inconsistent", memory: { owner: "memory-owner", over_budget: false } },
@@ -344,7 +375,9 @@ test("owner karari POST entries ucuna yollar", async ({ page }) => {
     if (route.request().method() === "POST") {
       posts += 1;
       expect((await route.request().postDataJSON()).text).toBe("durable choice");
-      return route.fulfill({ status: 201, contentType: "application/json", body: "{}" });
+      return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({
+        id: 1, room: "memory-test-room", text: "durable choice", decided_by: "memory-owner", decided_at: 30,
+      }) });
     }
     return route.fulfill({
       status: 200, contentType: "application/json", body: JSON.stringify({ entries: [{ id: 1, text: "durable choice", decided_by: "memory-owner", decided_at: 30 }], next_after_id: null }),
@@ -357,6 +390,33 @@ test("owner karari POST entries ucuna yollar", async ({ page }) => {
   await expect(page.locator("#memoryWriteResult")).toContainText("verified from the server");
   expect(posts).toBe(1);
 });
+
+for (const receipt of [
+  { name: "missing ID", body: JSON.stringify({ room: "memory-test-room", text: "repeat" }) },
+  { name: "malformed JSON", body: "not JSON" },
+  { name: "unsafe ID", readbackId: Number.MAX_SAFE_INTEGER + 1, body: JSON.stringify({ id: Number.MAX_SAFE_INTEGER + 1, room: "memory-test-room", text: "repeat" }) },
+]) {
+  test(`accepted decision with ${receipt.name} cannot claim verification`, async ({ page }) => {
+    await page.route("**/rooms/memory-test-room/memory", route => route.fulfill({
+      status: 200, contentType: "application/json", body: JSON.stringify({
+        room: "memory-test-room", owner: "memory-owner", short: "", long: "repeat", version: 4,
+      }),
+    }));
+    await page.route("**/rooms/memory-test-room/memory/entries**", route => route.fulfill({
+      status: route.request().method() === "POST" ? 201 : 200,
+      contentType: "application/json",
+      body: route.request().method() === "POST" ? receipt.body : JSON.stringify({
+        entries: [{ id: receipt.readbackId ?? 1, text: "repeat", decided_by: "memory-owner", decided_at: 30 }], next_after_id: null,
+      }),
+    }));
+    await renderState(page, "ready", { owner: "memory-owner", short: "", long: "", version: 3 });
+    await showMemoryPanel(page);
+    await page.locator("#memoryDecisionInput").fill("repeat");
+    await page.locator("#memoryAddDecision").click();
+    await expect(page.locator("#memoryWriteResult")).toContainText("Saved by the server; verification could not complete");
+    await expect(page.locator("#memoryWriteResult")).not.toContainText("Saved and verified");
+  });
+}
 
 for (const order of ["response-then-frame", "frame-then-response"]) {
   test(`memory version geri sarmaz: ${order}`, async ({ page }) => {

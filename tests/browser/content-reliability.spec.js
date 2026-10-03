@@ -71,6 +71,36 @@ test("real decision append is verified against the server provenance list", asyn
   await expect(page.locator("#memoryDecisionInput")).toHaveValue("");
 });
 
+test("an older identical decision cannot verify a new append", async ({ page, request }) => {
+  const { room, headers } = await ownerRoom(page, request, "decision-identity");
+  const text = "PostgreSQL kullanacağız";
+  const oldResponse = await request.post(`/rooms/${room}/memory/entries`, { headers, data: { text } });
+  expect(oldResponse.status()).toBe(201);
+  const older = await oldResponse.json();
+  await page.locator("#tabMemory").click();
+  await expect(page.locator("#memoryEntries")).toContainText(`#${older.id}`);
+  let created;
+  await page.route(`**/rooms/${room}/memory/entries**`, async route => {
+    if (route.request().method() === "POST") {
+      const response = await route.fetch();
+      created = await response.json();
+      return route.fulfill({ response });
+    }
+    return route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({ entries: [older], next_after_id: null }) });
+  });
+  await page.locator("#memoryDecisionInput").fill(text);
+  await page.locator("#memoryAddDecision").click();
+  await expect(page.locator("#memoryWriteResult")).toContainText("verification could not complete");
+  await expect(page.locator("#memoryWriteResult")).not.toContainText("Saved and verified");
+  expect(created.id).not.toBe(older.id);
+  const actual = await (await request.get(`/rooms/${room}/memory/entries`, { headers })).json();
+  expect(actual.entries.filter(entry => entry.text === text).map(entry => entry.id)).toEqual([older.id, created.id]);
+  await page.unroute(`**/rooms/${room}/memory/entries**`);
+  await page.evaluate(() => fetchMemory(true));
+  await expect(page.locator("#memoryEntries")).toContainText(`#${created.id}`);
+});
+
 test("switching note editors does not transfer the previous note draft", async ({ page, request }) => {
   const { room, headers } = await ownerRoom(page, request, "edit-switch");
   for (const key of ["first", "second"]) {
