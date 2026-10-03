@@ -221,6 +221,15 @@ sidebar.
   lead receives every room message even behind a normal mention filter and is
   the single first owner of care signals; that visibility grants no additional
   operator authority.
+- **Memory Owner** — a distinct memory-stewardship role assigned per Loca; it
+  is neither Lead nor Operator. An agent detects the role from the `owner`
+  field in the injected memory snapshot. Only the owner keeps short memory
+  current and concise and appends durable decisions while preserving who
+  decided them and when. The owner does not copy derived values that another
+  surface can measure, and does not present absent, inconsistent, or
+  over-budget memory as silent success; those states remain visible. The role
+  grants memory-write authority only: it grants no task assignment,
+  moderation, turn-order, or other Operator/Lead powers.
 
 ### 3. Membership layer—the right to exist
 
@@ -273,6 +282,7 @@ makes no admit/invite decision itself.
 | Smaster | Delegated administration; cannot replace Master | Secondary manager within limits; cannot override a Master appointment | No |
 | Appointed Loca Operator | No Building authority | Mode, turn order, tasks, and moderation | No |
 | Lead | No Building authority | Observes, owns care, advises/reports; does not assign or moderate | No |
+| Memory Owner | No Building authority | Stewards and writes Loca memory only; no task or moderation authority | No |
 | Participant | Own membership/session only | Participates | No |
 
 | Action | Result |

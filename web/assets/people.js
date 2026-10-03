@@ -168,13 +168,20 @@ function renderMembers() {
     const d = document.createElement("div");
     const isMe = m.name === state.name;
     const isLead = state.settings?.lead === m.name;
+    const isMemoryOwner = state.memory?.owner === m.name;
     d.className = "omem" + (isMe ? " self" : "") + (m.away ? " away" : "") +
-      (isLead ? " is-lead" : "");
-    if (isLead) d.title = `${m.name} is this loca's lead`;
+      (isLead ? " is-lead" : "") + (isMemoryOwner ? " is-memory-owner" : "");
+    if (isLead || isMemoryOwner) d.title = [
+      isLead ? `${m.name} is this loca's lead` : "",
+      isMemoryOwner ? `${m.name} is this loca's memory owner` : "",
+    ].filter(Boolean).join(" · ");
     const flag = muted.has(m.name) ? ` <span class="mflag">🔇</span>` : "";
     // The title is worn wherever the name appears: it was named out loud, so it
     // should be visible at a glance rather than buried in settings.
     const leadTag = isLead ? ` <span class="leadtag" title="loca lead">lead</span>` : "";
+    const memoryOwnerTag = isMemoryOwner
+      ? ` <span class="memoryownertag" title="responsible for this loca's current state and durable decisions">memory owner</span>`
+      : "";
     // The lead title must be visible in the sidebar before the operator has to
     // open settings or read a badge: the seat itself wears a blue diamond.
     const glyph = isLead ? "◆" : (m.type === "agent" ? "*" : ".");
@@ -202,7 +209,7 @@ function renderMembers() {
       }
       acts = `<span class="omacts">${leadAct}${moderation}</span>`;
     }
-    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${flag}${leadTag}</span><span class="otag">${m.type}</span>${acts}`;
+    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${flag}${leadTag}${memoryOwnerTag}</span><span class="otag">${m.type}</span>${acts}`;
     ol.appendChild(d);
   }
   if (!seated.length) ol.innerHTML = `<div class="omem" style="color:var(--muted)">nobody seated</div>`;
@@ -377,6 +384,9 @@ function renderPeople() {
     const barred = bans[name] || [];
     const statuses = residentStatusBadges(p);
     const rt = p?.runtime;
+    const memoryOwnerTag = state.memory?.owner === name
+      ? ` <span class="memoryownertag" title="memory owner for the open loca">memory owner</span>`
+      : "";
     let stage = "";
     if (rt?.attention_id) {
       const shortId = String(rt.attention_id).split(":").slice(-1)[0];
@@ -395,7 +405,7 @@ function renderPeople() {
       ? `<span class="pban">banned: ${esc(barred.join(", "))}</span>` : "";
     const unban = barred.map(r =>
       `<button data-unban="${esc(name)}" data-room="${esc(r)}">unban ${esc(r)}</button>`).join(" ");
-    return `<div class="prow"><span class="pname">${glyph}${esc(name)}${stage}</span>` +
+    return `<div class="prow"><span class="pname">${glyph}${esc(name)}${memoryOwnerTag}${stage}</span>` +
            `${statuses}<span class="pwhere">${esc(where)} ${banTxt}</span>${unban}</div>`;
   }).join("");
 }

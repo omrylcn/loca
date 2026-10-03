@@ -31,6 +31,30 @@ async function showMemoryPanel(page) {
   });
 }
 
+async function renderPeopleWithMemory(page, { name = "memory-owner", owner = "memory-owner", admin = false } = {}) {
+  await page.evaluate(({ name, owner, admin }) => {
+    state.name = name;
+    state.adminSession = admin;
+    state.members = [
+      { name: "memory-owner", type: "agent" },
+      { name: "next-owner", type: "agent" },
+      { name: "operator", type: "user" },
+    ];
+    state.seatedAway = [];
+    state.memoryStatus = owner ? "ready" : "absent";
+    state.memory = owner ? {
+      room: state.room,
+      owner,
+      short: "",
+      long: "",
+      over_budget: false,
+      version: 1,
+    } : null;
+    renderMemory();
+    renderMembers();
+  }, { name, owner, admin });
+}
+
 test("Memory paneli loca adini ve ayri short/long saatlerini gosterir", async ({ page }) => {
   await renderState(page, "ready", {
     room: "memory-test-room",
@@ -139,6 +163,121 @@ test("admin olsa da owner olmayan kimlik yazamaz", async ({ page }) => {
     state.name = "operator";
   });
   await renderState(page, "ready", { owner: "memory-owner", short: "", long: "", over_budget: false });
+  expect(await page.evaluate(() => writeMemory("short", { method: "PUT" }, "blocked"))).toBe(false);
+  await expect(page.locator("#memoryWriteResult")).toContainText("Only the memory owner");
+});
+
+test("People listesi memory owner unvanini lead rolunden ayri gosterir", async ({ page }) => {
+  await renderPeopleWithMemory(page);
+
+  const ownerSeat = page.locator("#onlineList .omem").filter({ hasText: "memory-owner" });
+  const otherSeat = page.locator("#onlineList .omem").filter({ hasText: "next-owner" });
+  await expect(ownerSeat).toContainText("memory owner");
+  await expect(ownerSeat).not.toContainText("lead");
+  await expect(otherSeat).not.toContainText("memory owner");
+});
+
+test("memory owner kendi sorumluluk bildirimini gorur", async ({ page }) => {
+  await showMemoryPanel(page);
+  await renderPeopleWithMemory(page);
+
+  await expect(page.locator("#memoryPanel")).toContainText("You are this loca's memory owner");
+  await expect(page.locator("#memoryPanel")).toContainText("Keep the current state and durable decisions up to date");
+});
+
+test("memory owner devri eski sahibin unvanini ve yazma kontrollerini aninda kaldirir", async ({ page }) => {
+  await showMemoryPanel(page);
+  await renderPeopleWithMemory(page);
+  await expect(page.locator("#memoryShortEditor")).toBeVisible();
+
+  await page.route("**/rooms/memory-test-room/memory", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      room: "memory-test-room", owner: "next-owner", short: "", long: "",
+      short_updated_at: null, long_updated_at: null, over_budget: false, version: 2,
+    }),
+  }));
+  await page.route("**/rooms/memory-test-room/memory/entries**", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ entries: [], next_after_id: null }),
+  }));
+  await page.evaluate(() => onFrame({
+    t: "memory",
+    room: "memory-test-room",
+    owner: "next-owner",
+    status: "ready",
+    short: "",
+    long: "",
+    short_updated_at: null,
+    long_updated_at: null,
+    over_budget: false,
+    version: 2,
+  }));
+
+  await expect(page.locator("#memoryShortEditor")).toBeHidden();
+  await expect(page.locator("#memoryDecisionEditor")).toBeHidden();
+  await expect(page.locator("#onlineList .omem").filter({ hasText: "memory-owner" }))
+    .not.toContainText("memory owner");
+  await expect(page.locator("#onlineList .omem").filter({ hasText: "next-owner" }))
+    .toContainText("memory owner");
+});
+
+test("memory owner devri yeni sahibin yazma kontrollerini ve sorumluluk bildirimini aninda acar", async ({ page }) => {
+  await showMemoryPanel(page);
+  await renderPeopleWithMemory(page, { name: "next-owner", owner: "memory-owner" });
+  await expect(page.locator("#memoryShortEditor")).toBeHidden();
+
+  await page.route("**/rooms/memory-test-room/memory", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      room: "memory-test-room", owner: "next-owner", short: "", long: "",
+      short_updated_at: null, long_updated_at: null, over_budget: false, version: 2,
+    }),
+  }));
+  await page.route("**/rooms/memory-test-room/memory/entries**", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ entries: [], next_after_id: null }),
+  }));
+  await page.evaluate(() => onFrame({
+    t: "memory",
+    room: "memory-test-room",
+    owner: "next-owner",
+    status: "ready",
+    short: "",
+    long: "",
+    short_updated_at: null,
+    long_updated_at: null,
+    over_budget: false,
+    version: 2,
+  }));
+
+  await expect(page.locator("#memoryShortEditor")).toBeVisible();
+  await expect(page.locator("#memoryDecisionEditor")).toBeVisible();
+  await expect(page.locator("#memoryPanel")).toContainText("You are this loca's memory owner");
+});
+
+test("sahipsiz loca Memory panelinde gorunur owner uyarisi verir", async ({ page }) => {
+  await showMemoryPanel(page);
+  await renderPeopleWithMemory(page, { owner: null });
+
+  await expect(page.locator("#memoryPanel")).toContainText("Memory owner not assigned");
+  await expect(page.locator("#memoryDot")).toHaveClass(/\bon\b/);
+  await expect(page.locator("#memoryShortEditor")).toBeHidden();
+  await expect(page.locator("#memoryDecisionEditor")).toBeHidden();
+});
+
+test("admin olmak memory owner unvani veya yazma kontrolu kazandirmaz", async ({ page }) => {
+  await showMemoryPanel(page);
+  await renderPeopleWithMemory(page, { name: "operator", owner: "memory-owner", admin: true });
+
+  const adminSeat = page.locator("#onlineList .omem").filter({ hasText: "operator" });
+  await expect(adminSeat).not.toContainText("memory owner");
+  await expect(page.locator("#memoryShortEditor")).toBeHidden();
+  await expect(page.locator("#memoryDecisionEditor")).toBeHidden();
   expect(await page.evaluate(() => writeMemory("short", { method: "PUT" }, "blocked"))).toBe(false);
   await expect(page.locator("#memoryWriteResult")).toContainText("Only the memory owner");
 });

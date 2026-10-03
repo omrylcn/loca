@@ -176,6 +176,13 @@
   .omem.is-lead { background: linear-gradient(90deg, rgba(245,199,107,.22), rgba(245,199,107,.04) 82%);
     box-shadow: inset 3px 0 #f5c76b; }
   .omem.is-lead .oname { color: #ffe0a0; font-weight: 800; }
+  .memoryownertag { display: inline-flex; align-items: center;
+    background: rgba(46,230,200,.14); border: 1px solid rgba(46,230,200,.52);
+    color: var(--accent); font-size: 9px; font-weight: 800; padding: 1px 6px;
+    border-radius: 10px; margin-left: 6px; letter-spacing: .04em; text-transform: uppercase; }
+  .memoryownertag::before { content: "●"; font-size: 7px; margin-right: 4px; }
+  .omem.is-memory-owner:not(.is-lead) { background: linear-gradient(90deg, rgba(46,230,200,.16), rgba(46,230,200,.03) 82%);
+    box-shadow: inset 3px 0 var(--accent); }
   .peoplehead, .prow { display: grid; grid-template-columns: minmax(130px,1.3fr) 92px 92px minmax(130px,1fr);
     align-items: center; gap: 10px; }
   .peoplehead { padding: 5px 4px; color: var(--dim); font-size: 9px; letter-spacing: .08em;
@@ -593,6 +600,9 @@
   .memoryentry { margin-bottom:8px; }
   .memoryentry .memorymeta { margin-top:7px; margin-bottom:0; }
   .memorywarn { color:var(--warn); }
+  .memorysteward { margin-bottom:8px; padding:10px 12px; border:1px solid rgba(46,230,200,.52);
+    border-radius:10px; background:rgba(46,230,200,.10); color:var(--txt); }
+  .memorysteward b { color:var(--accent); }
   .memoryeditor { margin:8px 0 14px; }
   .memoryeditor textarea { width:100%; min-height:110px; resize:vertical; }
   .memoryeditbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:6px; }

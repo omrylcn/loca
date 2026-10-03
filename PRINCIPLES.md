@@ -200,6 +200,14 @@ normal localardan ayrı görünür.
   kazanır. Gücü yetkide değil, görüştedir. Etkin lead normal mention filtresine
   rağmen odanın bütün mesajlarını alır ve care signal'ların tek ilk sahibidir;
   bu görünürlük yeni bir operatör yetkisi vermez.
+- **Memory Owner** — her Loca için ayrı atanabilen bir bellek emanetçisidir;
+  Lead veya Operator değildir. Kimlik, enjekte edilen memory snapshot'ındaki
+  `owner` alanından anlaşılır. Yalnız owner kısa belleği güncel ve öz tutar;
+  kalıcı kararları kaynak kişisi ve zamanı korunacak biçimde ekler. Başka bir
+  yüzeyden ölçülebilen türetilmiş değerlerin kopyasını belleğe gömmez; bellek
+  yoksa, tutarsızsa veya bütçeyi aşıyorsa bunu sessiz başarı gibi sunmaz,
+  görünür eder. Bu rol yalnız bellek yazma yetkisi verir: görev atama,
+  moderasyon, sıra veya başka Operator/Lead gücü vermez.
 
 ### 3. Üyelik katmanı — var olma hakkı
 
@@ -245,6 +253,7 @@ kazanmaz, loca yaratmaz ve davet/admit kararı vermez.
 | Smaster | Delegated yönetim; Master'ı değiştiremez | Sınırları içinde ikinci yönetici; Master atamasını bozamaz | Hayır |
 | Atanmış Loca Operator | Building yetkisi yok | Mod, sıra, task ve moderasyon | Hayır |
 | Lead | Building yetkisi yok | Görür, care sahiplenir, tavsiye/rapor verir; iş dağıtmaz veya modere etmez | Hayır |
+| Memory Owner | Building yetkisi yok | Yalnız Loca belleğini korur ve yazar; görev veya moderasyon yetkisi yok | Hayır |
 | Participant | Yalnız kendi üyelik/oturumu | Katılır | Hayır |
 
 | Eylem | Sonuç |
