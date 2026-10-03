@@ -42,6 +42,10 @@ function onMemoryFrame(frame) {
     long_uninjectable_entries: frame.long_uninjectable_entries,
   });
   renderMemory();
+  // Memory ownership is worn in the roster too. Repaint from this same
+  // authoritative frame so a transfer removes the old badge immediately.
+  renderMembers();
+  if (state.tab === "people") renderPeople();
   // The frame is the authority for status and the immediate attention dot.
   // Refresh the unbounded HTTP resource and provenance list in the background
   // without replacing that authoritative status with a client-side guess.
@@ -167,7 +171,12 @@ function renderMemory() {
   const canWrite = memory?.owner === state.name;
   const shortBytes = memoryBytes(memory?.short);
   const longBytes = memoryBytes(memory?.long);
-  $("memoryOverview").innerHTML = `<div class="memorygrid">
+  const stewardship = canWrite
+    ? `<div class="memorysteward"><b>You are this loca's memory owner.</b> Keep the current state and durable decisions up to date.</div>`
+    : !memory?.owner
+      ? `<div class="sysline memorywarn">This loca has no memory owner assigned.</div>`
+      : "";
+  $("memoryOverview").innerHTML = `${stewardship}<div class="memorygrid">
     <div class="memorycard"><small>Status</small><b>${esc(status)}</b></div>
     <div class="memorycard"><small>Owner</small><b>${esc(memory?.owner || "not assigned")}</b></div>
     <div class="memorycard"><small>Short updated</small><b>${esc(memoryWhen(memory?.short_updated_at))}</b></div>

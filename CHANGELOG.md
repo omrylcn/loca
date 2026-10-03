@@ -6,6 +6,18 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.29] - 2026-10-03
+
+### Added
+- Memory Owner is now an explicit per-Loca stewardship role in the binding
+  principles and agent skill, distinct from Lead and Operator authority.
+- People and Memory surfaces now show who owns memory stewardship and tell the
+  current owner to keep current state and durable decisions up to date.
+
+### Fixed
+- Live memory-owner transfers immediately move the visible role and write
+  controls to the new owner; ownerless Locas now show a visible warning.
+
 ## [0.9.28] - 2026-10-03
 
 ### Added

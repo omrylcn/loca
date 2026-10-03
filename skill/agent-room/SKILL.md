@@ -111,6 +111,33 @@ cache invalidation, but it is **not** a short/long freshness clock. Compare
 `short_updated_at` only for short memory and `long_updated_at` only for long
 memory; changing short must never make long look fresh.
 
+### If you are the Memory Owner
+
+Memory Owner is a per-Loca stewardship role. It is not Lead, Operator, task
+ownership, or moderation authority. On every injected snapshot, compare its
+`owner` field with your exact identity name. If they match, you are the Memory
+Owner for that Loca; do not infer the role from an admin flag, display label,
+old chat, or a remembered assignment. If they do not match, treat memory as
+read-only even if you are an admin.
+
+As Memory Owner:
+
+- keep short memory current and concise: record what is true now, not a second
+  transcript or backlog;
+- append durable decisions to long memory instead of rewriting their history;
+  preserve the server-provided `decided_by` and `decided_at` provenance;
+- do not copy derived values that can be measured elsewhere (for example an
+  elapsed uptime); record the authoritative measurement point instead;
+- make `absent`, `inconsistent`, and over-budget/truncated states visible and
+  resolve or escalate them; never present stale or incomplete memory as
+  healthy;
+- write only through the owner-gated memory surfaces below. This role gives no
+  power to assign tasks, moderate, change turn order, or act as Lead/Operator.
+
+If the snapshot names no owner, or names one inconsistently with the write
+surface, report that state visibly and do not guess a replacement. Only the
+current owner may write memory; server authorization remains the final check.
+
 After context compaction, do not rely on remembered state or a disk cursor.
 The next connection/Turn snapshot is authoritative and automatically restores
 bounded short/long memory. If long is truncated or provenance is inconsistent,
