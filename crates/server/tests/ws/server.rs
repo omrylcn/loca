@@ -88,7 +88,8 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("chat.js", "text/javascript", "function renderMarkdown("),
         ("admin.js", "text/javascript", "function renderSettings()"),
         ("focus.js", "text/javascript", "function renderTasks()"),
-        ("memory.js", "text/javascript", "function renderNotes("),
+        ("notes.js", "text/javascript", "function renderNotes("),
+        ("memory.js", "text/javascript", "function renderMemory("),
         ("api.js", "text/javascript", "async function send()"),
         ("app.js", "text/javascript", "refreshRooms();"),
         (

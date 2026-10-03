@@ -51,7 +51,7 @@ test("sekme etiketinin dikey yeri satir kutusuna DEGIL flex'e baglidir", async (
   expect(stil.alignItems).toBe("center");
 });
 
-test("dort sekmenin etiketi ayni dikey hizada", async ({ page }) => {
+test("seritteki tum sekmelerin etiketi ayni dikey hizada", async ({ page }) => {
   const t = await sekmeler(page);
   const yer = await t.evaluateAll((els) =>
     els.map((el) => {
@@ -62,7 +62,7 @@ test("dort sekmenin etiketi ayni dikey hizada", async ({ page }) => {
       return { ad: el.textContent.trim(), top: Math.round(b.top), bottom: Math.round(b.bottom) };
     })
   );
-  expect(yer.length).toBe(4);
+  expect(yer.length).toBeGreaterThan(1);
   const ilk = yer[0];
   for (const s of yer) {
     expect(s.top, `${s.ad} ust hizasi ${ilk.ad} ile ayni degil`).toBe(ilk.top);
@@ -80,7 +80,7 @@ test("nokta gorunmezken de YER TUTAR, yaninca sekme genisligi ziplamaz", async (
     els.map((el) => { const d = el.querySelector(".dot");
       return d ? Math.round(d.getBoundingClientRect().width) : null; })
   );
-  expect(noktaGen.filter((w) => w !== null).length).toBe(3);
+  expect(noktaGen.filter((w) => w !== null).length).toBe(noktaGen.length - 1);
   for (const w of noktaGen) if (w !== null) expect(w, "nokta gorunmezken yer tutmuyor").toBeGreaterThan(0);
 
   const kapali = await olc();

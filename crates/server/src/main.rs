@@ -86,6 +86,7 @@ const WEB_PEOPLE: &str = include_str!("../../../web/assets/people.js");
 const WEB_CHAT: &str = include_str!("../../../web/assets/chat.js");
 const WEB_ADMIN: &str = include_str!("../../../web/assets/admin.js");
 const WEB_FOCUS: &str = include_str!("../../../web/assets/focus.js");
+const WEB_NOTES: &str = include_str!("../../../web/assets/notes.js");
 const WEB_MEMORY: &str = include_str!("../../../web/assets/memory.js");
 const WEB_PROFILE: &str = include_str!("../../../web/assets/profile.js");
 const WEB_SIDEBAR: &str = include_str!("../../../web/assets/sidebar.js");
@@ -617,6 +618,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "chat.js" => Some(("text/javascript; charset=utf-8", WEB_CHAT)),
         "admin.js" => Some(("text/javascript; charset=utf-8", WEB_ADMIN)),
         "focus.js" => Some(("text/javascript; charset=utf-8", WEB_FOCUS)),
+        "notes.js" => Some(("text/javascript; charset=utf-8", WEB_NOTES)),
         "memory.js" => Some(("text/javascript; charset=utf-8", WEB_MEMORY)),
         "profile.js" => Some(("text/javascript; charset=utf-8", WEB_PROFILE)),
         "sidebar.js" => Some(("text/javascript; charset=utf-8", WEB_SIDEBAR)),

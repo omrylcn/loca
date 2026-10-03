@@ -275,6 +275,7 @@ function switchTab(tab) {
   $("tabNotes").classList.toggle("active", tab === "notes");
   $("tabTasks").classList.toggle("active", tab === "tasks");
   $("tabJournal").classList.toggle("active", tab === "journal");
+  $("tabMemory").classList.toggle("active", tab === "memory");
   $("tabPeople").classList.toggle("active", tab === "people");
   document.querySelectorAll(".tabs [role=tab]").forEach((button) => {
     button.setAttribute("aria-selected", String(button.dataset.tab === tab));
@@ -287,10 +288,12 @@ function switchTab(tab) {
   $("notesPanel").classList.toggle("hidden", tab !== "notes");
   $("tasksPanel").classList.toggle("hidden", tab !== "tasks");
   $("journalPanel").classList.toggle("hidden", tab !== "journal");
+  $("memoryPanel").classList.toggle("hidden", tab !== "memory");
   $("peoplePanel").classList.toggle("hidden", tab !== "people");
   if (tab === "tasks") { $("tasksDot").classList.remove("on"); renderTasks(); }
   if (tab === "journal") { $("journalDot").classList.remove("on"); fetchJournal(); }
   if (tab === "people") fetchPeople();
+  if (tab === "memory") fetchMemory();
   $("typing").classList.toggle("hidden", !chat);
   if (tab === "notes") { $("notesDot").classList.remove("on"); renderNotes(); }
   else {
