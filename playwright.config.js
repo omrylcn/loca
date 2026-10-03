@@ -1,5 +1,9 @@
 const { defineConfig } = require("@playwright/test");
 const port = process.env.PLAYWRIGHT_PORT || "18787";
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "loca-browser-"));
 
 module.exports = defineConfig({
   testDir: "tests/browser",
@@ -18,7 +22,7 @@ module.exports = defineConfig({
       `PORT=${port}`,
       "BIND_ADDR=127.0.0.1",
       "ADMIN_TOKEN=MASTER",
-      "DB_PATH=:memory:",
+      `DB_PATH=${path.join(dataDir, "loca.sqlite3")}`,
       "ROOM_TOKEN=building",
       "REQUIRE_SESSIONS=1",
       "LEGACY_WS_QUERY_AUTH=0",

@@ -6,6 +6,170 @@ use rusqlite::Connection;
 use super::Store;
 
 #[test]
+fn memory_owner_migration_binds_once_and_never_grants_reused_or_late_names() {
+    for scenario in ["one", "missing", "reused"] {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("loca.db");
+        let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+        let member = |token: &str| protocol::Membership {
+            token: token.into(),
+            name: "alice".into(),
+            kind: "agent".into(),
+            joined_at: 1,
+            admitted_by: "master".into(),
+        };
+        if scenario != "missing" {
+            store.add_member(&member("old-owner")).unwrap();
+        }
+        if scenario == "reused" {
+            store.revoke_member_cascade("old-owner", 2).unwrap();
+            store.add_member(&member("new-owner")).unwrap();
+        }
+        {
+            let c = store.conn().unwrap();
+            c.execute(
+                "INSERT INTO loca_memory (room,owner) VALUES ('r','alice')",
+                [],
+            )
+            .unwrap();
+            c.execute("ALTER TABLE loca_memory DROP COLUMN owner_principal_id", [])
+                .unwrap();
+        }
+        drop(store);
+        let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+        let bound: Option<String> = store
+            .conn()
+            .unwrap()
+            .query_row(
+                "SELECT owner_principal_id FROM loca_memory WHERE room='r'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        if scenario == "one" {
+            assert_eq!(
+                bound,
+                Some(store.principal_for_credential("old-owner").unwrap().id)
+            );
+        } else {
+            assert!(bound.is_none());
+        }
+        if scenario == "missing" {
+            store.add_member(&member("late-owner")).unwrap();
+            drop(store);
+            let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+            let bound: Option<String> = store
+                .conn()
+                .unwrap()
+                .query_row(
+                    "SELECT owner_principal_id FROM loca_memory WHERE room='r'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(
+                bound.is_none(),
+                "late admission must not gain an old unassigned role"
+            );
+        }
+    }
+}
+
+#[test]
+fn corrupt_authorization_state_never_loads_as_a_free_room() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("loca.db");
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    store
+        .save_room("closed", &ChatMode::Free, &RoomSettings::default())
+        .unwrap();
+    for column in ["mode", "settings"] {
+        {
+            let c = store.conn().unwrap();
+            c.execute(
+                &format!("UPDATE rooms SET {column} = 'invalid-json' WHERE room = 'closed'"),
+                [],
+            )
+            .unwrap();
+        }
+        assert!(
+            store.load().is_err(),
+            "bad {column} must stop startup, not erase restrictions"
+        );
+        store
+            .save_room("closed", &ChatMode::Free, &RoomSettings::default())
+            .unwrap();
+    }
+    store
+        .conn()
+        .unwrap()
+        .execute("DROP TABLE rooms", [])
+        .unwrap();
+    assert!(store.load().is_err());
+    assert!(store.sealed_rooms().is_err());
+}
+
+#[test]
+fn durable_content_read_errors_are_not_empty_success() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("loca.db");
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    store
+        .conn()
+        .unwrap()
+        .execute_batch("DROP TABLE messages; DROP TABLE journal; DROP TABLE note_revisions;")
+        .unwrap();
+    assert!(store.search_messages("r", "hello", 20).is_err());
+    assert!(store.load_journal("r").is_err());
+    assert!(store.note_history("r", "note").is_err());
+}
+
+#[test]
+fn archive_search_is_unicode_case_insensitive_and_literal() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("loca.db");
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    store.conn().unwrap().execute("INSERT INTO messages (id,room,sender,sender_type,text,ts,kind) VALUES (1,'r','alice','agent','ŞİRKET 100% task_key','1','chat')", []).unwrap();
+    for needle in ["şirket", "ŞİRKET", "100%", "task_key"] {
+        assert_eq!(
+            store.search_messages("r", needle, 20).unwrap().len(),
+            1,
+            "{needle}"
+        );
+    }
+    for needle in ["x%", "taskXkey", "___"] {
+        assert!(
+            store.search_messages("r", needle, 20).unwrap().is_empty(),
+            "{needle} is not a wildcard"
+        );
+    }
+}
+
+#[test]
+fn note_replacement_failure_rolls_back_archived_revision() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("loca.db");
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    let previous = protocol::Note {
+        key: "proof".into(),
+        title: "old".into(),
+        body: "old".into(),
+        can_write: vec![],
+        updated_by: "alice".into(),
+        updated_at: 1,
+        rev: 1,
+    };
+    store.upsert_note("r", &previous).unwrap();
+    let mut updated = previous.clone();
+    updated.rev = 2;
+    updated.body = "new".into();
+    store.conn().unwrap().execute_batch("CREATE TRIGGER fail_note BEFORE INSERT ON notes BEGIN SELECT RAISE(ABORT, 'fault injection'); END;").unwrap();
+    assert!(store.replace_note("r", &previous, &updated).is_err());
+    assert!(store.note_history("r", "proof").unwrap().is_empty());
+    assert_eq!(store.load().unwrap()[0].notes[0].body, "old");
+}
+
+#[test]
 fn identity_v2_migrates_legacy_roles_and_keeps_one_master_with_many_credentials() {
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("identity-v2.db");
@@ -256,7 +420,11 @@ fn legacy_care_outbox_is_promoted_to_attention_ledger() {
     let delivery = store.pending_care("proj", "lead").pop().expect("delivery");
     assert_eq!(delivery.attention_id, "legacy-delivery");
     assert!(
-        store.load().iter().any(|snapshot| snapshot.room == "proj"),
+        store
+            .load()
+            .unwrap()
+            .iter()
+            .any(|snapshot| snapshot.room == "proj"),
         "an attention-only loca must be discovered after restart"
     );
 }

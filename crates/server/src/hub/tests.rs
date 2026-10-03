@@ -19,6 +19,60 @@ fn test_now_ms() -> u64 {
 }
 
 #[test]
+fn mutation_actor_rejects_expired_and_revoked_sessions() {
+    let _clock = TEST_CLOCK_LOCK.lock().unwrap();
+    TEST_NOW.store(1_000, Ordering::Relaxed);
+    let mut hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: true,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        Arc::new(Store::open(None).unwrap()),
+        RoomSettings::default(),
+        1,
+    );
+    hub.now_ms = test_now_ms;
+    let mint = || {
+        hub.create_session_scoped(
+            protocol::CreateSession {
+                name: "body-name".into(),
+                kind: Some(SenderType::User),
+                runtime: None,
+                capabilities: vec![],
+            },
+            None,
+            Some(hub.master_pairing_grant(10)),
+        )
+        .unwrap()
+        .session_token
+    };
+    let token = mint();
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("x-session-token", token.parse().unwrap());
+    assert_eq!(
+        crate::routes::mutation_actor(&hub, &headers, "forged".into(), SenderType::Agent).unwrap(),
+        ("operator".into(), SenderType::User)
+    );
+    TEST_NOW.store(1_010, Ordering::Relaxed);
+    assert!(matches!(
+        crate::routes::mutation_actor(&hub, &headers, "forged".into(), SenderType::Agent),
+        Err(axum::http::StatusCode::UNAUTHORIZED)
+    ));
+    let token = mint();
+    headers.insert("x-session-token", token.parse().unwrap());
+    hub.revoke_session(&token).unwrap();
+    assert!(matches!(
+        crate::routes::mutation_actor(&hub, &headers, "forged".into(), SenderType::Agent),
+        Err(axum::http::StatusCode::UNAUTHORIZED)
+    ));
+}
+
+#[test]
 fn authority_resolves_server_side_principals_and_revocation_takes_effect_live() {
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("authority.db");

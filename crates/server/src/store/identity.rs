@@ -411,6 +411,27 @@ impl Store {
         rows.flatten().collect()
     }
 
+    pub fn active_principals_named(&self, name: &str) -> rusqlite::Result<Vec<PrincipalIdentity>> {
+        let Some(c) = self.conn() else {
+            return Ok(Vec::new());
+        };
+        let mut statement = c.prepare(
+            "SELECT id, display_name, kind, building_role FROM principals
+             WHERE display_name = ?1 AND disabled_at IS NULL ORDER BY id",
+        )?;
+        let rows = statement.query_map(params![name], |row| {
+            let kind: String = row.get(2)?;
+            let role: String = row.get(3)?;
+            Ok(PrincipalIdentity {
+                id: row.get(0)?,
+                display_name: row.get(1)?,
+                kind: parse_sender_type(&kind),
+                role: parse_building_role(&role),
+            })
+        })?;
+        rows.collect()
+    }
+
     /// Every active human principal carrying this display label. Migration
     /// callers must require exactly one result: a display name is a label, not
     /// an identity, so an ambiguous label can never grant room authority.

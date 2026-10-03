@@ -13,6 +13,9 @@ mod membership;
 mod rooms;
 mod work;
 
+#[cfg(test)]
+pub(crate) use access::mutation_actor;
+
 pub(crate) use access::{
     admin_token_of, is_admin_req, is_master_req, member_token_of, pairing_code_of,
     require_membership, session_of, valid_identity_name, RoomAccess,
@@ -24,9 +27,9 @@ pub(crate) use attention::{
 };
 pub(crate) use content::{
     append_long_memory, caretaker_memory, create_note, delete_note, get_journal, get_loca_memory,
-    get_note, get_notes, get_reactions, list_long_memory_entries, note_history, post_journal,
-    post_message, search_room, set_loca_memory_owner, set_reaction, update_note,
-    write_short_memory,
+    get_loca_memory_snapshot, get_note, get_notes, get_reactions, list_long_memory_entries,
+    note_history, post_journal, post_message, search_room, set_loca_memory_owner, set_reaction,
+    update_note, write_short_memory,
 };
 pub(crate) use downloads::{download_skill_bundle, skill_bundle_manifest, skill_bundles_index};
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};

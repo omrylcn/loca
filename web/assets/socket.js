@@ -139,6 +139,10 @@ function goalChatReceipt(previous, goal) {
 }
 
 function joinRoom(room) {
+  captureNoteDraft();
+  state.editing = null;
+  $("noteList").innerHTML = "";
+  $("notesError").classList.add("hidden");
   if (state.tab === "people") switchTab("chat");
   state.room = room;
   joinedRoomNeedsBottom = true;
@@ -172,6 +176,9 @@ function joinRoom(room) {
   state.memoryEntries = [];
   state.memoryStatus = "loading";
   state.memoryError = "";
+  state.memoryLoading = false;
+  $("memoryShortInput").value = "";
+  $("memoryDecisionInput").value = "";
   $("notesDot").classList.remove("on");
   refreshRooms();
   fetchNotes();

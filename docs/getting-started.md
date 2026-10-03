@@ -4,9 +4,9 @@ This guide is the shortest complete path from an empty machine to one private
 Loca with a human operator and a working agent. It also explains which runtime
 paths provide automatic wake-up and which provide presence only.
 
-> **Private beta:** use the latest published release (currently `v0.9.10`) — its
-> tag for a server and its checksummed remote-agent ZIP for an agent host. Access
-> to the separately operated hosted Building remains invitation-only.
+> **Private beta:** the latest published release is `v0.10.0`. Use its approved
+> signed tag for a server and its checksummed remote-agent ZIP
+> for an agent host. Hosted Building access remains invitation-only.
 
 ## Five-minute local start
 
@@ -118,7 +118,7 @@ credential reaches the agent only through the private setup prompt.
 Download the ZIP and checksum manifest from the same pinned release:
 
 ```bash
-LOCA_VERSION=0.9.10   # set to the latest release tag from the releases page
+LOCA_VERSION=0.10.0   # latest release tag from GitHub Releases
 mkdir loca-agent-install && cd loca-agent-install
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"

@@ -108,23 +108,30 @@ olarak verilir. Varsayılan CORS kapalıdır.
 `DB_PATH` unset ise sistem memory-only çalışır ve restart state'i siler.
 Production'da her zaman kalıcı path verilir.
 
-SQLite backup:
+SQLite tek başına yeterli değildir: ek dosyaları DB'nin yanındaki
+`attachments/` dizinindedir. Sunucu ve ek-dosya temizleyicisi durdurulduktan
+sonra Python 3.11+ ile tam, doğrulanmış snapshot alın:
 
 ```bash
-sqlite3 /var/lib/loca/loca.db \
-  \".backup '/var/backups/loca-$(date +%F-%H%M).db'\"
+python3 scripts/storage_snapshot.py backup /var/lib/loca/loca.db \
+  /var/backups/loca-snapshot --server-stopped
+python3 scripts/storage_snapshot.py verify /var/backups/loca-snapshot
+python3 scripts/storage_snapshot.py restore /var/backups/loca-snapshot \
+  /var/lib/loca-restore-check --server-stopped
 ```
 
 Backup'ın varlığı değil restore testi kanıttır:
 
-1. Production DB'nin backup'ını al.
-2. Ayrı bir temp path'te server'ı backup ile başlat.
+1. DB + attachment snapshot'ını al; mevcut hedefin üzerine yazma.
+2. Ayrı restore dizinindeki `loca.sqlite3` ile server'ı loopback üzerinde başlat.
 3. `/health`, rooms, messages, notes, tasks, journal ve membership görünümünü
-   doğrula.
+   doğrula; gerçek bir eki indirip hash'ini karşılaştır.
 4. Temp sunucuyu kapat; production DB'ye yazma.
 
 DB dosyasını çalışan proses altında düz `cp` ile kopyalamak yerine SQLite
 backup API/CLI kullanılır.
+
+Ayrıntı ve Docker volume yolu: [Backup and restore](docs/backup-restore.md).
 
 ## 7. Restart ve upgrade
 

@@ -286,7 +286,7 @@ for (const rejected of [
   { name: "kapali loca", status: 409, path: "short", method: "PUT", message: "this loca is closed — read-only" },
   { name: "short 4 KiB", status: 413, path: "short", method: "PUT", message: "short memory exceeds the 4 KiB limit" },
   { name: "entry 8 KiB", status: 413, path: "entries", method: "POST", message: "long-memory entry exceeds the 8 KiB wake-injection budget" },
-  { name: "long 64 KiB", status: 413, path: "entries", method: "POST", message: "long memory exceeds the 64 KiB hard limit; consolidate it before adding more" },
+  { name: "long 64 KiB", status: 413, path: "entries", method: "POST", message: "long memory is a finite append-only ledger (64 KiB); existing entries remain readable, but no further entries can be appended" },
 ]) {
   test(`${rejected.name} reddi sunucu mesaji ile gorunur`, async ({ page }) => {
     await page.route(`**/rooms/memory-test-room/memory/${rejected.path}`, route => route.fulfill({
@@ -347,7 +347,7 @@ test("owner karari POST entries ucuna yollar", async ({ page }) => {
       return route.fulfill({ status: 201, contentType: "application/json", body: "{}" });
     }
     return route.fulfill({
-      status: 200, contentType: "application/json", body: JSON.stringify({ entries: [], next_after_id: null }),
+      status: 200, contentType: "application/json", body: JSON.stringify({ entries: [{ id: 1, text: "durable choice", decided_by: "memory-owner", decided_at: 30 }], next_after_id: null }),
     });
   });
   await renderState(page, "ready", { owner: "memory-owner", short: "", long: "", over_budget: false, version: 3 });

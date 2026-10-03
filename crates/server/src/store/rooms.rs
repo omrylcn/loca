@@ -184,17 +184,13 @@ impl Store {
     }
     /// Rooms that were sealed — re-tombstoned at boot so a sealed loca never
     /// silently reopens (the tombstone set is otherwise memory-only).
-    pub fn sealed_rooms(&self) -> Vec<String> {
+    pub fn sealed_rooms(&self) -> rusqlite::Result<Vec<String>> {
         let Some(c) = self.conn() else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        let mut out = Vec::new();
-        if let Ok(mut stmt) = c.prepare("SELECT room FROM rooms WHERE sealed_at IS NOT NULL") {
-            if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
-                out.extend(rows.flatten());
-            }
-        }
-        out
+        let mut stmt = c.prepare("SELECT room FROM rooms WHERE sealed_at IS NOT NULL")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect()
     }
     pub fn save_room(
         &self,
@@ -236,9 +232,9 @@ impl Store {
         c.execute("DELETE FROM care_marks WHERE room = ?1", params![room])?;
         Ok(())
     }
-    pub fn load(&self) -> Vec<RoomSnapshot> {
+    pub fn load(&self) -> rusqlite::Result<Vec<RoomSnapshot>> {
         let Some(c) = self.conn() else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
 
         // A loca can begin with any durable room-scoped record. Discover the
@@ -257,12 +253,10 @@ impl Store {
             "rooms",
         ] {
             let sql = format!("SELECT DISTINCT room FROM {tbl}");
-            if let Ok(mut stmt) = c.prepare(&sql) {
-                if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
-                    for r in rows.flatten() {
-                        rooms.insert(r);
-                    }
-                }
+            let mut stmt = c.prepare(&sql)?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            for r in rows {
+                rooms.insert(r?);
             }
         }
 
@@ -272,10 +266,10 @@ impl Store {
         // here would take the store lock a SECOND time and deadlock (`conn()`
         // returns a guard).
         let mut sealed: std::collections::HashSet<String> = Default::default();
-        if let Ok(mut stmt) = c.prepare("SELECT room FROM rooms WHERE sealed_at IS NOT NULL") {
-            if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
-                sealed.extend(rows.flatten());
-            }
+        let mut stmt = c.prepare("SELECT room FROM rooms WHERE sealed_at IS NOT NULL")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        for room in rows {
+            sealed.insert(room?);
         }
 
         rooms
@@ -284,17 +278,18 @@ impl Store {
             .map(|room| self.load_room(&c, &room))
             .collect()
     }
-    fn load_room(&self, c: &Connection, room: &str) -> RoomSnapshot {
+    fn load_room(&self, c: &Connection, room: &str) -> rusqlite::Result<RoomSnapshot> {
         // messages
         let mut messages = Vec::new();
         let mut max_msg_id = 0u64;
         // Hot context only: the archive can be huge, memory holds the tail.
-        if let Ok(mut stmt) = c.prepare(
-            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments FROM
+        {
+            let mut stmt = c.prepare(
+                "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments FROM
                (SELECT * FROM messages WHERE room = ?1 ORDER BY id DESC LIMIT 200)
              ORDER BY id",
-        ) {
-            if let Ok(rows) = stmt.query_map(params![room], |r| {
+            )?;
+            let rows = stmt.query_map(params![room], |r| {
                 Ok(Message {
                     attachments: attachments_from_json(r.get::<_, Option<String>>(8)?),
                     id: r.get(0)?,
@@ -306,49 +301,55 @@ impl Store {
                     reply_to: r.get(5)?,
                     reply_to_sender: None,
                     ts: r.get(6)?,
-                    kind: parse_kind(&r.get::<_, String>(7).unwrap_or_default()),
+                    kind: parse_kind(&r.get::<_, String>(7)?),
                 })
-            }) {
-                for m in rows.flatten() {
-                    max_msg_id = max_msg_id.max(m.id);
-                    messages.push(m);
-                }
+            })?;
+            for m in rows {
+                let m = m?;
+                max_msg_id = max_msg_id.max(m.id);
+                messages.push(m);
             }
         }
 
         // notes
         let mut notes = Vec::new();
         let mut max_rev = 0u64;
-        if let Ok(mut stmt) = c.prepare(
+        {
+            let mut stmt = c.prepare(
             "SELECT key, title, body, can_write, updated_by, updated_at, rev FROM notes WHERE room = ?1",
-        ) {
-            if let Ok(rows) = stmt.query_map(params![room], |r| {
+        )?;
+            let rows = stmt.query_map(params![room], |r| {
                 let cw: String = r.get(3)?;
                 Ok(Note {
                     key: r.get(0)?,
                     title: r.get(1)?,
                     body: r.get(2)?,
-                    can_write: serde_json::from_str(&cw).unwrap_or_default(),
+                    can_write: serde_json::from_str(&cw).map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            3,
+                            rusqlite::types::Type::Text,
+                            Box::new(e),
+                        )
+                    })?,
                     updated_by: r.get(4)?,
                     updated_at: r.get(5)?,
                     rev: r.get(6)?,
                 })
-            }) {
-                for n in rows.flatten() {
-                    max_rev = max_rev.max(n.rev);
-                    notes.push(n);
-                }
+            })?;
+            for n in rows {
+                let n = n?;
+                max_rev = max_rev.max(n.rev);
+                notes.push(n);
             }
         }
 
         // The id counter must resume past the ARCHIVE's max, not the tail's.
-        if let Ok(mx) = c.query_row(
+        let mx = c.query_row(
             "SELECT COALESCE(MAX(id), 0) FROM messages WHERE room = ?1",
             params![room],
             |r| r.get::<_, u64>(0),
-        ) {
-            max_msg_id = max_msg_id.max(mx);
-        }
+        )?;
+        max_msg_id = max_msg_id.max(mx);
 
         // mode + settings
         let (mode, settings) = c
@@ -357,16 +358,24 @@ impl Store {
                 params![room],
                 |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
             )
-            .ok()
+            .optional()?
             .map(|(m, s)| {
-                (
-                    serde_json::from_str(&m).unwrap_or(ChatMode::Free),
-                    serde_json::from_str(&s).unwrap_or_default(),
-                )
+                let parse_error = |e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                };
+                Ok::<_, rusqlite::Error>((
+                    serde_json::from_str(&m).map_err(parse_error)?,
+                    serde_json::from_str(&s).map_err(parse_error)?,
+                ))
             })
+            .transpose()?
             .unwrap_or((ChatMode::Free, RoomSettings::default()));
 
-        RoomSnapshot {
+        Ok(RoomSnapshot {
             room: room.to_string(),
             messages,
             notes,
@@ -374,6 +383,6 @@ impl Store {
             settings,
             max_msg_id,
             max_rev,
-        }
+        })
     }
 }

@@ -393,7 +393,7 @@ $("tabNotes").onclick = () => switchTab("notes");
 $("tabMemory").onclick = () => switchTab("memory");
 $("memorySaveShort").onclick = saveShortMemory;
 $("memoryAddDecision").onclick = addMemoryDecision;
-$("memoryShortInput").oninput = renderMemoryByteCounts;
+$("memoryShortInput").oninput = editShortMemory;
 $("memoryDecisionInput").oninput = renderMemoryByteCounts;
 
 // notes create + edit (event delegation on the list)
@@ -403,7 +403,7 @@ $("name").addEventListener("input", () => { $("nnYou").textContent = $("name").v
 $("noteList").addEventListener("click", (e) => {
   const t = e.target;
   if (t.dataset.edit) { state.editing = t.dataset.edit; renderNotes(); }
-  else if (t.dataset.cancel) { state.editing = null; renderNotes(); }
+  else if (t.dataset.cancel) { cancelNoteEdit(); }
   else if (t.dataset.save) { saveNote(t.dataset.save); }
   else if (t.dataset.del) { deleteNote(t.dataset.del); }
   else if (t.dataset.hist) { toggleHistory(t.dataset.hist); }

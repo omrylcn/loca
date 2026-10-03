@@ -513,7 +513,11 @@ impl Hub {
         let mut max_generation = 0u64;
         {
             let mut rooms = hub.rooms.lock_or_recover();
-            for snap in hub.store.load() {
+            for snap in hub
+                .store
+                .load()
+                .expect("persistent room state is unreadable; refusing to start")
+            {
                 let mut room = Room::with(snap.mode, snap.settings, snap.max_rev + 1);
                 room.history = snap.messages;
                 max_generation =
@@ -559,7 +563,10 @@ impl Hub {
                 room.last_msg_ms = room.history.last().map(|message| message.ts).unwrap_or(0);
                 // The journal is the record of what happened; a restart must
                 // not be able to forget it.
-                room.journal = hub.store.load_journal(&snap.room);
+                room.journal = hub
+                    .store
+                    .load_journal(&snap.room)
+                    .expect("persistent journal is unreadable; refusing to start");
                 room.next_journal_id = room.journal.last().map(|e| e.id + 1).unwrap_or(1);
                 rooms.insert(snap.room, room);
                 max_id = max_id.max(snap.max_msg_id);
@@ -766,7 +773,10 @@ impl Hub {
                 .entry((*hub.home_room).clone())
                 .or_insert_with(|| Room::with(ChatMode::Free, hub.default_settings.clone(), 1));
             if room.journal.is_empty() {
-                room.journal = hub.store.load_journal(&hub.home_room);
+                room.journal = hub
+                    .store
+                    .load_journal(&hub.home_room)
+                    .expect("persistent home journal is unreadable; refusing to start");
                 room.next_journal_id = room.journal.last().map(|e| e.id + 1).unwrap_or(1);
             }
         }
@@ -796,7 +806,11 @@ impl Hub {
         // them (PRINCIPLES: seal not destroy, and restart does not undo it).
         {
             let mut deleted = hub.deleted.lock_or_recover();
-            for room in hub.store.sealed_rooms() {
+            for room in hub
+                .store
+                .sealed_rooms()
+                .expect("persistent room seals are unreadable; refusing to start")
+            {
                 deleted.insert(room);
             }
         }
@@ -3448,7 +3462,19 @@ impl Hub {
     }
 
     pub fn set_memory_owner(&self, room: &str, owner: Option<&str>) -> rusqlite::Result<()> {
-        self.store.set_memory_owner(room, owner)?;
+        let principal = match owner {
+            Some(name) => {
+                let matches = self.store.active_principals_named(name)?;
+                match matches.as_slice() {
+                    [identity] => Some(identity.id.clone()),
+                    [] if self.admin_open() => None,
+                    _ => return Err(rusqlite::Error::InvalidParameterName("owner".into())),
+                }
+            }
+            None => None,
+        };
+        self.store
+            .set_memory_owner(room, owner, principal.as_deref())?;
         self.broadcast_memory_snapshot(room);
         Ok(())
     }
@@ -3456,12 +3482,19 @@ impl Hub {
     pub fn write_short_memory(
         &self,
         room: &str,
-        actor: &str,
+        actor: &SessionIdentity,
         text: &str,
     ) -> Result<protocol::LocaMemory, crate::store::MemoryWriteError> {
-        let memory = self
-            .store
-            .write_short_memory(room, actor, text, self.now())?;
+        let memory = self.store.write_short_memory(
+            room,
+            &crate::store::MemoryActor {
+                name: &actor.name,
+                principal_id: actor.principal_id.as_deref(),
+                allow_legacy_name: self.admin_open(),
+            },
+            text,
+            self.now(),
+        )?;
         self.broadcast_memory_snapshot(room);
         Ok(memory)
     }
@@ -3469,12 +3502,19 @@ impl Hub {
     pub fn append_long_memory(
         &self,
         room: &str,
-        actor: &str,
+        actor: &SessionIdentity,
         text: &str,
     ) -> Result<protocol::LocaMemoryEntry, crate::store::MemoryWriteError> {
-        let entry = self
-            .store
-            .append_long_memory(room, actor, text, self.now())?;
+        let entry = self.store.append_long_memory(
+            room,
+            &crate::store::MemoryActor {
+                name: &actor.name,
+                principal_id: actor.principal_id.as_deref(),
+                allow_legacy_name: self.admin_open(),
+            },
+            text,
+            self.now(),
+        )?;
         self.broadcast_memory_snapshot(room);
         Ok(entry)
     }
@@ -3589,10 +3629,7 @@ impl Hub {
         let updated = note;
 
         self.store
-            .add_note_revision(room, &previous)
-            .map_err(|_| NoteError::Storage)?;
-        self.store
-            .upsert_note(room, &updated)
+            .replace_note(room, &previous, &updated)
             .map_err(|_| NoteError::Storage)?;
         r.next_rev += 1;
         r.notes.insert(key.to_string(), updated.clone());
@@ -3606,14 +3643,19 @@ impl Hub {
     }
 
     /// A note's archived past versions (newest first).
-    pub fn note_history(&self, room: &str, key: &str) -> Vec<Note> {
+    pub fn note_history(&self, room: &str, key: &str) -> rusqlite::Result<Vec<Note>> {
         self.store.note_history(room, key)
     }
 
     /// Room memory search: full message archive (DB) + current notes.
-    pub fn search(&self, room: &str, q: &str, limit: usize) -> (Vec<Message>, Vec<Note>) {
-        let msgs = self.store.search_messages(room, q, limit);
-        let ql = q.to_lowercase();
+    pub fn search(
+        &self,
+        room: &str,
+        q: &str,
+        limit: usize,
+    ) -> rusqlite::Result<(Vec<Message>, Vec<Note>)> {
+        let msgs = self.store.search_messages(room, q, limit)?;
+        let ql = crate::store::search_fold(q);
         let notes: Vec<Note> = {
             let rooms = self.rooms.lock_or_recover();
             rooms
@@ -3622,16 +3664,16 @@ impl Hub {
                     r.notes
                         .values()
                         .filter(|n| {
-                            n.title.to_lowercase().contains(&ql)
-                                || n.body.to_lowercase().contains(&ql)
-                                || n.key.to_lowercase().contains(&ql)
+                            crate::store::search_fold(&n.title).contains(&ql)
+                                || crate::store::search_fold(&n.body).contains(&ql)
+                                || crate::store::search_fold(&n.key).contains(&ql)
                         })
                         .cloned()
                         .collect()
                 })
                 .unwrap_or_default()
         };
-        (msgs, notes)
+        Ok((msgs, notes))
     }
 
     /// The bounded hot tail used by a normal browser room-open.

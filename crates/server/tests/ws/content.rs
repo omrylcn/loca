@@ -3,6 +3,220 @@
 use super::*;
 
 #[tokio::test]
+async fn memory_ownership_does_not_transfer_to_a_reused_name() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("principal-owner.db");
+    let (port, _guard) = spawn_server_env(
+        "MASTER",
+        &[
+            ("DB_PATH", db.to_string_lossy().into_owned()),
+            ("REQUIRE_INVITE", "1".into()),
+            ("REQUIRE_SESSIONS", "1".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let admitted: Value = client
+        .post(format!("{base}/members"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({"name":"alice","kind":"agent"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let davet = davet_for(&base, "MASTER", "general", "alice").await;
+    let session = |davet: String| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .post(format!("{base}/sessions"))
+                .header("x-room-token", davet)
+                .json(&serde_json::json!({"name":"alice","kind":"agent","loca":"general"}))
+                .send()
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()["session_token"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        }
+    };
+    let old_session = session(davet).await;
+    client
+        .put(format!("{base}/rooms/general/memory/owner"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({"owner":"alice"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    assert_eq!(
+        client
+            .put(format!("{base}/rooms/general/memory/short"))
+            .header("x-session-token", &old_session)
+            .json(&serde_json::json!({"text":"original"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    client
+        .delete(format!(
+            "{base}/members/{}",
+            admitted["token"].as_str().unwrap()
+        ))
+        .header("x-admin-token", "MASTER")
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let new_davet = davet_for(&base, "MASTER", "general", "alice").await;
+    let new_session = session(new_davet).await;
+    for (token, expected) in [(&old_session, 401), (&new_session, 403)] {
+        let response = client
+            .put(format!("{base}/rooms/general/memory/short"))
+            .header("x-session-token", token)
+            .json(&serde_json::json!({"text":"stolen"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    client
+        .put(format!("{base}/rooms/general/memory/owner"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({"owner":"alice"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    assert_eq!(
+        client
+            .put(format!("{base}/rooms/general/memory/short"))
+            .header("x-session-token", new_session)
+            .json(&serde_json::json!({"text":"explicitly reassigned"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+}
+
+#[tokio::test]
+async fn session_optional_sandbox_still_rejects_a_supplied_invalid_actor() {
+    let (port, _guard) = spawn_server().await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let created = client
+        .post(format!("{base}/rooms/general/journal"))
+        .json(&serde_json::json!({"text":"sandbox compatibility", "by":"dev", "by_type":"user"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(created.status(), 201);
+    assert_eq!(
+        client
+            .post(format!("{base}/rooms/general/journal"))
+            .header("x-session-token", "invalid")
+            .json(&serde_json::json!({"text":"invalid is not absent", "by":"forged"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/rooms/general/notes/key"))
+            .header("x-session-token", "invalid")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+}
+
+#[tokio::test]
+async fn journal_and_note_delete_require_a_valid_actor() {
+    let (port, _guard) = spawn_server_env("", &[("REQUIRE_SESSIONS", "1".into())]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let session: Value = client
+        .post(format!("{base}/sessions"))
+        .json(&serde_json::json!({"name":"alice","kind":"user"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let token = session["session_token"].as_str().unwrap();
+    client
+        .post(format!("{base}/rooms/general/notes"))
+        .header("x-session-token", token)
+        .json(&serde_json::json!({"key":"protected","body":"keep","by":"alice"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    for invalid in [None, Some("invalid-session")] {
+        let mut journal = client
+            .post(format!("{base}/rooms/general/journal"))
+            .json(&serde_json::json!({"text":"spoofed","by":"bob","by_type":"agent"}));
+        let mut delete = client.delete(format!("{base}/rooms/general/notes/protected"));
+        if let Some(token) = invalid {
+            journal = journal.header("x-session-token", token);
+            delete = delete.header("x-session-token", token);
+        }
+        assert_eq!(journal.send().await.unwrap().status(), 401);
+        assert_eq!(delete.send().await.unwrap().status(), 401);
+    }
+    let entry: Value = client
+        .post(format!("{base}/rooms/general/journal"))
+        .header("x-session-token", token)
+        .json(&serde_json::json!({"text":"finished","by":"bob","by_type":"agent"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(entry["by"], "alice");
+    assert_eq!(entry["by_type"], "user");
+    assert_eq!(
+        client
+            .delete(format!("{base}/rooms/general/notes/protected"))
+            .header("x-session-token", token)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+}
+
+#[tokio::test]
 async fn notes_create_update_and_soft_permission_push_live() {
     let (port, _guard) = spawn_server().await;
     let base = format!("http://127.0.0.1:{port}");
@@ -721,7 +935,12 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         reqwest::StatusCode::PAYLOAD_TOO_LARGE,
         "A9 hard fence: a write beyond 64 KiB must be rejected"
     );
-    assert!(hard.text().await.unwrap().contains("64 KiB hard limit"));
+    let error = hard.text().await.unwrap();
+    assert!(error.contains("finite append-only ledger (64 KiB)"));
+    assert!(
+        !error.contains("consolidate"),
+        "never recommend an unavailable recovery command"
+    );
 
     let after: Value = client
         .get(format!("{base}/rooms/budget/memory"))
@@ -798,6 +1017,7 @@ async fn assert_cross_loca_memory_denied(method: &str, path: &str) {
 async fn loca_memory_isolation_rejects_cross_loca_read() {
     assert_cross_loca_memory_denied("GET", "memory").await;
     assert_cross_loca_memory_denied("GET", "memory/entries").await;
+    assert_cross_loca_memory_denied("GET", "memory/snapshot").await;
 }
 
 #[tokio::test]
@@ -864,7 +1084,7 @@ async fn fresh_connection_automatically_receives_ready_memory() {
     let directory = tempfile::tempdir().unwrap();
     let db = directory.path().join("memory-frame-ready.db");
     let (port, _guard) =
-        spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+        spawn_server_env("", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
     rusqlite::Connection::open(&db)
         .unwrap()
         .execute_batch(

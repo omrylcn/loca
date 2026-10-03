@@ -15,6 +15,24 @@ pub(crate) fn admin_token_of(headers: &HeaderMap) -> Option<&str> {
 pub(crate) fn session_of(headers: &HeaderMap) -> Option<&str> {
     headers.get(SESSION_HEADER).and_then(|v| v.to_str().ok())
 }
+
+/// A mutation's author is the authenticated session, never a body claim.
+/// Only the explicitly session-optional sandbox accepts an absent session.
+pub(crate) fn mutation_actor(
+    hub: &Hub,
+    headers: &HeaderMap,
+    claimed: String,
+    kind: SenderType,
+) -> Result<(String, SenderType), StatusCode> {
+    let token = session_of(headers);
+    match hub.session_identity(token) {
+        Some(identity) => Ok((identity.name, identity.kind)),
+        None if headers.contains_key(SESSION_HEADER) || hub.require_sessions() => {
+            Err(StatusCode::UNAUTHORIZED)
+        }
+        None => Ok((claimed, kind)),
+    }
+}
 pub(crate) fn pairing_code_of(headers: &HeaderMap) -> Option<&str> {
     headers.get(PAIRING_HEADER).and_then(|v| v.to_str().ok())
 }

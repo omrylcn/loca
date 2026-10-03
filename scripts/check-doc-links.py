@@ -14,6 +14,20 @@ LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 SKIP_DIRS = {".git", "target", "dist", "node_modules"}
 EMBEDDED_DOC = Path("web/docs/getting-started.md")
 EMBEDDED_DOC_SOURCE = Path("docs/getting-started.md")
+ONBOARDING_DOCS = ("README.md", "docs/self-host.md", "docs/getting-started.md")
+RELEASE_PIN = re.compile(
+    r"(?:git checkout v|LOCA_VERSION=|/releases/tag/v|release `v|\"version\":\")"
+    r"(\d+\.\d+\.\d+(?:[+-][\w.-]+)?)"
+)
+
+
+def check_onboarding_versions(root: Path, version: str) -> list[str]:
+    failures = []
+    for name in ONBOARDING_DOCS:
+        for pin in RELEASE_PIN.findall((root / name).read_text(encoding="utf-8")):
+            if pin != version:
+                failures.append(f"{name}: onboarding release {pin} differs from workspace {version}")
+    return failures
 
 
 def markdown_files() -> list[Path]:
@@ -26,6 +40,9 @@ def markdown_files() -> list[Path]:
 
 def main() -> int:
     failures: list[str] = []
+    package = (ROOT / "Cargo.toml").read_text().split("[workspace.package]", 1)[1].split("[", 1)[0]
+    version = re.search(r'^version\s*=\s*"([^"]+)"', package, re.M).group(1)
+    failures.extend(check_onboarding_versions(ROOT, version))
     embedded = ROOT / EMBEDDED_DOC
     embedded_source = ROOT / EMBEDDED_DOC_SOURCE
     if not embedded.exists():

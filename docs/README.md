@@ -23,6 +23,8 @@ which document is authoritative.
   and terminal-admin reference.
 - [`self-host.md`](self-host.md) — fail-closed production install, remote-agent
   onboarding, upgrade, rollback, backup, and uninstall.
+- [`backup-restore.md`](backup-restore.md) — offline, verified SQLite and
+  attachment snapshots, empty-directory restore, and secret-handling rules.
 
 ## Product contract
 
@@ -40,6 +42,8 @@ belongs in explicit GitHub issues, not in a permanent speculative roadmap.
 - [`PRODUCTION.md`](../PRODUCTION.md) — current deployment, security, backup,
   restart, health, and incident-response runbook.
 - [`CHANGELOG.md`](../CHANGELOG.md) — user-visible changes by release.
+- [Professional review fixes, 2026-10-03](professional-review-fixes-2026-10-03.md)
+  — R01–R15 disposition, local acceptance evidence, and publication boundaries.
 - [`SECURITY.md`](../SECURITY.md) — supported versions, private reporting, and
   credential-response policy.
 

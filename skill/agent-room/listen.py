@@ -108,6 +108,12 @@ def save_cursor_state(path, state):
             os.fsync(handle.fileno())
         os.replace(temp, path)
         os.chmod(path, 0o600)
+        if os.name != "nt":
+            directory = os.open(parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     finally:
         try:
             os.unlink(temp)
@@ -130,6 +136,14 @@ def persist_env_value(key, value):
     else:
         os.environ.pop(key, None)
     return True
+
+
+def durable_flush(sinks):
+    """Commit every file before advancing cursors or sending transport ACK."""
+    for sink in sinks:
+        if sink is not None:
+            sink.flush()
+            os.fsync(sink.fileno())
 
 
 def room_env_key(room):
@@ -584,6 +598,50 @@ def server_origin(url):
     return f"{scheme}://{parsed.hostname}{suffix}"
 
 
+def open_durable_jsonl(path):
+    """Discard only an uncommitted partial final line, then durably open append.
+
+    Cursor advances only after a newline and fsync. A torn tail must not join
+    the next replayed event into invalid JSON after a crash. Complete duplicate
+    records remain intact; downstream stable delivery IDs make replay safe.
+    """
+    existed = os.path.exists(path)
+    stream = open(path, "a+b")
+    try:
+        os.chmod(path, 0o600)
+        stream.seek(0, os.SEEK_END)
+        end = stream.tell()
+        if end:
+            stream.seek(end - 1)
+            if stream.read(1) != b"\n":
+                position = end
+                keep = 0
+                while position:
+                    start = max(0, position - 4096)
+                    stream.seek(start)
+                    chunk = stream.read(position - start)
+                    newline = chunk.rfind(b"\n")
+                    if newline >= 0:
+                        keep = start + newline + 1
+                        break
+                    position = start
+                stream.truncate(keep)
+                stream.flush()
+                os.fsync(stream.fileno())
+        if not existed:
+            stream.flush()
+            os.fsync(stream.fileno())
+            if os.name == "posix":
+                fd = os.open(os.path.dirname(os.path.abspath(path)), os.O_RDONLY)
+                try:
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+    finally:
+        stream.close()
+    return open(path, "a", encoding="utf-8")
+
+
 class NativeRuntimeHealthLease:
     """Publish a short-lived wake lease only while a native Monitor is live.
 
@@ -884,6 +942,25 @@ def fetch_room_lead(url):
     return str(lead) if lead else None
 
 
+def fetch_memory_snapshot(url):
+    """Read the bounded authoritative snapshot before recovered chat wakes."""
+    u = urlparse(url)
+    room = parse_qs(u.query).get("room", ["general"])[0]
+    scheme = "https" if u.scheme == "wss" else "http"
+    rest = f"{scheme}://{u.hostname}:{u.port or (443 if u.scheme == 'wss' else 80)}"
+    req = urllib.request.Request(f"{rest}/rooms/{quote(room, safe='')}/memory/snapshot")
+    token = token_for_room(room)
+    if token:
+        req.add_header("x-room-token", token)
+    if os.environ.get("LOCA_SESSION"):
+        req.add_header("x-session-token", os.environ["LOCA_SESSION"])
+    with urllib.request.urlopen(req, timeout=10) as response:
+        frame = json.loads(response.read().decode())
+    if not isinstance(frame, dict) or frame.get("t") != "memory" or frame.get("room") != room:
+        raise ValueError("invalid memory snapshot response")
+    return frame
+
+
 def acknowledge_care(url, signal_id, name):
     """ACK one care signal only after it reached the local durable sink."""
     u = urlparse(url)
@@ -1027,13 +1104,11 @@ def main():
     # (Errno 6 the second time) and pointless for files.
     sink = None
     if out not in ("-", "/dev/stdout", "/dev/fd/1"):
-        sink = open(out, "a")
-        os.chmod(out, 0o600)
+        sink = open_durable_jsonl(out)
     turn_sink = None
     if turn_log:
         os.makedirs(os.path.dirname(os.path.abspath(turn_log)), exist_ok=True)
-        turn_sink = open(turn_log, "a", encoding="utf-8")
-        os.chmod(turn_log, 0o600)
+        turn_sink = open_durable_jsonl(turn_log)
 
     # Last delivered id per room. With --cursor this survives restarts, so a
     # relaunched listener also backfills what it missed while not running.
@@ -1099,14 +1174,13 @@ def main():
                     if event.get("t") != "memory":
                         for message in messages:
                             sink.write(json.dumps(message, ensure_ascii=False) + "\n")
-                        sink.flush()
                 else:
                     # Claude Monitor treats stdout as the wake channel: exactly
                     # one line here means exactly one model turn.
                     print(json.dumps(event, ensure_ascii=False), flush=True)
                 if turn_sink is not None:
                     turn_sink.write(json.dumps(delivery, ensure_ascii=False) + "\n")
-                    turn_sink.flush()
+                durable_flush((sink, turn_sink))
             except (BrokenPipeError, OSError) as e:
                 # Our reader is gone. Do NOT keep running: a listener that
                 # can't deliver still holds the WS open, so the server counts
@@ -1136,12 +1210,11 @@ def main():
                 line = json.dumps(event, ensure_ascii=False)
                 if sink is not None:
                     sink.write(line + "\n")
-                    sink.flush()
                 else:
                     print(line, flush=True)
                 if turn_sink is not None and delivery is not None:
                     turn_sink.write(json.dumps(delivery, ensure_ascii=False) + "\n")
-                    turn_sink.flush()
+                durable_flush((sink, turn_sink))
             except (BrokenPipeError, OSError) as e:
                 sys.stderr.write(
                     f"output gone ({e}) — exiting so no ghost listener remains\n"
@@ -1196,6 +1269,8 @@ def main():
                 # after the WS is up so the gap between backfill and live push
                 # is minimal (duplicates are prevented by the id check below).
                 if last[room] > 0:
+                    current_memory = fetch_memory_snapshot(wurl)
+                    observed_memory_version = int(current_memory.get("version") or 0)
                     recovered = 0
                     for page_cursor, page_messages in backfill_pages(
                         wurl, last[room], skip_own, current_lead
@@ -1204,7 +1279,8 @@ def main():
                             message for message in page_messages if eligible(message)
                         ]
                         for batch in chunk_messages(eligible_messages, turn_limit):
-                            emit(room, batch, current_lead, current_memory)
+                            emit(room, batch, current_lead, current_memory,
+                                 observed_memory_version=observed_memory_version)
                             recovered += len(batch)
                         # Filtered/self-authored messages were deliberately
                         # consumed too. Checkpoint the raw page watermark only
@@ -1227,9 +1303,11 @@ def main():
                         continue
                     t = f.get("t")
                     if t == "memoryversion":
-                        observed_memory_version = int(f.get("version") or 0)
+                        observed_memory_version = max(observed_memory_version or 0, int(f.get("version") or 0))
                         continue
                     if t == "memory":
+                        if int(f.get("version") or 0) < (observed_memory_version or 0):
+                            continue
                         current_memory = f
                         observed_memory_version = int(f.get("version") or 0)
                         trigger = "memory_changed" if memory_seen else "connection"
