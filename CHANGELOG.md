@@ -6,6 +6,15 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-03
+
+### Fixed
+- Building masters can now reassign a Loca's Memory Owner from the Memory panel;
+  the control remains hidden from ordinary members and verifies the canonical
+  owner after the server accepts the change.
+- Memory decision verification now matches the exact ID returned by the append
+  request, so an older identical decision cannot falsely verify a new record.
+
 ## [0.10.0] - 2026-10-03
 
 ### Security
