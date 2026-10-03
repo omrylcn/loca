@@ -1,16 +1,18 @@
+use super::access::mutation_actor;
 use crate::*;
 
-fn memory_actor(hub: &Hub, headers: &HeaderMap) -> Result<String, Box<axum::response::Response>> {
+fn memory_actor(
+    hub: &Hub,
+    headers: &HeaderMap,
+) -> Result<hub::SessionIdentity, Box<axum::response::Response>> {
     let Some(token) = session_of(headers) else {
         return Err(Box::new(
             (StatusCode::UNAUTHORIZED, "session token required").into_response(),
         ));
     };
-    hub.session_identity(Some(token))
-        .map(|identity| identity.name)
-        .ok_or_else(|| {
-            Box::new((StatusCode::UNAUTHORIZED, "invalid session token").into_response())
-        })
+    hub.session_identity(Some(token)).ok_or_else(|| {
+        Box::new((StatusCode::UNAUTHORIZED, "invalid session token").into_response())
+    })
 }
 
 fn memory_write_error(error: crate::store::MemoryWriteError) -> axum::response::Response {
@@ -40,7 +42,7 @@ fn memory_write_error(error: crate::store::MemoryWriteError) -> axum::response::
             .into_response(),
         crate::store::MemoryWriteError::LongTooLarge => (
             StatusCode::PAYLOAD_TOO_LARGE,
-            "long memory exceeds the 64 KiB hard limit; consolidate it before adding more",
+            "long memory is a finite append-only ledger (64 KiB); existing entries remain readable, but no further entries can be appended",
         )
             .into_response(),
         crate::store::MemoryWriteError::Storage => (
@@ -93,6 +95,11 @@ pub(crate) async fn set_loca_memory_owner(
         .filter(|v| !v.is_empty());
     match hub.set_memory_owner(&access.room, owner) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(rusqlite::Error::InvalidParameterName(_)) => (
+            StatusCode::CONFLICT,
+            "memory owner must be one active Building identity",
+        )
+            .into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
@@ -115,6 +122,16 @@ pub(crate) async fn get_loca_memory(
             "memory is not configured for this loca",
         )
             .into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+pub(crate) async fn get_loca_memory_snapshot(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+) -> impl IntoResponse {
+    match hub.loca_memory_snapshot(&access.room) {
+        Ok(snapshot) => Json(ServerFrame::memory(&access.room, snapshot)).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
@@ -223,18 +240,14 @@ pub(crate) async fn post_journal(
     if body.text.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "an entry needs words").into_response();
     }
-    // Identity comes from the session when there is one, so a line cannot be
-    // filed under someone else's name.
-    let session = headers
-        .get(SESSION_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|t| hub.session_identity(Some(t)));
-    let (by, by_type) = match session {
-        Some(idy) => (idy.name, idy.kind),
-        None => (
-            body.by.clone().unwrap_or_else(|| "anon".into()),
-            body.by_type.unwrap_or(SenderType::Agent),
-        ),
+    let (by, by_type) = match mutation_actor(
+        &hub,
+        &headers,
+        body.by.clone().unwrap_or_else(|| "anon".into()),
+        body.by_type.unwrap_or(SenderType::Agent),
+    ) {
+        Ok(actor) => actor,
+        Err(status) => return status.into_response(),
     };
     match hub.append_journal(&id, by, by_type, body.text.trim().to_string()) {
         Ok(entry) => (StatusCode::CREATED, Json(entry)).into_response(),
@@ -462,7 +475,11 @@ pub(crate) async fn delete_note(
     State(hub): State<Hub>,
     access: RoomAccess,
     Path((_id, key)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
+    if let Err(status) = mutation_actor(&hub, &headers, String::new(), SenderType::User) {
+        return status;
+    }
     let id = access.room;
     if !hub.is_writable(&id) {
         return StatusCode::CONFLICT;
@@ -479,7 +496,13 @@ pub(crate) async fn note_history(
     access: RoomAccess,
     Path((_id, key)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    Json(hub.note_history(&access.room, &key)).into_response()
+    match hub.note_history(&access.room, &key) {
+        Ok(history) => Json(history).into_response(),
+        Err(error) => {
+            tracing::error!(%error, "note history read failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
 }
 /// Search the room's memory: full message archive + current notes.
 /// GET /rooms/{id}/search?q=needle[&limit=50]
@@ -498,6 +521,13 @@ pub(crate) async fn search_room(
         .and_then(|l| l.parse().ok())
         .unwrap_or(50)
         .min(200);
-    let (messages, notes) = hub.search(&id, &needle, limit);
-    Json(serde_json::json!({ "messages": messages, "notes": notes })).into_response()
+    match hub.search(&id, &needle, limit) {
+        Ok((messages, notes)) => {
+            Json(serde_json::json!({ "messages": messages, "notes": notes })).into_response()
+        }
+        Err(error) => {
+            tracing::error!(%error, "room search read failed");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
 }

@@ -45,8 +45,13 @@ bypass older chat, but ACKing it must not erase an older protected event.
 
 ## Process environment
 
-The single-flight command consumer passes the full envelope on stdin and in
-`LOCA_DELIVERY`. For backward-compatible event access it also exports:
+The single-flight consumer passes the full envelope on **stdin** (a private
+seekable file, so a non-reading child cannot block the supervisor) and through
+`LOCA_DELIVERY_FILE` (0600, removed after the child terminates). Hooks must read
+one of these canonical inputs. Small payloads also export `LOCA_DELIVERY`,
+`LOCA_MSG`, and `LOCA_TEXT` for compatibility. If any exceeds 16 KiB UTF-8,
+all three are omitted and `LOCA_PAYLOAD_ON_STDIN=1` is set; this avoids OS
+argument/environment limits without truncating text. Stable metadata remains:
 
 | Variable | Meaning |
 | --- | --- |

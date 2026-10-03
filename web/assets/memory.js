@@ -11,6 +11,17 @@ function memoryNeedsAttention() {
 }
 
 const MEMORY_STATUSES = new Set(["ready", "absent", "empty", "inconsistent"]);
+const memoryDrafts = new Map();
+const memoryWrites = new Set();
+let memoryRequestSequence = 0;
+
+function editShortMemory() {
+  memoryDrafts.set(state.room, {
+    text: $("memoryShortInput").value,
+    revision: Number(state.memory?.version || 0),
+  });
+  renderMemoryByteCounts();
+}
 
 function applyMemorySnapshot(memory) {
   const incomingVersion = Number(memory?.version || 0);
@@ -49,7 +60,7 @@ function onMemoryFrame(frame) {
   // The frame is the authority for status and the immediate attention dot.
   // Refresh the unbounded HTTP resource and provenance list in the background
   // without replacing that authoritative status with a client-side guess.
-  fetchMemory(true);
+  if (!memoryWrites.has(state.locaContext)) fetchMemory(true);
 }
 
 function renderMemoryByteCounts() {
@@ -58,8 +69,8 @@ function renderMemoryByteCounts() {
   const decisionBytes = memoryBytes($("memoryDecisionInput").value);
   $("memoryShortBytes").textContent = `${shortBytes} / ${MEMORY_SHORT_MAX} bytes`;
   $("memoryDecisionBytes").textContent = `${decisionBytes} / ${MEMORY_ENTRY_MAX} bytes`;
-  $("memorySaveShort").disabled = shortBytes === 0 || shortBytes > MEMORY_SHORT_MAX;
-  $("memoryAddDecision").disabled = decisionBytes === 0 || decisionBytes > MEMORY_ENTRY_MAX;
+  $("memorySaveShort").disabled = memoryWrites.has(state.locaContext) || shortBytes === 0 || shortBytes > MEMORY_SHORT_MAX;
+  $("memoryAddDecision").disabled = memoryWrites.has(state.locaContext) || decisionBytes === 0 || decisionBytes > MEMORY_ENTRY_MAX;
 }
 
 function showMemoryWriteResult(text, error = false) {
@@ -75,18 +86,35 @@ async function writeMemory(path, request, text) {
     return false;
   }
   const room = state.room;
-  const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/memory/${path}`, {
-    method: request.method,
-    headers: adminHeaders({ "content-type": "application/json" }),
-    body: JSON.stringify({ text }),
-  });
-  if (!response.ok) {
-    showMemoryWriteResult(await response.text() || `HTTP ${response.status}`, true);
+  const context = state.locaContext;
+  if (memoryWrites.has(context)) return false;
+  memoryWrites.add(context);
+  renderMemoryByteCounts();
+  try {
+    const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/memory/${path}`, {
+      method: request.method,
+      headers: adminHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ text }),
+    });
+    if (state.room !== room || state.locaContext !== context) return false;
+    if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+    if (path === "short" && $("memoryShortInput").value.trim() === text) memoryDrafts.delete(room);
+    const readback = await fetchMemory(true);
+    if (state.room !== room || state.locaContext !== context) return false;
+    const verified = readback && (path === "short"
+      ? state.memory?.short === text
+      : state.memoryEntries.some(entry => entry.text === text));
+    showMemoryWriteResult(verified
+      ? "Saved and verified from the server."
+      : "Saved by the server; verification could not complete. Retry the refresh.", !verified);
+    return true;
+  } catch (error) {
+    if (state.room === room && state.locaContext === context) showMemoryWriteResult(String(error.message || error), true);
     return false;
+  } finally {
+    memoryWrites.delete(context);
+    if (state.room === room && state.locaContext === context) renderMemoryByteCounts();
   }
-  await fetchMemory(true);
-  showMemoryWriteResult("Saved and verified from the server.");
-  return true;
 }
 
 async function saveShortMemory() {
@@ -96,9 +124,10 @@ async function saveShortMemory() {
 }
 
 async function addMemoryDecision() {
+  const room = state.room;
   const text = $("memoryDecisionInput").value.trim();
   if (!text || memoryBytes(text) > MEMORY_ENTRY_MAX) return;
-  if (await writeMemory("entries", { method: "POST" }, text)) {
+  if (await writeMemory("entries", { method: "POST" }, text) && state.room === room && $("memoryDecisionInput").value.trim() === text) {
     $("memoryDecisionInput").value = "";
     renderMemoryByteCounts();
   }
@@ -106,34 +135,36 @@ async function addMemoryDecision() {
 
 async function fetchMemory(preserveStatus = false) {
   const room = state.room;
-  if (!room) return;
-  if (!preserveStatus) state.memoryStatus = "loading";
-  if (!preserveStatus) state.memoryError = "";
+  if (!room) return false;
+  const sequence = ++memoryRequestSequence;
+  const current = () => state.room === room && sequence === memoryRequestSequence;
+  state.memoryLoading = true;
   if (state.tab === "memory") renderMemory();
   try {
     const base = `${serverBase()}/rooms/${encodeURIComponent(room)}/memory`;
     const memoryResponse = await fetch(base, { headers: adminHeaders({}) });
-    if (state.room !== room) return;
+    if (!current()) return false;
     if (memoryResponse.status === 404) {
-      if (Number(state.memory?.version || 0) > 0) return;
+      if (Number(state.memory?.version || 0) > 0) return false;
       state.memory = null;
       state.memoryEntries = [];
-      renderMemory();
-      return;
+      state.memoryStatus = "absent";
+      state.memoryError = "";
+      return true;
     }
     if (!memoryResponse.ok) throw new Error(await memoryResponse.text() || `HTTP ${memoryResponse.status}`);
     const memory = await memoryResponse.json();
-    if (Number(memory.version || 0) < Number(state.memory?.version || 0)) return;
+    if (!current() || Number(memory.version || 0) < Number(state.memory?.version || 0)) return false;
     const entries = [];
     let afterId = 0;
     for (;;) {
       const entriesResponse = await fetch(`${base}/entries?after_id=${afterId}&limit=200`, { headers: adminHeaders({}) });
-      if (state.room !== room) return;
+      if (!current()) return false;
       if (entriesResponse.status === 409) {
         if (applyMemorySnapshot(memory)) state.memoryEntries = [];
         state.memoryError = await entriesResponse.text();
-        renderMemory();
-        return;
+        state.memoryStatus = "inconsistent";
+        return false;
       }
       if (!entriesResponse.ok) throw new Error(await entriesResponse.text() || `HTTP ${entriesResponse.status}`);
       const page = await entriesResponse.json();
@@ -142,13 +173,24 @@ async function fetchMemory(preserveStatus = false) {
       if (page.next_after_id <= afterId) throw new Error("memory entries cursor did not advance");
       afterId = page.next_after_id;
     }
+    if (!current()) return false;
     if (applyMemorySnapshot(memory)) state.memoryEntries = entries;
+    if (!preserveStatus || ["loading", "error", "absent"].includes(state.memoryStatus)) {
+      state.memoryStatus = memory.short || memory.long ? "ready" : "empty";
+    }
+    if (state.memoryStatus !== "unknown") state.memoryError = "";
+    return true;
   } catch (error) {
-    if (state.room !== room) return;
-    if (!preserveStatus) state.memoryStatus = "error";
+    if (!current()) return false;
+    if (!state.memory) state.memoryStatus = "error";
     if (!preserveStatus || state.memoryStatus !== "unknown") state.memoryError = String(error.message || error);
+    return false;
+  } finally {
+    if (current()) {
+      state.memoryLoading = false;
+      renderMemory();
+    }
   }
-  renderMemory();
 }
 
 function renderMemory() {
@@ -156,7 +198,7 @@ function renderMemory() {
   const room = state.room || "—";
   $("memoryHeading").textContent = room;
   $("memoryDot").classList.toggle("on", memoryNeedsAttention());
-  if (state.memoryStatus === "loading") {
+  if (state.memoryLoading && !state.memory) {
     $("memoryOverview").innerHTML = `<div class="sysline">Loading ${esc(room)} memory…</div>`;
     $("memoryShort").textContent = "";
     $("memoryEntries").innerHTML = "";
@@ -186,7 +228,8 @@ function renderMemory() {
   $("memoryShort").textContent = memory?.short || (status === "absent" ? "Memory owner not assigned." : "No current state has been written.");
   $("memoryShortEditor").classList.toggle("hidden", !canWrite);
   $("memoryDecisionEditor").classList.toggle("hidden", !canWrite);
-  if (canWrite && document.activeElement !== $("memoryShortInput")) $("memoryShortInput").value = memory.short || "";
+  const draft = memoryDrafts.get(state.room);
+  if (canWrite) $("memoryShortInput").value = draft ? draft.text : memory.short || "";
   const entries = state.memoryEntries || [];
   $("memoryEntries").innerHTML = entries.length ? "" : `<div class="sysline">No durable decisions.</div>`;
   for (const entry of entries) {
@@ -201,6 +244,8 @@ function renderMemory() {
     $("memoryEntries").appendChild(row);
   }
   const warnings = [];
+  if (longBytes >= MEMORY_LONG_MAX) warnings.push("Decision ledger is full. Existing decisions remain readable; update short memory or use Notes/Journal for continuing history. No consolidation command is available.");
+  if (draft && draft.revision !== Number(memory?.version || 0)) warnings.push("Memory changed while you were editing. Your draft is preserved; review the current text before saving.");
   if (status === "inconsistent") warnings.push("Long memory and provenance entries disagree.");
   if (memory?.over_budget) warnings.push("Long memory is over the 32 KiB warning threshold.");
   if (state.memoryError) warnings.push(state.memoryError);

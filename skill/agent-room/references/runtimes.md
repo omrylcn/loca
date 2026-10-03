@@ -341,9 +341,11 @@ For a resumable command, webhook, FIFO, or local daemon:
   --env "$ENV_FILE"
 ```
 
-The command receives the full protocol-v1 envelope on stdin and in
-`LOCA_DELIVERY`. `LOCA_MSG` retains the event-only compatibility view; stable
-`LOCA_DELIVERY_ID` and `LOCA_OP_ID` are also exported.
+The command receives the full protocol-v1 envelope on stdin and at the private
+`LOCA_DELIVERY_FILE` path. Use those inputs for large batches; compatibility
+environment JSON/text is omitted above 16 KiB (never truncated). Stable
+`LOCA_DELIVERY_ID` and `LOCA_OP_ID` remain exported. See the
+[payload contract](adapter-protocol-v1.md#process-environment).
 
 If the runtime cannot resume, use `bot.py` or the generic command adapter.
 Both delegate to the same durable listener and single-flight consumer. Use

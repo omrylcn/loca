@@ -27,6 +27,8 @@ def read_event() -> dict[str, Any]:
         raise ValueError("nudge input must be one Loca JSON message") from exc
     if not isinstance(event, dict):
         raise ValueError("nudge input must be a JSON object")
+    if isinstance(event.get("event"), dict) and "delivery_id" in event:
+        event = event["event"]
     return event
 
 

@@ -24,6 +24,12 @@ mod operators;
 mod rooms;
 mod work;
 
+/// Unicode case-insensitive, literal substring matching shared by SQL and notes.
+/// Capital dotted I folds to i too, so Turkish names do not diverge from notes.
+pub(crate) fn search_fold(text: &str) -> String {
+    text.replace('\u{0130}', "i").to_lowercase()
+}
+
 use std::sync::Mutex;
 
 use rusqlite::{params, Connection, OptionalExtension};
@@ -51,6 +57,12 @@ pub enum MemoryReadError {
     NotConfigured,
     InvariantViolation,
     Storage,
+}
+
+pub struct MemoryActor<'a> {
+    pub name: &'a str,
+    pub principal_id: Option<&'a str>,
+    pub allow_legacy_name: bool,
 }
 
 use crate::sync::RecoverMutex;
@@ -146,6 +158,13 @@ impl Store {
             });
         };
         let mut conn = Connection::open(path)?;
+        conn.create_scalar_function(
+            "loca_fold",
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| Ok(search_fold(&ctx.get::<String>(0)?)),
+        )?;
         conn.execute_batch(
             r#"
             PRAGMA journal_mode = WAL;
@@ -658,6 +677,31 @@ impl Store {
         }
         tx.commit()?;
         migrate_legacy_principals(&mut conn)?;
+        // Bind legacy stewardship once. Never resolve an unresolved label on
+        // a later admission: that would hand old authority to a reused name.
+        let has_owner_principal = {
+            let mut statement = conn.prepare("PRAGMA table_info(loca_memory)")?;
+            let columns = statement
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            columns.iter().any(|column| column == "owner_principal_id")
+        };
+        if !has_owner_principal {
+            let tx = conn.transaction()?;
+            tx.execute(
+                "ALTER TABLE loca_memory ADD COLUMN owner_principal_id TEXT REFERENCES principals(id)",
+                [],
+            )?;
+            tx.execute(
+                "UPDATE loca_memory SET owner_principal_id = (
+                    SELECT id FROM principals WHERE display_name = loca_memory.owner
+                    AND disabled_at IS NULL
+                 ) WHERE owner IS NOT NULL AND
+                 (SELECT count(*) FROM principals WHERE display_name = loca_memory.owner) = 1",
+                [],
+            )?;
+            tx.commit()?;
+        }
         // Blobs live beside the SQLite file so the same Docker data volume +
         // backup/restore captures them (RFC decision 1: STORAGE_ROOT defaults
         // to the dir of DB_PATH). A blob dir that can't be created disables

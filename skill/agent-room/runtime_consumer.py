@@ -163,6 +163,13 @@ def delivery_environment(
             "LOCA_PROTOCOL_VERSION": str(record.get("protocol_version") or 0),
         }
     )
+    # Compatibility values must never make execve fail before the adapter can
+    # read its canonical stdin envelope (Linux also limits each env string).
+    payload_keys = ("LOCA_MSG", "LOCA_DELIVERY", "LOCA_TEXT")
+    if any(len(env[key].encode("utf-8")) > 16_384 for key in payload_keys):
+        for key in payload_keys:
+            env.pop(key, None)
+        env["LOCA_PAYLOAD_ON_STDIN"] = "1"
     return env
 
 
@@ -179,26 +186,32 @@ def run_delivery(
     receipt_dir = Path(tempfile.mkdtemp(prefix="loca-wake-"))
     wake_receipt = receipt_dir / "accepted"
     reply_receipt = receipt_dir / "replied"
+    payload_file = receipt_dir / "delivery.json"
     env["LOCA_WAKE_RECEIPT"] = str(wake_receipt)
     env["LOCA_REPLY_RECEIPT"] = str(reply_receipt)
-    process = subprocess.Popen(
-        command,
-        shell=True,
-        text=True,
-        env=env,
-        stdin=subprocess.PIPE,
-        start_new_session=True,
-    )
-    assert process.stdin is not None
-    process.stdin.write(env["LOCA_DELIVERY"])
-    process.stdin.close()
+    env["LOCA_DELIVERY_FILE"] = str(payload_file)
     deadline = time.monotonic() + timeout_seconds
+    try:
+        with payload_file.open("w", encoding="utf-8") as payload:
+            os.chmod(payload_file, 0o600)
+            json.dump(record, payload, ensure_ascii=False)
+        # A private seekable stdin avoids a pipe writer blocking before the
+        # timeout/receipt loop. Non-reading commands are still bounded.
+        with payload_file.open("r", encoding="utf-8") as payload:
+            process = subprocess.Popen(
+                command, shell=True, text=True, env=env,
+                stdin=payload, start_new_session=True,
+            )
+    except BaseException:
+        payload_file.unlink(missing_ok=True)
+        receipt_dir.rmdir()
+        raise
     wake_reported = False
     reply_reported = False
     background_reaper = False
 
     def cleanup_receipts() -> None:
-        for path in (wake_receipt, reply_receipt):
+        for path in (wake_receipt, reply_receipt, payload_file):
             try:
                 path.unlink()
             except FileNotFoundError:

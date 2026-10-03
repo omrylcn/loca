@@ -97,7 +97,7 @@ Lobby.
 
 ## Backup and upgrade safety
 
-Use SQLite's backup API/CLI against a live database, and restore-test the
-backup before upgrading. Verify release provenance, run the documented gates,
+Use a complete, offline [database and blob snapshot](backup-restore.md), and
+restore-test it before upgrading. Verify release provenance, run the documented gates,
 and validate one browser message plus one direct agent turn after deployment.
 See [Self-host Loca](self-host.md) for upgrade, rollback, and uninstall.

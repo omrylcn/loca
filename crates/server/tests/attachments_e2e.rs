@@ -101,6 +101,98 @@ async fn send_msg(
 }
 
 #[tokio::test]
+async fn offline_snapshot_restores_real_http_history_and_attachment() {
+    use sha2::{Digest, Sha256};
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("data");
+    std::fs::create_dir(&data).unwrap();
+    let db = data.join("att.sqlite3");
+    let (base, mut server) = spawn(&db.to_string_lossy()).await;
+    let client = reqwest::Client::new();
+    let bytes = png_bytes(2);
+    let attachment: Value = upload(
+        &client,
+        &base,
+        "alpha",
+        bytes.clone(),
+        "image/png",
+        "proof.png",
+    )
+    .await
+    .error_for_status()
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    let id = attachment["id"].as_str().unwrap().to_string();
+    assert!(send_msg(
+        &client,
+        &base,
+        "alpha",
+        "history survives offline restore",
+        &[&id]
+    )
+    .await
+    .status()
+    .is_success());
+    server._child.kill().await.unwrap();
+    server._child.wait().await.unwrap();
+
+    let script =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/storage_snapshot.py");
+    let snapshot = dir.path().join("snapshot");
+    let restored = dir.path().join("restore");
+    let python = std::env::var("PYTHON")
+        .unwrap_or_else(|_| if cfg!(windows) { "python" } else { "python3" }.into());
+    for (action, source, target) in [
+        ("backup", db.as_path(), snapshot.as_path()),
+        ("restore", snapshot.as_path(), restored.as_path()),
+    ] {
+        let result = std::process::Command::new(&python)
+            .arg(&script)
+            .arg(action)
+            .arg(source)
+            .arg(target)
+            .arg("--server-stopped")
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}: {}",
+            action,
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+    let (restored_base, _restored_server) =
+        spawn(&restored.join("loca.sqlite3").to_string_lossy()).await;
+    let history: Vec<Value> = client
+        .get(format!("{restored_base}/rooms/alpha/messages"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(history
+        .iter()
+        .any(|row| row["text"] == "history survives offline restore"));
+    let downloaded = client
+        .get(format!("{restored_base}/rooms/alpha/attachments/{id}"))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    assert_eq!(downloaded.as_ref(), bytes);
+    assert_eq!(format!("{:x}", Sha256::digest(&downloaded)), id);
+}
+
+#[tokio::test]
 async fn upload_cite_fetch_roundtrip_and_room_isolation() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("att.sqlite3");

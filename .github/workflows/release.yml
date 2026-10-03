@@ -76,6 +76,11 @@ jobs:
             dist/release/loca-"$version"-linux-amd64/
           cp LICENSE README.md PRODUCTION.md \
             dist/release/loca-"$version"-linux-amd64/
+          mkdir -p dist/release/loca-"$version"-linux-amd64/{scripts,docs}
+          install -m 0755 scripts/storage_snapshot.py \
+            dist/release/loca-"$version"-linux-amd64/scripts/
+          install -m 0644 docs/backup-restore.md \
+            dist/release/loca-"$version"-linux-amd64/docs/
           tar -C dist/release -czf \
             dist/release/loca-"$version"-linux-amd64.tar.gz \
             loca-"$version"-linux-amd64

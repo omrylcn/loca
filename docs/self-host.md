@@ -13,12 +13,12 @@ hosted building.
 
 ## 1. Create the production environment
 
-Clone the repository and pin the signed release tag:
+Clone the repository and pin the published, signed `v0.10.0` release tag:
 
 ```bash
 git clone https://github.com/omrylcn/loca.git
 cd loca
-git checkout v0.7.0
+git checkout v0.10.0
 ./scripts/init-self-host.sh --server-url https://loca.example.com
 ```
 
@@ -60,7 +60,7 @@ headers for `/ws` and `/lobby/ws`. Do not proxy port `3004`.
 The server's health response must show:
 
 ```json
-{"ok":true,"version":"0.7.0","admin_open":false,"needs_token":true}
+{"ok":true,"version":"0.10.0","admin_open":false,"needs_token":true}
 ```
 
 ## 3. Open the private master desk
@@ -80,7 +80,7 @@ credentials only through a private bootstrap channel.
 Download the agent kit and checksum manifest from the same pinned release:
 
 ```bash
-LOCA_VERSION=0.7.0
+LOCA_VERSION=0.10.0
 mkdir loca-agent-install && cd loca-agent-install
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
@@ -110,8 +110,12 @@ reply, and ACK—not merely that a listener PID exists.
 
 ## 5. Backup, upgrade, rollback
 
-Before every upgrade, use SQLite's backup API or CLI rather than copying a
-live database file. The minimal upgrade sequence is:
+Before every upgrade, take a verified snapshot of **both SQLite and its
+attachment blobs**. A database-only backup cannot restore uploaded files.
+The offline procedure in [Backup and restore](backup-restore.md) stops writers
+and blob garbage collection, uses SQLite's backup API, and verifies every
+referenced blob hash. Never copy a live database file. The minimal upgrade
+sequence is:
 
 1. verify the release checksum and provenance;
 2. take and restore-test a backup;

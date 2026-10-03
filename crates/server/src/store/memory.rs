@@ -207,14 +207,20 @@ impl Store {
         })
     }
 
-    pub fn set_memory_owner(&self, room: &str, owner: Option<&str>) -> rusqlite::Result<()> {
+    pub fn set_memory_owner(
+        &self,
+        room: &str,
+        owner: Option<&str>,
+        principal_id: Option<&str>,
+    ) -> rusqlite::Result<()> {
         let Some(c) = self.conn() else { return Ok(()) };
         c.execute(
-            "INSERT INTO loca_memory (room, owner, version) VALUES (?1, ?2, 1)
+            "INSERT INTO loca_memory (room, owner, owner_principal_id, version) VALUES (?1, ?2, ?3, 1)
              ON CONFLICT(room) DO UPDATE SET
                 owner = excluded.owner,
+                owner_principal_id = excluded.owner_principal_id,
                 version = loca_memory.version + 1",
-            params![room, owner],
+            params![room, owner, principal_id],
         )
         .map(|_| ())
     }
@@ -222,28 +228,33 @@ impl Store {
     fn require_memory_owner(
         tx: &rusqlite::Transaction<'_>,
         room: &str,
-        actor: &str,
+        actor: &MemoryActor<'_>,
     ) -> Result<(), MemoryWriteError> {
         let owner = tx
             .query_row(
-                "SELECT owner FROM loca_memory WHERE room = ?1",
+                "SELECT owner, owner_principal_id FROM loca_memory WHERE room = ?1",
                 params![room],
-                |row| row.get::<_, Option<String>>(0),
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                    ))
+                },
             )
             .optional()
-            .map_err(|_| MemoryWriteError::Storage)?
-            .flatten();
+            .map_err(|_| MemoryWriteError::Storage)?;
         match owner {
-            None => Err(MemoryWriteError::OwnerUnassigned),
-            Some(owner) if owner != actor => Err(MemoryWriteError::NotOwner),
-            Some(_) => Ok(()),
+            None | Some((None, _)) => Err(MemoryWriteError::OwnerUnassigned),
+            Some((_, Some(principal))) if actor.principal_id == Some(principal.as_str()) => Ok(()),
+            Some((Some(name), None)) if actor.allow_legacy_name && name == actor.name => Ok(()),
+            Some(_) => Err(MemoryWriteError::NotOwner),
         }
     }
 
     pub fn write_short_memory(
         &self,
         room: &str,
-        actor: &str,
+        actor: &MemoryActor<'_>,
         text: &str,
         at: u64,
     ) -> Result<protocol::LocaMemory, MemoryWriteError> {
@@ -272,7 +283,7 @@ impl Store {
     pub fn append_long_memory(
         &self,
         room: &str,
-        actor: &str,
+        actor: &MemoryActor<'_>,
         text: &str,
         at: u64,
     ) -> Result<protocol::LocaMemoryEntry, MemoryWriteError> {
@@ -302,7 +313,7 @@ impl Store {
         tx.execute(
             "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
              VALUES (?1, ?2, ?3, ?4)",
-            params![room, text, actor, at],
+            params![room, text, actor.name, at],
         )
         .map_err(|_| MemoryWriteError::Storage)?;
         let id = tx.last_insert_rowid() as u64;
@@ -320,7 +331,7 @@ impl Store {
             id,
             room: room.to_string(),
             text: text.to_string(),
-            decided_by: Some(actor.to_string()),
+            decided_by: Some(actor.name.to_string()),
             decided_at: Some(at),
             over_budget: next_bytes > LONG_MEMORY_SOFT_BYTES,
         })

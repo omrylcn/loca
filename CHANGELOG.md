@@ -6,6 +6,35 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-03
+
+### Security
+- Journal authors and note deletions now require the authenticated actor; expired,
+  revoked, or explicitly invalid sessions cannot fall back to a claimed name.
+- Memory ownership is bound to a principal, so replacing a member with the same
+  display name does not inherit the former member's write authority.
+- Corrupt persisted access settings and failed storage reads fail closed instead
+  of being reported as an empty or unrestricted Building.
+
+### Fixed
+- Large agent payloads use a private file/stdin transport instead of exceeding
+  environment limits; non-reading consumers cannot block the delivery timeout.
+- Listener output is synced before checkpoints and acknowledgements, torn JSONL
+  tails are repaired, and reconnect recovery fetches current room memory before
+  emitting recovered wakes.
+- Memory loading, dirty drafts, concurrent writes, and post-save verification now
+  distinguish a server-accepted save from a verified readback.
+- Notes preserve drafts on failed saves and room switches; revisions and updates
+  commit together. Search supports Unicode lowercase and literal wildcard text.
+- Onboarding version pins are checked against the canonical release version.
+
+### Added
+- Verified offline snapshots and empty-directory restore preserve both SQLite
+  state and attachment blobs. Production backup documentation includes the full
+  restore procedure and secret-handling precautions.
+- Documented the finite, append-only decision ledger honestly: there is no
+  reset/consolidate command, and a full ledger remains readable.
+
 ## [0.9.29] - 2026-10-03
 
 ### Added

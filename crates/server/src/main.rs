@@ -461,6 +461,7 @@ async fn main() {
         .route("/rooms/:id/notes/:key/history", get(note_history))
         // Memory is not a note: deliberately no DELETE method is attached.
         .route("/rooms/:id/memory", get(get_loca_memory))
+        .route("/rooms/:id/memory/snapshot", get(get_loca_memory_snapshot))
         .route(
             "/rooms/:id/memory/owner",
             axum::routing::put(set_loca_memory_owner),

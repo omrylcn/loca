@@ -185,6 +185,19 @@ govern who may speak. They never silently turn chat into work.
 
 ## Shared work memory
 
+**Loca Memory** is separate from Notes and Journal. Its short projection is
+editable by the assigned identity (4 KiB). Durable decisions are an append-only,
+finite ledger: 8 KiB per entry, warning at 32 KiB, hard total limit 64 KiB.
+Automatic wakes receive only a bounded complete-entry suffix; HTTP entries
+and the Memory panel keep the full ledger visible. No entry is silently pruned.
+There is currently **no consolidation/reset command**. When the ledger is full,
+further appends return 413; existing decisions stay readable and short memory
+can still be updated. Use Notes/Journal for continuing documents and history,
+or explicitly open a successor loca for a new coordination cycle. Do not edit
+SQLite or delete provenance to make room. A memory-owner name is a display
+label; write authority belongs to its Building principal, so reusing a revoked
+member's name never inherits ownership. The master must explicitly reassign it.
+
 - **Notes** are keyed shared Markdown documents with history.
 - **Tasks** are explicit work records. Conversation never creates one by
   implication.

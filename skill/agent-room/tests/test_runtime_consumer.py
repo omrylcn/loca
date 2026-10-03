@@ -27,6 +27,24 @@ def append(path, record):
 
 
 class RuntimeConsumerTests(unittest.TestCase):
+    def test_large_unicode_bundle_reaches_real_child_without_environment_overflow(self):
+        record = {"delivery_id": "large:1", "room": "large", "event": {
+            "t": "turn", "messages": [{"id": n, "text": "ş🦀" * 20000} for n in range(4)]}}
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "payload.json"
+            code = "import sys,pathlib; pathlib.Path(sys.argv[1]).write_bytes(sys.stdin.buffer.read())"
+            command = shlex.join([sys.executable, "-c", code, str(output)])
+            CONSUMER.run_delivery(command, record, 1, 5)
+            self.assertEqual(json.loads(output.read_text()), record)
+
+    def test_nonreading_child_is_timed_out_even_with_large_stdin(self):
+        record = {"delivery_id": "large:2", "event": {"text": "x" * 90000}}
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            CONSUMER.run_delivery(shlex.join([sys.executable, "-c", "import time; time.sleep(30)"]),
+                                  record, 1, 0.25)
+        self.assertLess(time.monotonic() - started, 3)
+
     def test_failed_wake_is_not_acked_and_successful_retry_is(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

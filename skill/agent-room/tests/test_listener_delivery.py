@@ -105,6 +105,9 @@ class ReconnectBackfillServer(BaseHTTPRequestHandler):
         if path == "/rooms/reviewer/settings":
             self.reply(200, b'{"lead":null}')
             return
+        if path == "/rooms/reviewer/memory/snapshot":
+            self.reply(200, b'{"t":"memory","room":"reviewer","status":"ready","owner":"worker","short":"state changed while offline","long":"decision","version":7}')
+            return
         if path == "/rooms/reviewer/messages":
             self.server.backfill_calls += 1
             if self.server.backfill_calls == 1:
@@ -140,6 +143,48 @@ class ReconnectBackfillServer(BaseHTTPRequestHandler):
 
 
 class ListenerDeliveryTests(unittest.TestCase):
+    def test_restart_repairs_only_a_torn_jsonl_tail(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "inbox.jsonl"
+            complete = '{"id":1,"text":"ş🦀"}\n'.encode()
+            path.write_bytes(complete + b'{"id":2,"text":"\xf0\x9f')
+            with LISTENER.open_durable_jsonl(path) as stream:
+                stream.write('{"id":2,"text":"replayed"}\n')
+                LISTENER.durable_flush((stream,))
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            self.assertEqual([row["id"] for row in rows], [1, 2])
+            self.assertEqual(rows[0]["text"], "ş🦀")
+            if LISTENER.os.name == "posix":
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_cursor_replace_syncs_the_parent_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "cursor.json"
+            events = []
+            fsync = LISTENER.os.fsync
+            replace = LISTENER.os.replace
+            def synced(fd):
+                events.append("sync")
+                return fsync(fd)
+            def replaced(source, target):
+                events.append("replace")
+                return replace(source, target)
+            with mock.patch.object(LISTENER.os, "fsync", side_effect=synced), mock.patch.object(LISTENER.os, "replace", side_effect=replaced):
+                LISTENER.save_cursor_state(path, {"r": 7})
+            self.assertEqual(events, ["sync", "replace", "sync"] if LISTENER.os.name == "posix" else ["sync", "replace"])
+            self.assertEqual(json.loads(path.read_text()), {"r": 7})
+
+    def test_output_commit_fails_before_any_checkpoint_on_disk_error(self):
+        sink = mock.Mock()
+        sink.fileno.return_value = 42
+        checkpoint = mock.Mock()
+        with mock.patch.object(LISTENER.os, "fsync", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                LISTENER.durable_flush((sink,))
+                checkpoint()
+        checkpoint.assert_not_called()
+        sink.flush.assert_called_once()
+
     def test_backfill_paginates_the_complete_durable_gap(self):
         messages = [
             {
@@ -683,6 +728,8 @@ class ListenerDeliveryTests(unittest.TestCase):
                     inbox.read_text(encoding="utf-8").splitlines()[0]
                 )
                 self.assertEqual(delivery["delivery_id"], "reviewer:101")
+                self.assertEqual(delivery["event"]["memory"]["version"], 7)
+                self.assertEqual(delivery["event"]["memory"]["short"], "state changed while offline")
                 self.assertGreaterEqual(server.backfill_calls, 2)
                 self.assertGreaterEqual(server.ws_connections, 2)
 
