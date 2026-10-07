@@ -2,6 +2,23 @@
 
 Status: implementation specification; not deployed.
 
+## Implemented source slices
+
+- Principal-bound wiki configuration, durable editable pages and revision
+  history storage; atomic page/review-cursor commit, no-change reviews and
+  same-room source validation. API: `/wiki`, `/wiki/config`, `/wiki/review`.
+- Read-only Loca Wiki browser view, page navigation/source buttons, separate
+  review/edit metadata and operator editor assignment.
+- Identity-bearing `connect.sh wiki` / `wiki-review` commands and role-specific
+  skill instructions. The existing memory rows and endpoints are untouched.
+- Context revision helper exists but is not yet wired into runtime delivery.
+
+Not implemented: bounded review batches, scheduler attention, history read UI,
+automatic distribution/context recovery, migration/import and production
+rollout. Config requests enabling maintenance fail explicitly rather than
+claiming an absent scheduler is running. Do not merge/release this branch as a
+complete Loca Wiki until the remaining acceptance gates pass.
+
 ## Product contract
 
 Each private loca has an operator-assigned wiki editor, a working page, a

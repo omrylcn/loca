@@ -18,6 +18,8 @@
 #   connect.sh memory-short   <server> <room> <name> <text>
 #   connect.sh memory-append  <server> <room> <name> <text>
 #   connect.sh memory-entries <server> <room> [after_id] [limit]
+#   connect.sh wiki           <server> <room> <name>
+#   connect.sh wiki-review    <server> <room> <name> <json-file>
 #   connect.sh journal     <server> <room> [name] [text]           # read, or record finished work
 #   connect.sh goals       <server> <room>                         # current/history goals
 #   connect.sh waits       <server> <room>                         # explicit dependency waits
@@ -167,7 +169,7 @@ _load_credential_file() {
 # selection as their final credential boundary.
 _requested_identity=""
 case "${1:-}" in
-  listen|send|release|note-create|note-update|memory-short|memory-append|journal|announce|attention-claim|attention-resolve)
+  listen|send|release|note-create|note-update|memory-short|memory-append|wiki|wiki-review|journal|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
   session|status|reconnect)
@@ -486,6 +488,21 @@ case "$cmd" in
     ;;
 
   # ---- durable loca memory ----
+  wiki)
+    server="$1"; room="$2"; name="$3"
+    use_loca "$room"
+    curl_get "$server/rooms/$room/wiki"
+    ;;
+
+  wiki-review)
+    server="$1"; room="$2"; name="$3"; review_file="$4"
+    use_loca "$room"
+    # Review content is data, not a shell expression. A local file avoids a
+    # large quoted payload on argv and leaves credentials in their boundary.
+    payload=$(jq -ce 'select(type == "object" and (.pages | type == "array"))' "$review_file") || exit 2
+    curl_json -X POST "$server/rooms/$room/wiki/review" -d "$payload"
+    ;;
+
   memory)
     server="$1"; room="$2"
     use_loca "$room"

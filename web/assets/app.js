@@ -391,6 +391,9 @@ $("clearBtn").onclick = () => { revokeInlineAttachmentUrls(); $("feed").innerHTM
 $("tabChat").onclick = () => switchTab("chat");
 $("tabNotes").onclick = () => switchTab("notes");
 $("tabMemory").onclick = () => switchTab("memory");
+$("tabWiki").onclick = () => switchTab("wiki");
+$("wikiRefresh").onclick = fetchWiki;
+$("wikiConfigure").onclick = configureWiki;
 $("memorySaveShort").onclick = saveShortMemory;
 $("memoryAddDecision").onclick = addMemoryDecision;
 $("memorySaveOwner").onclick = saveMemoryOwner;

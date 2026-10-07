@@ -104,7 +104,8 @@
         <button class="tab" id="tabNotes" data-tab="notes" role="tab" aria-selected="false">Notes<span class="dot" id="notesDot"></span></button>
         <button class="tab" id="tabTasks" data-tab="tasks" role="tab" aria-selected="false">Focus<span class="dot" id="tasksDot"></span></button>
         <button class="tab" id="tabJournal" data-tab="journal" role="tab" aria-selected="false">Journal<span class="dot" id="journalDot"></span></button>
-        <button class="tab" id="tabMemory" data-tab="memory" role="tab" aria-selected="false">Memory<span class="dot" id="memoryDot"></span></button>
+        <button class="tab" id="tabWiki" data-tab="wiki" role="tab" aria-selected="false">Loca Wiki<span class="dot" aria-hidden="true"></span></button>
+        <button class="tab" id="tabMemory" data-tab="memory" role="tab" aria-selected="false">Legacy memory<span class="dot" id="memoryDot"></span></button>
       </div>
       <div class="roomactions">
         <span id="leadKey" class="leadkey hidden">@lead</span>
@@ -322,6 +323,21 @@
       </div>
     </div>
 
+    <div class="notes hidden" id="wikiPanel">
+      <div class="memorytitle"><span>Loca Wiki</span><button id="wikiRefresh">Refresh</button></div>
+      <p>Shared, source-linked context. Wiki text is not a task or a grant of authority.</p>
+      <div id="wikiStatus" class="sysline" role="status"></div>
+      <div id="wikiConfig" class="memoryeditor hidden">
+        <label for="wikiEditor">Wiki editor agent</label>
+        <input id="wikiEditor" maxlength="80" placeholder="Exact agent name">
+        <label for="wikiInterval">Review interval (conversation messages)</label>
+        <input id="wikiInterval" type="number" min="1" max="1000" value="30">
+        <button id="wikiConfigure">Assign editor</button>
+        <p>Automatic maintenance is not available in this implementation slice. Assignment does not start model work.</p>
+      </div>
+      <nav id="wikiIndex" aria-label="Wiki pages"></nav>
+      <div id="wikiPages"></div>
+    </div>
     <div class="notes hidden" id="memoryPanel">
       <div class="memorytitle"><span>Memory</span><b id="memoryHeading">—</b></div>
       <div id="memoryOverview"></div>
@@ -451,6 +467,7 @@
 <script src="/assets/focus.js"></script>
 <script src="/assets/notes.js"></script>
 <script src="/assets/memory.js"></script>
+<script src="/assets/wiki.js"></script>
 <script src="/assets/profile.js"></script>
 <script src="/assets/sidebar.js"></script>
 <script src="/assets/api.js"></script>

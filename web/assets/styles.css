@@ -358,6 +358,7 @@
      icin `normal`den urettigi degerin AYNISI: gorunum degismiyor, yalniz
      motora gore degismesi engelleniyor. */
   .tab { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 4px 12px;
+    white-space: nowrap;
     border-radius: 6px; font: 12px var(--mono); line-height: 14px;
     display: inline-flex; align-items: center; justify-content: center; }
   .tab.active { background: var(--panel); color: var(--txt); box-shadow: inset 0 0 0 1px var(--line); }
