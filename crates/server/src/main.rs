@@ -454,6 +454,9 @@ async fn main() {
             axum::routing::delete(revoke_invite),
         )
         .route("/rooms/:id/notes", get(get_notes).post(create_note))
+        .route("/rooms/:id/wiki", get(get_wiki))
+        .route("/rooms/:id/wiki/config", axum::routing::put(configure_wiki))
+        .route("/rooms/:id/wiki/review", axum::routing::post(commit_wiki))
         .route(
             "/rooms/:id/notes/:key",
             get(get_note).put(update_note).delete(delete_note),

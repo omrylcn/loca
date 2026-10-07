@@ -11,7 +11,9 @@ mod downloads;
 mod lobby;
 mod membership;
 mod rooms;
+mod wiki;
 mod work;
+pub(crate) use wiki::{commit_wiki, configure_wiki, get_wiki};
 
 #[cfg(test)]
 pub(crate) use access::mutation_actor;

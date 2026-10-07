@@ -3,6 +3,144 @@
 use super::*;
 
 #[tokio::test]
+async fn wiki_http_editor_revision_and_private_room_boundaries() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("wiki.db");
+    let (port, _guard) = spawn_server_env(
+        "MASTER",
+        &[
+            ("DB_PATH", db.to_string_lossy().into_owned()),
+            ("REQUIRE_INVITE", "1".into()),
+            ("REQUIRE_SESSIONS", "1".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let mut sessions = Vec::new();
+    for name in ["editor", "reader"] {
+        client
+            .post(format!("{base}/members"))
+            .header("x-admin-token", "MASTER")
+            .json(&serde_json::json!({"name":name,"kind":"agent"}))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+        let davet = davet_for(&base, "MASTER", "general", name).await;
+        let response: Value = client
+            .post(format!("{base}/sessions"))
+            .header("x-room-token", davet)
+            .json(&serde_json::json!({"name":name,"kind":"agent","loca":"general"}))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        sessions.push(response["session_token"].as_str().unwrap().to_owned());
+    }
+    assert_eq!(
+        client
+            .put(format!("{base}/rooms/general/wiki/config"))
+            .header("x-session-token", &sessions[0])
+            .json(&serde_json::json!({"editor":"editor","interval_messages":30}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    client
+        .put(format!("{base}/rooms/general/wiki/config"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({"editor":"editor","interval_messages":30}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    let update = serde_json::json!({"expected_revision":0,"reviewed_through":0,"reason":"review",
+        "pages":[{"slug":"working","title":"Working area","body":"proposal","sources":[]}]});
+    assert_eq!(
+        client
+            .post(format!("{base}/rooms/general/wiki/review"))
+            .header("x-session-token", &sessions[1])
+            .json(&update)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    let receipt: Value = client
+        .post(format!("{base}/rooms/general/wiki/review"))
+        .header("x-session-token", &sessions[0])
+        .json(&update)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(receipt["revision"], 1);
+    assert_eq!(
+        client
+            .post(format!("{base}/rooms/general/wiki/review"))
+            .header("x-session-token", &sessions[0])
+            .json(&update)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        409
+    );
+    let snapshot: Value = client
+        .get(format!("{base}/rooms/general/wiki"))
+        .header("x-session-token", &sessions[1])
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(snapshot["revision"], 1);
+    assert!(snapshot["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["body"] == "proposal"));
+    assert_eq!(
+        client
+            .get(format!("{base}/rooms/private/wiki"))
+            .header("x-session-token", &sessions[1])
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/rooms/general/wiki/config"))
+            .header("x-admin-token", "MASTER")
+            .json(&serde_json::json!({"editor":"editor","enabled":true,"interval_messages":30}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        409
+    );
+}
+
+#[tokio::test]
 async fn memory_ownership_does_not_transfer_to_a_reused_name() {
     let directory = tempfile::tempdir().unwrap();
     let db = directory.path().join("principal-owner.db");

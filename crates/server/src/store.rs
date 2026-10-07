@@ -22,7 +22,9 @@ mod memory;
 mod messages;
 mod operators;
 mod rooms;
+mod wiki;
 mod work;
+pub use wiki::{WikiCommit, WikiError, WikiSnapshot};
 
 /// Unicode case-insensitive, literal substring matching shared by SQL and notes.
 /// Capital dotted I folds to i too, so Turkish names do not diverge from notes.
@@ -234,6 +236,37 @@ impl Store {
             );
             CREATE INDEX IF NOT EXISTS loca_memory_entries_room
                 ON loca_memory_entries(room, id);
+            CREATE TABLE IF NOT EXISTS loca_wiki (
+                room TEXT PRIMARY KEY,
+                editor_principal TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                interval_messages INTEGER NOT NULL DEFAULT 30,
+                revision INTEGER NOT NULL DEFAULT 0,
+                reviewed_through INTEGER NOT NULL DEFAULT 0,
+                reviewed_at INTEGER,
+                edited_at INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS loca_wiki_pages (
+                room TEXT NOT NULL,
+                slug TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                sources TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                PRIMARY KEY(room, slug)
+            );
+            CREATE TABLE IF NOT EXISTS loca_wiki_history (
+                room TEXT NOT NULL,
+                slug TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                sources TEXT NOT NULL,
+                editor_principal TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                edited_at INTEGER NOT NULL,
+                PRIMARY KEY(room, slug, revision)
+            );
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER NOT NULL,
                 room TEXT NOT NULL,
