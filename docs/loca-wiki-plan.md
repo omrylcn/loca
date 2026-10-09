@@ -1,6 +1,6 @@
 # Loca Wiki implementation plan
 
-Status: implementation specification; not deployed.
+Status: manual Wiki foundation deployed; automation remains unimplemented.
 
 ## Implemented source slices
 
@@ -14,8 +14,8 @@ Status: implementation specification; not deployed.
 - Context revision helper exists but is not yet wired into runtime delivery.
 
 Not implemented: bounded review batches, scheduler attention, history read UI,
-automatic distribution/context recovery, migration/import and production
-rollout. Config requests enabling maintenance fail explicitly rather than
+automatic distribution/context recovery and migration/import.
+Config requests enabling maintenance fail explicitly rather than
 claiming an absent scheduler is running. Do not merge/release this branch as a
 complete Loca Wiki until the remaining acceptance gates pass.
 
