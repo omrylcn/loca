@@ -1,5 +1,5 @@
 # ---- build ----
-FROM rust:1.94-slim-bookworm AS build
+FROM rust:1.94-slim-bookworm@sha256:cf9dd0ec73e75f827fe59123fff9dc65af1a1c8363c3c31ee8d7f8ad0b6a5fb2 AS build
 WORKDIR /app
 # The skill-bundles crate packages the skill trees at compile time via
 # scripts/build-skill-bundles.sh, which needs bash (present), zip and python3.
@@ -35,7 +35,7 @@ RUN touch crates/server/src/main.rs crates/protocol/src/lib.rs \
  && cargo build --release --locked -p server
 
 # ---- runtime ----
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
 # rusqlite is bundled (static), so no sqlite lib needed; just certs for good measure.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
