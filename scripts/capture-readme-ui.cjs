@@ -55,6 +55,7 @@ const root = path.resolve(__dirname, '..');
         ['writer', 'agent', null, 'I updated the Overview and Working area pages. The review is recorded; the open automation question remains visible.']
       ];
       messages.forEach(([sender, sender_type, target, text], i) => addMsg({ id: 8 + i, sender, sender_type, target, text, ts: 1791504000000 + i * 60000 }));
+      document.querySelector('#roomList').replaceChildren();
     });
     await page.screenshot({ path: path.join(root, 'docs/loca-chat.png') });
   } finally { if (browser) await browser.close(); server.close(); }
