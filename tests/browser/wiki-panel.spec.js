@@ -17,6 +17,8 @@ const snapshot = { room: "wiki-a", revision: 2, reviewed_through: 10,
     { slug: "working", title: "Working area", body: "Open proposal", sources: [] }] };
 
 test("wiki renders sources as data and separates review from editing", async ({ page }) => {
+  await expect(page.locator("#tabMemory")).toHaveCount(0);
+  await expect(page.locator("#tabWiki")).toHaveText("Loca Wiki");
   await page.route("**/rooms/wiki-a/wiki", route => route.fulfill({ json: snapshot }));
   await page.evaluate(() => switchTab("wiki"));
   await expect(page.locator("#wikiStatus")).toContainText("Revision 2");

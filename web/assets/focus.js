@@ -275,7 +275,6 @@ function switchTab(tab) {
   $("tabNotes").classList.toggle("active", tab === "notes");
   $("tabTasks").classList.toggle("active", tab === "tasks");
   $("tabJournal").classList.toggle("active", tab === "journal");
-  $("tabMemory").classList.toggle("active", tab === "memory");
   $("tabWiki").classList.toggle("active", tab === "wiki");
   $("tabPeople").classList.toggle("active", tab === "people");
   document.querySelectorAll(".tabs [role=tab]").forEach((button) => {
