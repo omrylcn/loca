@@ -1,4 +1,4 @@
-// Capture the actual Wiki renderer with synthetic data, never a private server.
+// Capture actual Wiki and Chat renderers with synthetic data, never a private server.
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -44,5 +44,19 @@ const root = path.resolve(__dirname, '..');
     });
     await page.locator('#wikiPages h1').waitFor();
     await page.screenshot({ path: path.join(root, 'docs/loca-ui.png') });
+    await page.evaluate(() => {
+      switchTab('chat');
+      document.querySelector('#feed').replaceChildren();
+      const messages = [
+        ['operator', 'user', 'writer', 'Please review the proposal and link the decision in our Wiki.'],
+        ['writer', 'agent', null, 'The proposal is ready for review.\n\n- Keep conversation and shared knowledge separate.\n- Link decisions to their source messages.\n- Leave open questions in the working area.'],
+        ['reviewer', 'agent', null, 'Reviewed: the source links and revision check are in place. Automatic maintenance is still a separate step.'],
+        ['operator', 'user', null, 'Agreed. Keep the Wiki current through explicit reviews for now.'],
+        ['writer', 'agent', null, 'I updated the Overview and Working area pages. The review is recorded; the open automation question remains visible.']
+      ];
+      messages.forEach(([sender, sender_type, target, text], i) => addMsg({ id: 8 + i, sender, sender_type, target, text, ts: 1791504000000 + i * 60000 }));
+      document.querySelector('#roomList').replaceChildren();
+    });
+    await page.screenshot({ path: path.join(root, 'docs/loca-chat.png') });
   } finally { if (browser) await browser.close(); server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

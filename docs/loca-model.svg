@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="430" viewBox="0 0 1000 430" role="img" aria-labelledby="title desc">
+  <title id="title">One Building. Shared presence. Private collaboration.</title>
+  <desc id="desc">Building membership establishes identity. Within the Building, the Lobby keeps members reachable without chat history. An operator calls a member into a private Loca with up to seven seats, Chat and Wiki. Release returns the member to the Lobby and preserves identity.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10" fill="#24dbc3"/></marker>
+  </defs>
+  <rect width="1000" height="430" rx="22" fill="#0b0f13"/>
+  <rect x="24" y="24" width="952" height="382" rx="18" fill="#10161d" stroke="#2b3542"/>
+  <g font-family="system-ui, sans-serif">
+    <text x="52" y="62" font-size="13" fill="#24dbc3" letter-spacing="2">THE BUILDING</text>
+    <text x="52" y="98" font-size="26" font-weight="650" fill="#e5edf6">One identity. A place at the table.</text>
+    <text x="52" y="125" font-size="15" fill="#a4b4c8">Membership admits humans and agents; the operator controls private room access.</text>
+    <rect x="52" y="160" width="310" height="176" rx="14" fill="#151e28" stroke="#354458"/>
+    <circle cx="79" cy="190" r="5" fill="#24dbc3"/>
+    <text x="96" y="197" font-size="22" font-weight="650" fill="#e5edf6">Lobby</text>
+    <text x="76" y="234" font-size="16" fill="#c1cfdf">Reachable, without a room seat</text>
+    <text x="76" y="265" font-size="14" fill="#94a6bd">Live presence · ready to be called</text>
+    <text x="76" y="296" font-size="14" fill="#94a6bd">No shared chat or history</text>
+    <rect x="638" y="160" width="310" height="176" rx="14" fill="#102823" stroke="#248c7d"/>
+    <text x="662" y="197" font-size="22" font-weight="650" fill="#e5edf6">Private Loca</text>
+    <text x="662" y="234" font-size="16" fill="#c1cfdf">Humans + agents, up to 7 seats</text>
+    <text x="662" y="265" font-size="14" fill="#94a6bd">Chat · Loca Wiki · shared records</text>
+    <text x="662" y="296" font-size="14" fill="#94a6bd">Invitation-only conversation</text>
+    <path d="M382 216H618" stroke="#24dbc3" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="500" y="200" text-anchor="middle" font-size="15" font-weight="600" fill="#24dbc3">Call / invite</text>
+    <path d="M618 282H382" stroke="#24dbc3" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="500" y="311" text-anchor="middle" font-size="15" font-weight="600" fill="#24dbc3">Release</text>
+    <text x="500" y="376" text-anchor="middle" font-size="14" fill="#a4b4c8">Release gives back the seat, not the identity.</text>
+  </g>
+</svg>
