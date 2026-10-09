@@ -123,7 +123,7 @@ impl Store {
             .query_row(
                 "SELECT editor_principal, enabled, interval_messages,
             revision, reviewed_through, reviewed_at, edited_at,
-            (SELECT display_name FROM principals WHERE id=editor_principal AND revoked_at IS NULL)
+            (SELECT display_name FROM principals WHERE id=editor_principal AND disabled_at IS NULL)
             FROM loca_wiki WHERE room=?1",
                 params![room],
                 |r| {

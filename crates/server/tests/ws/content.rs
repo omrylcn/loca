@@ -112,6 +112,7 @@ async fn wiki_http_editor_revision_and_private_room_boundaries() {
         .await
         .unwrap();
     assert_eq!(snapshot["revision"], 1);
+    assert_eq!(snapshot["editor_name"], "editor");
     assert!(snapshot["pages"]
         .as_array()
         .unwrap()
