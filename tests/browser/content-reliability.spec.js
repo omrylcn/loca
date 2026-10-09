@@ -27,17 +27,17 @@ async function ownerRoom(page, request, suffix) {
 
 test("persisted memory opens without another WebSocket mutation", async ({ page, request }) => {
   await ownerRoom(page, request, "load");
-  await page.locator("#tabMemory").click();
+  await page.evaluate(() => switchTab("memory")); // retained compatibility code, no navigation tab
   await expect(page.locator("#memoryShort")).toHaveText("Persisted memory");
   await expect(page.locator("#memoryShortEditor")).toBeVisible();
   await page.locator("#tabChat").click();
-  await page.locator("#tabMemory").click();
+  await page.evaluate(() => switchTab("memory"));
   await expect(page.locator("#memoryShortEditor")).toBeVisible();
 });
 
 test("live memory refresh preserves an unfocused dirty draft", async ({ page, request }) => {
   const { room, headers } = await ownerRoom(page, request, "draft");
-  await page.locator("#tabMemory").click();
+  await page.evaluate(() => switchTab("memory"));
   await expect(page.locator("#memoryShortEditor")).toBeVisible();
   await page.locator("#memoryShortInput").fill("UNSAVED MEMORY DRAFT");
   await page.locator("#memoryShortInput").press("Tab");
@@ -48,7 +48,7 @@ test("live memory refresh preserves an unfocused dirty draft", async ({ page, re
 
 test("accepted write with failed readback never claims verification", async ({ page, request }) => {
   const { room } = await ownerRoom(page, request, "verify");
-  await page.locator("#tabMemory").click();
+  await page.evaluate(() => switchTab("memory"));
   await expect(page.locator("#memoryShortEditor")).toBeVisible();
   await page.route(`**/rooms/${room}/memory`, route => route.fulfill({ status: 503, body: "readback unavailable" }));
   await page.locator("#memoryShortInput").fill("Accepted new value");
@@ -62,7 +62,7 @@ test("accepted write with failed readback never claims verification", async ({ p
 
 test("real decision append is verified against the server provenance list", async ({ page, request }) => {
   const { room } = await ownerRoom(page, request, "decision");
-  await page.locator("#tabMemory").click();
+  await page.evaluate(() => switchTab("memory"));
   await expect(page.locator("#memoryDecisionEditor")).toBeVisible();
   await page.locator("#memoryDecisionInput").fill("Decision with a real provenance record");
   await page.locator("#memoryAddDecision").click();
@@ -77,7 +77,7 @@ test("an older identical decision cannot verify a new append", async ({ page, re
   const oldResponse = await request.post(`/rooms/${room}/memory/entries`, { headers, data: { text } });
   expect(oldResponse.status()).toBe(201);
   const older = await oldResponse.json();
-  await page.locator("#tabMemory").click();
+  await page.evaluate(() => switchTab("memory"));
   await expect(page.locator("#memoryEntries")).toContainText(`#${older.id}`);
   let created;
   await page.route(`**/rooms/${room}/memory/entries**`, async route => {

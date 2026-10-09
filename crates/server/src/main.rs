@@ -88,6 +88,7 @@ const WEB_ADMIN: &str = include_str!("../../../web/assets/admin.js");
 const WEB_FOCUS: &str = include_str!("../../../web/assets/focus.js");
 const WEB_NOTES: &str = include_str!("../../../web/assets/notes.js");
 const WEB_MEMORY: &str = include_str!("../../../web/assets/memory.js");
+const WEB_WIKI: &str = include_str!("../../../web/assets/wiki.js");
 const WEB_PROFILE: &str = include_str!("../../../web/assets/profile.js");
 const WEB_SIDEBAR: &str = include_str!("../../../web/assets/sidebar.js");
 const WEB_API: &str = include_str!("../../../web/assets/api.js");
@@ -454,6 +455,9 @@ async fn main() {
             axum::routing::delete(revoke_invite),
         )
         .route("/rooms/:id/notes", get(get_notes).post(create_note))
+        .route("/rooms/:id/wiki", get(get_wiki))
+        .route("/rooms/:id/wiki/config", axum::routing::put(configure_wiki))
+        .route("/rooms/:id/wiki/review", axum::routing::post(commit_wiki))
         .route(
             "/rooms/:id/notes/:key",
             get(get_note).put(update_note).delete(delete_note),
@@ -621,6 +625,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "focus.js" => Some(("text/javascript; charset=utf-8", WEB_FOCUS)),
         "notes.js" => Some(("text/javascript; charset=utf-8", WEB_NOTES)),
         "memory.js" => Some(("text/javascript; charset=utf-8", WEB_MEMORY)),
+        "wiki.js" => Some(("text/javascript; charset=utf-8", WEB_WIKI)),
         "profile.js" => Some(("text/javascript; charset=utf-8", WEB_PROFILE)),
         "sidebar.js" => Some(("text/javascript; charset=utf-8", WEB_SIDEBAR)),
         "api.js" => Some(("text/javascript; charset=utf-8", WEB_API)),

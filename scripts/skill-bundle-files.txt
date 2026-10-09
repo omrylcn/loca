@@ -19,12 +19,14 @@ skill/agent-room/portable_lock.py
 skill/agent-room/references/adapter-protocol-v1.md
 skill/agent-room/references/adapter-protocol-v2.md
 skill/agent-room/references/codex-orchestrator.md
+skill/agent-room/references/loca-wiki.md
 skill/agent-room/references/runtimes.md
 skill/agent-room/runtime.sh
 skill/agent-room/runtime_agent.py
 skill/agent-room/runtime_consumer.py
 skill/agent-room/setup.ps1
 skill/agent-room/stop_listener.py
+skill/agent-room/wiki_state.py
 skill/loca-care/SKILL.md
 skill/loca-care/VERSION
 skill/loca-care/agents/openai.yaml

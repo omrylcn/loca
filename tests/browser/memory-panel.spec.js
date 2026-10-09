@@ -67,7 +67,7 @@ test("Memory paneli loca adini ve ayri short/long saatlerini gosterir", async ({
     version: 7,
   });
   await page.evaluate(() => switchTab("memory"));
-  await expect(page.locator(".memorytitle")).toContainText("memory-test-room");
+  await expect(page.locator("#memoryPanel .memorytitle")).toContainText("memory-test-room");
   const overview = page.locator("#memoryOverview");
   await expect(overview).toContainText("Short updated");
   await expect(overview).toContainText("Long updated");

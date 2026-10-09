@@ -6,6 +6,25 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-09
+
+### Added
+- Loca Wiki: room-scoped editable pages, principal-bound editor assignment,
+  source-message references, revision history storage and atomic review commits.
+- A document-first Wiki reader with topic navigation, safe Markdown, a
+  roster-based editor picker at the top right and separate Wiki settings.
+- Identity-scoped `wiki` and `wiki-review` agent commands and Wiki role guidance.
+
+### Changed
+- Removed the separate Memory navigation tab; existing memory data and
+  compatibility endpoints remain intact. No automatic data migration is applied.
+
+### Limitations
+- This release is the manual Wiki foundation, not the complete automation flow.
+  Scheduled review, automatic distribution, compaction recovery, history browsing
+  and legacy-content import are not implemented. Editor assignment does not
+  start model work; requests to enable automatic maintenance are rejected.
+
 ## [0.10.1] - 2026-10-03
 
 ### Fixed

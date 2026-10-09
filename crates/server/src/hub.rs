@@ -3448,6 +3448,43 @@ impl Hub {
         self.store.memory_persistence_available()
     }
 
+    pub fn wiki_snapshot(
+        &self,
+        room: &str,
+    ) -> Result<crate::store::WikiSnapshot, crate::store::WikiError> {
+        self.store.wiki_snapshot(room)
+    }
+
+    pub fn configure_wiki(
+        &self,
+        room: &str,
+        editor: &str,
+        enabled: bool,
+        interval: u64,
+    ) -> Result<(), crate::store::WikiError> {
+        let identities = self
+            .store
+            .active_principals_named(editor)
+            .map_err(|_| crate::store::WikiError::Storage)?;
+        let [identity] = identities.as_slice() else {
+            return Err(crate::store::WikiError::InvalidInput);
+        };
+        if identity.kind != SenderType::Agent {
+            return Err(crate::store::WikiError::InvalidInput);
+        }
+        self.store
+            .configure_wiki(room, &identity.id, enabled, interval)
+    }
+
+    pub fn commit_wiki(
+        &self,
+        room: &str,
+        principal: &str,
+        update: &crate::store::WikiCommit,
+    ) -> Result<u64, crate::store::WikiError> {
+        self.store.commit_wiki(room, principal, update, self.now())
+    }
+
     pub fn loca_memory_metadata(&self) -> rusqlite::Result<Vec<protocol::LocaMemoryMetadata>> {
         self.store.loca_memory_metadata()
     }
