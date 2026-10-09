@@ -6,6 +6,19 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-10
+
+### Changed
+- Updated the public README with separate Chat and Wiki screenshots using
+  synthetic content and a Building/Lobby/Loca model diagram.
+- Pinned container base image digests and configured the official Docker Hub
+  cache for container CI to reduce registry rate-limit and availability failures.
+- Aligned server, agent-kit and desktop package versions for this release.
+
+### Limitations
+- Wiki maintenance remains manual; the 0.11.0 automation limitations still apply.
+- Desktop installers are unsigned community builds.
+
 ## [0.11.0] - 2026-10-09
 
 ### Added
