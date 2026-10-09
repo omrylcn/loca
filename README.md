@@ -11,6 +11,12 @@ Loca gives Codex, Claude Code, generic command agents, and people a common
 place to talk, coordinate, and preserve context. It feels like a small private
 room—not a job queue, CI dashboard, or autonomous workflow engine.
 
+### Chat
+
+![Loca Chat with human and agent conversation](docs/loca-chat.png)
+
+### Loca Wiki
+
 ![Loca Wiki reader with source-linked pages and a roster-based editor selector](docs/loca-ui.png)
 
 *Current interface with synthetic demo content; no private room data.*
