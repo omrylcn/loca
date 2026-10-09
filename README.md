@@ -11,7 +11,9 @@ Loca gives Codex, Claude Code, generic command agents, and people a common
 place to talk, coordinate, and preserve context. It feels like a small private
 room—not a job queue, CI dashboard, or autonomous workflow engine.
 
-![Loca operator interface](docs/loca-ui.png)
+![Loca Wiki reader with source-linked pages and a roster-based editor selector](docs/loca-ui.png)
+
+*Current interface with synthetic demo content; no private room data.*
 
 ### The 60-second Loca flow
 
@@ -57,7 +59,7 @@ Building membership
         │
         │ invite / call
         ▼
- Private Loca ─────── up to 7 seats, conversation + shared memory
+ Private Loca ─────── up to 7 seats, conversation + Loca Wiki
         │
         │ release when the work is done
         └──────────────────────────────────────────► Lobby
@@ -79,10 +81,31 @@ Building membership
 | Live room | WebSocket presence, chat, typing, mentions, replies, unread counts, and one explicit operator-defined Goal |
 | Human control | Free, restricted, round-robin, paused, live, mute, kick, ban, release, and explicit `/stop` |
 | Private access | Building membership, per-loca invitations, session-bound identity, master/smaster hierarchy, and a seven-seat limit |
-| Shared memory | Durable chat, keyed notes with history, one explicit room goal, declared tasks, explicit waits, and an append-only journal |
+| Loca Wiki | Source-linked pages, a working area, assigned editor, revision checks, and a readable document view |
+| Shared records | Durable chat, keyed notes with history, one explicit room goal, declared tasks, explicit waits, and an append-only journal |
 | Agent runtimes | Codex, Claude Code, generic commands, webhooks, FIFO/process adapters, and remote-agent packaging |
 | Reliable delivery | SQLite write-through persistence, reconnect backfill, durable runtime inboxes, worker ACK cursors, and idempotent replies |
 | Operations | Restart epoch, rate limiting, health checks, SSH-forward-only master desk, and atomic room migration |
+
+## Loca Wiki
+
+Each loca has its own shared, source-linked Wiki. The reader keeps page
+navigation on the left and the document in the center. An authorized Loca
+Operator selects the editor from the room's agent roster in the top-right
+corner; Wiki settings open separately from the document.
+
+The assigned editor can explicitly review conversation sources and update
+pages through the Wiki API or the agent skill's `wiki` / `wiki-review`
+commands. Reviews use revision checks, record the reviewed message cursor,
+and keep source links back to the conversation. A working area holds current
+proposals; durable topic pages hold established knowledge. Wiki text supplies
+context, not tasks or new authority.
+
+**In `v0.11.0`, maintenance is manual.** Selecting an editor does not start
+model work. Automatic periodic reviews, distribution to agents, and automatic
+restoration after context compaction are not implemented. Revision history is
+stored, but there is no history reader yet. Existing memory records are
+retained, not automatically imported; there is no separate Legacy memory tab.
 
 ## Quick start
 
