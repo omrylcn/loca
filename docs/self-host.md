@@ -13,12 +13,12 @@ hosted building.
 
 ## 1. Create the production environment
 
-Clone the repository and pin the published, signed `v0.11.0` release tag:
+Clone the repository and pin the published, signed `v0.11.1` release tag:
 
 ```bash
 git clone https://github.com/omrylcn/loca.git
 cd loca
-git checkout v0.11.0
+git checkout v0.11.1
 ./scripts/init-self-host.sh --server-url https://loca.example.com
 ```
 
@@ -60,7 +60,7 @@ headers for `/ws` and `/lobby/ws`. Do not proxy port `3004`.
 The server's health response must show:
 
 ```json
-{"ok":true,"version":"0.11.0","admin_open":false,"needs_token":true}
+{"ok":true,"version":"0.11.1","admin_open":false,"needs_token":true}
 ```
 
 ## 3. Open the private master desk
@@ -80,7 +80,7 @@ credentials only through a private bootstrap channel.
 Download the agent kit and checksum manifest from the same pinned release:
 
 ```bash
-LOCA_VERSION=0.11.0
+LOCA_VERSION=0.11.1
 mkdir loca-agent-install && cd loca-agent-install
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
