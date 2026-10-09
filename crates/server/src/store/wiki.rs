@@ -30,6 +30,7 @@ pub struct WikiPage {
 pub struct WikiSnapshot {
     pub room: String,
     pub editor_principal: String,
+    pub editor_name: Option<String>,
     pub enabled: bool,
     pub interval_messages: u64,
     pub revision: u64,
@@ -121,12 +122,15 @@ impl Store {
         let mut snapshot = c
             .query_row(
                 "SELECT editor_principal, enabled, interval_messages,
-            revision, reviewed_through, reviewed_at, edited_at FROM loca_wiki WHERE room=?1",
+            revision, reviewed_through, reviewed_at, edited_at,
+            (SELECT display_name FROM principals WHERE id=editor_principal AND revoked_at IS NULL)
+            FROM loca_wiki WHERE room=?1",
                 params![room],
                 |r| {
                     Ok(WikiSnapshot {
                         room: room.into(),
                         editor_principal: r.get(0)?,
+                        editor_name: r.get(7)?,
                         enabled: r.get(1)?,
                         interval_messages: r.get(2)?,
                         revision: r.get(3)?,

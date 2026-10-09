@@ -24,6 +24,50 @@
     display: grid; grid-template-columns: 320px 1fr; height: 100vh;
   }
   .hidden { display: none !important; }
+  .wikiview { position: relative; padding: 0 !important; background: var(--bg); }
+  .wikiheader { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 24px 30px 18px; border-bottom: 1px solid var(--line); }
+  .wikikicker { font-size: 9px; letter-spacing: .16em; color: var(--dim); }
+  .wikiheader h2 { font-size: 22px; font-weight: 600; letter-spacing: -.04em; margin: 3px 0 0; }
+  .wikiactions { display: flex; align-items: center; gap: 10px; }
+  .wikiactions button, .wikisettingshead button { background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 7px; padding: 6px 10px; cursor: pointer; }
+  .wikiactions button:hover { color: var(--accent); border-color: var(--accent); }
+  .wikieditorcontrol { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--muted); }
+  .wikieditorcontrol .leadselect { max-width: 190px; padding: 6px 10px; border-color: var(--line); color: var(--accent2); background: var(--panel2); }
+  .wikieditorname, .wikimeta { color: var(--dim); font-size: 10px; }
+  .wikimeta { padding: 10px 30px; border-bottom: 1px solid var(--line); }
+  .wikilayout { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: 360px; }
+  .wikiindex { padding: 24px 12px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+  .wikiindex:empty { display: none; }
+  .wikilayout:has(.wikiindex:empty) { grid-template-columns: 1fr; }
+  .wikiindex button { text-align: left; border: 0; background: transparent; color: var(--muted); padding: 10px 12px; border-radius: 6px; font: 11px var(--mono); cursor: pointer; overflow-wrap: anywhere; }
+  .wikiindex button:hover { color: var(--txt); background: var(--panel2); }
+  .wikiindex button.active { color: var(--accent2); background: rgba(46,230,200,.07); }
+  .wikipages { min-width: 0; padding: 34px clamp(20px, 5vw, 64px) 60px; }
+  .wikidocument { max-width: 800px; margin: auto; }
+  .wikidocument h1 { margin: 0 0 28px; font-size: 28px; font-weight: 600; letter-spacing: -.04em; }
+  .wikibody { font-family: system-ui, sans-serif; font-size: 15px; line-height: 1.85; overflow-wrap: anywhere; }
+  .wikisources { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding-top: 18px; margin-top: 36px; color: var(--dim); font-size: 10px; }
+  .wikisources button { border: 0; background: transparent; color: var(--accent2); cursor: pointer; font: 11px var(--mono); }
+  .wikiempty { text-align: center; max-width: 460px; margin: 40px auto; }
+  .wikiemptyglyph { color: var(--accent); font-size: 42px; }
+  .wikiempty h3 { font-size: 19px; font-weight: 500; margin: 18px 0 10px; }
+  .wikiempty p { color: var(--muted); font-size: 12px; }
+  .wikiprimary { margin-top: 18px; background: rgba(46,230,200,.08); border: 1px solid var(--accent); color: var(--accent2); padding: 9px 16px; border-radius: 7px; cursor: pointer; }
+  .wikisettings { position: absolute; top: 0; right: 0; bottom: 0; width: min(360px, 100%); z-index: 4; background: var(--panel); border-left: 1px solid var(--line); box-shadow: -12px 0 30px rgba(0,0,0,.25); padding: 24px; }
+  .wikisettingshead { display: flex; align-items: center; justify-content: space-between; }
+  .wikisettingshead h3 { margin: 0; font-size: 16px; font-weight: 500; }
+  .wikisettings p { color: var(--muted); font-size: 12px; margin: 24px 0; }
+  .wikimaintenance { border-top: 1px solid var(--line); padding-top: 18px; display: flex; justify-content: space-between; gap: 12px; font-size: 11px; }
+  .wikimaintenance b { font-weight: 400; color: var(--dim); }
+  @media (max-width: 700px) {
+    .wikiheader { flex-wrap: wrap; padding: 18px; gap: 14px; }
+    .wikiactions { margin-left: auto; flex-wrap: wrap; }
+    .wikimeta { padding: 10px 18px; }
+    .wikilayout { grid-template-columns: 1fr; }
+    .wikiindex { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 12px; }
+    .wikiindex button { flex: 0 0 auto; }
+    .wikipages { padding: 24px 20px 40px; }
+  }
   /* Locked: the table is not merely empty, it is not shown. A stranger sees
      a door, not a dimmed room with clickable furniture. */
   body.locked .main { display: none; }

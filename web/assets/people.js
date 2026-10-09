@@ -148,6 +148,7 @@ async function admitAndInvite(name) {
 function renderMembers() {
   renderTopStatus();   // header subtitle shows online counts + mode
   renderLeadControl();
+  if (typeof renderWikiEditor === "function") renderWikiEditor();
   renderLocaSidebar();
 
   // online panel in the sidebar

@@ -322,20 +322,29 @@
       </div>
     </div>
 
-    <div class="notes hidden" id="wikiPanel">
-      <div class="memorytitle"><span>Loca Wiki</span><button id="wikiRefresh">Refresh</button></div>
-      <p>Shared, source-linked context. Wiki text is not a task or a grant of authority.</p>
-      <div id="wikiStatus" class="sysline" role="status"></div>
-      <div id="wikiConfig" class="memoryeditor hidden">
-        <label for="wikiEditor">Wiki editor agent</label>
-        <input id="wikiEditor" maxlength="80" placeholder="Exact agent name">
-        <label for="wikiInterval">Review interval (conversation messages)</label>
-        <input id="wikiInterval" type="number" min="1" max="1000" value="30">
-        <button id="wikiConfigure">Assign editor</button>
-        <p>Automatic maintenance is not available in this implementation slice. Assignment does not start model work.</p>
+    <div class="notes wikiview hidden" id="wikiPanel">
+      <header class="wikiheader">
+        <div><span class="wikikicker">THE LOCA'S SHARED CONTEXT</span><h2>Loca Wiki</h2></div>
+        <div class="wikiactions">
+          <label id="wikiEditorControl" class="wikieditorcontrol hidden">Wiki editor
+            <select id="wikiEditor" class="leadselect" aria-label="Wiki editor"><option value="">Not assigned</option></select>
+          </label>
+          <span id="wikiEditorName" class="wikieditorname"></span>
+          <button id="wikiRefresh" title="Refresh wiki" aria-label="Refresh wiki">↻</button>
+          <button id="wikiSettingsToggle" class="hidden" aria-label="Wiki settings" aria-expanded="false" aria-controls="wikiConfig">⚙</button>
+        </div>
+      </header>
+      <div id="wikiStatus" class="wikimeta" role="status"></div>
+      <div class="wikilayout">
+        <nav id="wikiIndex" class="wikiindex" aria-label="Wiki pages"></nav>
+        <main id="wikiPages" class="wikipages"></main>
       </div>
-      <nav id="wikiIndex" aria-label="Wiki pages"></nav>
-      <div id="wikiPages"></div>
+      <aside id="wikiConfig" class="wikisettings hidden" aria-label="Wiki settings">
+        <div class="wikisettingshead"><h3>Wiki settings</h3><button id="wikiSettingsClose" aria-label="Close wiki settings">×</button></div>
+        <p>The assigned editor maintains this loca's shared pages. Select an agent using the control at the top right.</p>
+        <div class="wikimaintenance"><span>Automatic review</span><b>Not available yet</b></div>
+        <p class="wikisettingsnote">Assignment saves the editor only. Scheduled review and agent distribution are not enabled.</p>
+      </aside>
     </div>
     <div class="notes hidden" id="memoryPanel">
       <span class="hidden" id="memoryDot" aria-hidden="true"></span>
