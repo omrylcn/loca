@@ -1,5 +1,14 @@
 "use strict";
 // Building lobby, room roster, presence, and people runtime health.
+let residentRequestSequence = 0;
+let residentAppliedSequence = 0;
+function residentReadScope() {
+  return { sequence: ++residentRequestSequence, server: serverBase(), session: state.session, name: state.name };
+}
+function residentReadCurrent(scope) {
+  return isAdmin() && scope.sequence >= residentAppliedSequence && scope.server === serverBase()
+    && scope.session === state.session && scope.name === state.name;
+}
 async function fetchLobby() {
   const box = $("lobbyBox");
   if (!isAdmin()) {
@@ -9,13 +18,13 @@ async function fetchLobby() {
     return;
   }
   box.classList.remove("hidden");
+  const scope = residentReadScope();
   try {
     const r = await fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) });
-    if (!r.ok) { state.lobby = []; renderLobby("lobby unavailable"); return; }
-    applyResidentSnapshot(await r.json());
+    if (!r.ok) { if (residentReadCurrent(scope)) renderLobby("lobby unavailable"); return; }
+    applyResidentSnapshot(await r.json(), { scope });
   } catch (e) {
-    state.lobby = [];
-    renderLobby("lobby unavailable");
+    if (residentReadCurrent(scope)) renderLobby("lobby unavailable");
   }
 }
 
@@ -23,13 +32,17 @@ async function fetchLobby() {
 // snapshot. The Building tab polls /residents while it is open; applying that
 // response only to state.people left the sidebar Lobby stale until a reload or
 // an unrelated websocket event arrived.
-function applyResidentSnapshot(residents, { people = false } = {}) {
+function applyResidentSnapshot(residents, { people = false, scope = null } = {}) {
+  if (scope && !residentReadCurrent(scope)) return false;
+  if (!Array.isArray(residents)) throw new Error("Invalid Building snapshot");
+  if (scope) residentAppliedSequence = scope.sequence;
   if (people) state.people = residents;
   // Lobby is a live location state: connected to the Building, but seated
   // in no loca. Offline members remain visible in the Building directory as
   // disconnected; they must not inflate the Lobby count.
   state.lobby = residents.filter(p => p.online && !(p.locas || []).length);
   renderLobby();
+  return true;
 }
 
 function renderLobby(error) {
@@ -169,20 +182,13 @@ function renderMembers() {
     const d = document.createElement("div");
     const isMe = m.name === state.name;
     const isLead = state.settings?.lead === m.name;
-    const isMemoryOwner = state.memory?.owner === m.name;
     d.className = "omem" + (isMe ? " self" : "") + (m.away ? " away" : "") +
-      (isLead ? " is-lead" : "") + (isMemoryOwner ? " is-memory-owner" : "");
-    if (isLead || isMemoryOwner) d.title = [
-      isLead ? `${m.name} is this loca's lead` : "",
-      isMemoryOwner ? `${m.name} is this loca's memory owner` : "",
-    ].filter(Boolean).join(" · ");
+      (isLead ? " is-lead" : "");
+    if (isLead) d.title = `${m.name} is this loca's lead`;
     const flag = muted.has(m.name) ? ` <span class="mflag">🔇</span>` : "";
     // The title is worn wherever the name appears: it was named out loud, so it
     // should be visible at a glance rather than buried in settings.
     const leadTag = isLead ? ` <span class="leadtag" title="loca lead">lead</span>` : "";
-    const memoryOwnerTag = isMemoryOwner
-      ? ` <span class="memoryownertag" title="responsible for this loca's current state and durable decisions">memory owner</span>`
-      : "";
     // The lead title must be visible in the sidebar before the operator has to
     // open settings or read a badge: the seat itself wears a blue diamond.
     const glyph = isLead ? "◆" : (m.type === "agent" ? "*" : ".");
@@ -210,7 +216,7 @@ function renderMembers() {
       }
       acts = `<span class="omacts">${leadAct}${moderation}</span>`;
     }
-    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${flag}${leadTag}${memoryOwnerTag}</span><span class="otag">${m.type}</span>${acts}`;
+    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${flag}${leadTag}</span><span class="otag">${m.type}</span>${acts}`;
     ol.appendChild(d);
   }
   if (!seated.length) ol.innerHTML = `<div class="omem" style="color:var(--muted)">nobody seated</div>`;
@@ -287,6 +293,7 @@ function maybeDayChip(ts) {
 
 async function fetchPeople() {
   if (!isAdmin()) return;
+  const scope = residentReadScope();
   const box = $("peopleList");
   try {
     const [resRooms, resPeople, resJoin, resStock] = await Promise.all([
@@ -295,9 +302,10 @@ async function fetchPeople() {
       fetch(`${serverBase()}/join-requests`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
     ]);
-    if (!resPeople.ok) { box.innerHTML = `<div class="callnone">liste alınamadı</div>`; return; }
+    if (!resPeople.ok) { if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">liste alınamadı</div>`; return; }
     const rooms = resRooms.ok ? await resRooms.json() : [];
     const people = await resPeople.json();
+    if (!residentReadCurrent(scope)) return;
     // Durable source of truth for admissions: reloaded from the server on every
     // open/reconnect, so a Master always sees pending requests even if the live
     // "wants to join" chat nudge was missed. On a failed fetch we KEEP the last
@@ -320,11 +328,11 @@ async function fetchPeople() {
       } catch (e) { /* one loca failing must not blank the whole page */ }
     }));
 
-    applyResidentSnapshot(people, { people: true });
+    if (!applyResidentSnapshot(people, { people: true, scope })) return;
     state.bans = bans;
     renderPeople();
   } catch (e) {
-    box.innerHTML = `<div class="callnone">sunucuya ulaşılamadı</div>`;
+    if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">sunucuya ulaşılamadı</div>`;
   }
 }
 
@@ -385,9 +393,6 @@ function renderPeople() {
     const barred = bans[name] || [];
     const statuses = residentStatusBadges(p);
     const rt = p?.runtime;
-    const memoryOwnerTag = state.memory?.owner === name
-      ? ` <span class="memoryownertag" title="memory owner for the open loca">memory owner</span>`
-      : "";
     let stage = "";
     if (rt?.attention_id) {
       const shortId = String(rt.attention_id).split(":").slice(-1)[0];
@@ -406,13 +411,14 @@ function renderPeople() {
       ? `<span class="pban">banned: ${esc(barred.join(", "))}</span>` : "";
     const unban = barred.map(r =>
       `<button data-unban="${esc(name)}" data-room="${esc(r)}">unban ${esc(r)}</button>`).join(" ");
-    return `<div class="prow"><span class="pname">${glyph}${esc(name)}${memoryOwnerTag}${stage}</span>` +
+    return `<div class="prow"><span class="pname">${glyph}${esc(name)}${stage}</span>` +
            `${statuses}<span class="pwhere">${esc(where)} ${banTxt}</span>${unban}</div>`;
   }).join("");
 }
 
 async function refreshPeopleRuntime() {
   if (!isAdmin() || state.tab !== "people") return;
+  const scope = residentReadScope();
   try {
     const [resPeople, resJoin, resStock] = await Promise.all([
       fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) }),
@@ -420,7 +426,7 @@ async function refreshPeopleRuntime() {
       fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
     ]);
     if (!resPeople.ok) return;
-    applyResidentSnapshot(await resPeople.json(), { people: true });
+    if (!applyResidentSnapshot(await resPeople.json(), { people: true, scope })) return;
     // Keep the admissions panel live while the tab is open: a request that
     // arrives (or is approved elsewhere) shows up within the poll interval.
     if (resJoin.ok) {

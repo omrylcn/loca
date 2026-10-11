@@ -1,9 +1,9 @@
 # ADR 0001: Durable Agent Runtime v2
 
-- Status: Accepted for implementation behind an opt-in shadow flag
+- Status: Accepted; persistent Codex v2 is the only supported Codex runtime
 - Date: 2026-08-15
 - Replaces: per-delivery Codex wake processes as the target architecture
-- Does not replace: Adapter Protocol v1 rollback path during canary
+- Preserves: vendor-neutral v1 envelopes for Claude/generic delivery, not a Codex v1 runtime
 
 ## Context
 
@@ -176,7 +176,13 @@ independent milestone booleans. Building UI renders `queued`, `accepted`,
 `replied`, `relay pending`, or `responded`; it does not collapse them into one
 linear state. This is a machine receipt, not a model-authored acknowledgement.
 
-## Rollout
+## Historical cutover plan
+
+The following describes the original v1-to-v2 comparison strategy. The Codex
+v1 runtime has since been retired; it remains only an excluded test fixture.
+Do not install it, bind an IDE thread, or start an interactive router as a
+fallback. Current upgrades use the persistent v2 supervisor and a previously
+tested release artifact for rollback.
 
 1. Run v1 and v2 together under one supervisor: v1 remains the only responder;
    v2 ingests and executes but does not relay room output. The v2 ledger must

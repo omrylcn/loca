@@ -263,6 +263,7 @@ async fn main() {
             loop {
                 tick.tick().await;
                 hub.expire_live();
+                hub.tick_wiki();
             }
         });
     }
@@ -456,8 +457,45 @@ async fn main() {
         )
         .route("/rooms/:id/notes", get(get_notes).post(create_note))
         .route("/rooms/:id/wiki", get(get_wiki))
+        .route(
+            "/rooms/:id/wiki/pages/:slug",
+            get(get_wiki_page).put(edit_wiki_page),
+        )
         .route("/rooms/:id/wiki/config", axum::routing::put(configure_wiki))
         .route("/rooms/:id/wiki/review", axum::routing::post(commit_wiki))
+        .route("/rooms/:id/wiki/maintenance", get(wiki_maintenance_status))
+        .route(
+            "/rooms/:id/wiki/context/requests",
+            get(wiki_context_requests),
+        )
+        .route(
+            "/rooms/:id/wiki/runtime",
+            axum::routing::post(wiki_native_ready),
+        )
+        .route(
+            "/rooms/:id/wiki/context",
+            get(wiki_context).post(wiki_context_request),
+        )
+        .route(
+            "/rooms/:id/wiki/context/accept",
+            axum::routing::post(wiki_context_accept),
+        )
+        .route(
+            "/rooms/:id/wiki/context/offer",
+            axum::routing::post(wiki_context_offer),
+        )
+        .route(
+            "/rooms/:id/wiki/maintenance/claim",
+            axum::routing::post(claim_wiki_review),
+        )
+        .route(
+            "/rooms/:id/wiki/maintenance/finish",
+            axum::routing::post(finish_wiki_review),
+        )
+        .route(
+            "/rooms/:id/wiki/maintenance/renew",
+            axum::routing::post(renew_wiki_review),
+        )
         .route(
             "/rooms/:id/notes/:key",
             get(get_note).put(update_note).delete(delete_note),

@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -9,6 +10,8 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -96,6 +99,112 @@ class PackageServerHandler(BaseHTTPRequestHandler):
 
 
 class RemotePackageTests(unittest.TestCase):
+    def test_exact_artifact_mode_never_rebuilds_a_missing_candidate(self):
+        spec = importlib.util.spec_from_file_location(
+            "onboarding_e2e", REPO_DIR / "scripts/onboarding-e2e.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            binary = root / "server"
+            binary.touch()
+            with patch.object(sys, "argv", ["onboarding-e2e", "--binary", str(binary),
+                                            "--archive", str(root / "missing.zip")]), \
+                    patch.object(module.subprocess, "run") as run:
+                with self.assertRaisesRegex(RuntimeError, "candidate ZIP is missing"):
+                    module.main()
+                run.assert_not_called()
+
+    def _extract_release_kit(self, target):
+        result = subprocess.run(
+            [str(REPO_DIR / "scripts/build-remote-agent-kit.sh")],
+            cwd=REPO_DIR, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with zipfile.ZipFile(result.stdout.strip()) as archive:
+            archive.extractall(target)
+        # Python extraction does not restore ZIP Unix executable mode bits.
+        kit = target / "loca-remote-agent"
+        (kit / "install.sh").chmod(0o700)
+        return kit
+
+    def test_remote_kit_uses_the_complete_canonical_skill_file_set(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kit = self._extract_release_kit(Path(tmp))
+            manifest = REPO_DIR / "scripts/skill-bundle-files.txt"
+            instructions = (kit / "loca/SKILL.md").read_text()
+            self.assertIn("only shared knowledge surface", instructions)
+            self.assertNotIn("### If you are the Memory Owner", instructions)
+            self.assertNotIn("memory-short", instructions)
+            editor_contract = (kit / "loca/references/loca-wiki.md").read_text()
+            self.assertIn("delegate content review to a separate", editor_contract)
+            self.assertIn("Worker role instructions:", editor_contract)
+            for line in manifest.read_text().splitlines():
+                if not line or line.startswith("#"):
+                    continue
+                for source, name in (("skill/agent-room/", "loca"),
+                                     ("skill/loca-care/", "loca-care")):
+                    if line.startswith(source):
+                        shipped = kit / name / line[len(source):]
+                        self.assertTrue(shipped.is_file(), f"missing runtime file: {line}")
+                        self.assertEqual(shipped.read_bytes(), (REPO_DIR / line).read_bytes())
+
+    def test_fresh_zip_install_can_self_onboard_in_both_runtimes(self):
+        from test_join_onboarding import hermetic_env, start_server
+
+        server, base = start_server()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                kit = self._extract_release_kit(root)
+                for runtime in (".codex", ".claude"):
+                    home = root / runtime.removeprefix(".")
+                    home.mkdir()
+                    env = hermetic_env(home, LOCA_JOIN_POLL_TIMEOUT="8")
+                    install = subprocess.run(
+                        ["bash", str(kit / "install.sh"), "--upgrade-only", "--target",
+                         runtime.removeprefix(".")],
+                        env=env, capture_output=True, text=True, timeout=15,
+                    )
+                    self.assertEqual(install.returncode, 0, install.stderr)
+                    installed = home / runtime / "skills/loca"
+                    name = "fresh-" + runtime.removeprefix(".")
+                    result = subprocess.run(
+                        ["bash", str(installed / "connect.sh"), "request-join", base, name],
+                        env=env, capture_output=True, text=True, timeout=30,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("LOBBY", result.stdout)
+                    self.assertIn("monitor setup required", result.stdout)
+                    self.assertNotIn("mb_", result.stdout + result.stderr)
+                    self.assertNotIn("jrs_", result.stdout + result.stderr)
+                    identity = home / ".loca" / (name + ".env")
+                    self.assertEqual(identity.stat().st_mode & 0o777, 0o600)
+                    self.assertIn("LOCA_NAME=" + name, identity.read_text())
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_incomplete_onboarding_package_refused_before_replacing_skills(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            kit = Path(tmp) / "kit"
+            home.mkdir()
+            shutil.copytree(PACKAGE_DIR, kit)
+            copy_skills(kit)
+            (kit / "loca/join_request.py").unlink()
+            installed = home / ".codex/skills/loca"
+            installed.mkdir(parents=True)
+            (installed / "SKILL.md").write_text("keep the existing install\n")
+            result = subprocess.run(
+                ["bash", str(kit / "install.sh"), "--upgrade-only", "--target", "codex"],
+                env=dict(os.environ, HOME=str(home)), capture_output=True, text=True,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertIn("join_request.py", result.stderr)
+            self.assertEqual((installed / "SKILL.md").read_text(), "keep the existing install\n")
+
     def test_release_kit_is_reproducible_across_runs_and_time_zones(self):
         with tempfile.TemporaryDirectory() as tmp:
             hashes = []

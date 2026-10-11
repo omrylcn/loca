@@ -103,6 +103,7 @@ def main() -> int:
     parser.add_argument("--failure-window", type=float, default=300.0)
     parser.add_argument("--base-delay", type=float, default=1.0)
     parser.add_argument("--max-delay", type=float, default=10.0)
+    parser.add_argument("--wiki-runtime", choices=("claude","off"), default="claude")
     parser.add_argument("listener", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
@@ -162,6 +163,17 @@ def main() -> int:
 
         consecutive_failures = 0
         recent_failures: deque[float] = deque()
+        wiki = None
+        if args.wiki_runtime != "off":
+            try:
+                from credentials import load_local_env
+                from wiki_supervisor import WikiSupervisor
+                load_local_env(args.name)
+                if os.environ.get("LOCA_NAME")!=args.name:
+                    raise ValueError("Wiki sidecar requires the exact Monitor identity")
+                wiki = WikiSupervisor("claude","auto",args.lock.parent/(args.name+".wiki.sqlite3"))
+            except (OSError,ValueError,RuntimeError):
+                append_log(log,"Wiki sidecar unavailable; native chat listener unchanged")
         append_log(log, f"supervisor started pid={os.getpid()} name={args.name}")
         try:
             while not stopping:
@@ -174,6 +186,7 @@ def main() -> int:
                 )
                 append_log(log, f"listener started pid={child.pid}")
                 while child.poll() is None and not stopping:
+                    if wiki is not None: wiki.tick()
                     time.sleep(0.1)
 
                 if stopping:
@@ -225,6 +238,7 @@ def main() -> int:
                 while not stopping and time.monotonic() < deadline:
                     time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
         finally:
+            if wiki is not None: wiki.stop()
             if child is not None and child.poll() is None:
                 child.terminate()
                 try:

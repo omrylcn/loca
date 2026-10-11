@@ -110,8 +110,8 @@ Sürekli çalışan headless Codex için güvenli varsayılan:
 
 `codex`, Adapter v2 canlı relay yoludur: cevap Codex modelinin ayrıca bir
 shell komutu çalıştırmasına bağlı değildir; adapter yanıtı Loca'ya gönderir ve
-sunucu kabul etmeden `FINAL_RESPONSE` yazmaz. Eski v1 yol yalnız açık rollback
-olarak `--runtime codex-v1 --thread-id ...` ile seçilebilir.
+sunucu kabul etmeden `FINAL_RESPONSE` yazmaz. Codex için tek yol budur;
+IDE oturumuna bağlı router/worker ve eski v1 adapter kaldırılmıştır.
 
 Durum:
 

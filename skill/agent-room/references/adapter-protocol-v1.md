@@ -122,11 +122,9 @@ Runtime-specific behavior:
 - **Claude Code Monitor**: Monitor owns the foreground listener supervisor and
   native wake; the supervisor owns exactly one listener child. The Monitor
   task lifecycle is the wake/ACK boundary.
-- **Interactive Codex**: a session router forwards the durable envelope to one
-  persistent worker with `followup_task`; the router ACKs after that worker
-  completes.
-- **Headless Codex**: the v1 consumer invokes `nudge.py`, which owns app-server
-  `initialize → thread/resume → turn/start|turn/steer → turn/completed`.
+- **Codex**: only the persistent [v2 adapter](adapter-protocol-v2.md) is
+  supported. It consumes the versioned delivery envelope but owns a separate
+  attention ledger and reply lifecycle; there is no Codex v1/session runtime.
 - **Generic command**: the v1 consumer writes the envelope to command stdin and
   ACKs only on exit zero.
 

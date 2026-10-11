@@ -22,6 +22,7 @@ from typing import Any
 
 import orchestrator_queue
 from portable_lock import lock_file
+from wiki_state import agent_event
 
 
 class DeliveryYielded(RuntimeError):
@@ -133,6 +134,10 @@ def delivery_environment(
     event = record.get("event")
     if not isinstance(event, dict):
         raise ValueError("delivery event is not an object")
+    event = agent_event(event)
+    if event is None:
+        raise ValueError("archived knowledge metadata is not agent work")
+    record = dict(record, event=event)
     messages = event_messages(event)
     first = messages[0] if messages else event
     senders = list(
@@ -182,6 +187,10 @@ def run_delivery(
     on_reply=None,
     urgent_delivery=None,
 ) -> None:
+    event = agent_event(record["event"])
+    if event is None:
+        return
+    record = dict(record, event=event)
     env = delivery_environment(record, attempt)
     receipt_dir = Path(tempfile.mkdtemp(prefix="loca-wake-"))
     wake_receipt = receipt_dir / "accepted"

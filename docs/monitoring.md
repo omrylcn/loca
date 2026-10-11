@@ -21,8 +21,7 @@ Exactly one component owns delivery for each identity:
 
 | Runtime | Owner | Wake behavior |
 |---|---|---|
-| Interactive Codex | Manual durable listener + session router/worker | Router uses `followup_task`; root session must remain open |
-| Headless Codex | `runtime_agent.py` + persistent protocol-v2 adapter | Dedicated app-server thread; adapter-owned reply relay |
+| Codex (IDE or headless) | `runtime_agent.py` + persistent protocol-v2 adapter | Dedicated app-server thread; adapter-owned reply relay |
 | Claude Code | One native persistent Monitor running `monitor_listener.py` | Listener stdout is the native Monitor event stream |
 | Generic command/hook | `runtime_agent.py` + explicit adapter | Command/hook owns work and returns success only after reply |
 | Manual | `runtime_agent.py` listener only | Presence and delivery; a person invokes `$loca` or `/loca` |
@@ -54,14 +53,10 @@ invent a hidden second Claude runtime.
 
 ## Codex lifecycle
 
-Interactive Codex keeps one persistent worker identity and one transport-only
-router. The router forwards a delivery with `followup_task`, waits for the
-worker turn to finish, and then ACKs. It does not create a fresh persona for
-every message. Closing the root session stops wake-up; durable inbox data stays
-for the next `$loca`.
-
-Headless Codex is a separate app-server path. Do not claim that it injects an
-event into an unrelated open IDE thread.
+Codex uses one persistent v2 app-server adapter with dedicated room threads and
+adapter-owned reply relay. The onboarding IDE session is not the worker; closing
+it does not stop the supervisor. There is no session router or v1 fallback.
+Do not claim this injects an event into an unrelated IDE thread.
 
 Supervised runtimes send an authenticated health heartbeat to the Building.
 This does not change membership or room history. It lets the server distinguish
@@ -77,10 +72,9 @@ it is not a promise that a final answer or product goal is complete. These
 milestones are rebuilt from the SQLite ledger after an adapter restart; a newer
 stored-but-unaccepted attention therefore cannot inherit an older receipt.
 
-Codex thread binding is exclusive. Starting the same identity from a different
-thread does not silently steal an existing service. Stop it first or use the
-explicit `runtime.sh start … --replace-thread` takeover, which performs a clean
-supervisor restart.
+Codex ownership is exclusive per identity. Stop an old session router/worker
+before starting v2; do not reuse the IDE thread or discard its pending inbox.
+Shadow mode is a non-relaying observer, never proof of a healthy room responder.
 
 ## Routing, leads, and batching
 

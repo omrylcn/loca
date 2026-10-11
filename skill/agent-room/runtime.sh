@@ -6,7 +6,7 @@ SKILL_DIR=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 usage() {
   cat >&2 <<'EOF'
 Usage:
-  runtime.sh start NAME [--runtime auto|codex|codex-v2|codex-v1|hook|manual] [--thread-id ID] [--replace-thread] [--hook COMMAND] [--env FILE] [--only-direct] [--codex-sandbox inherit|workspace-write|danger-full-access] [--relay-mode shadow|live]
+  runtime.sh start NAME [--runtime auto|codex|codex-v2|hook|manual] [--hook COMMAND] [--env FILE] [--only-direct] [--codex-sandbox inherit|workspace-write|danger-full-access] [--relay-mode shadow|live]
   runtime.sh status NAME [--env FILE]
   runtime.sh stop NAME
 EOF
@@ -79,9 +79,9 @@ stop_runtime() {
 }
 
 start_runtime() {
-  local name="${1:-}" runtime="auto" thread_id="${CODEX_THREAD_ID:-}" only_direct=false codex_sandbox=inherit replace_thread=false relay_mode=""
-  local hook="" shadow_hook="" v2_hook="" v2_health="" explicit_env="${LOCA_ENV:-}" safe env_file server env_name binds_thread=false
-  local run_dir log_dir msg_dir cursor_dir inbox_dir worker_cursor_dir pid_file runtime_file thread_file delivery_file sandbox_file relay_file health_file shadow_health_file state_db
+  local name="${1:-}" runtime="auto" codex_host="${CODEX_THREAD_ID:-}" only_direct=false codex_sandbox=inherit relay_mode=""
+  local hook="" v2_hook="" v2_health="" explicit_env="${LOCA_ENV:-}" safe env_file server env_name
+  local run_dir log_dir msg_dir cursor_dir inbox_dir worker_cursor_dir pid_file runtime_file delivery_file sandbox_file relay_file health_file state_db
   local log_file msg_file cursor_file inbox_file worker_cursor_file old_pid old_cmd old_runtime old_delivery old_sandbox old_relay delivery enc_name ws url pid unit supervisor codex_bin
   local unit_dir unit_file launcher launcher_quoted start_dir
   local -a args supervisor_args
@@ -91,8 +91,9 @@ start_runtime() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --runtime) runtime="${2:-}"; shift 2 ;;
-      --thread-id) thread_id="${2:-}"; shift 2 ;;
-      --replace-thread) replace_thread=true; shift ;;
+      --thread-id|--replace-thread)
+        echo "interactive thread binding was removed; Codex v2 owns dedicated room threads" >&2
+        return 2 ;;
       --hook) hook="${2:-}"; shift 2 ;;
       --env) explicit_env="${2:-}"; shift 2 ;;
       --only-direct) only_direct=true; shift ;;
@@ -101,8 +102,8 @@ start_runtime() {
       *) echo "unknown option: $1" >&2; usage; return 2 ;;
     esac
   done
-  case "$runtime" in auto|codex|codex-v2|codex-v1|hook|manual) ;; *)
-    echo "--runtime must be auto, codex, codex-v2, codex-v1, hook, or manual" >&2
+  case "$runtime" in auto|codex|codex-v2|hook|manual) ;; *)
+    echo "--runtime must be auto, codex, codex-v2, hook, or manual (Codex v1 was removed)" >&2
     return 2
   esac
   case "$codex_sandbox" in inherit|workspace-write|danger-full-access) ;; *)
@@ -114,14 +115,13 @@ start_runtime() {
     return 2
   esac
   if [ "$runtime" = auto ]; then
-    if [ -n "$thread_id" ]; then runtime=codex-v2
+    if [ -n "$codex_host" ]; then runtime=codex-v2
     elif [ -n "$hook" ]; then runtime=hook
     else runtime=manual
     fi
   fi
-  # `codex` is the stable public runtime name. Adapter v2 owns the reply relay,
-  # so a room reply must be accepted before its lifecycle can advance. The old
-  # per-delivery v1 adapter remains available only as an explicit rollback.
+  # Codex has one supported runtime: persistent v2, including IDE onboarding.
+  # Shadow is a non-relaying v2 observer, never an automatic v1 responder.
   [ "$runtime" != codex ] || runtime=codex-v2
   if [ -z "$relay_mode" ]; then
     if [ "$runtime" = codex-v2 ]; then relay_mode=live
@@ -132,17 +132,6 @@ start_runtime() {
     echo "--runtime hook requires --hook COMMAND" >&2
     return 2
   }
-  [ "$runtime" != codex-v1 ] || [ -n "$thread_id" ] || {
-    echo "legacy Codex v1 thread id missing; invoke \$loca inside the Codex thread" >&2
-    return 2
-  }
-  if [ "$runtime" = codex-v2 ] && [ "$relay_mode" = shadow ] && [ -z "$thread_id" ]; then
-    echo "Codex v2 shadow requires --thread-id so the existing v1 responder stays live" >&2
-    return 2
-  fi
-  if [ "$runtime" = codex-v1 ] || { [ "$runtime" = codex-v2 ] && [ "$relay_mode" = shadow ]; }; then
-    binds_thread=true
-  fi
 
   safe=$(safe_name "$name")
   env_file=$(identity_file "$name" "$explicit_env")
@@ -172,12 +161,10 @@ start_runtime() {
   chmod 700 "$HOME/.loca" "$run_dir" "$log_dir" "$msg_dir" "$cursor_dir" "$inbox_dir" "$worker_cursor_dir"
   pid_file="$run_dir/$safe.pid"
   runtime_file="$run_dir/$safe.runtime"
-  thread_file="$run_dir/$safe.codex-thread"
   delivery_file="$run_dir/$safe.delivery"
   sandbox_file="$run_dir/$safe.codex-sandbox"
   relay_file="$run_dir/$safe.relay-mode"
   health_file="$run_dir/$safe.health.json"
-  shadow_health_file="$run_dir/$safe.v2-shadow.health.json"
   log_file="$log_dir/$safe.listener.log"
   msg_file="$msg_dir/$safe.jsonl"
   cursor_file="$cursor_dir/$safe.json"
@@ -189,8 +176,7 @@ start_runtime() {
     # owns a separate durable source and resumes it by SQLite cursor.
     inbox_file="$inbox_dir/$safe.v2.jsonl"
     if [ "$relay_mode" = shadow ]; then
-      # Dual shadow needs a fresh shared feed and an independent v1 cursor;
-      # reusing the legacy cursor with a different file can skip or replay data.
+      # Keep non-relaying observation isolated from the live source.
       inbox_file="$inbox_dir/$safe.v2-shadow.jsonl"
       worker_cursor_file="$worker_cursor_dir/$safe.v2-shadow.json"
     fi
@@ -225,29 +211,11 @@ start_runtime() {
       return 0
     fi
     if [ "$old_runtime" = "$runtime" ] && [ "$old_delivery" = "$delivery" ] && [ "$old_sandbox" = "$codex_sandbox" ] && [ "$old_relay" = "$relay_mode" ]; then
-      if [ "$binds_thread" = true ]; then
-        old_thread=$(sed -n '1p' "$thread_file" 2>/dev/null || true)
-        if [ -n "$old_thread" ] && [ "$old_thread" != "$thread_id" ] && [ "$replace_thread" != true ]; then
-          echo "refusing implicit Codex thread rebind: runtime is already bound to $old_thread" >&2
-          echo "stop it first, or repeat with --replace-thread for an intentional takeover" >&2
-          return 5
-        fi
-        if [ "$old_thread" != "$thread_id" ]; then
-          stop_runtime "$name" >/dev/null
-        else
-          printf '%s\n' "$thread_id" > "$thread_file"
-          chmod 600 "$thread_file"
-        fi
-      fi
-      if [ "$binds_thread" = true ] && [ "$old_thread" != "$thread_id" ]; then
-        : # intentional replacement falls through to a clean new supervisor
-      else
       pid=$(systemctl --user show "$unit" -p MainPID --value)
       printf '%s\n' "$pid" > "$pid_file"
       echo "already running: pid=$pid runtime=$runtime delivery=$delivery supervisor=systemd"
       LOCA_ENV="$env_file" "$SKILL_DIR/connect.sh" status "$server" "$name"
       return 0
-      fi
     fi
     stop_runtime "$name" >/dev/null
     fi
@@ -265,28 +233,9 @@ start_runtime() {
           return 0
         fi
         if [ "$old_runtime" = "$runtime" ] && [ "$old_delivery" = "$delivery" ] && [ "$old_sandbox" = "$codex_sandbox" ] && [ "$old_relay" = "$relay_mode" ]; then
-          if [ "$binds_thread" = true ]; then
-            old_thread=$(sed -n '1p' "$thread_file" 2>/dev/null || true)
-            if [ -n "$old_thread" ] && [ "$old_thread" != "$thread_id" ] && [ "$replace_thread" != true ]; then
-              echo "refusing implicit Codex thread rebind: runtime is already bound to $old_thread" >&2
-              echo "stop it first, or repeat with --replace-thread for an intentional takeover" >&2
-              return 5
-            fi
-            if [ "$old_thread" != "$thread_id" ]; then
-              stop_runtime "$name" >/dev/null
-              old_pid=""
-            else
-              printf '%s\n' "$thread_id" > "$thread_file"
-              chmod 600 "$thread_file"
-            fi
-          fi
-          if [ "$binds_thread" = true ] && [ -z "$old_pid" ]; then
-            :
-          else
           echo "already running: pid=$old_pid runtime=$runtime delivery=$delivery"
           LOCA_ENV="$env_file" "$SKILL_DIR/connect.sh" status "$server" "$name"
           return 0
-          fi
         fi
         stop_runtime "$name" >/dev/null
         ;;
@@ -294,7 +243,7 @@ start_runtime() {
     fi
   fi
 
-  if [ "$runtime" = codex-v1 ] || [ "$runtime" = codex-v2 ]; then
+  if [ "$runtime" = codex-v2 ]; then
     # A user systemd service does not inherit an IDE shell's PATH. Resolve the
     # executable while the Codex shell is still available.
     codex_bin="${CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
@@ -304,19 +253,8 @@ start_runtime() {
     fi
   fi
 
-  # The legacy adapter resumes the interactive thread that invoked $loca.
-  # v2 deliberately creates separate room-scoped headless threads instead.
-  if [ "$runtime" = codex-v1 ]; then
-    printf '%s\n' "$thread_id" > "$thread_file"
-    chmod 600 "$thread_file"
-    hook="$(printf '%q ' python3 "$SKILL_DIR/nudge.py" codex \
-      --thread-file "$thread_file" --codex-bin "$codex_bin")"
-    if [ "$codex_sandbox" != inherit ]; then
-      hook+="$(printf '%q ' --sandbox-policy "$codex_sandbox")"
-    fi
-  elif [ "$runtime" = codex-v2 ]; then
+  if [ "$runtime" = codex-v2 ]; then
     v2_health="$health_file"
-    [ "$relay_mode" != shadow ] || v2_health="$shadow_health_file"
     v2_hook="exec $(printf '%q ' python3 "$SKILL_DIR/codex_adapter_v2.py" \
       --inbox "$inbox_file" --state-db "$state_db" --identity "$name" \
       --workdir "$start_dir" --codex-bin "$codex_bin" \
@@ -325,18 +263,7 @@ start_runtime() {
     if [ "$codex_sandbox" != inherit ]; then
       v2_hook+="$(printf '%q ' --sandbox "$codex_sandbox")"
     fi
-    if [ "$relay_mode" = shadow ]; then
-      printf '%s\n' "$thread_id" > "$thread_file"
-      chmod 600 "$thread_file"
-      hook="$(printf '%q ' python3 "$SKILL_DIR/nudge.py" codex \
-        --thread-file "$thread_file" --codex-bin "$codex_bin")"
-      if [ "$codex_sandbox" != inherit ]; then
-        hook+="$(printf '%q ' --sandbox-policy "$codex_sandbox")"
-      fi
-      shadow_hook="$v2_hook"
-    else
-      hook="$v2_hook"
-    fi
+    hook="$v2_hook"
   fi
 
   enc_name=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$name")
@@ -346,36 +273,23 @@ start_runtime() {
   # Direct-only runtimes ignore @all announcements. This is agent-agnostic:
   # operators can give any role a low-noise, low-latency wake channel.
   [ "$only_direct" = false ] || args+=("--only-direct" "$name")
-  # The listener only writes durable envelopes. v1 uses a per-delivery
-  # consumer; v2 runs one persistent adapter with an independent ingestion
-  # ledger. Neither adapter is attached directly to listener callbacks.
+  # Codex uses one persistent adapter with an independent ingestion ledger.
+  # Generic hooks keep their single-flight consumer; the listener is shared.
   supervisor_args=(
     "$SKILL_DIR/runtime_agent.py"
     "--inbox" "$inbox_file"
     "--worker-cursor" "$worker_cursor_file"
     "--health-file" "$health_file"
   )
-  # A productive Codex turn may run builds/tests for well over five minutes.
-  # nudge.py applies a five-minute *inactivity* timeout; this outer cap only
-  # kills a truly wedged adapter after two hours. Other hooks keep the tighter
-  # default because their liveness protocol is unknown.
-  if [ "$runtime" = codex-v1 ] || { [ "$runtime" = codex-v2 ] && [ "$relay_mode" = shadow ]; }; then
-    supervisor_args+=(
-    "--consumer-timeout-seconds" "7200"
-    "--preempt-direct-user"
-    )
-  fi
-  if [ "$runtime" = codex-v2 ] && [ "$relay_mode" = shadow ]; then
-    supervisor_args+=(
-      "--exec" "$hook"
-      "--shadow-persistent-exec" "$shadow_hook"
-      "--shadow-ready-file" "$shadow_health_file"
-    )
-  elif [ "$runtime" = codex-v2 ]; then
-    supervisor_args+=(
-      "--persistent-exec" "$hook"
-      "--persistent-ready-file" "$health_file"
-    )
+  if [ "$runtime" = codex-v2 ]; then
+    supervisor_args+=("--persistent-exec" "$hook" "--persistent-ready-file" "$v2_health")
+    if [ "$relay_mode" = live ]; then
+      supervisor_args+=(
+        "--wiki-runtime" "codex"
+        "--wiki-rooms" "auto"
+        "--wiki-journal" "$run_dir/$safe.wiki.sqlite3"
+      )
+    fi
   elif [ -n "$hook" ]; then
     supervisor_args+=("--exec" "$hook")
   fi
@@ -473,7 +387,7 @@ start_runtime() {
 
 status_runtime() {
   local name="${1:-}" explicit_env="${LOCA_ENV:-}" safe env_file server pid_file pid unit
-  local running=false runtime relay_mode health_file shadow_health_file log_file last_transport wake ack reply duplicate_count health_age updated_ms now_ms
+  local running=false runtime relay_mode health_file log_file last_transport wake ack reply duplicate_count health_age updated_ms now_ms
   local reply_pending oldest_reply_ms reply_age adapter_version
   local server_version skill_version encoded_name inbox_display
   [ -n "$name" ] || { usage; return 2; }
@@ -491,7 +405,6 @@ status_runtime() {
   pid_file="$HOME/.loca/run/$safe.pid"
   unit=$(service_name "$name")
   health_file="$HOME/.loca/run/$safe.health.json"
-  shadow_health_file="$HOME/.loca/run/$safe.v2-shadow.health.json"
   log_file="$HOME/.loca/logs/$safe.listener.log"
   runtime=$(sed -n '1p' "$HOME/.loca/run/$safe.runtime" 2>/dev/null || echo manual)
   relay_mode=$(sed -n '1p' "$HOME/.loca/run/$safe.relay-mode" 2>/dev/null || echo shadow)
@@ -518,7 +431,7 @@ status_runtime() {
   echo "runtime: $runtime"
   [ "$runtime" != codex-v2 ] || echo "relay mode: $relay_mode"
   case "$runtime" in codex|codex-v1)
-    echo "reply contract: DEGRADED (legacy v1 cannot prove Loca accepted the reply)"
+    echo "reply contract: UNSUPPORTED (removed Codex runtime; stop it and start --runtime codex)"
     ;;
   esac
   echo "delivery: $(sed -n '1p' "$HOME/.loca/run/$safe.delivery" 2>/dev/null || echo mentions)"
@@ -557,7 +470,10 @@ status_runtime() {
     else
       reply_age=0
     fi
-    if [ "$health_age" -gt 360 ] && { [ "$wake" = RUNNING ] || [ "$ack" = PENDING ]; }; then
+    if [ "$runtime" = codex-v1 ] || [ "$runtime" = codex ] \
+      || { [ "$runtime" = codex-v2 ] && [ "$relay_mode" = shadow ]; }; then
+      echo "agent health: DEGRADED (no supported live Codex responder)"
+    elif [ "$health_age" -gt 360 ] && { [ "$wake" = RUNNING ] || [ "$ack" = PENDING ]; }; then
       echo "agent health: DEGRADED (wake/ACK made no progress for ${health_age}s)"
     elif [ "$reply_pending" -gt 0 ] && [ "$reply_age" -gt 60 ]; then
       echo "agent health: DEGRADED ($reply_pending required reply/replies pending for ${reply_age}s)"
@@ -583,13 +499,8 @@ status_runtime() {
     echo "ack health: UNVERIFIED"
   fi
   if [ "$runtime" = codex-v2 ] && [ "$relay_mode" = shadow ]; then
-    if [ -f "$shadow_health_file" ]; then
-      echo "v2 shadow ingestion: $(jq -r '.ingestion // "UNVERIFIED"' "$shadow_health_file" 2>/dev/null || echo UNVERIFIED)"
-      echo "v2 shadow accepted: $(jq -r '.last_accepted_attention_id // "none"' "$shadow_health_file" 2>/dev/null || echo none)"
-      echo "v2 shadow relay: DISABLED (v1 is the sole responder)"
-    else
-      echo "v2 shadow health: UNVERIFIED (no shadow health record yet)"
-    fi
+    echo "reply contract: UNVERIFIED (shadow observer; no room responder)"
+    echo "v2 shadow relay: DISABLED (no fallback adapter)"
   fi
   encoded_name=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$name")
   duplicate_count=$(python3 - "$encoded_name" <<'PY'

@@ -75,3 +75,57 @@ test("building resident refresh updates the live lobby without a reload", async 
   await expect(page.locator("#lobbyList .omem").filter({ hasText: "late-agent" }))
     .toContainText("waitingconnectedunverified");
 });
+
+test("a delayed Building load cannot overwrite a newer online lobby snapshot", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
+  await page.goto("/");
+  await page.evaluate(() => {
+    if (healthTimer) clearInterval(healthTimer);
+    state.adminSession = true; state.session = "isolated-fixture"; state.tab = "people";
+  });
+  let residentReads = 0, joinReads = 0, release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route("**/rooms", route => route.fulfill({ json: [] }));
+  await page.route("**/admission-stock", route => route.fulfill({ json: { available: 0, total: 0 } }));
+  await page.route("**/join-requests", async route => {
+    if (++joinReads === 1) await held;
+    await route.fulfill({ json: { pending: [] } });
+  });
+  await page.route("**/residents", route => route.fulfill({ json: [{
+    name: "late-agent", kind: "agent", online: ++residentReads > 1, locas: [], runtime: null,
+  }] }));
+  await page.evaluate(() => { window.oldPeopleLoad = fetchPeople(); });
+  await expect.poll(() => joinReads).toBe(1);
+  await page.evaluate(() => refreshPeopleRuntime());
+  await expect(page.locator("#lobbyCount")).toHaveText("1");
+  release();
+  await page.evaluate(() => window.oldPeopleLoad);
+  await expect(page.locator("#lobbyCount")).toHaveText("1");
+  expect(await page.evaluate(() => state.people[0].online)).toBe(true);
+});
+
+test("a resident response from an ended admin session cannot repopulate the lobby", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
+  await page.goto("/");
+  await page.evaluate(() => {
+    if (healthTimer) clearInterval(healthTimer);
+    state.adminSession = true; state.session = "isolated-old-session";
+  });
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route("**/residents", async route => {
+    await held;
+    await route.fulfill({ json: [{ name: "old-private-member", kind: "agent", online: true, locas: [] }] });
+  });
+  const requested = page.waitForRequest("**/residents");
+  await page.evaluate(() => { window.oldLobbyLoad = fetchLobby(); });
+  await requested;
+  await page.evaluate(() => {
+    state.adminSession = false; state.adminOpen = false; state.session = null;
+    state.lobby = []; renderLobby();
+  });
+  release();
+  await page.evaluate(() => window.oldLobbyLoad);
+  await expect(page.locator("#lobbyCount")).toHaveText("0");
+  await expect(page.locator("#lobbyList")).not.toContainText("old-private-member");
+});

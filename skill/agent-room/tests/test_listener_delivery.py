@@ -494,7 +494,7 @@ class ListenerDeliveryTests(unittest.TestCase):
             care["delivery_id"], "sb-dev:care:sb-dev:WaitCycle:10:1"
         )
 
-    def test_memory_snapshot_is_carried_by_connection_and_turn_wakes(self):
+    def test_archived_memory_does_not_wake_or_inject_a_product_role(self):
         memory = {
             "t": "memory",
             "status": "ready",
@@ -505,34 +505,24 @@ class ListenerDeliveryTests(unittest.TestCase):
             "version": 2,
         }
         connection = LISTENER.with_memory(memory, None, "connection")
-        self.assertEqual(connection["memory_trigger"], "connection")
-        self.assertEqual(connection["memory_freshness"], "missing_replaced")
-        self.assertEqual(LISTENER.delivery_priority(connection, "agent"), "addressed_agent")
+        self.assertIsNone(connection)
 
         changed = LISTENER.with_memory(memory, None, "memory_changed")
-        self.assertEqual(changed["memory_trigger"], "memory_changed")
-        self.assertEqual(changed["memory_freshness"], "stale_replaced")
+        self.assertIsNone(changed)
 
         turn = LISTENER.with_memory(
             {"t": "turn", "messages": [{"id": 7, "text": "wake"}]},
             memory,
             observed_version=2,
         )
-        self.assertEqual(turn["memory_trigger"], "turn")
-        self.assertEqual(turn["memory_freshness"], "current")
-        self.assertNotIn("t", turn["memory"])
-        self.assertEqual(turn["memory"]["version"], 2)
+        self.assertEqual(turn, {"t": "turn", "messages": [{"id": 7, "text": "wake"}]})
 
         stale = LISTENER.with_memory(
             {"t": "turn", "messages": [{"id": 8, "text": "wake"}]},
             memory,
             observed_version=3,
         )
-        self.assertEqual(stale["memory_freshness"], "stale_detected")
-        self.assertEqual(stale["memory"]["cached_version"], 2)
-        self.assertEqual(stale["memory"]["observed_version"], 3)
-        self.assertEqual(stale["memory"]["short"], "")
-        self.assertEqual(stale["memory"]["long"], "")
+        self.assertEqual(stale, {"t": "turn", "messages": [{"id": 8, "text": "wake"}]})
 
     def test_agent_direct_to_lead_is_attention_not_context_only(self):
         from attention_store import AttentionStore
@@ -728,8 +718,8 @@ class ListenerDeliveryTests(unittest.TestCase):
                     inbox.read_text(encoding="utf-8").splitlines()[0]
                 )
                 self.assertEqual(delivery["delivery_id"], "reviewer:101")
-                self.assertEqual(delivery["event"]["memory"]["version"], 7)
-                self.assertEqual(delivery["event"]["memory"]["short"], "state changed while offline")
+                self.assertNotIn("memory", delivery["event"])
+                self.assertNotIn("memory_trigger", delivery["event"])
                 self.assertGreaterEqual(server.backfill_calls, 2)
                 self.assertGreaterEqual(server.ws_connections, 2)
 

@@ -23,8 +23,12 @@ mod messages;
 mod operators;
 mod rooms;
 mod wiki;
+mod wiki_context;
+mod wiki_maintenance;
 mod work;
-pub use wiki::{WikiCommit, WikiError, WikiSnapshot};
+pub use wiki::{WikiCommit, WikiError, WikiPageEdit, WikiPageSnapshot, WikiSnapshot};
+pub use wiki_context::{WikiContextAck, WikiContextSelection};
+pub use wiki_maintenance::{WikiBatch, WikiLease};
 
 /// Unicode case-insensitive, literal substring matching shared by SQL and notes.
 /// Capital dotted I folds to i too, so Turkish names do not diverge from notes.
@@ -266,6 +270,52 @@ impl Store {
                 reason TEXT NOT NULL,
                 edited_at INTEGER NOT NULL,
                 PRIMARY KEY(room, slug, revision)
+            );
+            CREATE TABLE IF NOT EXISTS loca_wiki_batches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room TEXT NOT NULL,
+                editor_principal TEXT NOT NULL,
+                after_id INTEGER NOT NULL,
+                through_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                reason TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                epoch INTEGER NOT NULL DEFAULT 0,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                lease_expires_at INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS wiki_one_active_batch
+                ON loca_wiki_batches(room)
+                WHERE status IN ('queued', 'running', 'blocked');
+            CREATE TABLE IF NOT EXISTS loca_wiki_leases (
+                batch_id INTEGER NOT NULL,
+                epoch INTEGER NOT NULL,
+                started_at INTEGER NOT NULL,
+                PRIMARY KEY(batch_id, epoch)
+            );
+            CREATE TABLE IF NOT EXISTS loca_wiki_receipts (
+                room TEXT NOT NULL,
+                batch_id INTEGER NOT NULL,
+                epoch INTEGER NOT NULL,
+                editor_principal TEXT NOT NULL,
+                request TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                PRIMARY KEY(room, batch_id, epoch)
+            );
+            CREATE TABLE IF NOT EXISTS wiki_native_runtime (
+                room TEXT NOT NULL, principal TEXT NOT NULL, runtime TEXT NOT NULL,
+                ready_at INTEGER NOT NULL, PRIMARY KEY(room, principal)
+            );
+            CREATE TABLE IF NOT EXISTS wiki_context_selection (
+                room TEXT NOT NULL, principal TEXT NOT NULL, slugs TEXT NOT NULL,
+                reason TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+                requested_at INTEGER NOT NULL, PRIMARY KEY(room, principal)
+            );
+            CREATE TABLE IF NOT EXISTS wiki_context_receipts (
+                room TEXT NOT NULL, principal TEXT NOT NULL, context_id TEXT NOT NULL,
+                packet_id TEXT NOT NULL, revision INTEGER NOT NULL,
+                selection_version INTEGER NOT NULL, accepted_at INTEGER NOT NULL,
+                PRIMARY KEY(room, principal, context_id, packet_id)
             );
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER NOT NULL,

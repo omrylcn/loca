@@ -17,6 +17,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from wiki_state import agent_event
 
 ACK_HISTORY_LIMIT = 1024
 PRIORITY_RANKS = {
@@ -98,12 +99,23 @@ def parse_record(raw: bytes, offset: int, next_offset: int) -> dict[str, Any]:
         raise ValueError(f"invalid inbox JSON at byte {offset}") from exc
     if not isinstance(record, dict) or not record.get("delivery_id"):
         raise ValueError(f"invalid inbox record at byte {offset}")
+    event = record.get("event")
+    if isinstance(event, dict):
+        public = agent_event(event)
+        if public is None:
+            record["_legacy_context_only"] = True
+            record["priority"] = "informational"
+            record["event"] = {"t": "legacy_context"}
+        else:
+            record["event"] = public
     record["_queue_offset"] = offset
     record["_queue_next_offset"] = next_offset
     return record
 
 
 def is_already_acked(record: dict[str, Any], state: dict[str, Any]) -> bool:
+    if record.get("_legacy_context_only"):
+        return True  # Consume obsolete metadata without creating model work.
     if record.get("delivery_id") in set(state["acked_delivery_ids"]):
         return True
     # A direct call may bypass an older task/control record. The newer call's

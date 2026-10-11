@@ -7,6 +7,35 @@ module tracks context injection, not model comprehension or editor authority.
 from dataclasses import dataclass
 
 
+def agent_event(event):
+    """Exclude retired knowledge-role metadata, never delete archived data.
+
+    Only protocol metadata is filtered. User text, task ownership, controls
+    and Wiki pages remain intact. Old inboxes may contain the retired frames.
+    """
+    if event.get("t") in ("memory", "memoryversion"):
+        return None
+    retired = ("memory", "memory_trigger", "memory_freshness")
+    clean = {key: value for key, value in event.items() if key not in retired}
+    if isinstance(clean.get("messages"), list):
+        messages = []
+        changed = False
+        for message in clean["messages"]:
+            item = agent_event(message) if isinstance(message, dict) else message
+            changed |= item is not message
+            if item is not None:
+                messages.append(item)
+        if changed:
+            clean["messages"] = messages
+            if event.get("t") == "turn" and not messages:
+                return None
+        elif not any(key in event for key in retired):
+            return event
+    elif not any(key in event for key in retired):
+        return event
+    return clean
+
+
 @dataclass
 class WikiContext:
     room: str

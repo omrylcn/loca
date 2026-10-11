@@ -15,37 +15,17 @@ cp "$ROOT/packaging/remote-agent/install.sh" "$KIT/"
 cp "$ROOT/packaging/remote-agent/start-lobby.sh" "$KIT/"
 cp "$ROOT/packaging/remote-agent/stop-lobby.sh" "$KIT/"
 cp "$ROOT/packaging/remote-agent/status.sh" "$KIT/"
-cp "$ROOT/skill/agent-room/SKILL.md" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/VERSION" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/connect.sh" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/credentials.py" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/portable_lock.py" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/listen.py" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/monitor_listener.py" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/bot.py" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/nudge.py" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/orchestrator_queue.py" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/attention_store.py" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/codex_adapter_v2.py" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/runtime.sh" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/runtime_agent.py" "$KIT/loca/"
-cp "$ROOT/skill/agent-room/runtime_consumer.py" "$KIT/loca/"
-mkdir -p "$KIT/loca/agents" "$KIT/loca/references"
-cp "$ROOT/skill/agent-room/agents/openai.yaml" "$KIT/loca/agents/"
-cp "$ROOT/skill/agent-room/references/runtimes.md" "$KIT/loca/references/"
-cp "$ROOT/skill/agent-room/references/codex-orchestrator.md" "$KIT/loca/references/"
-cp "$ROOT/skill/agent-room/references/adapter-protocol-v1.md" "$KIT/loca/references/"
-cp "$ROOT/skill/agent-room/references/adapter-protocol-v2.md" "$KIT/loca/references/"
-cp "$ROOT/skill/loca-care/SKILL.md" "$KIT/loca-care/"
-cp "$ROOT/skill/loca-care/VERSION" "$KIT/loca-care/"
-cp "$ROOT/skill/loca-care/agents/openai.yaml" "$KIT/loca-care/agents/"
-cp "$ROOT/skill/loca-care/scripts/audit.py" "$KIT/loca-care/scripts/"
+# Reuse the credential-safe canonical bundles. A second hand-maintained copy
+# list previously omitted join_request.py (and other shipped runtime helpers).
+python3 "$ROOT/scripts/build_skill_bundles.py" "$STAGE/skill-bundles" >/dev/null
+unzip -q "$STAGE/skill-bundles/loca.zip" -d "$KIT"
+unzip -q "$STAGE/skill-bundles/loca-care.zip" -d "$KIT"
 
 find "$KIT" -type d -exec chmod 755 {} +
 find "$KIT" -type f -exec chmod 644 {} +
 chmod 700 "$KIT/install.sh" "$KIT/start-lobby.sh" \
   "$KIT/stop-lobby.sh" "$KIT/status.sh" "$KIT/loca/connect.sh" \
-  "$KIT/loca/runtime.sh" "$KIT/loca/nudge.py"
+  "$KIT/loca/runtime.sh" "$KIT/loca/codex_rpc.py"
 chmod 700 "$KIT/loca/orchestrator_queue.py"
 chmod 700 "$KIT/loca/attention_store.py" "$KIT/loca/codex_adapter_v2.py"
 chmod 700 "$KIT/loca/monitor_listener.py"

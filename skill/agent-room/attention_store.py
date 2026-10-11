@@ -890,6 +890,32 @@ class AttentionStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def retire_legacy_context(
+        self, attention_id: str, identity: str, owner: str, epoch: int
+    ) -> bool:
+        """Retire only undispatched old metadata, preserving the archive."""
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            self._assert_fence(connection, identity, owner, epoch, wall_time_ms())
+            row = connection.execute(
+                "SELECT * FROM attentions WHERE attention_id = ? AND identity = ?",
+                (attention_id, identity),
+            ).fetchone()
+            if (
+                row is None
+                or row["accepted_at_ms"] is not None
+                or row["terminal_status"] is not None
+                or row["priority"] in ("security_control", "explicit_task", "care_signal")
+                or json.loads(row["event_json"]).get("t") not in ("memory", "memoryversion")
+            ):
+                return False
+            connection.execute(
+                "UPDATE attentions SET terminal_status = 'cancelled', "
+                "terminal_reason = 'archived knowledge metadata; not agent work' "
+                "WHERE attention_id = ?", (attention_id,),
+            )
+            return True
+
     def mark_accepted(
         self,
         attention_id: str,

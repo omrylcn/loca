@@ -35,6 +35,11 @@
   .wikieditorcontrol .leadselect { max-width: 190px; padding: 6px 10px; border-color: var(--line); color: var(--accent2); background: var(--panel2); }
   .wikieditorname, .wikimeta { color: var(--dim); font-size: 10px; }
   .wikimeta { padding: 10px 30px; border-bottom: 1px solid var(--line); }
+  .wikiedit { margin: 24px auto; padding: 0 24px; max-width: 850px; }
+  .wikiedit label { display: block; color: var(--muted); margin: 12px 0; }
+  .wikiedit input, .wikiedit textarea { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--txt); font: 13px/1.6 var(--mono); }
+  .wikiedit textarea { resize: vertical; }
+  .wikiedit p, #wikiEditStatus { color: var(--muted); font-size: 11px; margin: 12px 0; }
   .wikilayout { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: 360px; }
   .wikiindex { padding: 24px 12px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
   .wikiindex:empty { display: none; }
