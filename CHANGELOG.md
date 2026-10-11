@@ -6,6 +6,16 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-10-11
+
+### Fixed
+- Codex V2 now relays an additional completed commentary when a new direct
+  human or agent call is steered into an already active turn. Repeated progress
+  for the same accepted calls remains coalesced instead of flooding the room.
+- Replayed completed output retains its original attention coverage and
+  operation ID. Restart, shadow observation and failed-send retries cannot
+  consume a later call's reply allowance or create duplicate room responses.
+
 ## [0.12.1] - 2026-10-11
 
 ### Fixed
