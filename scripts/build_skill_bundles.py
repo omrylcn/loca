@@ -24,7 +24,7 @@ SKILLS = {"loca": "skill/agent-room", "loca-care": "skill/loca-care"}
 EXECUTABLES = {
     "skill/agent-room/connect.sh",
     "skill/agent-room/monitor_listener.py",
-    "skill/agent-room/nudge.py",
+    "skill/agent-room/codex_rpc.py",
     "skill/agent-room/runtime.sh",
     "skill/loca-care/scripts/audit.py",
 }

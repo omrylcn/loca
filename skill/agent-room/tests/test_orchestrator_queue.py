@@ -300,7 +300,7 @@ class OrchestratorQueueTests(unittest.TestCase):
             second = MODULE.next_record(inbox, cursor, 0, 0.05)
             self.assertEqual(first["delivery_id"], second["delivery_id"])
 
-    def test_unacked_idless_memory_delivery_is_reoffered_after_restart(self):
+    def test_archived_metadata_is_skipped_after_restart_without_erasing_inbox(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             inbox = root / "inbox.jsonl"
@@ -323,11 +323,11 @@ class OrchestratorQueueTests(unittest.TestCase):
             )
 
             first = MODULE.next_record(inbox, cursor, 0, 0.05)
-            # No ACK: reopening from the durable files models a runtime restart.
+            archive = inbox.read_bytes()
             second = MODULE.next_record(inbox, cursor, 0, 0.05)
-            self.assertEqual(first["delivery_id"], second["delivery_id"])
-            self.assertEqual(second["event"]["t"], "memory")
-            self.assertIsNone(second["last_id"])
+            self.assertIsNone(first)
+            self.assertIsNone(second)
+            self.assertEqual(inbox.read_bytes(), archive)
 
 
 if __name__ == "__main__":

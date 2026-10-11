@@ -8,13 +8,12 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_DIR))
 
-from attention_store import AttentionStore, attention_id_for  # noqa: E402
+from attention_store import AttentionStore, StaleLease, attention_id_for  # noqa: E402
 from codex_adapter_v2 import (  # noqa: E402
     ContextProvider,
     NO_REPLY_SENTINEL,
     PersistentCodexAdapter,
     attention_prompt,
-    render_memory_snapshot,
     missing_thread_error,
     mismatched_active_turn,
 )
@@ -261,7 +260,54 @@ class AdapterFixture:
 
 
 class CodexAdapterV2Tests(unittest.TestCase):
-    def test_memory_prompt_preserves_the_bounded_wire_budget(self):
+    def test_wiki_context_is_accepted_only_with_native_turn_and_compaction_rebootstraps(self):
+        from wiki_reader import WikiReader
+        with tempfile.TemporaryDirectory() as directory:
+            fixture=AdapterFixture(Path(directory))
+            calls=[]
+            snapshot={"room":"sb-dev","revision":1,"selection_version":0,"pages":[
+                {"slug":"overview","title":"Overview","body":"database choice","sources":[1],"revision":1}]}
+            def call(command,_server,_room,payload=None):
+                calls.append(command)
+                return snapshot if command=="wiki-context" else {"accepted":True}
+            class Provider:
+                wiki_reader=WikiReader("/unused","reviewer",call)
+                def __call__(self,_attention): return []
+            provider=Provider(); fixture.adapter.context_provider=provider
+            fixture.ingest(delivery(1)); fixture.adapter.dispatch_one()
+            self.assertEqual(calls,["wiki-context","wiki-accept"])
+            inputs=[params["input"] for method,params in fixture.fake.requests if method=="turn/start"][-1]
+            self.assertIn("database choice",inputs[1]["text"])
+            fixture.ingest(delivery(2)); fixture.adapter.dispatch_one()
+            self.assertEqual(calls,["wiki-context","wiki-accept"])
+            fixture.adapter.handle_message({"method":"item/completed","params":{"threadId":"thread-1",
+                "turnId":"turn-1","item":{"type":"contextCompaction","id":"compact-1"}}})
+            fixture.adapter.active_turns.clear()
+            fixture.ingest(delivery(3)); fixture.adapter.dispatch_one()
+            inputs=[params["input"] for method,params in fixture.fake.requests if method=="turn/start"][-1]
+            self.assertIn('"kind": "bootstrap"',inputs[1]["text"])
+            fixture.adapter.close()
+
+    def test_rejected_native_turn_does_not_ack_wiki_offer(self):
+        from wiki_reader import WikiReader
+        with tempfile.TemporaryDirectory() as directory:
+            fixture=AdapterFixture(Path(directory)); calls=[]
+            def call(command,*_args):
+                calls.append(command)
+                return {"room":"sb-dev","revision":1,"selection_version":0,"pages":[
+                    {"slug":"overview","title":"Overview","body":"policy","sources":[1],"revision":1}]}
+            class Provider:
+                wiki_reader=WikiReader("/unused","reviewer",call)
+                def __call__(self,_attention): return []
+            fixture.adapter.context_provider=Provider()
+            original=fixture.fake.request
+            fixture.fake.request=lambda method,params: {"error":{"message":"unavailable"}} if method=="turn/start" else original(method,params)
+            fixture.ingest(delivery(1)); self.assertFalse(fixture.adapter.dispatch_one())
+            self.assertEqual(calls,["wiki-context"])
+            self.assertFalse(next(iter(fixture.adapter.context_provider.wiki_reader.contexts.values())).injected_pages)
+            fixture.adapter.close()
+
+    def test_archived_snapshot_never_consumes_the_prompt_budget(self):
         base = {
             "status": "ready",
             "owner": "İye sahibi",
@@ -286,22 +332,21 @@ class CodexAdapterV2Tests(unittest.TestCase):
         serialized_sizes = []
         for name, (short, long) in fixtures.items():
             memory = dict(base, short=short, long=long)
-            rendered = render_memory_snapshot(memory)
+            event = dict(delivery(7)["event"], memory=memory)
+            attention = {"attention_id": "a:7", "room": "sb-dev",
+                         "priority": "direct_user", "reply_required": True,
+                         "attempts": 0, "event_json": json.dumps(event)}
+            rendered = attention_prompt("reviewer", attention, [])
             with self.subTest(name=name):
-                self.assertLessEqual(len(rendered.encode("utf-8")), 13 * 1024)
-                self.assertIn(short, rendered)
-                self.assertIn(long, rendered)
-                self.assertNotIn("\\u", rendered)
-                self.assertNotIn('"short"', rendered.splitlines()[0])
-                self.assertNotIn('"long"', rendered.splitlines()[0])
+                self.assertNotIn("İye sahibi", rendered)
+                self.assertIn("Loca Wiki is the only room knowledge surface", rendered)
+                self.assertIn("ping", rendered)
+                self.assertNotIn('"owner"', rendered)
+                self.assertEqual(event["memory"], memory)
                 serialized_sizes.append(len(rendered.encode("utf-8")))
-        self.assertLess(
-            max(serialized_sizes) - min(serialized_sizes),
-            64,
-            "verbatim body cost must remain independent of content escaping",
-        )
+        self.assertEqual(len(set(serialized_sizes)), 1)
 
-    def test_attention_prompt_renders_bounded_memory_snapshot(self):
+    def test_attention_prompt_teaches_wiki_not_a_second_knowledge_role(self):
         event = {
             "id": 7,
             "sender": "operator",
@@ -326,11 +371,57 @@ class CodexAdapterV2Tests(unittest.TestCase):
             "event_json": json.dumps(event),
         }
         prompt = attention_prompt("reviewer", attention, [])
-        self.assertIn("Loca memory snapshot (trigger=turn; bounded", prompt)
-        self.assertIn("short (4 UTF-8 bytes; verbatim):\nfact", prompt)
-        self.assertIn("long (8 UTF-8 bytes; verbatim):\ndecision", prompt)
-        self.assertIn('"freshness": "current"', prompt)
-        self.assertIn("uninjectable subset", prompt)
+        self.assertNotIn("Loca memory snapshot", prompt)
+        self.assertNotIn('"freshness"', prompt)
+        self.assertNotIn("\nfact", prompt)
+        self.assertNotIn("\ndecision", prompt)
+        self.assertIn("only its assigned Wiki editor", prompt)
+        self.assertIn("wake", prompt)
+
+    def test_old_ledger_metadata_is_retired_without_dispatching_or_losing_direct(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case = AdapterFixture(Path(tmp))
+            case.ingest(delivery(1, priority="addressed_agent"), delivery(2))
+            old_id = attention_id_for("reviewer", "https://loca.example", "sb-dev:1")
+            # Simulate a SQLite record written before the Wiki-only boundary.
+            archive = json.dumps({"t": "memory", "owner": None, "short": "old role"})
+            with case.store.connect() as conn:
+                conn.execute("UPDATE attentions SET event_json = ?, priority_rank = 0 "
+                             "WHERE attention_id = ?", (archive, old_id))
+            self.assertTrue(case.adapter.dispatch_one())
+            with case.store.connect() as conn:
+                old = dict(conn.execute("SELECT * FROM attentions WHERE attention_id = ?",
+                                       (old_id,)).fetchone())
+            self.assertEqual(old["terminal_status"], "cancelled")
+            self.assertIsNone(old["accepted_at_ms"])
+            self.assertEqual(old["event_json"], archive)
+            self.assertFalse(any(method.startswith("turn/") for method, _ in case.fake.requests))
+            self.assertTrue(case.adapter.dispatch_one())
+            with case.store.connect() as conn:
+                direct = conn.execute("SELECT * FROM attentions WHERE delivery_id = 'sb-dev:2'").fetchone()
+            self.assertIsNotNone(direct["accepted_at_ms"])
+            case.adapter.close()
+
+    def test_retirement_is_fenced_and_never_cancels_tasks_or_accepted_work(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case = AdapterFixture(Path(tmp))
+            case.ingest(delivery(1, priority="explicit_task"), delivery(2))
+            task_id = attention_id_for("reviewer", "https://loca.example", "sb-dev:1")
+            direct_id = attention_id_for("reviewer", "https://loca.example", "sb-dev:2")
+            args = ("reviewer", case.adapter.owner, case.adapter.epoch)
+            with case.store.connect() as conn:
+                conn.execute("UPDATE attentions SET event_json = ? WHERE attention_id = ?",
+                             (json.dumps({"t": "memory"}), task_id))
+            self.assertFalse(case.store.retire_legacy_context(task_id, *args))
+            self.assertFalse(case.store.retire_legacy_context(direct_id, *args))
+            with self.assertRaises(StaleLease):
+                case.store.retire_legacy_context(task_id, "reviewer", "wrong-owner", case.adapter.epoch)
+            with case.store.connect() as conn:
+                conn.execute("UPDATE attentions SET priority = 'addressed_agent', accepted_at_ms = 1 "
+                             "WHERE attention_id = ?", (task_id,))
+            self.assertFalse(case.store.retire_legacy_context(task_id, *args))
+            self.assertEqual(case.store.next_pending("reviewer")["attention_id"], direct_id)
+            case.adapter.close()
 
     def test_reconciliation_health_marks_current_epoch_complete(self):
         with tempfile.TemporaryDirectory() as tmp:

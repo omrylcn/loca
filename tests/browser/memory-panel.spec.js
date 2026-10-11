@@ -198,12 +198,12 @@ test("admin olsa da owner olmayan kimlik yazamaz", async ({ page }) => {
   await expect(page.locator("#memoryWriteResult")).toContainText("Only the memory owner");
 });
 
-test("People listesi memory owner unvanini lead rolunden ayri gosterir", async ({ page }) => {
+test("Archived memory metadata does not assign a live People role", async ({ page }) => {
   await renderPeopleWithMemory(page);
 
   const ownerSeat = page.locator("#onlineList .omem").filter({ hasText: "memory-owner" });
   const otherSeat = page.locator("#onlineList .omem").filter({ hasText: "next-owner" });
-  await expect(ownerSeat).toContainText("memory owner");
+  await expect(ownerSeat).not.toContainText("memory owner");
   await expect(ownerSeat).not.toContainText("lead");
   await expect(otherSeat).not.toContainText("memory owner");
 });
@@ -252,7 +252,7 @@ test("memory owner devri eski sahibin unvanini ve yazma kontrollerini aninda kal
   await expect(page.locator("#onlineList .omem").filter({ hasText: "memory-owner" }))
     .not.toContainText("memory owner");
   await expect(page.locator("#onlineList .omem").filter({ hasText: "next-owner" }))
-    .toContainText("memory owner");
+    .not.toContainText("memory owner");
 });
 
 test("memory owner devri yeni sahibin yazma kontrollerini ve sorumluluk bildirimini aninda acar", async ({ page }) => {

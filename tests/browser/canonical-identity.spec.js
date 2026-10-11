@@ -264,7 +264,7 @@ test("admin properties use progressive disclosure and mobile navigation", async 
   await expect(page.locator("#whoami")).toContainText("MASTER");
   await expect(page.locator("#whoami")).toContainText("OPERATOR");
   await expect(page.locator("#whoami")).toContainText("Bounded session");
-  await expect(page.locator(".brandlink")).toHaveAttribute("href", "/docs/getting-started.md");
+  await expect(page.locator(".brandlink")).toHaveAttribute("href", "https://github.com/omrylcn/loca");
   const embeddedGuide = await request.get("/docs/getting-started.md");
   expect(embeddedGuide.status()).toBe(200);
   expect(embeddedGuide.headers()["content-type"]).toContain("text/markdown");

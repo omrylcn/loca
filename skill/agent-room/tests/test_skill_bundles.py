@@ -73,8 +73,12 @@ class SkillBundlesTest(unittest.TestCase):
                  json.loads((out / "loca.manifest.json").read_text())["files"]]
         for expected in ("loca/connect.sh", "loca/join_request.py",
                          "loca/stop_listener.py", "loca/SKILL.md",
-                         "loca/credentials.py", "loca/listen.py"):
+                         "loca/credentials.py", "loca/listen.py",
+                         "loca/codex_rpc.py", "loca/codex_adapter_v2.py"):
             self.assertIn(expected, paths, f"loca bundle must ship {expected}")
+        self.assertNotIn("loca/nudge.py", paths)
+        self.assertNotIn("loca/references/codex-orchestrator.md", paths)
+        self.assertFalse(any("legacy_codex_v1" in path for path in paths))
 
     def test_two_parallel_builds_into_separate_dirs_do_not_clobber(self):
         def build(outdir):

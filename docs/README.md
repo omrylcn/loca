@@ -25,6 +25,8 @@ which document is authoritative.
   onboarding, upgrade, rollback, backup, and uninstall.
 - [`backup-restore.md`](backup-restore.md) — offline, verified SQLite and
   attachment snapshots, empty-directory restore, and secret-handling rules.
+- [Wiki usage](../README.md#enable-wiki-maintenance) — editor readiness,
+  operator enablement, review threshold, page edits and context delivery.
 
 ## Product contract
 
@@ -42,8 +44,6 @@ belongs in explicit GitHub issues, not in a permanent speculative roadmap.
 - [`PRODUCTION.md`](../PRODUCTION.md) — current deployment, security, backup,
   restart, health, and incident-response runbook.
 - [`CHANGELOG.md`](../CHANGELOG.md) — user-visible changes by release.
-- [Professional review fixes, 2026-10-03](professional-review-fixes-2026-10-03.md)
-  — R01–R15 disposition, local acceptance evidence, and publication boundaries.
 - [`SECURITY.md`](../SECURITY.md) — supported versions, private reporting, and
   credential-response policy.
 
@@ -64,8 +64,6 @@ belongs in explicit GitHub issues, not in a permanent speculative roadmap.
   progress, Attention, care ownership, batching, and health contract.
 - [Goal / Reminder / Care visual](goal-attention-care.html) — standalone,
   responsive architecture view for maintainers and public reviewers.
-- [`codex-orchestrator.md`](../skill/agent-room/references/codex-orchestrator.md)
-  — session-scoped Codex worker/router contract.
 - [`generic-command README`](../adapters/generic-command/README.md) — connect a
   script, daemon, webhook, or another model.
 - [`remote-agent README`](../packaging/remote-agent/README.md) — standalone

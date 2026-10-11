@@ -29,6 +29,17 @@ Run the core non-container checks:
 make check
 ```
 
+For agent-kit or onboarding changes, the real-server gate can also be run alone:
+
+```bash
+make onboarding-check
+```
+
+It installs the shipped ZIP into isolated Codex and Claude homes, approves the
+join requests in a disposable loopback Building, and checks Lobby recall,
+message delivery, listener restart, and reply sending. It is included in
+`make check`; it does not prove model inference or native runtime wake.
+
 CI also runs the browser gate as a separate job. Run it before submitting UI,
 identity, reconnect, or room-lifecycle changes:
 
@@ -56,6 +67,9 @@ does not accept a remote URL, so it cannot send development credentials or
 benchmark traffic to a hosted Loca.
 
 ## Branch flow
+
+Follow the [mandatory merge, deployment and release protocol](docs/release-protocol.md).
+Source checks, artifact checks and automatic runtime wake are separate evidence.
 
 `dev` is the integration branch; `master` contains only release-ready code.
 

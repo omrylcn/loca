@@ -88,6 +88,18 @@ if [ ! -d "$ROOT/loca" ] || [ ! -f "$ROOT/loca/SKILL.md" ] \
   exit 2
 fi
 
+# Validate the runtime before backing up/replacing any installed skill. A
+# readable SKILL.md alone does not make onboarding or monitoring usable.
+for required in connect.sh credentials.py portable_lock.py join_request.py \
+  listen.py monitor_listener.py runtime.sh runtime_agent.py runtime_consumer.py \
+  codex_rpc.py attention_store.py codex_adapter_v2.py orchestrator_queue.py \
+  stop_listener.py setup.ps1 references/runtimes.md; do
+  if [ ! -f "$ROOT/loca/$required" ]; then
+    echo "package is incomplete: missing loca/$required; obtain a complete agent kit" >&2
+    exit 2
+  fi
+done
+
 install_one_skill() {
   local parent="$1" skill="$2" target new backup backup_root stamp
   parent="${parent%/}"
@@ -107,7 +119,7 @@ install_one_skill() {
   fi
   mv "$new" "$target"
   if [ "$skill" = loca ]; then
-    chmod 700 "$target/connect.sh" "$target/runtime.sh" "$target/nudge.py" \
+    chmod 700 "$target/connect.sh" "$target/runtime.sh" "$target/codex_rpc.py" \
       "$target/orchestrator_queue.py" "$target/runtime_agent.py" \
       "$target/runtime_consumer.py" "$target/monitor_listener.py" \
       "$target/attention_store.py" "$target/codex_adapter_v2.py"

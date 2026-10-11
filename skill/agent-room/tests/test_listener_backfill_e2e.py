@@ -251,10 +251,8 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
                 )
                 self.assertEqual(delivered_ids, expected_ids)
                 self.assertEqual(len(chat_deliveries), 252)
-                self.assertEqual(len(memory_deliveries), 1)
-                self.assertEqual(
-                    memory_deliveries[0]["event"]["memory_trigger"], "connection"
-                )
+                self.assertEqual(len(memory_deliveries), 0)
+                self.assertTrue(all("memory" not in d["event"] for d in chat_deliveries))
                 self.assertTrue(
                     all(
                         len(delivery["event"].get("messages", [])) <= 4
@@ -267,9 +265,8 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
                 )
 
                 # The persisted cursor is the chat replay boundary. A clean
-                # restart must not append duplicate chat, but it deliberately
-                # emits one fresh connection-memory delivery so a reset model
-                # context is repopulated without waiting for a message.
+                # restart must not append duplicate chat or wake a model for
+                # retired knowledge metadata. Wiki is read explicitly.
                 history_size = history.stat().st_size
                 inbox_size = inbox.stat().st_size
                 log_handle = listener_log.open("ab")
@@ -297,16 +294,12 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
                 time.sleep(1)
                 self.assertIsNone(listener.poll())
                 self.assertEqual(history.stat().st_size, history_size)
-                self.assertGreater(inbox.stat().st_size, inbox_size)
+                self.assertEqual(inbox.stat().st_size, inbox_size)
                 restarted = [
                     json.loads(line)
                     for line in inbox.read_text(encoding="utf-8").splitlines()
                 ][len(deliveries) :]
-                self.assertEqual(len(restarted), 1)
-                self.assertEqual(restarted[0]["event"]["t"], "memory")
-                self.assertEqual(
-                    restarted[0]["event"]["memory_trigger"], "connection"
-                )
+                self.assertEqual(restarted, [])
                 self.stop_process(listener, log_handle)
                 listener = None
             finally:

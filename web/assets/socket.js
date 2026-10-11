@@ -177,11 +177,13 @@ function joinRoom(room) {
   state.memoryStatus = "loading";
   state.memoryError = "";
   state.memoryLoading = false;
+  resetWikiForRoom();
   $("memoryShortInput").value = "";
   $("memoryDecisionInput").value = "";
   $("notesDot").classList.remove("on");
   refreshRooms();
   fetchNotes();
+  if (state.tab === "wiki") fetchWiki();
   fetchMemory();
   fetchMode();
   fetchSettings();

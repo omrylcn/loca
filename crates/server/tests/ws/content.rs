@@ -113,6 +113,40 @@ async fn wiki_http_editor_revision_and_private_room_boundaries() {
         .unwrap();
     assert_eq!(snapshot["revision"], 1);
     assert_eq!(snapshot["editor_name"], "editor");
+    let selected: Value = client
+        .get(format!("{base}/rooms/general/wiki/pages/working"))
+        .header("x-session-token", &sessions[1])
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(selected["room"], "general");
+    assert_eq!(selected["page"]["body"], "proposal");
+    assert!(selected.get("pages").is_none());
+    assert_eq!(
+        client
+            .get(format!("{base}/rooms/general/wiki/pages/missing"))
+            .header("x-session-token", &sessions[1])
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/rooms/private/wiki/pages/working"))
+            .header("x-session-token", &sessions[1])
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
     assert!(snapshot["pages"]
         .as_array()
         .unwrap()
@@ -138,6 +172,258 @@ async fn wiki_http_editor_revision_and_private_room_boundaries() {
             .unwrap()
             .status(),
         409
+    );
+
+    // Protocol E2E only: deliberately seed an enabled bounded batch in this
+    // disposable database. Public configuration remains fail-closed until
+    // native isolated-worker conformance is available.
+    let source: Value = client
+        .post(format!("{base}/rooms/general/messages"))
+        .header("x-session-token", &sessions[1])
+        .json(
+            &serde_json::json!({"sender":"reader","sender_type":"agent","text":"sourced finding"}),
+        )
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let source_id = source["id"].as_u64().unwrap();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute("UPDATE loca_wiki SET enabled=1 WHERE room='general'", [])
+        .unwrap();
+    conn.execute("INSERT INTO loca_wiki_batches(room,editor_principal,after_id,through_id,reason,created_at)
+        SELECT room,editor_principal,reviewed_through,?1,'test-source',1 FROM loca_wiki WHERE room='general'",
+        [source_id]).unwrap();
+    drop(conn);
+    assert_eq!(
+        client
+            .post(format!("{base}/rooms/general/wiki/maintenance/claim"))
+            .header("x-session-token", &sessions[1])
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        client
+            .get(format!("{base}/rooms/private/wiki/maintenance"))
+            .header("x-session-token", &sessions[1])
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    let batch: Value = client
+        .post(format!("{base}/rooms/general/wiki/maintenance/claim"))
+        .header("x-session-token", &sessions[0])
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(batch["messages"][0]["text"], "sourced finding");
+    assert_eq!(batch["through_id"], source_id);
+    assert_eq!(
+        client
+            .post(format!("{base}/rooms/general/wiki/maintenance/renew"))
+            .header("x-session-token", &sessions[1])
+            .json(&batch["lease"])
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        409
+    );
+    let renewal: Value = client
+        .post(format!("{base}/rooms/general/wiki/maintenance/renew"))
+        .header("x-session-token", &sessions[0])
+        .json(&batch["lease"])
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        renewal["lease_expires_at"].as_u64().unwrap()
+            >= batch["lease_expires_at"].as_u64().unwrap()
+    );
+    let mut finish = serde_json::json!({"lease":batch["lease"],"review":{
+        "expected_revision":1,"reviewed_through":source_id,"reason":"delegated bounded review",
+        "pages":[{"slug":"working","title":"Working area","body":"supported finding","sources":[source_id]}]}});
+    finish["lease"]["epoch"] = serde_json::json!(99);
+    assert_eq!(
+        client
+            .post(format!("{base}/rooms/general/wiki/maintenance/finish"))
+            .header("x-session-token", &sessions[0])
+            .json(&finish)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        409
+    );
+    finish["lease"] = batch["lease"].clone();
+    let result: Value = client
+        .post(format!("{base}/rooms/general/wiki/maintenance/finish"))
+        .header("x-session-token", &sessions[0])
+        .json(&finish)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(result["revision"], 2);
+    let retry: Value = client
+        .post(format!("{base}/rooms/general/wiki/maintenance/finish"))
+        .header("x-session-token", &sessions[0])
+        .json(&finish)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(retry, result);
+    let mut divergent = finish.clone();
+    divergent["review"]["reason"] = serde_json::json!("different retry");
+    assert_eq!(
+        client
+            .post(format!("{base}/rooms/general/wiki/maintenance/finish"))
+            .header("x-session-token", &sessions[0])
+            .json(&divergent)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        409
+    );
+    let readback: Value = client
+        .get(format!("{base}/rooms/general/wiki"))
+        .header("x-session-token", &sessions[1])
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(readback["reviewed_through"], source_id);
+    assert!(readback["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|p| p["body"] == "supported finding"));
+    let state: Value = client
+        .get(format!("{base}/rooms/general/wiki/maintenance"))
+        .header("x-session-token", &sessions[1])
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(state["status"], "completed");
+    // A human page edit has separate operator authority and does not pretend
+    // to review more messages or leave editor citations attached to new prose.
+    let edit = serde_json::json!({"expected_revision":readback["revision"],"title":"Working area","body":"operator correction"});
+    for session in &sessions {
+        assert_eq!(
+            client
+                .put(format!("{base}/rooms/general/wiki/pages/working"))
+                .header("x-session-token", session)
+                .json(&edit)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+    }
+    assert_eq!(client.put(format!("{base}/rooms/general/wiki/pages/working"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({"expected_revision":0,"title":"Working area","body":"stale edit"}))
+        .send().await.unwrap().status(), 409);
+    let edited: Value = client
+        .put(format!("{base}/rooms/general/wiki/pages/working"))
+        .header("x-admin-token", "MASTER")
+        .json(&edit)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(edited["room"], "general");
+    assert_eq!(edited["slug"], "working");
+    assert_eq!(
+        edited["revision"].as_u64().unwrap(),
+        readback["revision"].as_u64().unwrap() + 1
+    );
+    let after_edit: Value = client
+        .get(format!("{base}/rooms/general/wiki"))
+        .header("x-session-token", &sessions[1])
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(after_edit["reviewed_through"], readback["reviewed_through"]);
+    assert_eq!(after_edit["reviewed_at"], readback["reviewed_at"]);
+    let working = after_edit["pages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|page| page["slug"] == "working")
+        .unwrap();
+    assert_eq!(working["body"], "operator correction");
+    assert_eq!(working["sources"], serde_json::json!([]));
+    let invalid = serde_json::json!({"expected_revision":edited["revision"],"title":"Working area","body":"bad","reviewed_through":source_id+100});
+    assert_eq!(
+        client
+            .put(format!("{base}/rooms/general/wiki/pages/working"))
+            .header("x-admin-token", "MASTER")
+            .json(&invalid)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        422
+    );
+    assert_eq!(
+        client
+            .put(format!("{base}/rooms/private/wiki/pages/working"))
+            .header("x-session-token", &sessions[1])
+            .json(&edit)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
     );
 }
 

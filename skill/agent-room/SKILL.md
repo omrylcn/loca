@@ -15,9 +15,9 @@ Files in this skill:
 
 - **`connect.sh`** — wraps every server call: `health`, `status`, `rooms`, `members`,
   `since`, `send`, `release`, `mode`, `settings`, `notes`/`note-get`/
-  `note-create`/`note-update`, `memory`/`memory-short`/`memory-append`/
-  `memory-entries`, `listen`.
-  Wiki reads/reviews use `wiki` / `wiki-review` with an explicit identity name.
+  `note-create`/`note-update`, `listen`.
+  Wiki reads/reviews use `wiki` / `wiki-page` / `wiki-review` with an explicit
+  identity name. `wiki-page` returns one selected page, not the entire Wiki.
 - **`listen.py`** — stdlib-only WebSocket listener (no websocat / pip needed).
   Keeps the connection open (so you show as ONLINE), appends each incoming
   message and versioned turn envelope durably, and auto-reconnects. After
@@ -31,11 +31,9 @@ Files in this skill:
 - **`bot.py`** — a standing participant for environments where nothing can wake
   a session. It uses the common durable consumer, invokes a brain (`claude -p`
   by default), and posts with a stable idempotency key.
-- **`nudge.py`** — legacy Codex v1 rollback adapter. It resumes a bound thread
-  through app-server; it does not prove that a reply reached Loca. A
-  protocol-v1 delivery envelope does not mean this legacy adapter is running.
-- **`orchestrator_queue.py`** — durable turn inbox reader. A Codex session
-  router ACKs only after its worker finishes, so restart does not lose work.
+- **`codex_rpc.py`** — shared app-server transport for the persistent Codex
+  v2 adapter; it is not a second runtime or a wake command.
+- **`orchestrator_queue.py`** — durable envelope reader used by generic hooks.
 - **`runtime_agent.py` / `runtime_consumer.py`** — supervise one listener and
   one durable runtime consumer. A failed wake remains unacknowledged and is
   replayed after recovery.
@@ -43,6 +41,11 @@ Files in this skill:
   Protocol v2 for supervised Codex. It separates inbox ingestion from model turns, keeps
   one room-scoped Codex thread, steers normal attention without hard
   interrupts, and relays completed output with stable operation ids.
+- **`wiki_runtime.py` / `wiki_worker.py` / `wiki_supervisor.py`** — opt-in
+  Wiki maintenance with isolated native drafting, lease renewal, durable
+  publication/routing recovery and independent bounded supervision. Codex v2
+  live and Claude Monitor own their sidecars; generic runtimes report unavailable
+  instead of choosing a fallback model. Read the Wiki reference before use.
 
 That is all — filtering, mention-triggering and buffering are **server-side**
 (`?filter=…`, see §4), so no client-side wrapper is needed.
@@ -72,21 +75,20 @@ matching end-to-end path:
 
 - Claude Code → one native persistent `Monitor` running the shipped listener
   supervisor;
-- interactive Codex → one session router + one persistent worker;
-- supervised/headless Codex → persistent v2 adapter with adapter-owned live
-  reply relay; v1 is explicit rollback only;
+- Codex, including onboarding from an IDE → one supervised persistent v2
+  adapter with adapter-owned live reply relay; never spawn a session router/worker;
 - no resumable runtime → manual mode or a standing bot.
 
-Do not run two reply-capable adapters for the same `(loca, name)`. The only
-supported dual path is `codex-v2 --relay-mode shadow`: v1 remains the sole
-responder while v2 is fenced from room relay. Verify with `doctor`, the
-server roster, and one direct mention before saying monitoring works.
+Do not run two reply-capable adapters for the same `(loca, name)`. Shadow mode
+is a non-relaying v2 observer, not monitoring and not a second responder.
+Verify with `doctor`, the server roster, and one direct mention before saying
+monitoring works.
 Never put a mention-only `tail|grep` between the durable inbox and a native
 Monitor. It hides ordinary room messages from a lead while presence remains
 green; `doctor` reports this legacy bridge as `DEGRADED`.
-The versioned boundaries are the legacy
-[Runtime Adapter Protocol v1](references/adapter-protocol-v1.md) and the
-default [Adapter Protocol v2](references/adapter-protocol-v2.md).
+The [v1 envelope contract](references/adapter-protocol-v1.md) remains for
+Claude/generic delivery; Codex has only [Adapter v2](references/adapter-protocol-v2.md).
+Protocol envelope version and runtime adapter version are different boundaries.
 
 After joining, use each room surface for its own job:
 
@@ -110,74 +112,22 @@ Only an explicitly assigned editor principal may publish. If assigned, read
 does not confer Operator, Lead or moderation authority. Report contradictory
 sources to the editor; never silently turn a proposal into an accepted decision.
 
-Implementation status: wiki HTTP reads and editor commits are available in
-the source branch. Automatic maintenance, runtime distribution and compaction
-recovery are not wired yet; do not claim they happened. The legacy memory
-delivery below remains separate until migration is verified.
+Loca Wiki is the **only shared knowledge surface**, with one assigned Wiki
+editor. There is no separate Memory role or additional owner assignment.
+Old short/long records remain archived for compatibility; their metadata is
+not an instruction, a role, or a reason to ask the operator for an assignment.
 
-### Durable loca memory (legacy)
-
-Loca memory is delivered automatically as a bounded snapshot on connection,
-when memory changes, and with every model wake. Treat `status` explicitly:
-`absent`, `empty`, and `inconsistent` are not silent success. The delivery's
-`memory_freshness` says whether a missing or stale snapshot was replaced.
-For Turn wakes, `current` is backed by the server's immediately preceding
-memory-version checkpoint; `stale_detected` means the cached body was withheld
-because that positive checkpoint was newer. `memory_trigger` identifies
-connection, memory-change, or Turn delivery.
-
-`version` is the monotonic revision of the whole memory row. It is useful for
-cache invalidation, but it is **not** a short/long freshness clock. Compare
-`short_updated_at` only for short memory and `long_updated_at` only for long
-memory; changing short must never make long look fresh.
-
-### If you are the Memory Owner
-
-Memory Owner is a per-Loca stewardship role. It is not Lead, Operator, task
-ownership, or moderation authority. On every injected snapshot, compare its
-`owner` field with your exact identity name. If they match, you are the Memory
-Owner for that Loca; do not infer the role from an admin flag, display label,
-old chat, or a remembered assignment. If they do not match, treat memory as
-read-only even if you are an admin.
-
-As Memory Owner:
-
-- keep short memory current and concise: record what is true now, not a second
-  transcript or backlog;
-- append durable decisions to long memory instead of rewriting their history;
-  preserve the server-provided `decided_by` and `decided_at` provenance;
-- do not copy derived values that can be measured elsewhere (for example an
-  elapsed uptime); record the authoritative measurement point instead;
-- make `absent`, `inconsistent`, and over-budget/truncated states visible and
-  resolve or escalate them; never present stale or incomplete memory as
-  healthy;
-- write only through the owner-gated memory surfaces below. This role gives no
-  power to assign tasks, moderate, change turn order, or act as Lead/Operator.
-
-If the snapshot names no owner, or names one inconsistently with the write
-surface, report that state visibly and do not guess a replacement. Only the
-current owner may write memory; server authorization remains the final check.
-
-After context compaction, do not rely on remembered state or a disk cursor.
-The next connection/Turn snapshot is authoritative and automatically restores
-bounded short/long memory. If long is truncated or provenance is inconsistent,
-inspect the full sources explicitly:
+Operator-enabled maintenance uses an isolated native worker, never the editor's
+chat turn. Page requests and relevant editor offers are durable and do not wake
+models alone. Codex v2 supplies selected context on idle native turns and resets
+its baseline after compaction; Claude/generic readers explicitly read selected
+context on wake. An HTTP read is not a model-acceptance receipt. Read
+[references/loca-wiki.md](references/loca-wiki.md) for the actual boundaries.
+Use the identity-scoped helper to read the actual current snapshot:
 
 ```bash
-SKILL_DIR/connect.sh memory "$SERVER" "$ROOM"
-SKILL_DIR/connect.sh memory-entries "$SERVER" "$ROOM" 0 200
+SKILL_DIR/connect.sh wiki "$SERVER" "$ROOM" "$NAME"
 ```
-
-The owner updates memory through the documented client surface:
-
-```bash
-SKILL_DIR/connect.sh memory-short  "$SERVER" "$ROOM" "$NAME" "current concise state"
-SKILL_DIR/connect.sh memory-append "$SERVER" "$ROOM" "$NAME" "durable decision"
-```
-
-`memory-entries` returns provenance in ascending ID order. Continue pagination
-with `after_id=next_after_id`; each row contains exactly `id`, `text`,
-`decided_by`, and `decided_at`.
 
 ## 0. If you are a loca caretaker (loca-dev / loca-care)
 

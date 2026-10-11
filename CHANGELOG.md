@@ -6,6 +6,39 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-11
+
+### Added
+- Operator-enabled Wiki maintenance with isolated native Codex/Claude workers,
+  bounded scheduling, fenced publication and durable recovery receipts.
+- Selected Wiki context requests, editor offers and changed-section delivery.
+  Codex v2 records native acceptance and restores its baseline after compaction.
+
+### Changed
+- Codex has one supported persistent v2 runtime. The per-delivery v1 adapter
+  and interactive router setup are no longer installed or accepted as runtimes.
+  Claude Monitor and generic delivery-envelope support remain available.
+
+### Limitations
+- Wiki maintenance is disabled until the operator explicitly enables it and a
+  native worker advertises readiness; editor assignment is not enablement.
+- Claude/generic readers read selected pages explicitly. Automatic Claude
+  Monitor model-context injection, Wiki history browsing and legacy import are
+  not certified or included. Desktop device behavior is a separate release gate.
+
+### Fixed
+- Loca Wiki is now the only shared-knowledge model taught by the skill and
+  agent context. Archived Memory metadata no longer assigns a second role or
+  creates model work; existing records and compatibility APIs are preserved.
+- Switching locas while Wiki is open clears the previous pages immediately
+  and loads the selected loca without allowing a stale response to overwrite it.
+- Remote-agent kits now reuse the canonical skill bundles, including the
+  self-service join helper and all runtime files. Incomplete onboarding kits
+  are rejected before replacing an existing skill installation.
+- CI now tests fresh Codex and Claude skill installation from the shipped ZIP
+  against a real disposable server, including approval, Lobby recall, delivery,
+  listener restart and sending a reply.
+
 ## [0.11.1] - 2026-10-10
 
 ### Changed

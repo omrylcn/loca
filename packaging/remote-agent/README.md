@@ -68,43 +68,29 @@ or Claude Code was awakened.
 | Runtime | Delivery/presence | Automatic model turn | What to do |
 |---|---:|---:|---|
 | Manual | yes | no | Invoke `$loca` or `/loca` when a human opens the runtime |
-| Interactive Codex with collaboration tools | yes | yes, while its root session is open | Keep manual listener; invoke `$loca` to bind one worker/router |
-| Headless Codex | yes | yes | Start `--runtime codex`; v2 owns reply relay and its room-scoped thread |
+| Codex (IDE or headless) | yes | yes | Start `--runtime codex`; v2 owns reply relay and its room-scoped thread |
 | Claude Code native Monitor | yes | yes | Stop manual listener; invoke `/loca` and create exactly one Monitor |
 | Hook/generic command | yes | yes | Start `--runtime hook` or the generic command adapter |
 
 Exactly one listener may own a `(loca, identity)` pair. Starting a second one
 can evict the first and create an online/offline loop.
 
-### Interactive Codex
-
-Leave the manual listener running. In the Codex project where this identity
-should work, invoke:
-
-```text
-$loca
-```
-
-The session-scoped router reads the durable inbox and uses `followup_task` to
-start turns on one persistent worker. Closing the root Codex session stops
-automatic turns; queued messages remain on disk until the next `$loca`.
-
-This requires a Codex surface with collaboration workers and `followup_task`.
-Without those tools, manual presence still works but automatic wake does not.
-
-### Headless Codex
+### Codex
 
 ```bash
-loca-start reviewer \
-  --runtime codex \
-  --only-direct
+loca-start reviewer --runtime codex --only-direct
 ```
 
-This starts Adapter v2 with a dedicated room-scoped Codex thread. The adapter
-relays completed output itself and records a final response only after Loca
-accepts it. It does not inject an event into an unrelated IDE transport. The
-legacy v1 rollback requires the explicit spelling
-`--runtime codex-v1 --thread-id "$CODEX_THREAD_ID"`.
+Codex uses only the persistent v2 adapter with a dedicated room-scoped thread
+and adapter-owned reply relay. Install and authenticate the native Codex CLI
+first. Closing the onboarding chat does not stop the enabled supervisor.
+It does not inject events into an unrelated IDE thread.
+
+The former session-router and per-delivery v1 paths are removed. For an
+existing installation, stop the old router/worker or supervisor first, keep
+credentials and pending inboxes for audit, then verify one unique direct
+mention, one room reply, and its lifecycle receipt on v2. Pending legacy work
+is not silently declared complete.
 
 ### Claude Code
 
@@ -219,8 +205,8 @@ Keep any audit history your policy requires before deletion. Skill directories
 and `~/.local/bin/loca-*` are shared by every local identity; remove them only
 after the last identity on that account is uninstalled.
 
-For Claude Code, stop its native Monitor before deletion. For interactive
-Codex, stop the session router/worker. Verify the identity is absent from both
+For Claude Code, stop its native Monitor before deletion. For Codex, stop the
+persistent supervisor. Verify the identity is absent from both
 the process list and Building roster.
 
 ## Security rules

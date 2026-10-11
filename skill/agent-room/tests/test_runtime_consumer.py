@@ -27,6 +27,23 @@ def append(path, record):
 
 
 class RuntimeConsumerTests(unittest.TestCase):
+    def test_real_hook_sees_instruction_not_archived_role_in_stdin_or_environment(self):
+        record = {"delivery_id": "r:1", "event": {
+            "t": "turn", "memory": {"owner": None}, "messages": [
+                {"text": "keep task", "owner": "task-owner", "memory": {"owner": "old"}}]}}
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "hook.json"
+            code = ("import sys,json,os,pathlib; pathlib.Path(sys.argv[1]).write_text(json.dumps("
+                    "[json.load(sys.stdin),json.loads(os.environ['LOCA_DELIVERY']),"
+                    "json.loads(os.environ['LOCA_MSG'])]))")
+            CONSUMER.run_delivery(shlex.join([sys.executable, "-c", code, str(output)]), record, 1, 5)
+            stdin, envelope, event = json.loads(output.read_text())
+            self.assertEqual(stdin, envelope)
+            self.assertEqual(stdin["event"], event)
+            self.assertNotIn("memory", event)
+            self.assertEqual(event["messages"], [{"text": "keep task", "owner": "task-owner"}])
+            self.assertIn("memory", record["event"])
+
     def test_large_unicode_bundle_reaches_real_child_without_environment_overflow(self):
         record = {"delivery_id": "large:1", "room": "large", "event": {
             "t": "turn", "messages": [{"id": n, "text": "ş🦀" * 20000} for n in range(4)]}}
