@@ -25,10 +25,11 @@
   }
   .hidden { display: none !important; }
   .wikiview { position: relative; padding: 0 !important; background: var(--bg); }
-  .wikiheader { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 24px 30px 18px; border-bottom: 1px solid var(--line); }
+  .wikiheader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; padding: 24px 30px 18px; border-bottom: 1px solid var(--line); }
   .wikikicker { font-size: 9px; letter-spacing: .16em; color: var(--dim); }
   .wikiheader h2 { font-size: 22px; font-weight: 600; letter-spacing: -.04em; margin: 3px 0 0; }
   .wikiactions { display: flex; align-items: center; gap: 10px; }
+  .wikiheader .wikiactions { flex-wrap: wrap; justify-content: flex-end; }
   .wikiactions button, .wikisettingshead button { background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 7px; padding: 6px 10px; cursor: pointer; }
   .wikiactions button:hover { color: var(--accent); border-color: var(--accent); }
   .wikieditorcontrol { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--muted); }
@@ -40,6 +41,14 @@
   .wikiedit input, .wikiedit textarea { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--txt); font: 13px/1.6 var(--mono); }
   .wikiedit textarea { resize: vertical; }
   .wikiedit p, #wikiEditStatus { color: var(--muted); font-size: 11px; margin: 12px 0; }
+  .wikicompose { margin: 16px 30px; padding: 18px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
+  .wikicompose h3 { font-size: 14px; margin: 0 0 14px; font-weight: 500; }
+  .wikicompose label { display: block; color: var(--muted); font-size: 12px; }
+  .wikicompose select, .wikicompose textarea { box-sizing: border-box; display: block; width: 100%; margin: 7px 0; padding: 10px; background: var(--bg); color: var(--txt); border: 1px solid var(--line); border-radius: 6px; font: 12px/1.5 var(--mono); }
+  .wikicompose textarea { resize: vertical; }
+  .wikicompose p, #wikiShareStatus, #wikiUpdateStatus { font-size: 11px; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+  .wikicompose [role="status"] { margin-top: 10px; }
+  .wikiactions button:disabled { opacity: .45; cursor: default; }
   .wikilayout { display: grid; grid-template-columns: 190px minmax(0, 1fr); min-height: 360px; }
   .wikiindex { padding: 24px 12px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
   .wikiindex:empty { display: none; }
@@ -68,6 +77,7 @@
     .wikiheader { flex-wrap: wrap; padding: 18px; gap: 14px; }
     .wikiactions { margin-left: auto; flex-wrap: wrap; }
     .wikimeta { padding: 10px 18px; }
+    .wikicompose { margin: 14px 18px; }
     .wikilayout { grid-template-columns: 1fr; }
     .wikiindex { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 12px; }
     .wikiindex button { flex: 0 0 auto; }

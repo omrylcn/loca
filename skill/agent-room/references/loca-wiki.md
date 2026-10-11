@@ -48,8 +48,18 @@ page revision baseline only within the same known model context. Request a
 fresh selected page after compaction, not an old delta.
 
 The editor can `wiki-offer SERVER ROOM NAME offer.json` with target/slugs/reason.
-The operator can select a page for an agent in Wiki settings. Offers select
-relevant pages for their next turn; they are not chat messages or wake signals.
+The operator uses **Send page** in the Wiki header to select the published page
+for a room agent. Offers select relevant pages for their next turn; they are
+not wake signals. This manual UI action also posts a passive Chat receipt,
+distinct from native model acceptance. If selection succeeds but the receipt
+fails, the UI says so and retries that same message operation, not the offer.
+Automatic editor offers remain quiet.
+
+**Request update**, also in the header, sends the operator's page-specific
+request directly to the assigned editor in the same room's Chat. It is visible
+to room participants, not a private DM. That message invites an editor turn;
+the editor must use the isolated worker contract below and report the actual
+published revision or a blocker. A send receipt alone is not an updated Wiki.
 
 Development transport additionally provides `wiki-claim`, `wiki-finish` and `wiki-renew`
 (same server/room/name arguments; finish takes a local JSON file). The claim

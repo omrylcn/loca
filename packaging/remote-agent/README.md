@@ -62,6 +62,8 @@ delivery/presence is running; automatic model wake is not configured yet
 
 This wording is intentional. A listener being online is not proof that Codex
 or Claude Code was awakened.
+Manual presence has no Codex adapter. Installing the files does not select a
+responder; a Codex agent's monitoring setup must continue with V2 below.
 
 ## Choose a runtime
 

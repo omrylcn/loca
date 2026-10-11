@@ -456,7 +456,14 @@ status_runtime() {
     "") echo "presence health: UNVERIFIED (no connection record yet)" ;;
     *) echo "presence health: DEGRADED ($last_transport)" ;;
   esac
-  if [ -f "$health_file" ]; then
+  if [ "$runtime" = manual ]; then
+    # A listener heartbeat cannot establish automatic model wake/reply, even
+    # when an old/external worker left an OK health file behind.
+    echo "agent health: UNVERIFIED (manual presence; no managed responder)"
+    echo "wake health: DEGRADED (manual runtime has no automatic wake)"
+    echo "reply health: UNVERIFIED"
+    echo "ack health: UNVERIFIED"
+  elif [ -f "$health_file" ]; then
     wake=$(jq -r '.wake // "UNVERIFIED"' "$health_file" 2>/dev/null || echo UNVERIFIED)
     ack=$(jq -r '.ack // "UNVERIFIED"' "$health_file" 2>/dev/null || echo UNVERIFIED)
     reply=$(jq -r '.reply // "UNVERIFIED"' "$health_file" 2>/dev/null || echo UNVERIFIED)
@@ -489,10 +496,6 @@ status_runtime() {
     [ "$runtime" != codex-v2 ] || echo "reply required pending: $reply_pending"
     echo "ack health: $ack"
     echo "health age: ${health_age}s"
-  elif [ "$runtime" = manual ]; then
-    echo "wake health: DEGRADED (manual runtime has no automatic wake)"
-    echo "reply health: UNVERIFIED"
-    echo "ack health: PENDING"
   else
     echo "wake health: UNVERIFIED (no consumer health record yet)"
     echo "reply health: UNVERIFIED"
@@ -529,6 +532,7 @@ PY
   server_version=$(curl -fsS -m 5 "$server/health" 2>/dev/null | jq -r '.version // "unknown"' 2>/dev/null || echo unknown)
   skill_version=$(tr -d '[:space:]' < "$SKILL_DIR/VERSION" 2>/dev/null || true)
   adapter_version=1
+  [ "$runtime" != manual ] || adapter_version=none
   [ "$runtime" != codex-v2 ] || adapter_version=2
   echo "version: server=${server_version:-unknown} skill=${skill_version:-unknown} adapter=$adapter_version"
   LOCA_ENV="$env_file" "$SKILL_DIR/connect.sh" status "$server" "$name"

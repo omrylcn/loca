@@ -331,11 +331,27 @@
           </label>
           <span id="wikiEditorName" class="wikieditorname"></span>
           <button id="wikiEditPage" class="hidden" type="button">Edit page</button>
+          <button id="wikiSendPage" class="hidden" type="button" aria-expanded="false" aria-controls="wikiShare">Send page</button>
+          <button id="wikiRequestUpdate" class="hidden" type="button" aria-expanded="false" aria-controls="wikiUpdate">Request update</button>
           <button id="wikiRefresh" title="Refresh wiki" aria-label="Refresh wiki">↻</button>
           <button id="wikiSettingsToggle" class="hidden" aria-label="Wiki settings" aria-expanded="false" aria-controls="wikiConfig">⚙</button>
         </div>
       </header>
       <div id="wikiStatus" class="wikimeta" role="status"></div>
+      <form id="wikiShare" class="wikicompose hidden">
+        <h3>Send the published page</h3>
+        <label>To<select id="wikiShareTarget" required aria-label="Page recipient"></select></label>
+        <p>Selects this page for the agent's next turn. A receipt appears in Chat; it does not prove the model has read it.</p>
+        <div class="wikiactions"><button type="submit" id="wikiShareSend">Send page</button><button type="button" id="wikiShareClose">Close</button></div>
+        <div id="wikiShareStatus" role="status" aria-live="polite"></div>
+      </form>
+      <form id="wikiUpdate" class="wikicompose hidden">
+        <h3>Request an update from <span id="wikiUpdateEditor"></span></h3>
+        <label>What should be reviewed?<textarea id="wikiUpdateText" rows="3" maxlength="4000" required placeholder="What changed or needs correcting on this page?"></textarea></label>
+        <p>Sent to the assigned editor in this loca's Chat. Everyone in the loca can see it; this is not a private DM. The editor delegates drafting to its isolated Wiki worker.</p>
+        <div class="wikiactions"><button type="submit" id="wikiUpdateSend">Send to editor</button><button type="button" id="wikiUpdateClose">Close</button></div>
+        <div id="wikiUpdateStatus" role="status" aria-live="polite"></div>
+      </form>
       <form id="wikiPageEdit" class="wikiedit hidden">
         <label>Page title<input id="wikiPageTitle" maxlength="256" required></label>
         <label>Markdown<textarea id="wikiPageBody" rows="14"></textarea></label>
@@ -356,13 +372,6 @@
           <p class="wikisettingsnote">Uses the editor's isolated native worker. Also checks sources waiting 15 minutes. No new sources means no model call.</p>
           <button type="submit" id="wikiPolicySave">Save review settings</button>
           <div id="wikiPolicyStatus" role="status"></div>
-        </form>
-        <form id="wikiShare">
-          <h4>Share this page with an agent</h4>
-          <label>Agent<input id="wikiShareTarget" placeholder="Room agent name" required maxlength="128"></label>
-          <p class="wikisettingsnote">Selects this page for their next native turn. Does not start a chat turn. Subsequent updates carry changed sections only.</p>
-          <button type="submit" id="wikiShareSend">Select page for agent</button>
-          <div id="wikiShareStatus" role="status"></div>
         </form>
       </aside>
     </div>
