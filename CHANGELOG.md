@@ -14,6 +14,8 @@ All notable changes to Loca are documented here. The format follows
   retries, restart and shadow observation still cannot duplicate output.
 - Phase-null fallback retains its original attention coverage instead of
   marking a later steered message answered by an older response.
+- Listener integration tests stop their writer before removing its temporary
+  workspace, preventing a concurrent final-checkpoint cleanup race.
 
 ### Added
 - Read-only pending-reply audit for source installations, distinguishing
