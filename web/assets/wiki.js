@@ -5,6 +5,9 @@ let wikiFetchSequence = 0;
 let wikiSnapshot = null;
 let wikiPageSlug = "overview";
 let wikiEditDraft = null;
+let wikiActionBusy = false;
+let wikiShareOperation = null;
+let wikiUpdateOperation = null;
 
 function wikiEditIdentity() {
   return { server: serverBase(), session: state.session, name: state.name, principal: state.principalId };
@@ -34,11 +37,25 @@ function resetWikiForRoom() {
   $("wikiStatus").textContent = state.room ? "Loading wiki…" : "Select a loca.";
   $("wikiEditor").disabled = false;
   toggleWikiSettings(false);
+  toggleWikiCompose(null);
+  wikiShareOperation = null; wikiUpdateOperation = null;
+  $("wikiShareStatus").textContent = ""; $("wikiUpdateStatus").textContent = "";
+  $("wikiUpdateText").value = "";
   renderWikiEditor();
+}
+
+function toggleWikiCompose(panel) {
+  if (!isLocaOperator() || wikiSnapshot?.room !== state.room) panel = null;
+  for (const [form, control] of [["wikiShare", "wikiSendPage"], ["wikiUpdate", "wikiRequestUpdate"]]) {
+    $(form).classList.toggle("hidden", panel !== form);
+    $(control).setAttribute("aria-expanded", String(panel === form));
+  }
+  if (panel) { toggleWikiSettings(false); $(panel === "wikiShare" ? "wikiShareTarget" : "wikiUpdateText").focus(); }
 }
 
 function toggleWikiSettings(open = $("wikiConfig").classList.contains("hidden")) {
   open = open && isLocaOperator();
+  if (open) toggleWikiCompose(null);
   $("wikiConfig").classList.toggle("hidden", !open);
   $("wikiSettingsToggle").setAttribute("aria-expanded", String(open));
   if (open) $("wikiSettingsClose").focus();
@@ -49,12 +66,15 @@ function renderWikiEditor() {
   $("wikiEditorControl").classList.toggle("hidden", !allowed);
   $("wikiSettingsToggle").classList.toggle("hidden", !allowed);
   $("wikiEditPage").classList.toggle("hidden", !allowed || !wikiSnapshot);
+  $("wikiSendPage").classList.toggle("hidden", !allowed || !wikiSnapshot);
+  $("wikiRequestUpdate").classList.toggle("hidden", !allowed || !wikiSnapshot);
+  $("wikiRequestUpdate").disabled = !wikiSnapshot?.editor_name;
   if (!wikiEditIdentityMatches(wikiEditDraft)) wikiEditDraft = null;
   if (!allowed || !wikiEditDraft || wikiEditDraft.room !== state.room) {
     $("wikiPageEdit").classList.add("hidden");
     $("wikiPageTitle").value = ""; $("wikiPageBody").value = "";
   }
-  if (!allowed) toggleWikiSettings(false);
+  if (!allowed) { toggleWikiSettings(false); toggleWikiCompose(null); }
   const current = wikiSnapshot?.room === state.room ? wikiSnapshot.editor_name || "" : "";
   const members = [...(state.members || []), ...(state.seatedAway || [])];
   const names = [...new Set(members.filter(m => (m.type || m.kind) === "agent").map(m => m.name))].sort((a, b) => a.localeCompare(b));
@@ -64,6 +84,11 @@ function renderWikiEditor() {
   if (current) select.options[0].disabled = true;
   for (const name of names) select.add(new Option(name, name));
   select.value = current;
+  const recipient = $("wikiShareTarget"), previous = recipient.value;
+  recipient.replaceChildren(new Option("Choose a room agent", ""));
+  for (const name of names) recipient.add(new Option(name, name));
+  if (names.includes(previous)) recipient.value = previous;
+  $("wikiUpdateEditor").textContent = current || "the editor (not assigned)";
   $("wikiEditorName").textContent = allowed ? "" : current ? `Editor · ${current}` : "";
 }
 
@@ -93,7 +118,7 @@ function renderWikiPages() {
     const link = document.createElement("button"); link.type = "button"; link.textContent = page.title;
     link.className = page.slug === wikiPageSlug ? "active" : "";
     link.setAttribute("aria-current", page.slug === wikiPageSlug ? "page" : "false");
-    link.onclick = () => { stashWikiPageDraft(); $("wikiPageEdit").classList.add("hidden"); wikiPageSlug = page.slug; renderWikiPages(); }; $("wikiIndex").append(link);
+    link.onclick = () => { stashWikiPageDraft(); $("wikiPageEdit").classList.add("hidden"); toggleWikiCompose(null); wikiPageSlug = page.slug; renderWikiPages(); }; $("wikiIndex").append(link);
     if (page.slug !== wikiPageSlug || empty) continue;
     const section = document.createElement("article"); section.className = "wikidocument";
     const heading = document.createElement("h1"); heading.textContent = page.title;
@@ -113,6 +138,7 @@ function renderWikiPages() {
 
 function beginWikiPageEdit() {
   if (!isLocaOperator() || wikiSnapshot?.room !== state.room) return;
+  toggleWikiCompose(null);
   stashWikiPageDraft();
   if (wikiEditDraft && wikiEditIdentityMatches(wikiEditDraft) &&
       (wikiEditDraft.room !== state.room || wikiEditDraft.slug !== wikiPageSlug)) {
@@ -269,30 +295,105 @@ $("wikiPolicy").addEventListener("submit", async event => {
 
 $("wikiShare").addEventListener("submit", async event => {
   event.preventDefault();
-  if (!isLocaOperator() || wikiSnapshot?.room !== state.room) return;
-  const room = state.room, context = state.locaContext, identity = wikiEditIdentity(), slug = wikiPageSlug;
+  if (!isLocaOperator() || wikiSnapshot?.room !== state.room || wikiActionBusy) return;
+  const slug = wikiPageSlug, page = wikiSnapshot.pages.find(p => p.slug === slug);
   const target = $("wikiShareTarget").value.trim();
-  const current = () => room === state.room && context === state.locaContext &&
-    JSON.stringify(identity) === JSON.stringify(wikiEditIdentity());
+  if (!target || !page?.body.trim() || !page.revision) { $("wikiShareStatus").textContent = "Choose an agent and a published page first."; return; }
+  if (wikiEditDraft?.room === state.room && wikiEditDraft.slug === slug) {
+    $("wikiShareStatus").textContent = "Save or discard this page's draft before sending the published page."; return;
+  }
+  const signature = JSON.stringify([wikiEditIdentity(), state.room, state.locaContext, slug, target, page.revision]);
+  if (wikiShareOperation?.signature !== signature) wikiShareOperation = wikiNewOperation(signature, {
+    kind: "announce", target: null,
+    // A passive receipt must not contain mention tokens: even announcements
+    // containing an exact @name can wake that identity.
+    text: `Wiki page \`${slug}\` selected for ${target.replaceAll("@", "＠")}'s next turn. Model-context acceptance is not yet confirmed.`,
+  });
+  const operation = wikiShareOperation, current = () => wikiOperationCurrent(operation);
+  if (operation.done) { $("wikiShareStatus").textContent = `Already sent · Chat #${operation.messageId}.`; return; }
+  wikiActionBusy = true;
   $("wikiShareSend").disabled = true;
+  $("wikiShareTarget").disabled = true;
   try {
-    const response = await fetch(`${identity.server}/rooms/${encodeURIComponent(room)}/wiki/context/offer`, {
-      method:"POST", headers:{...adminHeaders(),"content-type":"application/json"},
-      body:JSON.stringify({target,slugs:[slug],reason:"operator selected this page"})
-    });
-    if (!current()) return;
-    if (!response.ok) throw new Error(`Page selection failed (${response.status}).`);
-    const receipt = await response.json();
-    if (!current()) return;
-    if (receipt.offered !== true) throw new Error("Selection receipt unavailable.");
-    $("wikiShareStatus").textContent = `Selected for @${target}. Model-context acceptance is not yet confirmed.`;
+    if (!operation.selected) {
+      const response = await fetch(`${operation.identity.server}/rooms/${encodeURIComponent(operation.room)}/wiki/context/offer`, {
+        method:"POST", headers:operation.headers, signal: AbortSignal.timeout(15000),
+        body:JSON.stringify({target,slugs:[slug],reason:"operator selected this page"})
+      });
+      if (!current()) return;
+      if (!response.ok) throw new Error(`Page selection failed (${response.status}); no Chat receipt sent.`);
+      const receipt = await response.json();
+      if (!current()) return;
+      if (receipt.offered !== true) throw new Error("Selection receipt unavailable; no Chat receipt sent.");
+      operation.selected = true;
+    }
+    await wikiPostOperation(operation);
+    if (current()) $("wikiShareStatus").textContent = `Page ${slug} selected for @${target} · Chat #${operation.messageId}. Model-context acceptance is not yet confirmed.`;
   } catch(error) { if(current()) $("wikiShareStatus").textContent=error.message; }
-  finally { $("wikiShareSend").disabled=false; }
+  finally { wikiActionBusy = false; $("wikiShareSend").disabled=false; $("wikiShareTarget").disabled=false; }
 });
+
+function wikiNewOperation(signature, payload) {
+  return { signature, room: state.room, context: state.locaContext, identity: wikiEditIdentity(),
+    headers: adminHeaders({"content-type":"application/json"}),
+    payload: { ...payload, sender: state.name, sender_type: "user",
+      op_id: globalThis.crypto?.randomUUID?.() || `wiki-${Date.now()}-${Math.random().toString(16).slice(2)}` } };
+}
+function wikiOperationCurrent(operation) {
+  return operation.room === state.room && operation.context === state.locaContext &&
+    JSON.stringify(operation.identity) === JSON.stringify(wikiEditIdentity()) && isLocaOperator();
+}
+async function wikiPostOperation(operation) {
+  let response;
+  try {
+    response = await fetch(`${operation.identity.server}/rooms/${encodeURIComponent(operation.room)}/messages`, {
+      method: "POST", headers: operation.headers, body: JSON.stringify(operation.payload), signal: AbortSignal.timeout(15000),
+    });
+  } catch (_) {
+    throw new Error(operation.selected ? "Page selected; Chat receipt is unconfirmed. Send again to check the same operation without duplicating it."
+      : "Editor message is unconfirmed. Send again to check the same operation without duplicating it.");
+  }
+  if (!wikiOperationCurrent(operation)) return;
+  if (!response.ok) throw new Error(operation.selected ? `Page selected, but Chat receipt failed (${response.status}). Send again to retry only the receipt.`
+    : `Could not send to editor (${response.status}). Your message is kept.`);
+  const message = await response.json().catch(() => null);
+  if (!wikiOperationCurrent(operation)) return;
+  if (!Number.isSafeInteger(message?.id) || message.id <= 0 || message.room !== operation.room ||
+      message.text !== operation.payload.text || (message.kind || "say") !== operation.payload.kind ||
+      (message.target || null) !== operation.payload.target) {
+    throw new Error("Chat receipt could not be verified. Send again to check the same operation.");
+  }
+  operation.done = true; operation.messageId = message.id;
+  onFrame({t:"msg", message}); // HTTP receipt appears now; later WS echo deduplicates by id.
+}
+$("wikiUpdate").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!isLocaOperator() || wikiSnapshot?.room !== state.room || wikiActionBusy) return;
+  const editor = wikiSnapshot.editor_name, text = $("wikiUpdateText").value.trim(), slug = wikiPageSlug;
+  if (!editor || !text) return;
+  const signature = JSON.stringify([wikiEditIdentity(), state.room, state.locaContext, editor, slug, text]);
+  if (wikiUpdateOperation?.signature !== signature) wikiUpdateOperation = wikiNewOperation(signature, {
+    kind:"say", target:editor,
+    text:`Wiki update request for page \`${slug}\`:\n${text}\n\nReview the relevant same-room sources using the isolated Wiki worker described in the Wiki skill contract; report the published revision or an explicit blocker.`,
+  });
+  const operation = wikiUpdateOperation, current = () => wikiOperationCurrent(operation);
+  if (operation.done) { $("wikiUpdateStatus").textContent = `Already sent · Chat #${operation.messageId}.`; return; }
+  wikiActionBusy = true; $("wikiUpdateSend").disabled = true; $("wikiUpdateText").readOnly = true;
+  try {
+    await wikiPostOperation(operation);
+    if (current()) $("wikiUpdateStatus").textContent = `Request sent to @${editor} · Chat #${operation.messageId}. Publication is not yet confirmed.`;
+  } catch(error) { if(current()) $("wikiUpdateStatus").textContent = error.message; }
+  finally { wikiActionBusy = false; $("wikiUpdateSend").disabled = false; $("wikiUpdateText").readOnly = false; }
+});
+$("wikiSendPage").addEventListener("click", () => toggleWikiCompose($("wikiShare").classList.contains("hidden") ? "wikiShare" : null));
+$("wikiRequestUpdate").addEventListener("click", () => toggleWikiCompose($("wikiUpdate").classList.contains("hidden") ? "wikiUpdate" : null));
+$("wikiShareClose").addEventListener("click", () => toggleWikiCompose(null));
+$("wikiUpdateClose").addEventListener("click", () => toggleWikiCompose(null));
 $("wikiPageCancel").addEventListener("click", cancelWikiPageEdit);
 $("wikiPageEdit").addEventListener("submit", event => { event.preventDefault(); saveWikiPageEdit(); });
 
 $("wikiPanel").addEventListener("keydown", event => {
+  if (event.key === "Escape") toggleWikiCompose(null);
   if (event.key === "Escape" && !$("wikiConfig").classList.contains("hidden")) {
     toggleWikiSettings(false); $("wikiSettingsToggle").focus();
   }

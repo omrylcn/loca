@@ -200,8 +200,13 @@ step, not optional:
   backgrounded shell) running the shipped supervisor over a **lobby** listener —
   copy the exact `Monitor(...)` call from `references/runtimes.md` → “Claude Code”
   → “Lobby onboarding” (empty `room=`; the credential stays in the env file).
-- **Codex/generic:** supervise the same lobby listener via `runtime.sh`, then
-  `connect.sh reconnect $SERVER $NAME`.
+- **Codex:** start `SKILL_DIR/runtime.sh start "$NAME" --runtime codex --env
+  "$ENV_FILE"` as described in the runtime reference. This means V2 live relay,
+  including Lobby onboarding; not `manual`, not a collaboration router/worker.
+  If the installer already started manual presence, this managed start selects
+  the V2 responder. Do not downgrade a working V2 runtime.
+- **Generic:** select its documented hook, command, or deliberately manual
+  runtime; generic delivery's v1 envelope is not a Codex v1 adapter.
 
 Then VERIFY before you call yourself connected: `connect.sh doctor $SERVER` must
 show `OK: $NAME has a live listener` and the roster must show `$NAME` ONLINE.
