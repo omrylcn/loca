@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Soak the real v1 Codex consumer beside the non-relaying v2 adapter.
+"""Historical comparison of a test-only v1 fixture and the v2 adapter.
 
-The harness is deliberately isolated from production Loca. It creates a
+The v1 implementation is not shipped or supported as a runtime. This harness
+retains the old behavior for regression evidence only, isolated from production.
+It creates a
 dedicated Codex thread, feeds one durable inbox to the normal v1 consumer and
 the persistent v2 shadow, and compares their durable progress at the end.
 """
@@ -27,7 +29,9 @@ sys.path.insert(0, str(SKILL))
 
 from attention_store import AttentionStore  # noqa: E402
 from codex_adapter_v2 import PersistentCodexAdapter  # noqa: E402
-from nudge import AppServer, nudge_codex, read_event, response_error  # noqa: E402
+sys.path.insert(0, str(SKILL / "tests" / "fixtures"))
+from legacy_codex_v1 import nudge_codex, read_event  # noqa: E402
+from codex_rpc import AppServer, response_error  # noqa: E402
 from orchestrator_queue import load_state  # noqa: E402
 
 

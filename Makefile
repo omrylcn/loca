@@ -20,7 +20,7 @@ SHELL_SCRIPTS := \
 
 .PHONY: help check rust-check python-check shell-check docs-check \
 	compose-check smoke package-check container-check browser-check benchmark-local \
-	runtime-v2-soak delivery-check
+	runtime-v2-soak delivery-check onboarding-check
 
 help:
 	@printf '%s\n' \
@@ -30,9 +30,12 @@ help:
 		'make delivery-check  Run real all/lead reminder delivery gates' \
 		'make benchmark-local Measure disposable local SQLite message paths' \
 		'make package-check   Build and verify the remote-agent ZIP' \
-		'make runtime-v2-soak Run the three-hour real v1+v2 shadow gate'
+		'make onboarding-check Test fresh ZIP onboarding against a real server' \
+		'make wiki-protocol-check Test Wiki queue/transport/deltas (fixture worker, not native model)' \
+		'make wiki-native-check WIKI_RUNTIME=codex|claude Opt-in real model Wiki worker/reader gate' \
+		'make runtime-v2-soak Historical test-fixture comparison (not a supported v1 runtime)'
 
-check: rust-check python-check shell-check docs-check compose-check smoke package-check
+check: rust-check python-check shell-check docs-check compose-check smoke package-check onboarding-check wiki-protocol-check
 
 rust-check:
 	cargo fmt --all -- --check
@@ -45,7 +48,7 @@ python-check:
 	$(PYTHON) -m unittest discover -s skill/agent-room/tests -p 'test_*.py'
 	$(PYTHON) -m unittest discover -s skill/loca-care/tests -p 'test_*.py'
 	$(PYTHON) -m py_compile scripts/conformance-runtime-v2.py \
-		scripts/soak-runtime-v2-shadow.py scripts/benchmark-local.py
+		scripts/soak-runtime-v2-shadow.py scripts/benchmark-local.py scripts/wiki-native-e2e.py scripts/wiki-runtime-e2e.py scripts/wiki-autonomy-e2e.py
 
 shell-check:
 	bash -n $(SHELL_SCRIPTS)
@@ -68,6 +71,40 @@ compose-check:
 
 smoke:
 	./scripts/smoke.sh
+
+onboarding-check:
+	cargo build -p server
+	$(PYTHON) scripts/onboarding-e2e.py
+
+.PHONY: wiki-protocol-check
+wiki-protocol-check:
+	cargo build -p server
+	$(PYTHON) scripts/wiki-protocol-e2e.py
+
+.PHONY: wiki-native-check
+# Explicit opt-in: ordinary make check must never spend model credits or require
+# a developer's native login. A missing runtime/login is failure, not a skip/GO.
+WIKI_RUNTIME ?= codex
+WIKI_NATIVE_ARGS ?=
+wiki-native-check:
+	cargo build -p server
+	$(PYTHON) scripts/wiki-native-e2e.py --runtime $(WIKI_RUNTIME) $(WIKI_NATIVE_ARGS)
+
+.PHONY: wiki-runtime-check
+# Shipped runner with a natural drafting prompt, not the component-test oracle.
+# Native --binary/--node flags differ from the reader component gate's flags.
+WIKI_RUNTIME_ARGS ?=
+wiki-runtime-check:
+	cargo build -p server
+	$(PYTHON) scripts/wiki-runtime-e2e.py --runtime $(WIKI_RUNTIME) $(WIKI_RUNTIME_ARGS)
+
+.PHONY: wiki-autonomy-check
+# Native model credits/login are required. A short run is only preflight;
+# --soak-seconds 10800 exercises periodic native replies and durable restart.
+WIKI_AUTONOMY_ARGS ?=
+wiki-autonomy-check:
+	cargo build -p server
+	$(PYTHON) scripts/wiki-autonomy-e2e.py --runtime $(WIKI_RUNTIME) $(WIKI_AUTONOMY_ARGS)
 
 package-check:
 	./scripts/build-remote-agent-kit.sh

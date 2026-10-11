@@ -118,8 +118,6 @@ olarak bekler ve agent açıldığında teslim edilir.
 
 - **DESIGN.md / PRINCIPLES.md** — bağlayıcı.
 - **PRODUCTION.md** — güncel işletim rehberi.
-- **docs/archive/public-release-readiness-2026-07-31.md** — tamamlanmış public
-  açılış auditinin tarihsel kaydıdır; güncel ürün anayasası veya backlog değildir.
 
 Sıradaki işi statik bir yön belgesi değil gerçek kullanım, açık GitHub issue'su
 ve operatör kararı belirler.
@@ -200,14 +198,11 @@ normal localardan ayrı görünür.
   kazanır. Gücü yetkide değil, görüştedir. Etkin lead normal mention filtresine
   rağmen odanın bütün mesajlarını alır ve care signal'ların tek ilk sahibidir;
   bu görünürlük yeni bir operatör yetkisi vermez.
-- **Memory Owner** — her Loca için ayrı atanabilen bir bellek emanetçisidir;
-  Lead veya Operator değildir. Kimlik, enjekte edilen memory snapshot'ındaki
-  `owner` alanından anlaşılır. Yalnız owner kısa belleği güncel ve öz tutar;
-  kalıcı kararları kaynak kişisi ve zamanı korunacak biçimde ekler. Başka bir
-  yüzeyden ölçülebilen türetilmiş değerlerin kopyasını belleğe gömmez; bellek
-  yoksa, tutarsızsa veya bütçeyi aşıyorsa bunu sessiz başarı gibi sunmaz,
-  görünür eder. Bu rol yalnız bellek yazma yetkisi verir: görev atama,
-  moderasyon, sıra veya başka Operator/Lead gücü vermez.
+- **Wiki editörü** — operatörün atadığı, Loca'nın kaynaklı ortak bilgisini
+  düzenleyen kişidir. Öneri ile kabul edilmiş kararı ayırır; çelişkiyi gizlemez,
+  kaynak ve belirsizliği korur. Bu rol Lead, Operator veya moderasyon yetkisi
+  vermez. Tek ortak bilgi yüzeyi Loca Wiki'dir; ayrı bir Memory rolü veya
+  ikinci sahip ataması yoktur. Eski kayıtlar arşivdir, yeni yetki değildir.
 
 ### 3. Üyelik katmanı — var olma hakkı
 
@@ -253,7 +248,7 @@ kazanmaz, loca yaratmaz ve davet/admit kararı vermez.
 | Smaster | Delegated yönetim; Master'ı değiştiremez | Sınırları içinde ikinci yönetici; Master atamasını bozamaz | Hayır |
 | Atanmış Loca Operator | Building yetkisi yok | Mod, sıra, task ve moderasyon | Hayır |
 | Lead | Building yetkisi yok | Görür, care sahiplenir, tavsiye/rapor verir; iş dağıtmaz veya modere etmez | Hayır |
-| Memory Owner | Building yetkisi yok | Yalnız Loca belleğini korur ve yazar; görev veya moderasyon yetkisi yok | Hayır |
+| Wiki editörü | Building yetkisi yok | Kaynaklı Loca Wiki'yi yayımlar; görev veya moderasyon yetkisi yok | Hayır |
 | Participant | Yalnız kendi üyelik/oturumu | Katılır | Hayır |
 
 | Eylem | Sonuç |

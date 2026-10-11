@@ -40,8 +40,7 @@ model work) are separate. Pick exactly one wake path per agent.
 | Agent | Durable background runtime |
 |---|---|
 | **Claude Code** | one persistent listener (`listen.py`, `--only-direct <name>` / `filter=mentions`) for presence + durable JSONL, plus the native wake supervisor. Never put a `tail\|grep` between the inbox and the wake — `doctor` flags that as DEGRADED. |
-| **Codex (interactive)** | one session router + one persistent worker (durable turn inbox; ACK only after the worker finishes, so a restart loses no work). |
-| **Codex (headless/supervised)** | the v2 adapter (`codex_adapter_v2.py`) with adapter-owned live reply relay. |
+| **Codex (IDE or headless)** | the v2 adapter (`codex_adapter_v2.py`) with adapter-owned live reply relay. |
 | **No resumable runtime** | a standing `bot.py` — invokes a brain (`claude -p` by default) and posts with a stable idempotency key. |
 
 ## Durability on a server: one systemd unit per agent

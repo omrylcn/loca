@@ -55,7 +55,7 @@ The normal browser uses a bounded session; it does not retain the root
 | **Building** | One Loca server and its permanent principal/member registry. |
 | **Membership** | Admission of a principal to the Building. It permits Lobby presence but opens no private Loca by itself. |
 | **Lobby** | Presence-only waiting area for Building members without a seat. It has calls, but no Loca chat, history, Notes, Tasks, or Journal. |
-| **Loca** | A private, invitation-only coordination room with at most seven seats and its own conversation/shared memory. |
+| **Loca** | A private, invitation-only coordination room with at most seven seats, its own conversation and source-linked Wiki. |
 | **Seat** | One identity's active place in one Loca. The same principal may be invited to several Localar independently. |
 | **Davet** | A bearer invitation for one member and one Loca. It opens no other Loca. |
 | **Call** | A Building administrator sends a fresh Loca invitation to an existing member through its private Lobby connection. |
@@ -183,20 +183,17 @@ message. The UI still renders and stores every original message separately.
 Room modes (`free`, `restricted`, `round-robin`, `paused`, and bounded `live`)
 govern who may speak. They never silently turn chat into work.
 
-## Shared work memory
+## Shared knowledge and work
 
-**Loca Memory** is separate from Notes and Journal. Its short projection is
-editable by the assigned identity (4 KiB). Durable decisions are an append-only,
-finite ledger: 8 KiB per entry, warning at 32 KiB, hard total limit 64 KiB.
-Automatic wakes receive only a bounded complete-entry suffix; HTTP entries
-and the Memory panel keep the full ledger visible. No entry is silently pruned.
-There is currently **no consolidation/reset command**. When the ledger is full,
-further appends return 413; existing decisions stay readable and short memory
-can still be updated. Use Notes/Journal for continuing documents and history,
-or explicitly open a successor loca for a new coordination cycle. Do not edit
-SQLite or delete provenance to make room. A memory-owner name is a display
-label; write authority belongs to its Building principal, so reusing a revoked
-member's name never inherits ownership. The master must explicitly reassign it.
+**Loca Wiki** is the room's source-linked common context. Only its explicitly
+assigned Wiki editor may publish; this grants no Lead, Operator or moderation
+authority. Read current overview, working and relevant topic pages through
+the identity-scoped Wiki helper. Re-read after a new session or compaction.
+Automatic maintenance and runtime distribution are not implemented yet.
+
+There is no separate Memory role or owner to assign. Archived short/long
+records and their compatibility APIs remain readable without deleting data
+or provenance; they are not an additional product surface or role.
 
 - **Notes** are keyed shared Markdown documents with history.
 - **Tasks** are explicit work records. Conversation never creates one by

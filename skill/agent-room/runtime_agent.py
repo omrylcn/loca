@@ -152,10 +152,15 @@ def main() -> int:
         default=ADAPTER_FAILURE_WINDOW_DEFAULT,
     )
     parser.add_argument("--preempt-direct-user", action="store_true")
+    parser.add_argument("--wiki-runtime", choices=("codex","claude"))
+    parser.add_argument("--wiki-rooms", help="explicit opt-in authorized Wiki room scope")
+    parser.add_argument("--wiki-journal", type=Path)
     parser.add_argument("listener", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.command and args.persistent_command:
         parser.error("--exec and --persistent-exec are mutually exclusive")
+    if args.wiki_runtime and (not args.wiki_rooms or args.wiki_journal is None):
+        parser.error("Wiki runtime requires explicit --wiki-rooms and --wiki-journal")
     try:
         load_local_env()
     except CredentialError as error:
@@ -175,6 +180,11 @@ def main() -> int:
     shadow_stderr: "deque[str]" = deque(maxlen=40)
     consumer_state = _AdapterState("persistent adapter", consumer_stderr)
     shadow_state = _AdapterState("shadow adapter", shadow_stderr)
+    wiki = None
+    if args.wiki_runtime:
+        from wiki_supervisor import WikiSupervisor
+        wiki = WikiSupervisor(args.wiki_runtime,args.wiki_rooms,args.wiki_journal)
+    wiki_status = None
 
     def stop_children(*_unused: object) -> None:
         nonlocal stopping
@@ -363,6 +373,11 @@ def main() -> int:
         report_error = ""
         while not stopping:
             now = time.monotonic()
+            if wiki is not None:
+                current_wiki_status = wiki.tick()
+                if current_wiki_status != wiki_status:
+                    wiki_status = current_wiki_status
+                    update_health(args.health_file,wiki=wiki_status)
             health_mtime_ns = -1
             if args.health_file is not None:
                 try:
@@ -477,6 +492,8 @@ def main() -> int:
             time.sleep(0.2)
     finally:
         stop_children()
+        if wiki is not None:
+            wiki.stop()
         for process in (shadow, consumer, listener):
             if process is None:
                 continue

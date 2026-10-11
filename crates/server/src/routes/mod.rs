@@ -13,7 +13,11 @@ mod membership;
 mod rooms;
 mod wiki;
 mod work;
-pub(crate) use wiki::{commit_wiki, configure_wiki, get_wiki};
+pub(crate) use wiki::{
+    claim_wiki_review, commit_wiki, configure_wiki, edit_wiki_page, finish_wiki_review, get_wiki,
+    get_wiki_page, renew_wiki_review, wiki_context, wiki_context_accept, wiki_context_offer,
+    wiki_context_request, wiki_context_requests, wiki_maintenance_status, wiki_native_ready,
+};
 
 #[cfg(test)]
 pub(crate) use access::mutation_actor;

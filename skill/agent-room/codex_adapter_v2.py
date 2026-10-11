@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from attention_store import AttentionStore, LeaseBusy, StaleLease, wall_time_ms
-from nudge import AppServer, response_error
+from codex_rpc import AppServer, response_error
+from wiki_state import agent_event
 
 
 LEASE_TTL_MS = 45_000
@@ -102,7 +103,8 @@ def save_health(path: Path | None, values: dict[str, Any]) -> None:
 def delivery_messages(attention: dict[str, Any]) -> list[dict[str, Any]]:
     event = json.loads(str(attention["event_json"]))
     messages = event.get("messages") if event.get("t") == "turn" else [event]
-    return [message for message in messages if isinstance(message, dict)]
+    return [public for message in messages if isinstance(message, dict)
+            for public in [agent_event(message)] if public is not None]
 
 
 def control_command(attention: dict[str, Any]) -> str:
@@ -129,6 +131,8 @@ def bounded_context_text(
 ) -> str:
     lines = []
     for message in context[-MAX_CONTEXT_MESSAGES:]:
+        if agent_event(message) is None:
+            continue
         sender = str(message.get("sender") or "unknown")
         text = str(message.get("text") or "").strip()
         if text:
@@ -155,44 +159,6 @@ def care_signal(attention: dict[str, Any]) -> dict[str, Any] | None:
         return None
     signal = event.get("signal")
     return signal if isinstance(signal, dict) else {}
-
-
-def memory_context(attention: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
-    """Return the bounded memory snapshot carried by this wake, if any."""
-    event = json.loads(str(attention["event_json"]))
-    if event.get("t") == "memory":
-        memory = {
-            key: value
-            for key, value in event.items()
-            if key not in ("t", "memory_trigger", "memory_freshness")
-        }
-    else:
-        memory = event.get("memory")
-    if not isinstance(memory, dict):
-        return None
-    trigger = str(event.get("memory_trigger") or "turn")
-    memory.setdefault(
-        "freshness", str(event.get("memory_freshness") or "current")
-    )
-    return trigger, memory
-
-
-def render_memory_snapshot(memory: dict[str, Any]) -> str:
-    """Render bounded bodies verbatim so JSON escaping cannot double them."""
-    metadata = {
-        key: value for key, value in memory.items() if key not in ("short", "long")
-    }
-    # `ensure_ascii=False` remains part of the metadata wire contract. The two
-    # bounded bodies deliberately stay outside JSON: newlines, quotes and
-    # backslashes must retain their one-byte representation in the prompt.
-    rendered_metadata = json.dumps(metadata, ensure_ascii=False, sort_keys=True)
-    short = str(memory.get("short") or "")
-    long = str(memory.get("long") or "")
-    return (
-        f"metadata: {rendered_metadata}\n"
-        f"short ({len(short.encode('utf-8'))} UTF-8 bytes; verbatim):\n{short}\n"
-        f"long ({len(long.encode('utf-8'))} UTF-8 bytes; verbatim):\n{long}"
-    )
 
 
 def care_context_lines(
@@ -318,15 +284,6 @@ def attention_prompt(
             "Bounded room context:\n"
             f"{bounded_context_text(attention, context)}"
         )
-    carried_memory = memory_context(attention)
-    if carried_memory is not None:
-        trigger, memory = carried_memory
-        body += (
-            "\n\nLoca memory snapshot "
-            f"(trigger={trigger}; bounded; omitted counters include the "
-            "uninjectable subset):\n"
-            + render_memory_snapshot(memory)
-        )
     return (
         f"Loca attention for {identity} in private room {attention['room']}.\n"
         "Runtime context: this is an automatically dispatched headless Loca "
@@ -334,6 +291,12 @@ def attention_prompt(
         "attention reached the model, not that its reply has already reached "
         "Loca. Do not repeat historical runtime failure claims as current "
         "facts without a fresh check.\n"
+        "Shared knowledge: Loca Wiki is the only room knowledge surface; only "
+        "its assigned Wiki editor publishes. Read it with the identity-scoped "
+        "wiki helper when needed. Archived short/long snapshots are not a "
+        "separate product role or a missing assignment. Do not ask for an "
+        "additional knowledge owner. Wiki context is supplied only when "
+        "available; an absent packet is not proof of a reviewed Wiki.\n"
         f"Attention id: {attention['attention_id']}\n"
         f"Priority: {attention['priority']}\n"
         f"{reply_rule}{recovery_rule}\n\n"
@@ -392,8 +355,10 @@ class ConnectShRelay:
 
 
 class ContextProvider:
-    def __init__(self, connect_sh: Path):
+    def __init__(self, connect_sh: Path, identity: str = ""):
         self.connect_sh = connect_sh
+        from wiki_reader import WikiReader
+        self.wiki_reader = WikiReader(connect_sh,identity or os.environ.get("LOCA_NAME", ""))
 
     def __call__(self, attention: dict[str, Any]) -> list[dict[str, Any]]:
         from_id = attention.get("context_from_id")
@@ -1051,6 +1016,10 @@ class PersistentCodexAdapter:
         attention = self.store.next_pending(self.identity)
         if attention is None:
             return False
+        if agent_event(json.loads(str(attention["event_json"]))) is None:
+            return self.store.retire_legacy_context(
+                str(attention["attention_id"]), self.identity, self.owner, self.epoch
+            )
         command = control_command(attention)
         if command == "stop":
             return self.handle_stop_control(attention)
@@ -1061,6 +1030,13 @@ class PersistentCodexAdapter:
         inputs = [{"type": "text", "text": attention_prompt(
             self.identity, attention, context
         )}]
+        wiki_reader = getattr(self.context_provider,"wiki_reader",None)
+        # A concurrent compacting turn can discard a delta's baseline during
+        # steer acceptance. Keep normal attention immediate, but apply Wiki
+        # changes at an idle turn boundary instead of guessing that baseline.
+        wiki_offer = wiki_reader.prepare(attention,thread_id) if wiki_reader is not None and thread_id not in self.active_turns else None
+        if wiki_offer is not None:
+            inputs.append({"type":"text","text":wiki_reader.text(wiki_offer)})
         client_message_id = f"loca:{attention['attention_id']}"
         active_turn = self.active_turns.get(thread_id)
         operation = "steer" if active_turn else "start"
@@ -1168,6 +1144,9 @@ class PersistentCodexAdapter:
             self.owner,
             self.epoch,
         )
+        if wiki_reader is not None:
+            wiki_reader.accepted(wiki_offer)
+            self.health["wiki_context"] = wiki_reader.status
         self.health.update(
             {
                 "wake": "OK",
@@ -1521,6 +1500,9 @@ class PersistentCodexAdapter:
         if method == "item/completed":
             item = params.get("item")
             if isinstance(item, dict):
+                if item.get("type") == "contextCompaction":
+                    reader = getattr(self.context_provider,"wiki_reader",None)
+                    if reader is not None: reader.reset(str(params.get("threadId") or ""))
                 self.handle_agent_item(
                     str(params.get("threadId") or ""),
                     str(params.get("turnId") or ""),
@@ -1671,7 +1653,7 @@ def main() -> int:
         codex_bin=args.codex_bin,
         relay_mode=args.relay_mode,
         relay=ConnectShRelay(args.connect_sh),
-        context_provider=ContextProvider(args.connect_sh),
+        context_provider=ContextProvider(args.connect_sh,args.identity),
         health_file=args.health_file,
         sandbox=args.sandbox,
         replay_existing=args.replay_existing,

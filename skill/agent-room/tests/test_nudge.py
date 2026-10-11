@@ -11,7 +11,7 @@ from unittest import mock
 
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
-NUDGE = SKILL_DIR / "nudge.py"
+NUDGE = SKILL_DIR / "tests" / "fixtures" / "legacy_codex_v1.py"
 SPEC = importlib.util.spec_from_file_location("loca_nudge", NUDGE)
 assert SPEC and SPEC.loader
 NUDGE_MODULE = importlib.util.module_from_spec(SPEC)
@@ -19,6 +19,18 @@ SPEC.loader.exec_module(NUDGE_MODULE)
 
 
 class NudgeTests(unittest.TestCase):
+    def test_legacy_frame_does_not_start_codex_and_attached_metadata_is_removed(self):
+        with mock.patch.dict(os.environ, {"LOCA_MSG": json.dumps({"t": "memory", "owner": None})}):
+            self.assertIsNone(NUDGE_MODULE.read_event())
+            with mock.patch("sys.argv", [str(NUDGE), "codex"]), \
+                    mock.patch.object(NUDGE_MODULE, "nudge_codex") as nudge:
+                self.assertEqual(NUDGE_MODULE.main(), 0)
+                nudge.assert_not_called()
+        with mock.patch.dict(os.environ, {"LOCA_MSG": json.dumps({
+                "id": 7, "text": "Memory is a word the user can say", "memory": {"owner": None}})}):
+            self.assertEqual(NUDGE_MODULE.read_event(), {
+                "id": 7, "text": "Memory is a word the user can say"})
+
     def test_turn_timeout_is_renewed_by_progress_events(self):
         client = NUDGE_MODULE.AppServer.__new__(NUDGE_MODULE.AppServer)
         client.pending = []

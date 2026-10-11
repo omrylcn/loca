@@ -14,12 +14,12 @@
 #   connect.sh note-get    <server> <room> <key>
 #   connect.sh note-create <server> <room> <name> <key> <title> <body>
 #   connect.sh note-update <server> <room> <name> <key> <body>    # body only
-#   connect.sh memory         <server> <room>
-#   connect.sh memory-short   <server> <room> <name> <text>
-#   connect.sh memory-append  <server> <room> <name> <text>
-#   connect.sh memory-entries <server> <room> [after_id] [limit]
 #   connect.sh wiki           <server> <room> <name>
 #   connect.sh wiki-review    <server> <room> <name> <json-file>
+#   connect.sh wiki-page      <server> <room> <name> <slug>
+#   connect.sh wiki-claim     <server> <room> <name>
+#   connect.sh wiki-finish    <server> <room> <name> <json-file>
+#   connect.sh wiki-renew     <server> <room> <name> <lease-json-file>
 #   connect.sh journal     <server> <room> [name] [text]           # read, or record finished work
 #   connect.sh goals       <server> <room>                         # current/history goals
 #   connect.sh waits       <server> <room>                         # explicit dependency waits
@@ -169,7 +169,7 @@ _load_credential_file() {
 # selection as their final credential boundary.
 _requested_identity=""
 case "${1:-}" in
-  listen|send|release|note-create|note-update|memory-short|memory-append|wiki|wiki-review|journal|announce|attention-claim|attention-resolve)
+  listen|send|release|note-create|note-update|memory-short|memory-append|wiki|wiki-review|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
   session|status|reconnect)
@@ -334,6 +334,34 @@ _renew_session() {
   return 0
 }
 
+# Wiki success is an HTTP acceptance plus valid JSON, not curl exit zero.
+# Retry only authentication renewal once; publication retry is caller-owned
+# with the identical fenced payload. Never echo a server's error body.
+_wiki_request() {
+  local response code body attempt
+  for attempt in 1 2; do
+    response=$(curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" \
+      -w $'\n%{http_code}' "$@") || {
+        echo "Wiki transport unavailable; acceptance unverified" >&2; return 1;
+      }
+    code=$(printf '%s' "$response" | tail -n1)
+    body=$(printf '%s' "$response" | sed '$d')
+    if [ "$code" = 401 ] && [ "$attempt" = 1 ]; then
+      _renew_session "$room" "$name" && continue
+    fi
+    case "$code" in
+      2??)
+        body=$(printf '%s' "$body" | jq -sce 'select(length == 1 and (.[0] | type == "object" or type == "null"))') || {
+          echo "Invalid Wiki receipt; acceptance unverified" >&2; return 1;
+        }
+        printf '%s' "$body" | jq -c '.[0]'
+        return 0
+        ;;
+      *) echo "Wiki request rejected (HTTP $code); no success receipt" >&2; return 1 ;;
+    esac
+  done
+}
+
 # Upload one file to $1=room's attachment store as $3=name; echo the returned
 # id (== sha256) on success. Retries once after a session renewal on 401. The
 # server sniffs+validates the type, so a bad file is rejected server-side.
@@ -487,11 +515,11 @@ case "$cmd" in
     curl_get "$server/rooms/$room/messages?since=$since"
     ;;
 
-  # ---- durable loca memory ----
+  # ---- Loca Wiki ----
   wiki)
     server="$1"; room="$2"; name="$3"
     use_loca "$room"
-    curl_get "$server/rooms/$room/wiki"
+    _wiki_request "$server/rooms/$room/wiki"
     ;;
 
   wiki-review)
@@ -500,7 +528,65 @@ case "$cmd" in
     # Review content is data, not a shell expression. A local file avoids a
     # large quoted payload on argv and leaves credentials in their boundary.
     payload=$(jq -ce 'select(type == "object" and (.pages | type == "array"))' "$review_file") || exit 2
-    curl_json -X POST "$server/rooms/$room/wiki/review" -d "$payload"
+    _wiki_request -X POST "$server/rooms/$room/wiki/review" -d "$payload"
+    ;;
+
+  wiki-page)
+    server="$1"; room="$2"; name="$3"; slug="$4"
+    use_loca "$room"
+    if [[ ! "$slug" =~ ^[a-z0-9-]{1,80}$ ]]; then
+      echo "Invalid Wiki page slug" >&2; exit 2
+    fi
+    snapshot=$(_wiki_request "$server/rooms/$room/wiki/pages/$slug") || exit $?
+    printf '%s' "$snapshot" | jq -ce --arg room "$room" --arg slug "$slug" '
+      select(.room == $room and .page.slug == $slug)' || {
+        echo "Wiki page unavailable; no context was supplied" >&2; exit 2;
+      }
+    ;;
+
+  wiki-claim)
+    server="$1"; room="$2"; name="$3"
+    use_loca "$room"
+    _wiki_request -X POST "$server/rooms/$room/wiki/maintenance/claim" -d '{}'
+    ;;
+
+  wiki-finish)
+    server="$1"; room="$2"; name="$3"; review_file="$4"
+    use_loca "$room"
+    payload=$(jq -ce 'select(type == "object" and (.lease | type == "object") and (.review.pages | type == "array"))' "$review_file") || exit 2
+    _wiki_request -X POST "$server/rooms/$room/wiki/maintenance/finish" -d "$payload"
+    ;;
+
+  wiki-renew)
+    server="$1"; room="$2"; name="$3"; lease_file="$4"
+    use_loca "$room"
+    payload=$(jq -ce 'select(type == "object" and (.batch_id | type == "number") and (.epoch | type == "number"))' "$lease_file") || exit 2
+    _wiki_request -X POST "$server/rooms/$room/wiki/maintenance/renew" -d "$payload"
+    ;;
+
+  wiki-context)
+    server="$1"; room="$2"; name="$3"
+    use_loca "$room"
+    _wiki_request "$server/rooms/$room/wiki/context"
+    ;;
+
+  wiki-requests)
+    server="$1"; room="$2"; name="$3"
+    use_loca "$room"
+    _wiki_request "$server/rooms/$room/wiki/context/requests"
+    ;;
+
+  wiki-ready|wiki-request|wiki-accept|wiki-offer)
+    server="$1"; room="$2"; name="$3"; json_file="$4"
+    use_loca "$room"
+    payload=$(jq -ce 'select(type == "object")' "$json_file") || exit 2
+    case "$cmd" in
+      wiki-ready) wiki_path=runtime ;;
+      wiki-request) wiki_path=context ;;
+      wiki-accept) wiki_path=context/accept ;;
+      wiki-offer) wiki_path=context/offer ;;
+    esac
+    _wiki_request -X POST "$server/rooms/$room/wiki/$wiki_path" -d "$payload"
     ;;
 
   memory)

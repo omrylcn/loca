@@ -1,7 +1,10 @@
 import os
+import json
+import shutil
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -10,10 +13,18 @@ SKILL_DIR = Path(__file__).resolve().parents[1]
 
 
 class RuntimeScriptTests(unittest.TestCase):
-    def _start_with_fake_systemd(self, requested_runtime, *, thread_id=None):
+    def _start_with_fake_systemd(self, requested_runtime, *, thread_id=None, options=()):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         home = Path(temp.name)
+        # Exercise launcher selection without probing a real Building or a
+        # caller's credentials. status is covered by credential/API tests.
+        isolated_skill = home / "skill"
+        isolated_skill.mkdir()
+        shutil.copyfile(SKILL_DIR / "runtime.sh", isolated_skill / "runtime.sh")
+        connect = isolated_skill / "connect.sh"
+        connect.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        connect.chmod(0o700)
         identity = home / ".loca/worker.env"
         identity.parent.mkdir(parents=True)
         identity.write_text(
@@ -44,16 +55,17 @@ esac
             env.pop("CODEX_THREAD_ID", None)
         else:
             env["CODEX_THREAD_ID"] = thread_id
-        subprocess.run(
+        result = subprocess.run(
             [
                 "bash",
-                str(SKILL_DIR / "runtime.sh"),
+                str(isolated_skill / "runtime.sh"),
                 "start",
                 "worker",
                 "--runtime",
                 requested_runtime,
                 "--env",
                 str(identity),
+                *options,
             ],
             text=True,
             capture_output=True,
@@ -61,6 +73,8 @@ esac
             timeout=5,
             check=False,
         )
+        self.last_start_result = result
+        self.last_start_env = env
         return home
 
     def test_auto_codex_uses_v2_live_reply_relay(self):
@@ -81,72 +95,53 @@ esac
         self.assertEqual((run / "worker.runtime").read_text().strip(), "codex-v2")
         self.assertEqual((run / "worker.relay-mode").read_text().strip(), "live")
 
-    def test_legacy_codex_v1_requires_an_explicit_thread(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = dict(os.environ)
-            env["HOME"] = tmp
-            env.pop("CODEX_THREAD_ID", None)
-            result = subprocess.run(
-                [
-                    "bash",
-                    str(SKILL_DIR / "runtime.sh"),
-                    "start",
-                    "worker",
-                    "--runtime",
-                    "codex-v1",
-                ],
-                text=True,
-                capture_output=True,
-                env=env,
-                timeout=5,
-                check=False,
-            )
+    def test_removed_v1_rejected_even_with_interactive_thread(self):
+        home = self._start_with_fake_systemd("codex-v1", thread_id="ide-thread")
+        self.assertEqual(self.last_start_result.returncode, 2)
+        self.assertIn("Codex v1 was removed", self.last_start_result.stderr)
+        self.assertFalse((home / ".loca/run/worker-service.sh").exists())
 
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("legacy Codex v1 thread id missing", result.stderr)
+    def test_interactive_thread_rebind_is_rejected(self):
+        home = self._start_with_fake_systemd("codex", options=("--thread-id", "ide-thread"))
+        self.assertEqual(self.last_start_result.returncode, 2)
+        self.assertIn("thread binding was removed", self.last_start_result.stderr)
+        self.assertFalse((home / ".loca/run/worker-service.sh").exists())
 
-    def test_codex_v2_shadow_requires_the_existing_v1_thread(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            env = dict(os.environ)
-            env["HOME"] = tmp
-            env.pop("CODEX_THREAD_ID", None)
-            result = subprocess.run(
-                [
-                    "bash",
-                    str(SKILL_DIR / "runtime.sh"),
-                    "start",
-                    "worker",
-                    "--runtime",
-                    "codex-v2",
-                    "--relay-mode",
-                    "shadow",
-                ],
-                text=True,
-                capture_output=True,
-                env=env,
-                timeout=5,
-                check=False,
-            )
+    def test_shadow_observer_starts_only_v2_without_a_v1_responder(self):
+        home = self._start_with_fake_systemd("codex-v2", options=("--relay-mode", "shadow"))
+        self.assertEqual(self.last_start_result.returncode, 0, self.last_start_result.stderr)
+        run = home / ".loca/run"
+        self.assertEqual((run / "worker.runtime").read_text().strip(), "codex-v2")
+        self.assertEqual((run / "worker.relay-mode").read_text().strip(), "shadow")
+        launcher = (run / "worker-service.sh").read_text()
+        import shlex
+        argv = shlex.split(next(line for line in launcher.splitlines() if line.startswith("exec ")))
+        self.assertIn("--persistent-exec", argv)
+        self.assertIn("--persistent-ready-file", argv)
+        self.assertNotIn("--exec", argv)
+        self.assertNotIn("--shadow-persistent-exec", argv)
+        self.assertNotIn("nudge.py", launcher)
+        self.assertNotIn("--wiki-runtime", argv)
+        command = argv[argv.index("--persistent-exec") + 1]
+        self.assertIn("codex_adapter_v2.py", command)
+        self.assertIn("--relay-mode shadow", command)
+        self.assertFalse((run / "worker.codex-thread").exists())
 
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("requires --thread-id", result.stderr)
-
-    def test_codex_v2_shadow_launcher_keeps_v1_and_v2_queues_separate(self):
-        script = (SKILL_DIR / "runtime.sh").read_text(encoding="utf-8")
-
-        self.assertIn('inbox_file="$inbox_dir/$safe.v2-shadow.jsonl"', script)
-        self.assertIn(
-            'worker_cursor_file="$worker_cursor_dir/$safe.v2-shadow.json"',
-            script,
+    def test_shadow_status_cannot_claim_healthy_live_monitoring(self):
+        home = self._start_with_fake_systemd("codex-v2", options=("--relay-mode", "shadow"))
+        (home / ".loca/run/worker.health.json").write_text(json.dumps({
+            "updated_at_ms": int(time.time() * 1000),
+            "wake": "OK", "reply": "OK", "ack": "OK",
+            "reply_required_pending": 0,
+        }))
+        result = subprocess.run(
+            ["bash", str(home / "skill/runtime.sh"), "status", "worker"],
+            env=self.last_start_env, text=True, capture_output=True, timeout=10,
         )
-        self.assertIn('"--exec" "$hook"', script)
-        self.assertIn('"--shadow-persistent-exec" "$shadow_hook"', script)
-        self.assertIn('"--shadow-ready-file" "$shadow_health_file"', script)
-        self.assertIn('hook="$(printf \'%q \' python3 "$SKILL_DIR/nudge.py" codex', script)
-        self.assertIn(
-            'v2_hook="exec $(printf \'%q \' python3 "$SKILL_DIR/codex_adapter_v2.py"',
-            script,
-        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("agent health: DEGRADED (no supported live Codex responder)", result.stdout)
+        self.assertNotIn("agent health: OK", result.stdout)
+        self.assertIn("shadow observer; no room responder", result.stdout)
 
     def test_manual_start_does_not_replace_running_codex_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:

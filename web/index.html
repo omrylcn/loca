@@ -9,8 +9,8 @@
 </head>
 <body>
   <aside class="side" id="sidebar" aria-label="Loca navigation">
-    <h1><a class="brandlink" href="/docs/getting-started.md" target="_blank" rel="noopener"
-        title="Open the embedded Getting Started guide"><span class="mark"></span>loca</a>
+    <h1><a class="brandlink" href="https://github.com/omrylcn/loca" target="_blank" rel="noopener noreferrer"
+        title="Open the Loca GitHub repository" aria-label="Loca — GitHub repository"><span class="mark"></span>loca</a>
       <button class="hidden" id="tabPeople" title="all building members and global status">BUILDING</button>
       <button id="connGear" title="connection settings">⚙</button>
       <button id="helpBtn" title="Getting Started guide" aria-label="Open the Getting Started guide">?</button>
@@ -330,11 +330,19 @@
             <select id="wikiEditor" class="leadselect" aria-label="Wiki editor"><option value="">Not assigned</option></select>
           </label>
           <span id="wikiEditorName" class="wikieditorname"></span>
+          <button id="wikiEditPage" class="hidden" type="button">Edit page</button>
           <button id="wikiRefresh" title="Refresh wiki" aria-label="Refresh wiki">↻</button>
           <button id="wikiSettingsToggle" class="hidden" aria-label="Wiki settings" aria-expanded="false" aria-controls="wikiConfig">⚙</button>
         </div>
       </header>
       <div id="wikiStatus" class="wikimeta" role="status"></div>
+      <form id="wikiPageEdit" class="wikiedit hidden">
+        <label>Page title<input id="wikiPageTitle" maxlength="256" required></label>
+        <label>Markdown<textarea id="wikiPageBody" rows="14"></textarea></label>
+        <p>Saved as a human edit, not a review of new messages. Earlier citations remain in the revision history.</p>
+        <div class="wikiactions"><button id="wikiPageSave" type="submit">Save page</button><button id="wikiPageCancel" type="button">Discard draft</button></div>
+        <div id="wikiEditStatus" role="status" aria-live="polite"></div>
+      </form>
       <div class="wikilayout">
         <nav id="wikiIndex" class="wikiindex" aria-label="Wiki pages"></nav>
         <main id="wikiPages" class="wikipages"></main>
@@ -342,8 +350,20 @@
       <aside id="wikiConfig" class="wikisettings hidden" aria-label="Wiki settings">
         <div class="wikisettingshead"><h3>Wiki settings</h3><button id="wikiSettingsClose" aria-label="Close wiki settings">×</button></div>
         <p>The assigned editor maintains this loca's shared pages. Select an agent using the control at the top right.</p>
-        <div class="wikimaintenance"><span>Automatic review</span><b>Not available yet</b></div>
-        <p class="wikisettingsnote">Assignment saves the editor only. Scheduled review and agent distribution are not enabled.</p>
+        <form id="wikiPolicy">
+          <label><input type="checkbox" id="wikiAutoEnabled"> Keep Wiki up to date automatically</label>
+          <label>Review after new messages<input id="wikiInterval" type="number" min="1" max="1000" value="30"></label>
+          <p class="wikisettingsnote">Uses the editor's isolated native worker. Also checks sources waiting 15 minutes. No new sources means no model call.</p>
+          <button type="submit" id="wikiPolicySave">Save review settings</button>
+          <div id="wikiPolicyStatus" role="status"></div>
+        </form>
+        <form id="wikiShare">
+          <h4>Share this page with an agent</h4>
+          <label>Agent<input id="wikiShareTarget" placeholder="Room agent name" required maxlength="128"></label>
+          <p class="wikisettingsnote">Selects this page for their next native turn. Does not start a chat turn. Subsequent updates carry changed sections only.</p>
+          <button type="submit" id="wikiShareSend">Select page for agent</button>
+          <div id="wikiShareStatus" role="status"></div>
+        </form>
       </aside>
     </div>
     <div class="notes hidden" id="memoryPanel">

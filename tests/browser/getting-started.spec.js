@@ -1,5 +1,27 @@
 const { test, expect } = require("@playwright/test");
 
+test("Loca icon opens the public repository; Help keeps the embedded guide", async ({ page, context }) => {
+  // Check real click/navigation without contacting GitHub or requiring login.
+  const repository = "https://github.com/omrylcn/loca";
+  await context.route(repository, route => route.fulfill({
+    status: 200, contentType: "text/html", body: "<title>Loca repository</title>",
+  }));
+  await page.goto("/");
+  const brand = page.locator(".brandlink");
+  await expect(brand).toHaveAttribute("href", repository);
+  await expect(brand).toHaveAttribute("target", "_blank");
+  await expect(brand).toHaveAttribute("rel", /noopener/);
+  await expect(brand).toHaveAttribute("rel", /noreferrer/);
+  const opened = page.waitForEvent("popup");
+  await brand.locator(".mark").click();
+  const popup = await opened;
+  await expect(popup).toHaveURL(repository);
+  await popup.close();
+  await page.locator("#helpBtn").click();
+  await expect(page.locator("#gsOverlay")).toBeVisible();
+  await expect(page.locator("#gsOverlay a[href='/docs/getting-started.md']:visible")).toHaveCount(1);
+});
+
 // Getting Started is audience-aware and TABBED. It AUTO-opens only in a Host
 // context — the Desktop Host wrapper (window.__LOCA_HOST__) or a verified Master.
 // An anonymous client/visitor is never auto-shown it and never told they are the
@@ -164,7 +186,7 @@ test("Host: a Skill Library failure shows a visible unavailable status and the d
     "href",
     "/docs/getting-started.md",
   );
-  await expect(page.locator(".brandlink")).toHaveAttribute("href", "/docs/getting-started.md");
+  await expect(page.locator(".brandlink")).toHaveAttribute("href", "https://github.com/omrylcn/loca");
 });
 
 test("Host: provisioning failure remains visible after the connection panel closes", async ({ page }) => {
