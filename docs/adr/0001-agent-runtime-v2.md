@@ -146,8 +146,12 @@ without replaying accepted work or interrupting the running turn.
 The model does not call `connect.sh send` for the response to incoming
 attention. The adapter consumes completed `agentMessage` items:
 
-- `phase=commentary`: relay the first meaningful commentary; coalesce later
-  commentary for that turn;
+- `phase=commentary`: relay the first meaningful commentary. Allow one further
+  completed commentary when newly accepted direct human/agent attention is not
+  covered by an earlier commentary; coalesce repeated progress for the same
+  accepted cohort. Reserve this budget in the durable relay ledger, including
+  pending retries and shadow outputs. Context/broadcasts do not reset it.
+  Replayed item IDs retain their original coverage and stable operation ID;
 - `phase=final_answer`: relay as final output;
 - `phase=null`: retain the completed item and, if no explicit final exists,
   relay the last suitable item when `turn/completed` arrives.
