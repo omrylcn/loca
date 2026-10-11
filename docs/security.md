@@ -95,6 +95,15 @@ Revoking a membership invalidates its loca invitations and sessions. Releasing
 a seat is not revocation: it intentionally keeps the Building identity in the
 Lobby.
 
+Changing `ADMIN_TOKEN` and restarting revokes previous root recovery keys and
+sessions minted from those keys. Independently issued Master device keys are
+not rotated by this operation; revoke them separately if compromised. Selecting
+an old recovery key again does not restore its previously revoked sessions.
+Restart preserves a session's bound principal and role. Legacy admin sessions
+without a credential binding are rejected on upgrade and require re-pairing;
+they are never assumed to belong to the Master. Sealed locas are permanent:
+issuing a davet or updating settings cannot reopen them.
+
 ## Backup and upgrade safety
 
 Use a complete, offline [database and blob snapshot](backup-restore.md), and

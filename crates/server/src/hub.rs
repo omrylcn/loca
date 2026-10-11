@@ -330,6 +330,8 @@ pub enum InviteError {
     Storage,
     /// This is the building's private governance/caretaker loca.
     Reserved,
+    /// Sealed rooms retain their records and cannot be reopened by a davet.
+    Sealed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -509,7 +511,10 @@ impl Hub {
         }
 
         // Restore persisted state.
-        let mut max_id = 0u64;
+        let mut max_id = hub
+            .store
+            .max_message_id()
+            .expect("persistent message high-water mark is unreadable; refusing to start");
         let mut max_generation = 0u64;
         {
             let mut rooms = hub.rooms.lock_or_recover();
@@ -667,29 +672,28 @@ impl Hub {
         }
         {
             let mut sessions = hub.sessions.lock_or_recover();
-            for (token, name, kind, expires_at) in hub.store.load_admin_sessions(hub.now()) {
-                let principal = hub.store.active_master_principal();
-                if !hub.store.principal_session_exists(&token) {
-                    if let (Some(principal), Some(credential)) = (
-                        principal.as_ref(),
-                        hub.store.credential_id_for_secret(&hub.admin_token),
-                    ) {
-                        let _ = hub.store.save_principal_session(
-                            &token,
-                            &principal.id,
-                            &credential,
-                            hub.now(),
-                            expires_at,
-                        );
-                    }
+            for (token, _name, _kind, expires_at) in hub.store.load_admin_sessions(hub.now()) {
+                let Some(principal) = hub.store.principal_for_session(&token, hub.now()) else {
+                    // Unbound legacy sessions cannot prove their original role.
+                    // Fail closed rather than promoting them to the current Master.
+                    hub.store
+                        .delete_admin_session(&token)
+                        .expect("invalid persisted session cleanup failed; refusing to start");
+                    continue;
+                };
+                if !matches!(principal.role, BuildingRole::Master | BuildingRole::Smaster) {
+                    hub.store
+                        .delete_admin_session(&token)
+                        .expect("non-admin persisted session cleanup failed; refusing to start");
+                    continue;
                 }
                 sessions.insert(
                     token,
                     SessionIdentity {
-                        principal_id: principal.as_ref().map(|identity| identity.id.clone()),
-                        building_role: BuildingRole::Master,
-                        name,
-                        kind,
+                        principal_id: Some(principal.id),
+                        building_role: principal.role,
+                        name: principal.display_name,
+                        kind: principal.kind,
                         loca: None,
                         member: None,
                         admin: true,
@@ -1479,6 +1483,9 @@ impl Hub {
         room: &str,
         issued_by: &str,
     ) -> Result<Invite, InviteError> {
+        if self.is_deleted(room) {
+            return Err(InviteError::Sealed);
+        }
         let Some(member) = self.member_of(Some(member_token)) else {
             return Err(InviteError::MemberNotFound);
         };
@@ -1576,11 +1583,12 @@ impl Hub {
 
     /// Record a davet. The master issues; we only persist and index it.
     pub fn add_invite(&self, inv: Invite) -> rusqlite::Result<()> {
-        // Issuing a davet for a loca is a deliberate act of opening it, so it
-        // clears any tombstone — a master inviting someone into a room they
-        // once deleted means they want it back.
+        if self.is_deleted(&inv.room) {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "room is permanently sealed".into(),
+            ));
+        }
         self.store.insert_invite(&inv)?;
-        self.revive(&inv.room);
         self.invites
             .lock_or_recover()
             .insert(inv.token.clone(), inv);
@@ -2336,8 +2344,8 @@ impl Hub {
         // A sealed (deleted) loca does not come back on a post. Without this,
         // `room_mut` (get-or-create) would resurrect a tombstoned room the
         // moment anyone with a stale davet posted to it — the room the master
-        // shut would silently reopen. The master reopens it deliberately (which
-        // clears the tombstone), never a stray REST call.
+        // shut would silently reopen. A permanent seal cannot be cleared by
+        // inviting or posting; create a different loca for new work.
         if self.is_deleted(room) {
             return Err(PostReject::Deleted);
         }
@@ -2985,7 +2993,9 @@ impl Hub {
     ) -> rusqlite::Result<RoomSettings> {
         // A sealed loca does not come back on a settings change.
         if self.is_deleted(room) {
-            return Ok(self.settings(room));
+            return Err(rusqlite::Error::InvalidParameterName(
+                "room is permanently sealed".into(),
+            ));
         }
         let mut rooms = self.rooms.lock_or_recover();
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
@@ -3252,12 +3262,6 @@ impl Hub {
     /// so every write path asks the same question instead of each guessing.
     pub fn is_writable(&self, room: &str) -> bool {
         !self.is_deleted(room) && !self.is_archived(room)
-    }
-
-    /// The master opening a loca again clears its tombstone, so the next join
-    /// creates it fresh.
-    pub fn revive(&self, room: &str) {
-        self.deleted.lock_or_recover().remove(room);
     }
 
     /// Turn live mode off in any room that has been silent past its timeout.

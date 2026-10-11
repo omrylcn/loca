@@ -821,6 +821,9 @@ async fn admin_console_invite(
         Err(hub::InviteError::Storage) => {
             (StatusCode::SERVICE_UNAVAILABLE, "could not save davet").into_response()
         }
+        Err(hub::InviteError::Sealed) => {
+            (StatusCode::CONFLICT, "this loca is permanently sealed").into_response()
+        }
     }
 }
 

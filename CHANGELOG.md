@@ -6,6 +6,25 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.4] - 2026-10-12
+
+### Fixed
+- Restart restores each admin session's bound principal and role instead of
+  elevating Smaster sessions to Master. Unbound legacy sessions require re-pairing.
+- Root recovery key rotation revokes previous recovery credentials and their
+  sessions while preserving independent Master device keys.
+- Permanently sealed locas cannot be reopened by invitations or settings writes;
+  message transactions preserve the seal and reject late writes.
+- Message identifiers resume above the entire archive, including sealed locas,
+  preventing restart collisions and rejected new messages.
+- Failed or unverifiable sends never complete a Codex reply. Relay retries keep
+  the same operation id and remain pending until the server returns the correct
+  accepted message identity.
+
+### Clarified
+- README and installation instructions identify the published/release-candidate
+  status explicitly instead of referencing an obsolete beta version.
+
 ## [0.12.3] - 2026-10-11
 
 ### Fixed

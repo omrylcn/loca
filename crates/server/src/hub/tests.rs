@@ -14,6 +14,159 @@ use crate::store::{BuildingRole, Store};
 static TEST_NOW: AtomicU64 = AtomicU64::new(0);
 static TEST_CLOCK_LOCK: Mutex<()> = Mutex::new(());
 
+fn critical_restart_hub(store: Arc<Store>, root: &str) -> Hub {
+    Hub::build(
+        HubConfig {
+            admin_token: root.into(),
+            room_token: String::new(),
+            require_sessions: true,
+            require_invite: true,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        store,
+        RoomSettings::default(),
+        1,
+    )
+}
+
+fn critical_admin_session(hub: &Hub, key: &str) -> String {
+    hub.create_session_scoped(
+        protocol::CreateSession {
+            name: "untrusted-body-name".into(),
+            kind: Some(SenderType::User),
+            runtime: None,
+            capabilities: vec![],
+        },
+        None,
+        hub.admin_session_grant(Some(key), Hub::ADMIN_SESSION_TTL_MS),
+    )
+    .unwrap()
+    .session_token
+}
+
+#[test]
+fn critical_restart_preserves_smaster_and_refuses_unbound_legacy_session() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("restart.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "deputy", 1).unwrap();
+    let hub = critical_restart_hub(store.clone(), "root");
+    let smaster = critical_admin_session(&hub, "sm_deputy");
+    let master = critical_admin_session(&hub, "root");
+    store
+        .save_admin_session("st_unbound", "legacy", SenderType::User, hub.now() + 60_000)
+        .unwrap();
+    drop(hub);
+    let hub = critical_restart_hub(store.clone(), "root");
+    assert_eq!(
+        hub.resolve_authority(None, Some(&smaster)).building_role,
+        Some(BuildingRole::Smaster)
+    );
+    assert!(!hub.resolve_authority(None, Some(&smaster)).is_master());
+    assert!(hub.resolve_authority(None, Some(&master)).is_master());
+    assert!(!hub
+        .resolve_authority(None, Some("st_unbound"))
+        .is_building_admin());
+    hub.revoke_smaster("sm_deputy").unwrap();
+    drop(hub);
+    let hub = critical_restart_hub(store, "root");
+    assert!(!hub
+        .resolve_authority(None, Some(&smaster))
+        .is_building_admin());
+}
+
+#[test]
+fn critical_root_rotation_revokes_old_root_and_derived_session() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("rotation.db").to_str().unwrap())).unwrap());
+    let hub = critical_restart_hub(store.clone(), "root-one");
+    let session = critical_admin_session(&hub, "root-one");
+    let principal = store.active_master_principal().unwrap();
+    store
+        .create_credential(&principal.id, "independent device", "ak_device", hub.now())
+        .unwrap();
+    let device_session = critical_admin_session(&hub, "ak_device");
+    drop(hub);
+    let hub = critical_restart_hub(store.clone(), "root-two");
+    assert!(!hub
+        .resolve_authority(Some("root-one"), None)
+        .is_building_admin());
+    assert!(!hub
+        .resolve_authority(None, Some(&session))
+        .is_building_admin());
+    assert!(hub.resolve_authority(Some("root-two"), None).is_master());
+    assert!(hub.resolve_authority(Some("ak_device"), None).is_master());
+    assert!(hub
+        .resolve_authority(None, Some(&device_session))
+        .is_master());
+    let current = critical_admin_session(&hub, "root-two");
+    drop(hub);
+    let hub = critical_restart_hub(store.clone(), "root-two");
+    assert!(hub.resolve_authority(None, Some(&current)).is_master());
+    drop(hub);
+    let hub = critical_restart_hub(store, "root-one");
+    assert!(hub.resolve_authority(Some("root-one"), None).is_master());
+    assert!(!hub
+        .resolve_authority(None, Some(&session))
+        .is_building_admin());
+}
+
+#[test]
+fn critical_sealed_room_cannot_be_revived_by_invitation() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("sealed.db").to_str().unwrap())).unwrap());
+    store.seal_room("sealed", 1).unwrap();
+    store
+        .add_member(&protocol::Membership {
+            token: "mb_agent".into(),
+            name: "agent".into(),
+            kind: "agent".into(),
+            joined_at: 1,
+            admitted_by: "master".into(),
+        })
+        .unwrap();
+    let hub = critical_restart_hub(store, "root");
+    assert!(hub
+        .invite_member_to_room("mb_agent", "sealed", "master")
+        .is_err());
+    assert!(hub.is_deleted("sealed"));
+    assert!(hub.invites_of("sealed").is_empty());
+}
+
+#[test]
+fn critical_message_counter_includes_sealed_history() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(Some(temp.path().join("ids.db").to_str().unwrap())).unwrap());
+    store
+        .insert_message(
+            &protocol::Message {
+                id: 100,
+                room: "sealed".into(),
+                sender: "operator".into(),
+                sender_type: SenderType::User,
+                target: None,
+                text: "retained history".into(),
+                kind: protocol::MessageKind::Say,
+                reply_to: None,
+                reply_to_sender: None,
+                ts: 1,
+                attachments: vec![],
+            },
+            None,
+        )
+        .unwrap();
+    store.seal_room("sealed", 1).unwrap();
+    let hub = critical_restart_hub(store, "root");
+    assert!(
+        hub.next_session_id() > 100,
+        "global allocator must not reuse sealed message ids"
+    );
+}
+
 fn test_now_ms() -> u64 {
     TEST_NOW.load(Ordering::Relaxed)
 }

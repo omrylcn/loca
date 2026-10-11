@@ -35,7 +35,12 @@ help:
 		'make wiki-native-check WIKI_RUNTIME=codex|claude Opt-in real model Wiki worker/reader gate' \
 		'make runtime-v2-soak Historical test-fixture comparison (not a supported v1 runtime)'
 
-check: rust-check python-check shell-check docs-check compose-check smoke package-check onboarding-check wiki-protocol-check
+check: rust-check python-check shell-check docs-check compose-check smoke package-check onboarding-check wiki-protocol-check critical-integrity-check
+
+.PHONY: critical-integrity-check
+critical-integrity-check:
+	cargo build -p server
+	$(PYTHON) scripts/critical-integrity-e2e.py
 
 rust-check:
 	cargo fmt --all -- --check

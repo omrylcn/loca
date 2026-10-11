@@ -352,6 +352,18 @@ class ConnectShRelay:
         if result.returncode:
             detail = (result.stderr or result.stdout or "send failed").strip()
             raise RuntimeError(detail[-500:])
+        try:
+            message = json.loads(result.stdout)
+        except (ValueError, TypeError) as error:
+            raise RuntimeError("send returned no verifiable message receipt") from error
+        if (
+            not isinstance(message, dict)
+            or type(message.get("id")) is not int
+            or message["id"] <= 0
+            or message.get("room") != relay["room"]
+            or message.get("sender") != relay["identity"]
+        ):
+            raise RuntimeError("send receipt does not identify this relay's accepted message")
 
 
 class ContextProvider:

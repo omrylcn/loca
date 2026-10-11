@@ -68,6 +68,9 @@ pub(crate) async fn call_into_loca(
             "could not save davet — try again",
         )
             .into_response(),
+        Err(hub::InviteError::Sealed) => {
+            (StatusCode::CONFLICT, "this loca is permanently sealed").into_response()
+        }
     }
 }
 /// Leave one's own loca without being kicked or banned. Identity is derived

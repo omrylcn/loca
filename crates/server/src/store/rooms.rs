@@ -201,18 +201,49 @@ impl Store {
         let Some(mut c) = self.conn() else {
             return Ok(());
         };
-        let mode_j = serde_json::to_string(mode).unwrap_or_else(|_| "{\"mode\":\"free\"}".into());
-        let set_j = serde_json::to_string(settings).unwrap_or_default();
         let tx = c.transaction()?;
-        tx.execute(
-            "INSERT OR REPLACE INTO rooms (room, mode, settings) VALUES (?1, ?2, ?3)",
-            params![room, mode_j, set_j],
-        )?;
+        Self::write_room_state(&tx, room, mode, settings)?;
         if settings.archived {
             Self::pause_room_attentions(&tx, room, current_time_ms())?;
         }
         tx.commit()
             .inspect_err(|e| tracing::error!(error = %e, "save_room failed"))
+    }
+
+    pub(super) fn require_unsealed_room(c: &Connection, room: &str) -> rusqlite::Result<()> {
+        let sealed: bool = c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM rooms WHERE room = ?1 AND sealed_at IS NOT NULL)",
+            params![room],
+            |row| row.get(0),
+        )?;
+        if sealed {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "room is permanently sealed".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn write_room_state(
+        c: &Connection,
+        room: &str,
+        mode: &ChatMode,
+        settings: &RoomSettings,
+    ) -> rusqlite::Result<()> {
+        let mode_j = serde_json::to_string(mode).unwrap_or_else(|_| "{\"mode\":\"free\"}".into());
+        let set_j = serde_json::to_string(settings).unwrap_or_default();
+        let changed = c.execute(
+            "INSERT INTO rooms (room, mode, settings) VALUES (?1, ?2, ?3)
+             ON CONFLICT(room) DO UPDATE SET mode = excluded.mode, settings = excluded.settings
+             WHERE rooms.sealed_at IS NULL",
+            params![room, mode_j, set_j],
+        )?;
+        if changed == 0 {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "room is permanently sealed".into(),
+            ));
+        }
+        Ok(())
     }
     fn retire_room_attentions(c: &Connection, room: &str, at: u64) -> rusqlite::Result<()> {
         Self::pause_room_attentions(c, room, at)?;

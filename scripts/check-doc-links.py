@@ -11,7 +11,7 @@ from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
-SKIP_DIRS = {".git", "target", "dist", "node_modules"}
+SKIP_DIRS = {".git", "target", "dist", "node_modules", "test-results", "playwright-report"}
 EMBEDDED_DOC = Path("web/docs/getting-started.md")
 EMBEDDED_DOC_SOURCE = Path("docs/getting-started.md")
 ONBOARDING_DOCS = ("README.md", "docs/self-host.md", "docs/getting-started.md")

@@ -870,6 +870,15 @@ case "$cmd" in
     elif [ "$code" = "401" ]; then
       echo >&2 "UNAUTHORIZED (401): stale session/davet; reconnect through Lobby before retrying"
       exit 7
+    elif ! [[ "$code" =~ ^2[0-9][0-9]$ ]]; then
+      echo >&2 "SEND FAILED (HTTP $code): message was not accepted; retain the same operation id for a retry"
+      exit 8
+    fi
+    response_body=$(printf '%s' "$resp" | sed '$d')
+    if ! printf '%s' "$response_body" | jq -e --arg room "$room" --arg sender "$name" \
+      'type == "object" and (.id | type == "number" and . > 0 and . == floor) and .room == $room and .sender == $sender' >/dev/null 2>&1; then
+      echo >&2 "SEND UNVERIFIED: server did not return the accepted message identity; retain the same operation id"
+      exit 8
     fi
     # The durable runtime queue ACKs a delivery when the agent's reply is
     # actually accepted by Loca, not when a potentially long Codex turn later

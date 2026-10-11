@@ -681,17 +681,27 @@ async fn a_deleted_loca_does_not_come_back() {
         "the deleted loca stayed deleted despite a watcher touching it"
     );
 
-    // But the master can bring it back deliberately: issuing a davet lifts the
-    // tombstone, and then the loca lives again on the next real touch (a
-    // message, a join) — just like any loca is born on first use.
-    davet_for(&base, "MASTER", "gecici", "someone").await;
-    client
+    // Archive is reversible, seal is permanent. Neither an invitation nor a
+    // master post may silently rebuild a sealed room with reset counters.
+    admit(&base, "MASTER", "someone", "agent").await;
+    for endpoint in ["invites", "call"] {
+        let response = client
+            .post(format!("{base}/rooms/gecici/{endpoint}"))
+            .header("x-admin-token", "MASTER")
+            .json(&serde_json::json!({"name": "someone"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
+    }
+    let response = client
         .post(format!("{base}/rooms/gecici/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "m", "sender_type": "user", "text": "reopened" }))
         .send()
         .await
         .unwrap();
+    assert!(!response.status().is_success());
     let rooms: Value = client
         .get(format!("{base}/rooms"))
         .header("x-admin-token", "MASTER")
@@ -702,12 +712,12 @@ async fn a_deleted_loca_does_not_come_back() {
         .await
         .unwrap();
     assert!(
-        rooms
+        !rooms
             .as_array()
             .unwrap()
             .iter()
             .any(|r| r["room"] == "gecici"),
-        "after a davet lifts the tombstone, a message reopens the loca"
+        "an invitation must never lift a permanent seal"
     );
 }
 
