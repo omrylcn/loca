@@ -6,6 +6,17 @@ use rusqlite::Connection;
 use super::Store;
 
 #[test]
+fn critical_save_room_does_not_erase_permanent_seal() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(Some(temp.path().join("sealed.db").to_str().unwrap())).unwrap();
+    store.seal_room("sealed", 1).unwrap();
+    assert!(store
+        .save_room("sealed", &ChatMode::Free, &RoomSettings::default())
+        .is_err());
+    assert_eq!(store.sealed_rooms().unwrap(), vec!["sealed"]);
+}
+
+#[test]
 fn memory_owner_migration_binds_once_and_never_grants_reused_or_late_names() {
     for scenario in ["one", "missing", "reused"] {
         let temp = tempfile::tempdir().unwrap();

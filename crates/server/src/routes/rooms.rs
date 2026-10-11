@@ -224,6 +224,9 @@ pub(crate) async fn set_settings(
     if !is_admin_req(&hub, &headers) {
         return (StatusCode::UNAUTHORIZED, "admin token required").into_response();
     }
+    if hub.is_deleted(&id) {
+        return (StatusCode::CONFLICT, "this loca is permanently sealed").into_response();
+    }
     if let Some(protocol::ReminderRecipient::Person { name }) = &body.care_recipient {
         if !valid_identity_name(name) {
             return (
@@ -346,6 +349,9 @@ pub(crate) async fn create_invite(
             "could not save davet — try again",
         )
             .into_response(),
+        Err(hub::InviteError::Sealed) => {
+            (StatusCode::CONFLICT, "this loca is permanently sealed").into_response()
+        }
     }
 }
 /// Who currently holds a davet to this loca (master view).

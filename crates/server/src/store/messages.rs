@@ -90,6 +90,14 @@ impl Store {
         Ok(grouped)
     }
 
+    /// Global durable high-water mark, including permanently sealed rooms.
+    pub fn max_message_id(&self) -> rusqlite::Result<u64> {
+        let Some(c) = self.conn() else { return Ok(0) };
+        c.query_row("SELECT COALESCE(MAX(id), 0) FROM messages", [], |row| {
+            row.get(0)
+        })
+    }
+
     /// Persist a message. Returns the DB result so the caller can refuse to
     /// broadcast something that never landed on disk (PRINCIPLES: "mesaj
     /// kaybolmaz"). Memory-only mode (no connection) is NOT a failure — there
@@ -107,6 +115,7 @@ impl Store {
             .map(|(principal, op_id)| (Some(principal), Some(op_id)))
             .unwrap_or((None, None));
         let tx = c.transaction()?;
+        Self::require_unsealed_room(&tx, &m.room)?;
         tx.execute(
             "INSERT INTO messages
              (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id, attachments)
@@ -147,16 +156,11 @@ impl Store {
         let Some(mut c) = self.conn() else {
             return Ok(());
         };
-        let mode_j = serde_json::to_string(mode).unwrap_or_else(|_| "{\"mode\":\"free\"}".into());
-        let set_j = serde_json::to_string(settings).unwrap_or_default();
         let (principal, op_id) = operation
             .map(|(principal, op_id)| (Some(principal), Some(op_id)))
             .unwrap_or((None, None));
         let tx = c.transaction()?;
-        tx.execute(
-            "INSERT OR REPLACE INTO rooms (room, mode, settings) VALUES (?1, ?2, ?3)",
-            params![m.room, mode_j, set_j],
-        )?;
+        Self::write_room_state(&tx, &m.room, mode, settings)?;
         tx.execute(
             "INSERT INTO messages
              (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id, attachments)
@@ -202,14 +206,9 @@ impl Store {
             .map(|(principal, op_id)| (Some(principal), Some(op_id)))
             .unwrap_or((None, None));
         let tx = c.transaction()?;
+        Self::require_unsealed_room(&tx, &m.room)?;
         if let Some((mode, settings)) = room_state {
-            let mode_json =
-                serde_json::to_string(mode).unwrap_or_else(|_| "{\"mode\":\"free\"}".into());
-            let settings_json = serde_json::to_string(settings).unwrap_or_default();
-            tx.execute(
-                "INSERT OR REPLACE INTO rooms (room, mode, settings) VALUES (?1, ?2, ?3)",
-                params![m.room, mode_json, settings_json],
-            )?;
+            Self::write_room_state(&tx, &m.room, mode, settings)?;
         }
         tx.execute(
             "INSERT INTO messages
@@ -269,14 +268,9 @@ impl Store {
             .map(|(principal, op_id)| (Some(principal), Some(op_id)))
             .unwrap_or((None, None));
         let tx = c.transaction()?;
+        Self::require_unsealed_room(&tx, &m.room)?;
         if let Some((mode, settings)) = room_state {
-            let mode_json =
-                serde_json::to_string(mode).unwrap_or_else(|_| "{\"mode\":\"free\"}".into());
-            let settings_json = serde_json::to_string(settings).unwrap_or_default();
-            tx.execute(
-                "INSERT OR REPLACE INTO rooms (room, mode, settings) VALUES (?1, ?2, ?3)",
-                params![m.room, mode_json, settings_json],
-            )?;
+            Self::write_room_state(&tx, &m.room, mode, settings)?;
         }
         tx.execute(
             "INSERT INTO messages

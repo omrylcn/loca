@@ -316,19 +316,33 @@ impl Store {
         .unwrap_or(false)
     }
 
-    /// Whether this token has ever been bound to a principal credential.
-    /// Revoked rows deliberately count: boot migration may backfill truly
-    /// legacy admin sessions, but must never resurrect a revoked binding by
-    /// attaching the same token to the root recovery credential.
-    pub fn principal_session_exists(&self, session_secret: &str) -> bool {
-        let Some(c) = self.conn() else { return false };
+    /// Restore authority from the credential binding, never from a legacy
+    /// display-name row or the server's current root credential.
+    pub fn principal_for_session(&self, secret: &str, now: u64) -> Option<PrincipalIdentity> {
+        let c = self.conn()?;
         c.query_row(
-            "SELECT EXISTS(SELECT 1 FROM principal_sessions WHERE id = ?1)",
-            params![secret_hash(session_secret)],
-            |row| row.get::<_, i64>(0),
+            "SELECT p.id, p.display_name, p.kind, p.building_role
+             FROM principal_sessions s
+             JOIN credentials c ON c.id = s.credential_id AND c.principal_id = s.principal_id
+             JOIN principals p ON p.id = s.principal_id
+             WHERE s.id = ?1 AND s.revoked_at IS NULL
+               AND (s.expires_at = 0 OR s.expires_at > ?2)
+               AND c.revoked_at IS NULL AND p.disabled_at IS NULL",
+            params![secret_hash(secret), now],
+            |row| {
+                let kind: String = row.get(2)?;
+                let role: String = row.get(3)?;
+                Ok(PrincipalIdentity {
+                    id: row.get(0)?,
+                    display_name: row.get(1)?,
+                    kind: parse_sender_type(&kind),
+                    role: parse_building_role(&role),
+                })
+            },
         )
-        .map(|exists| exists != 0)
-        .unwrap_or(false)
+        .optional()
+        .ok()
+        .flatten()
     }
 
     pub fn revoke_principal_session(&self, session_secret: &str, at: u64) -> rusqlite::Result<()> {
@@ -463,7 +477,8 @@ impl Store {
 
     /// Ensure the Building has its one logical Master principal. Re-running
     /// this with the same root credential is a no-op; a credential rotation
-    /// attaches another proof to the same Master instead of creating Master #2.
+    /// replaces the recovery proof for the same Master, revoking the previous
+    /// recovery credential and its derived sessions. Device keys are retained.
     pub fn ensure_master_principal(
         &self,
         root_credential: &str,
@@ -495,9 +510,23 @@ impl Store {
         )?;
         let hash = secret_hash(root_credential);
         tx.execute(
-            "INSERT OR IGNORE INTO credentials
+            "UPDATE principal_sessions SET revoked_at = ?3
+             WHERE revoked_at IS NULL AND credential_id IN (
+               SELECT id FROM credentials WHERE principal_id = ?1
+               AND legacy_source LIKE 'admin:%' AND secret_hash != ?2
+             )",
+            params![principal_id, hash, at],
+        )?;
+        tx.execute(
+            "UPDATE credentials SET revoked_at = COALESCE(revoked_at, ?3)
+             WHERE principal_id = ?1 AND legacy_source LIKE 'admin:%' AND secret_hash != ?2",
+            params![principal_id, hash, at],
+        )?;
+        tx.execute(
+            "INSERT INTO credentials
              (id, principal_id, label, secret_hash, created_at, last_used_at, revoked_at, legacy_source)
-             VALUES (?1, ?2, 'Root recovery', ?3, ?4, NULL, NULL, ?5)",
+             VALUES (?1, ?2, 'Root recovery', ?3, ?4, NULL, NULL, ?5)
+             ON CONFLICT(id) DO UPDATE SET revoked_at = NULL",
             params![
                 hashed_id("cr_", &format!("master:{root_credential}")),
                 principal_id,
@@ -567,8 +596,12 @@ impl Store {
     }
     /// Bir daveti kaydet. Master üretir; token'ın kendisi burada üretilmez.
     pub fn insert_invite(&self, inv: &Invite) -> rusqlite::Result<()> {
-        let Some(c) = self.conn() else { return Ok(()) };
-        c.execute(
+        let Some(mut c) = self.conn() else {
+            return Ok(());
+        };
+        let tx = c.transaction()?;
+        Self::require_unsealed_room(&tx, &inv.room)?;
+        tx.execute(
             "INSERT OR REPLACE INTO invites
              (token, room, member, name, kind, issued_at, issued_by, revoked_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)",
@@ -582,8 +615,8 @@ impl Store {
                 inv.issued_by
             ],
         )
-        .inspect_err(|e| tracing::error!(error = %e, "insert_invite failed"))
-        .map(|_| ())
+        .inspect_err(|e| tracing::error!(error = %e, "insert_invite failed"))?;
+        tx.commit()
     }
     /// Tüm geçerli davetler — açılışta belleğe alınır.
     pub fn load_invites(&self) -> Vec<Invite> {
