@@ -47,7 +47,7 @@ rust-check:
 python-check:
 	$(PYTHON) -m unittest discover -s skill/agent-room/tests -p 'test_*.py'
 	$(PYTHON) -m unittest discover -s skill/loca-care/tests -p 'test_*.py'
-	$(PYTHON) -m py_compile scripts/conformance-runtime-v2.py \
+	$(PYTHON) -m py_compile scripts/conformance-runtime-v2.py scripts/conformance-late-commentary.py \
 		scripts/soak-runtime-v2-shadow.py scripts/benchmark-local.py scripts/wiki-native-e2e.py scripts/wiki-runtime-e2e.py scripts/wiki-autonomy-e2e.py
 
 shell-check:

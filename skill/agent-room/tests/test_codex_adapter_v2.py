@@ -1083,6 +1083,193 @@ class CodexAdapterV2Tests(unittest.TestCase):
             self.assertIsNotNone(attention["turn_completed_at_ms"])
             fixture.adapter.close()
 
+    def test_late_direct_gets_one_new_commentary_in_same_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(153954))
+            fixture.adapter.dispatch_one()
+            def comment(item_id, text):
+                fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                    "id": item_id, "type": "agentMessage",
+                    "phase": "commentary", "text": text,
+                })
+            comment("first", "İlk çağrıyı aldım.")
+            fixture.adapter.process_relays()
+            fixture.ingest(delivery(153975))
+            fixture.adapter.dispatch_one()
+            comment("late", "Evet, bu son mesajın bana ulaştı.")
+            comment("progress", "Hâlâ çalışıyorum.")
+            fixture.adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls], [
+                "İlk çağrıyı aldım.", "Evet, bu son mesajın bana ulaştı.",
+            ])
+            rows = fixture.store.snapshot("reviewer")["attentions"]
+            self.assertTrue(all(r["first_response_at_ms"] for r in rows))
+            self.assertTrue(all(r["final_response_at_ms"] is None for r in rows))
+            self.assertEqual(sum(m == "turn/start" for m, _ in fixture.fake.requests), 1)
+            self.assertEqual(sum(m == "turn/steer" for m, _ in fixture.fake.requests), 1)
+            self.assertNotIn("turn/interrupt", [m for m, _ in fixture.fake.requests])
+            fixture.adapter.close()
+
+    def test_commentary_budget_does_not_reset_for_broadcast_or_pending_direct(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(120))
+            fixture.adapter.dispatch_one()
+            for item_id in ("first", "progress"):
+                if item_id == "progress":
+                    fixture.ingest(delivery(121, priority="broadcast"), delivery(122))
+                    # Only the broadcast is accepted; the direct is still pending.
+                    pending = fixture.store.snapshot("reviewer")["attentions"]
+                    broadcast = next(r for r in pending if r["priority"] == "broadcast")
+                    fixture.store.mark_accepted(broadcast["attention_id"], "thread-1", "turn-1",
+                                                fixture.adapter.owner, fixture.adapter.epoch)
+                fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                    "id": item_id, "type": "agentMessage",
+                    "phase": "commentary", "text": item_id,
+                })
+            fixture.adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls], ["first"])
+            fixture.adapter.close()
+
+    def test_agent_direct_also_reopens_commentary_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(120))
+            fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "first", "type": "agentMessage", "phase": "commentary", "text": "First",
+            })
+            direct = delivery(121, priority="addressed_agent")
+            direct["event"]["sender_type"] = "agent"
+            fixture.ingest(direct)
+            fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "agent-answer", "type": "agentMessage", "phase": "commentary", "text": "Agent answer",
+            })
+            fixture.adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls], ["First", "Agent answer"])
+            fixture.adapter.close()
+
+    def test_pre_steer_progress_does_not_spend_new_direct_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(120))
+            fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "first", "type": "agentMessage", "phase": "commentary", "text": "First",
+            })
+            fixture.ingest(delivery(121))
+            fixture.fake.before_steer_response = [{"method": "item/completed", "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "item": {
+                    "id": "before", "type": "agentMessage", "phase": "commentary", "text": "Before",
+                },
+            }}]
+            fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "after", "type": "agentMessage", "phase": "commentary", "text": "After",
+            })
+            fixture.adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls], ["First", "After"])
+            fixture.adapter.close()
+
+    def test_replayed_commentary_never_spends_new_direct_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(120))
+            fixture.adapter.dispatch_one()
+            old = {"id": "old", "type": "agentMessage", "phase": "commentary", "text": "Old"}
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", old)
+            fixture.adapter.process_relays()
+            fixture.ingest(delivery(121), delivery(122))
+            fixture.adapter.dispatch_one()
+            fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", old)
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "new", "type": "agentMessage", "phase": "commentary", "text": "New",
+            })
+            fixture.adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls], ["Old", "New"])
+            self.assertEqual(len(json.loads(fixture.relay.calls[0]["covered_attention_ids_json"])), 1)
+            self.assertEqual(len(json.loads(fixture.relay.calls[1]["covered_attention_ids_json"])), 3)
+            fixture.adapter.close()
+
+    def test_commentary_retry_reserves_budget_durably_across_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp), relay=RelayRecorder(fail_first=True))
+            fixture.ingest(delivery(120))
+            fixture.adapter.dispatch_one()
+            old = {"id": "old", "type": "agentMessage", "phase": "commentary", "text": "Old"}
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", old)
+            self.assertEqual(fixture.adapter.process_relays(), 0)
+            original_op_id = fixture.relay.calls[0]["op_id"]
+            fixture.adapter.close()
+            adapter = PersistentCodexAdapter(
+                store=AttentionStore(Path(tmp) / "state.sqlite3"), inbox=fixture.inbox,
+                identity="reviewer", workdir=Path(tmp), codex_bin="codex",
+                relay_mode="live", relay=fixture.relay, context_provider=lambda _a: [],
+                app_server_factory=lambda _b, _t: fixture.fake,
+            )
+            adapter.initialize()
+            adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "progress", "type": "agentMessage", "phase": "commentary", "text": "Progress",
+            })
+            fixture.ingest(delivery(121))
+            adapter.dispatch_one()
+            adapter.handle_agent_item("thread-1", "turn-1", old)
+            adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "new", "type": "agentMessage", "phase": "commentary", "text": "New",
+            })
+            with fixture.store.connect() as connection:
+                connection.execute("UPDATE relay_items SET next_attempt_at_ms = 0")
+            self.assertEqual(adapter.process_relays(), 2)
+            self.assertEqual([r["text"] for r in fixture.relay.calls], ["Old", "Old", "New"])
+            self.assertEqual(fixture.relay.calls[1]["op_id"], original_op_id)
+            adapter.close()
+
+    def test_ten_late_directs_each_get_one_update_and_final_still_covers_all(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            for mid in range(300, 310):
+                fixture.ingest(delivery(mid))
+                fixture.adapter.dispatch_one()
+                for suffix in ("reply", "progress"):
+                    fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                        "id": f"{mid}-{suffix}", "type": "agentMessage",
+                        "phase": "commentary", "text": f"{mid}-{suffix}",
+                    })
+                fixture.adapter.process_relays()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                "id": "final", "type": "agentMessage", "phase": "final_answer", "text": "Done",
+            })
+            fixture.adapter.handle_turn_completed("thread-1", {"id": "turn-1", "status": "completed"})
+            fixture.adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls],
+                             [f"{mid}-reply" for mid in range(300, 310)] + ["Done"])
+            rows = fixture.store.snapshot("reviewer")["attentions"]
+            self.assertTrue(all(r["first_response_at_ms"] and r["final_response_at_ms"] and
+                                r["turn_completed_at_ms"] for r in rows))
+            fixture.adapter.close()
+
+    def test_shadow_commentary_budget_is_reserved_without_response_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp), relay_mode="shadow")
+            for mid in (120, 121):
+                fixture.ingest(delivery(mid))
+                fixture.adapter.dispatch_one()
+                for suffix in ("reply", "progress"):
+                    fixture.adapter.handle_agent_item("thread-1", "turn-1", {
+                        "id": f"{mid}-{suffix}", "type": "agentMessage",
+                        "phase": "commentary", "text": suffix,
+                    })
+            with fixture.store.connect() as connection:
+                statuses = [tuple(r) for r in connection.execute(
+                    "SELECT relay_kind, status FROM relay_items ORDER BY rowid")]
+            self.assertEqual(statuses, [("commentary", "shadow"), ("commentary_suppressed", "suppressed")] * 2)
+            self.assertEqual(fixture.adapter.process_relays(), 0)
+            self.assertTrue(all(r["first_response_at_ms"] is None for r in fixture.store.snapshot("reviewer")["attentions"]))
+            fixture.adapter.close()
+
     def test_null_phase_falls_back_to_final_on_turn_completed(self):
         with tempfile.TemporaryDirectory() as tmp:
             fixture = AdapterFixture(Path(tmp))

@@ -248,6 +248,8 @@ class AttentionStore:
 
                 CREATE INDEX IF NOT EXISTS relay_items_pending
                     ON relay_items (identity, status, created_at_ms);
+                CREATE INDEX IF NOT EXISTS relay_items_turn_item
+                    ON relay_items (turn_id, item_id);
                 """
             )
         os.chmod(self.path, 0o600)
@@ -1583,6 +1585,47 @@ class AttentionStore:
                         """,
                         (now, str(attention_id)),
                     )
+
+    def turn_has_relay_item(self, turn_id: str, item_id: str) -> bool:
+        """A replayed completed item retains its original coverage and op_id."""
+        with self.connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM relay_items WHERE turn_id = ? AND item_id = ? LIMIT 1",
+                (turn_id, item_id),
+            ).fetchone() is not None
+
+    def turn_allows_commentary(self, turn_id: str) -> bool:
+        """One initial update, then one per newly covered direct cohort.
+
+        Reserve coverage when output is durably created, not when sending
+        succeeds: retries, shadow mode and restarts must not reset the budget.
+        Broadcasts/context and unaccepted direct calls cannot open it.
+        """
+        with self.connect() as connection:
+            relays = connection.execute(
+                """
+                SELECT covered_attention_ids_json FROM relay_items
+                WHERE turn_id = ? AND relay_kind = 'commentary'
+                """,
+                (turn_id,),
+            ).fetchall()
+            if not relays:
+                return True
+            covered = {
+                attention_id
+                for relay in relays
+                for attention_id in json.loads(relay["covered_attention_ids_json"])
+            }
+            direct = connection.execute(
+                """
+                SELECT attention_id FROM attentions
+                WHERE turn_id = ? AND accepted_at_ms IS NOT NULL
+                  AND terminal_status IS NULL
+                  AND priority IN ('direct_user', 'addressed_agent')
+                """,
+                (turn_id,),
+            ).fetchall()
+            return any(row["attention_id"] not in covered for row in direct)
 
     def turn_has_any_relay_kind(self, turn_id: str, relay_kind: str) -> bool:
         with self.connect() as connection:

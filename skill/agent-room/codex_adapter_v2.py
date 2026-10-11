@@ -1377,6 +1377,11 @@ class PersistentCodexAdapter:
         item_id = str(item.get("id") or "")
         if not text or not item_id:
             return
+        # History reconciliation may repeat an item after another steer has
+        # been accepted. Never attribute that old output to the newer call or
+        # generate a new op_id from the expanded coverage.
+        if self.store.turn_has_relay_item(turn_id, item_id):
+            return
         if text == NO_REPLY_SENTINEL:
             self.create_output(
                 turn_id=turn_id,
@@ -1394,7 +1399,7 @@ class PersistentCodexAdapter:
             return
         phase = item.get("phase")
         if phase == "commentary":
-            if self.store.turn_has_any_relay_kind(turn_id, "commentary"):
+            if not self.store.turn_allows_commentary(turn_id):
                 self.create_output(
                     turn_id=turn_id,
                     item_id=item_id,
