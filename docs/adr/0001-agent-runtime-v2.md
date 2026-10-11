@@ -152,9 +152,19 @@ attention. The adapter consumes completed `agentMessage` items:
   accepted cohort. Reserve this budget in the durable relay ledger, including
   pending retries and shadow outputs. Context/broadcasts do not reset it.
   Replayed item IDs retain their original coverage and stable operation ID;
-- `phase=final_answer`: relay as final output;
-- `phase=null`: retain the completed item and, if no explicit final exists,
-  relay the last suitable item when `turn/completed` arrives.
+- `phase=final_answer`: reserve final coverage per accepted attention cohort,
+  not once per turn. A later accepted call in the same turn must be allowed a
+  new final; repeated output without new accepted input is bounded. Pending
+  retry and shadow output also reserve coverage, with stable item/op IDs;
+- `phase=null`: retain the completed item and, if its original attention
+  coverage is not already reserved by an explicit final, relay the last
+  suitable item when `turn/completed` arrives. Promotion retains the original
+  coverage: an old item must never claim a later steered call.
+
+An upgrade does not replay weeks-old suppressed output into the room or mark
+those calls answered. Historical `final_suppressed` and required `no_reply`
+records remain visible until an explicit recovery/cancellation decision;
+neither transport ACK nor a newer answer satisfies an older obligation.
 
 Only completed items are relayed, never deltas. Each relay uses a stable
 operation id derived from bundle, turn, and item. Timeout or server error is

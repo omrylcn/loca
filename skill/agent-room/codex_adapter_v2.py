@@ -1339,8 +1339,16 @@ class PersistentCodexAdapter:
         text: str,
         relay_kind: str,
         status: str | None = None,
+        covered_attention_ids: list[str] | None = None,
     ) -> None:
         attentions, attention_ids, _, room, target = self.relay_metadata(turn_id)
+        if covered_attention_ids is not None:
+            # A held phase-null item cannot inherit later steered input when
+            # promoted at turn completion. Its durable coverage is immutable.
+            original_ids = set(covered_attention_ids)
+            attentions = [a for a in attentions if a["attention_id"] in original_ids]
+            attention_ids = [str(a["attention_id"]) for a in attentions]
+            target = relay_target(attentions)
         if not attention_ids:
             return
         bundle_ids = list(
@@ -1418,7 +1426,7 @@ class PersistentCodexAdapter:
                 )
             return
         if phase == "final_answer":
-            if self.store.turn_has_any_relay_kind(turn_id, "final"):
+            if not self.store.uncovered_final_attention_ids(turn_id):
                 self.create_output(
                     turn_id=turn_id,
                     item_id=item_id,
@@ -1456,16 +1464,20 @@ class PersistentCodexAdapter:
         reason = json.dumps(error, ensure_ascii=False) if error else ""
         if (
             status == "completed"
-            and not self.store.turn_has_any_relay_kind(turn_id, "final")
+            and self.store.uncovered_final_attention_ids(turn_id)
         ):
             candidate = self.store.latest_unknown_item(turn_id)
-            if candidate is not None:
+            if candidate is not None and (
+                set(json.loads(candidate["covered_attention_ids_json"]))
+                & self.store.uncovered_final_attention_ids(turn_id)
+            ):
                 self.create_output(
                     turn_id=turn_id,
                     item_id=f"{candidate['item_id']}:fallback",
                     phase=None,
                     text=str(candidate["text"]),
                     relay_kind="final",
+                    covered_attention_ids=json.loads(candidate["covered_attention_ids_json"]),
                 )
         mapped_status = {
             "completed": "completed",

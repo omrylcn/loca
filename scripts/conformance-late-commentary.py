@@ -49,12 +49,15 @@ def main():
     parser.add_argument("--codex-bin", default="codex")
     parser.add_argument("--binary", type=Path, default=ROOT / "target/debug/room-server")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--early-final", action="store_true",
+                        help="Require a native final before a later same-turn direct call")
     args = parser.parse_args()
     result = {"ok": False, "source_sha": subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "source_dirty": bool(subprocess.check_output(
             ["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, text=True).strip()),
         "server_binary_sha256": hashlib.sha256(args.binary.read_bytes()).hexdigest()}
+    result["early_final"] = args.early_final
     native_home = str(Path.home() / ".codex")
     prefixes = ("LOCA_", "ROOM_", "DAVET_", "ADMIN_", "CARE_", "SMASTER_")
     env = {k: v for k, v in os.environ.items() if not k.startswith(prefixes)}
@@ -120,10 +123,16 @@ def main():
                                 return
                             time.sleep(0.05)
                         raise RuntimeError(label)
-                    first_id = say("@reader Emit a commentary message containing INITIAL_RECEIPT. Then use the shell tool "
-                                   "to run sleep 20 once. Do not finalize until that command finishes. A newer direct ping may arrive.")
-                    wait(lambda: any(r["relay_kind"] == "commentary" and r["status"] == "accepted" and
-                                     "INITIAL_RECEIPT" in r["text"] for r in rows()), "initial native commentary missing")
+                    first_kind = "final" if args.early_final else "commentary"
+                    initial = ("@reader For this runtime conformance test, emit an agent message in final_answer phase "
+                               "containing INITIAL_RECEIPT, then ALSO call the shell tool to run sleep 20 once. "
+                               "Keep working after the initial answer: the answer and the tool call belong to this same turn. "
+                               "A newer direct ping may arrive during the command.") if args.early_final else (
+                               "@reader Emit a commentary message containing INITIAL_RECEIPT. Then use the shell tool "
+                               "to run sleep 20 once. Do not finalize until that command finishes. A newer direct ping may arrive.")
+                    first_id = say(initial)
+                    wait(lambda: any(r["relay_kind"] == first_kind and r["status"] == "accepted" and
+                                     "INITIAL_RECEIPT" in r["text"] for r in rows()), "initial native " + first_kind + " missing")
                     protocol.require(bool(adapter.active_turns), "first turn ended before the late ping")
                     turn_id = next(iter(adapter.active_turns.values()))
                     late_id = say("@reader New direct ping: emit a commentary containing LATE_DIRECT_RECEIPT to acknowledge THIS ping, "
@@ -147,7 +156,7 @@ def main():
                         matching = [(mid, text) for mid, text, op in replies if op == relay["op_id"]]
                         protocol.require(len(matching) == 1 and matching[0][1] == relay["text"],
                                          "missing, duplicate or changed server output for completed item")
-                    for marker, kind, coverage_size in (("INITIAL_RECEIPT", "commentary", 1),
+                    for marker, kind, coverage_size in (("INITIAL_RECEIPT", first_kind, 1),
                                                         ("LATE_DIRECT_RECEIPT", "commentary", 2),
                                                         ("FINAL_RECEIPT", "final", 2)):
                         matching = [r for r in accepted if r["relay_kind"] == kind and marker in r["text"]
