@@ -260,6 +260,177 @@ class AdapterFixture:
 
 
 class CodexAdapterV2Tests(unittest.TestCase):
+    @staticmethod
+    def final_item(item_id, text=None, phase="final_answer"):
+        return {"id": item_id, "type": "agentMessage", "phase": phase,
+                "text": text or item_id}
+
+    def test_final_after_late_direct_is_not_suppressed_by_first_final(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            for mid in range(400, 410):
+                fixture.ingest(delivery(mid))
+                self.assertTrue(fixture.adapter.dispatch_one())
+                fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item(f"final-{mid}"))
+                fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item(f"duplicate-{mid}"))
+                fixture.adapter.process_relays()
+            fixture.adapter.handle_turn_completed("thread-1", {"id": "turn-1", "status": "completed"})
+            self.assertEqual([r["text"] for r in fixture.relay.calls], [f"final-{mid}" for mid in range(400, 410)])
+            self.assertEqual(fixture.store.progress_summary("reviewer")["reply_required_pending"], 0)
+            self.assertEqual(sum(m == "turn/start" for m, _ in fixture.fake.requests), 1)
+            self.assertEqual(sum(m == "turn/steer" for m, _ in fixture.fake.requests), 9)
+            self.assertNotIn("turn/interrupt", [m for m, _ in fixture.fake.requests])
+            fixture.adapter.close()
+
+    def test_pre_steer_final_cannot_cover_later_accepted_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(400)); fixture.adapter.dispatch_one()
+            fixture.ingest(delivery(401))
+            fixture.fake.before_steer_response = [{"method": "item/completed", "params": {
+                "threadId": "thread-1", "turnId": "turn-1", "item": self.final_item("before"),
+            }}]
+            fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item("after"))
+            fixture.adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls], ["before", "after"])
+            self.assertEqual([len(json.loads(r["covered_attention_ids_json"])) for r in fixture.relay.calls], [1, 2])
+            fixture.adapter.close()
+
+    def test_replayed_final_preserves_original_coverage_and_late_call_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(400)); fixture.adapter.dispatch_one()
+            old = self.final_item("old")
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", old)
+            fixture.adapter.process_relays()
+            fixture.ingest(delivery(401)); fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", old)
+            fixture.adapter.process_relays()
+            self.assertEqual(fixture.store.progress_summary("reviewer")["reply_required_pending"], 1)
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item("new"))
+            fixture.adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls], ["old", "new"])
+            self.assertEqual(len(json.loads(fixture.relay.calls[0]["covered_attention_ids_json"])), 1)
+            fixture.adapter.close()
+
+    def test_final_budget_survives_retry_restart_and_shadow(self):
+        for mode in ("live", "shadow"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmp:
+                fixture = AdapterFixture(Path(tmp), relay=RelayRecorder(fail_first=True), relay_mode=mode)
+                fixture.ingest(delivery(400)); fixture.adapter.dispatch_one()
+                fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item("old"))
+                fixture.adapter.process_relays()
+                fixture.adapter.close()
+                adapter = PersistentCodexAdapter(store=AttentionStore(Path(tmp) / "state.sqlite3"),
+                    inbox=fixture.inbox, identity="reviewer", workdir=Path(tmp), codex_bin="codex",
+                    relay_mode=mode, relay=fixture.relay, context_provider=lambda _a: [],
+                    app_server_factory=lambda _b, _t: fixture.fake)
+                adapter.initialize()
+                adapter.handle_agent_item("thread-1", "turn-1", self.final_item("progress"))
+                fixture.ingest(delivery(401)); adapter.dispatch_one()
+                adapter.handle_agent_item("thread-1", "turn-1", self.final_item("new"))
+                adapter.handle_agent_item("thread-1", "turn-1", self.final_item("progress-2"))
+                with fixture.store.connect() as connection:
+                    connection.execute("UPDATE relay_items SET next_attempt_at_ms = 0")
+                    finals = connection.execute("SELECT op_id, text FROM relay_items WHERE relay_kind='final' ORDER BY rowid").fetchall()
+                self.assertEqual([r["text"] for r in finals], ["old", "new"])
+                adapter.process_relays()
+                if mode == "live":
+                    self.assertEqual([r["text"] for r in fixture.relay.calls], ["old", "old", "new"])
+                    self.assertEqual(fixture.relay.calls[0]["op_id"], fixture.relay.calls[1]["op_id"])
+                    self.assertEqual(fixture.store.progress_summary("reviewer")["reply_required_pending"], 0)
+                else:
+                    self.assertEqual(fixture.relay.calls, [])
+                    self.assertEqual(fixture.store.progress_summary("reviewer")["reply_required_pending"], 2)
+                adapter.close()
+
+    def test_null_phase_after_first_final_covers_new_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(400)); fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item("old"))
+            fixture.adapter.process_relays()
+            fixture.ingest(delivery(401)); fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item("new", phase=None))
+            fixture.adapter.handle_turn_completed("thread-1", {"id": "turn-1", "status": "completed"})
+            fixture.adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls], ["old", "new"])
+            self.assertEqual(fixture.store.progress_summary("reviewer")["reply_required_pending"], 0)
+            fixture.adapter.close()
+
+    def test_null_phase_before_steer_never_claims_later_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(400)); fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item("old", phase=None))
+            fixture.ingest(delivery(401)); fixture.adapter.dispatch_one()
+            fixture.adapter.handle_turn_completed("thread-1", {"id": "turn-1", "status": "completed"})
+            fixture.adapter.process_relays()
+            self.assertEqual(len(fixture.relay.calls), 1)
+            self.assertEqual(len(json.loads(fixture.relay.calls[0]["covered_attention_ids_json"])), 1)
+            self.assertEqual(fixture.store.progress_summary("reviewer")["reply_required_pending"], 1)
+            fixture.adapter.close()
+
+    def test_pending_direct_cannot_open_final_budget_before_acceptance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(400)); fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item("old"))
+            fixture.ingest(delivery(401))
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item("progress"))
+            fixture.adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls], ["old"])
+            self.assertEqual(fixture.store.progress_summary("reviewer")["reply_required_pending"], 1)
+            fixture.adapter.close()
+
+    def test_legacy_suppressed_final_is_not_republished_or_falsely_acked_on_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(400)); fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-1", self.final_item("old"))
+            fixture.adapter.process_relays()
+            fixture.ingest(delivery(401)); fixture.adapter.dispatch_one()
+            fixture.adapter.create_output(turn_id="turn-1", item_id="legacy-hidden",
+                phase="final_answer", text="Historical answer", relay_kind="final_suppressed", status="suppressed")
+            fixture.adapter.handle_turn_completed("thread-1", {"id": "turn-1", "status": "completed"})
+            fixture.adapter.close()
+            adapter = PersistentCodexAdapter(store=AttentionStore(Path(tmp) / "state.sqlite3"),
+                inbox=fixture.inbox, identity="reviewer", workdir=Path(tmp), codex_bin="codex",
+                relay_mode="live", relay=fixture.relay, context_provider=lambda _a: [],
+                app_server_factory=lambda _b, _t: fixture.fake)
+            adapter.initialize(); adapter.process_relays()
+            self.assertEqual([r["text"] for r in fixture.relay.calls], ["old"])
+            self.assertEqual(adapter.health["reply_required_pending"], 1)
+            self.assertIsNone(fixture.store.snapshot("reviewer")["attentions"][-1]["final_response_at_ms"])
+            adapter.close()
+
+    def test_pending_audit_is_read_only_and_distinguishes_suppression_from_model_silence(self):
+        import importlib.util
+        script = SKILL_DIR.parents[1] / "scripts/audit-pending-replies.py"
+        spec = importlib.util.spec_from_file_location("pending_reply_audit", script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(400)); fixture.adapter.dispatch_one()
+            fixture.adapter.create_output(turn_id="turn-1", item_id="legacy-hidden",
+                phase="final_answer", text="PRIVATE_ROOM_TEXT", relay_kind="final_suppressed", status="suppressed")
+            fixture.adapter.handle_turn_completed("thread-1", {"id": "turn-1", "status": "completed"})
+            fixture.ingest(delivery(401)); fixture.adapter.dispatch_one()
+            fixture.adapter.handle_agent_item("thread-1", "turn-2", self.final_item("silent", NO_REPLY_SENTINEL))
+            fixture.adapter.handle_turn_completed("thread-1", {"id": "turn-2", "status": "completed"})
+            fixture.ingest(delivery(402))
+            before = fixture.store.snapshot("reviewer")
+            report = module.audit(fixture.store.path, ["reviewer"], limit=1)
+            self.assertEqual(report["identities"]["reviewer"]["reasons"], {
+                "final_suppressed": 1, "required_no_reply": 1, "not_accepted": 1})
+            self.assertTrue(report["identities"]["reviewer"]["records_truncated"])
+            self.assertFalse(report["healthy"])
+            self.assertNotIn("PRIVATE_ROOM_TEXT", json.dumps(report))
+            self.assertEqual(before, fixture.store.snapshot("reviewer"))
+            fixture.adapter.close()
+
     def test_wiki_context_is_accepted_only_with_native_turn_and_compaction_rebootstraps(self):
         from wiki_reader import WikiReader
         with tempfile.TemporaryDirectory() as directory:

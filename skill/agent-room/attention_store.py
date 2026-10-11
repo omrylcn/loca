@@ -1638,6 +1638,29 @@ class AttentionStore:
             ).fetchone()
         return row is not None
 
+    def uncovered_final_attention_ids(self, turn_id: str) -> set[str]:
+        """Reserve final coverage per accepted cohort, not once per turn.
+
+        Pending retries and shadow output also reserve their original coverage;
+        a failed send must not allow progress items to manufacture more finals.
+        Only a newly accepted, nonterminal attention opens another slot.
+        """
+        with self.connect() as connection:
+            covered = {
+                attention_id
+                for row in connection.execute(
+                    "SELECT covered_attention_ids_json FROM relay_items "
+                    "WHERE turn_id = ? AND relay_kind = 'final'", (turn_id,)
+                )
+                for attention_id in json.loads(row["covered_attention_ids_json"])
+            }
+            accepted = connection.execute(
+                "SELECT attention_id FROM attentions WHERE turn_id = ? "
+                "AND accepted_at_ms IS NOT NULL AND terminal_status IS NULL",
+                (turn_id,),
+            ).fetchall()
+        return {str(row["attention_id"]) for row in accepted} - covered
+
     def mark_turn_no_reply(
         self,
         turn_id: str,

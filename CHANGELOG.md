@@ -6,6 +6,20 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-10-11
+
+### Fixed
+- Codex V2 preserves final replies to later accepted calls within the same
+  active turn. Final coverage is reserved per accepted cohort, not per turn;
+  retries, restart and shadow observation still cannot duplicate output.
+- Phase-null fallback retains its original attention coverage instead of
+  marking a later steered message answered by an older response.
+
+### Added
+- Read-only pending-reply audit for source installations, distinguishing
+  suppressed finals, required model silence, relay retries and incomplete
+  turns without exposing room text or changing delivery state.
+
 ## [0.12.2] - 2026-10-11
 
 ### Fixed
