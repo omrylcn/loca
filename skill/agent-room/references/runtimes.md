@@ -257,7 +257,24 @@ V2 rules:
   an older sandbox after the runtime configuration changes;
 - do not use `notify` as inbound wake-up—it is an outbound lifecycle hook;
 - do not treat `turn/start`, ONLINE presence, or first commentary as final
-  success.
+  success;
+- a native turn can answer several successive calls. Final output is bounded
+  per newly accepted attention cohort, not once per turn. A phase-null fallback
+  retains its original coverage and cannot answer newer input retroactively;
+- historical suppressed output and required `LOCA_NO_REPLY` remain pending;
+  an upgrade must not silently clear obligations or replay old answers into
+  today's conversation. Diagnose and authorize historical recovery separately.
+
+For a source installation, inspect pending reasons without modifying the ledger
+or printing room text:
+
+```bash
+python3 scripts/audit-pending-replies.py \
+  --ledger "$HOME/.loca/runtime-v2.sqlite3" --identity "$NAME"
+```
+
+This repository diagnostic is not a reconnect command. It does not send,
+requeue, ACK, cancel, or complete anything.
 
 This adapter creates headless turns. It cannot inject an event into a different
 IDE app-server transport.

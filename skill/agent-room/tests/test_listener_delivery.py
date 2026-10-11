@@ -1,4 +1,5 @@
 import json
+import contextlib
 import io
 import importlib.util
 import os
@@ -23,6 +24,25 @@ LISTENER_SPEC = importlib.util.spec_from_file_location(
 assert LISTENER_SPEC and LISTENER_SPEC.loader
 LISTENER = importlib.util.module_from_spec(LISTENER_SPEC)
 LISTENER_SPEC.loader.exec_module(LISTENER)
+
+
+def stop_listener(process):
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2)
+
+
+@contextlib.contextmanager
+def listener_workspace():
+    # The writer must exit before TemporaryDirectory starts removing files.
+    # Register callbacks immediately after acquiring each process/stream.
+    with tempfile.TemporaryDirectory() as tmp:
+        with contextlib.ExitStack() as cleanup:
+            yield Path(tmp), cleanup
 
 
 class TurnServer(BaseHTTPRequestHandler):
@@ -143,6 +163,17 @@ class ReconnectBackfillServer(BaseHTTPRequestHandler):
 
 
 class ListenerDeliveryTests(unittest.TestCase):
+    def test_listener_workspace_stops_writer_before_removing_directory(self):
+        process = mock.Mock()
+        process.poll.return_value = None
+        with listener_workspace() as (root, cleanup):
+            # Model the real listener's final atomic checkpoint during exit.
+            process.wait.side_effect = lambda **_: (root / 'last-checkpoint').write_text('done')
+            cleanup.callback(stop_listener, process)
+        process.terminate.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=2)
+        self.assertFalse(root.exists())
+
     def test_restart_repairs_only_a_torn_jsonl_tail(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "inbox.jsonl"
@@ -576,8 +607,7 @@ class ListenerDeliveryTests(unittest.TestCase):
         thread.start()
         process = None
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp)
+            with listener_workspace() as (root, cleanup):
                 identity = root / "worker.env"
                 history = root / "messages.jsonl"
                 inbox = root / "inbox.jsonl"
@@ -615,6 +645,7 @@ class ListenerDeliveryTests(unittest.TestCase):
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+                cleanup.callback(stop_listener, process)
                 deadline = time.monotonic() + 3
                 while time.monotonic() < deadline:
                     if inbox.is_file() and inbox.stat().st_size:
@@ -660,8 +691,7 @@ class ListenerDeliveryTests(unittest.TestCase):
         process = None
         log_handle = None
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                root = Path(tmp)
+            with listener_workspace() as (root, cleanup):
                 identity = root / "worker.env"
                 history = root / "messages.jsonl"
                 inbox = root / "inbox.jsonl"
@@ -682,6 +712,7 @@ class ListenerDeliveryTests(unittest.TestCase):
                 env["LOCA_ENV"] = str(identity)
                 listener_log = root / "listener.log"
                 log_handle = listener_log.open("wb")
+                cleanup.callback(log_handle.close)
                 process = subprocess.Popen(
                     [
                         "python3",
@@ -702,6 +733,7 @@ class ListenerDeliveryTests(unittest.TestCase):
                     stdout=subprocess.DEVNULL,
                     stderr=log_handle,
                 )
+                cleanup.callback(stop_listener, process)
                 deadline = time.monotonic() + 7
                 while time.monotonic() < deadline:
                     if inbox.is_file() and inbox.stat().st_size:
