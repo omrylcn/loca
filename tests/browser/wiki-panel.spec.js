@@ -40,18 +40,128 @@ test("automatic review is explicitly saved, verified and capability failures sta
 });
 
 test("manual page selection never claims model acceptance", async ({ page })=> {
-  await page.evaluate(()=>{window.isLocaOperator=()=>true;});
+  await page.evaluate(()=>{window.isLocaOperator=()=>true; state.members=[{name:"reader",type:"agent"}];});
   await page.route("**/rooms/wiki-a/wiki",route=>route.fulfill({json:snapshot}));
   await page.route("**/rooms/wiki-a/wiki/context/offer",route=> {
     expect(route.request().postDataJSON()).toEqual({target:"reader",slugs:["working"],reason:"operator selected this page"});
     return route.fulfill({json:{offered:true}});
   });
+  let messages = 0;
+  await page.route("**/rooms/wiki-a/messages", route => {
+    ++messages;
+    const body = route.request().postDataJSON();
+    expect(body.kind).toBe("announce"); expect(body.target).toBeNull();
+    expect(body.text).not.toContain("@reader");
+    return route.fulfill({json:{...body,id:11,room:"wiki-a",ts:Date.now()}});
+  });
   await page.evaluate(()=>switchTab("wiki"));
   await page.locator("#wikiIndex button").filter({hasText:"Working area"}).click();
-  await page.locator("#wikiSettingsToggle").click();
-  await page.locator("#wikiShareTarget").fill("reader");
+  await page.locator("#wikiSendPage").click();
+  await expect(page.locator("#wikiConfig")).toBeHidden();
+  await page.locator("#wikiShareTarget").selectOption("reader");
   await page.locator("#wikiShareSend").click();
   await expect(page.locator("#wikiShareStatus")).toContainText("acceptance is not yet confirmed");
+  await expect(page.locator("#wikiShareStatus")).toContainText("Chat #11");
+  await page.locator("#wikiShareSend").click();
+  expect(messages).toBe(1);
+  await page.locator("#tabChat").click();
+  await expect(page.locator('.row[data-id="11"]')).toContainText("Wiki page");
+});
+
+test("partial send failure retries only the Chat receipt with the same operation", async ({page}) => {
+  await page.evaluate(()=>{window.isLocaOperator=()=>true; state.members=[{name:"reader",type:"agent"}];});
+  await page.route("**/rooms/wiki-a/wiki",route=>route.fulfill({json:snapshot}));
+  let offers=0, posts=[];
+  await page.route("**/rooms/wiki-a/wiki/context/offer",route=>{ ++offers; return route.fulfill({json:{offered:true}}); });
+  await page.route("**/rooms/wiki-a/messages",route=>{
+    posts.push(route.request().postDataJSON());
+    if(posts.length===1) return route.fulfill({status:503});
+    return route.fulfill({json:{...posts[1],id:12,room:"wiki-a",ts:Date.now()}});
+  });
+  await page.evaluate(()=>switchTab("wiki"));
+  await page.locator("#wikiSendPage").click();
+  await page.locator("#wikiShareTarget").selectOption("reader");
+  await page.locator("#wikiShareSend").click();
+  await expect(page.locator("#wikiShareStatus")).toContainText("Page selected, but Chat receipt failed");
+  await page.locator("#wikiShareSend").click();
+  await expect(page.locator("#wikiShareStatus")).toContainText("Chat #12");
+  expect(offers).toBe(1); expect(posts).toHaveLength(2); expect(posts[0]).toEqual(posts[1]);
+});
+
+test("a rejected offer sends no Chat receipt and the published mobile form fits", async ({page}) => {
+  await page.setViewportSize({width:390,height:844});
+  await page.evaluate(()=>{
+    window.isLocaOperator=()=>true; state.members=[{name:"reader",type:"agent"}];
+    document.querySelector(".side").classList.add("hidden"); document.body.style.gridTemplateColumns="1fr";
+  });
+  await page.route("**/rooms/wiki-a/wiki",route=>route.fulfill({json:snapshot}));
+  await page.route("**/rooms/wiki-a/wiki/context/offer",route=>route.fulfill({status:403}));
+  let posts=0;
+  await page.route("**/rooms/wiki-a/messages",route=>{++posts; return route.fulfill({status:500});});
+  await page.evaluate(()=>switchTab("wiki"));
+  await page.locator("#wikiSendPage").click();
+  await page.locator("#wikiShareTarget").selectOption("reader");
+  await page.locator("#wikiShareSend").click();
+  await expect(page.locator("#wikiShareStatus")).toContainText("selection failed (403); no Chat receipt sent");
+  expect(posts).toBe(0);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+});
+
+test("editor request is addressed, visible, idempotent and not a publication claim", async ({page}) => {
+  await page.evaluate(()=>{window.isLocaOperator=()=>true;});
+  await page.route("**/rooms/wiki-a/wiki",route=>route.fulfill({json:snapshot}));
+  let posts=[];
+  await page.route("**/rooms/wiki-a/messages",route=>{
+    const body=route.request().postDataJSON(); posts.push(body);
+    expect(body.target).toBe("writer"); expect(body.kind).toBe("say");
+    expect(body.text).toContain("Correct the deployment rule");
+    expect(body.text).toContain("isolated Wiki worker");
+    return route.fulfill({json:{...body,kind:undefined,id:13,room:"wiki-a",ts:Date.now()}});
+  });
+  await page.evaluate(()=>switchTab("wiki"));
+  await page.locator("#wikiRequestUpdate").click();
+  await expect(page.locator("#wikiUpdate")).toContainText("not a private DM");
+  await page.locator("#wikiUpdateText").fill("Correct the deployment rule");
+  await page.locator("#wikiUpdateSend").click();
+  await expect(page.locator("#wikiUpdateStatus")).toContainText("Chat #13. Publication is not yet confirmed");
+  await page.locator("#wikiUpdateSend").click(); expect(posts).toHaveLength(1);
+  await page.locator("#tabChat").click();
+  await expect(page.locator('.row[data-id="13"]')).toContainText("Correct the deployment rule");
+});
+
+test("unsaved drafts are not sent and readers cannot request or share", async ({page}) => {
+  await page.route("**/rooms/wiki-a/wiki",route=>route.fulfill({json:snapshot}));
+  await page.evaluate(()=>switchTab("wiki"));
+  await expect(page.locator("#wikiSendPage")).toBeHidden();
+  await expect(page.locator("#wikiRequestUpdate")).toBeHidden();
+  await page.evaluate(()=>{window.isLocaOperator=()=>true; state.members=[{name:"reader",type:"agent"}]; renderWikiEditor();});
+  await page.locator("#wikiEditPage").click();
+  await page.locator("#wikiPageBody").fill("Unpublished correction");
+  await page.locator("#wikiSendPage").click();
+  await page.locator("#wikiShareTarget").selectOption("reader");
+  let writes=0;
+  await page.route("**/rooms/wiki-a/wiki/context/offer",route=>{++writes; return route.fulfill({json:{offered:true}});});
+  await page.locator("#wikiShareSend").click();
+  await expect(page.locator("#wikiShareStatus")).toContainText("Save or discard"); expect(writes).toBe(0);
+});
+
+test("an old-room page offer never posts a Chat receipt after navigation", async ({page}) => {
+  await page.evaluate(()=>{window.isLocaOperator=()=>true; state.members=[{name:"reader",type:"agent"}];});
+  await page.route("**/rooms/wiki-a/wiki",route=>route.fulfill({json:snapshot}));
+  let release, writes=0;
+  const held=new Promise(resolve=>{release=resolve;});
+  await page.route("**/rooms/wiki-a/wiki/context/offer",async route=>{await held; await route.fulfill({json:{offered:true}});});
+  await page.route("**/rooms/*/messages",route=>{++writes; return route.fulfill({status:500});});
+  await page.evaluate(()=>switchTab("wiki"));
+  await page.locator("#wikiSendPage").click();
+  await page.locator("#wikiShareTarget").selectOption("reader");
+  const requested=page.waitForRequest("**/rooms/wiki-a/wiki/context/offer");
+  await page.locator("#wikiShareSend").click(); await requested;
+  await page.evaluate(()=>{state.room="wiki-b";state.locaContext="context-b";resetWikiForRoom();});
+  const responded=page.waitForResponse("**/rooms/wiki-a/wiki/context/offer");
+  release(); await responded;
+  await expect(page.locator("#wikiShareStatus")).toBeEmpty();
+  expect(writes).toBe(0);
 });
 
 test("operator page editing verifies the accepted page revision, not matching older text", async ({ page }) => {

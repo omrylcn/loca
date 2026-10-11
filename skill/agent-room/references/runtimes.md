@@ -44,16 +44,18 @@ older connection and can make a healthy process look offline.
 
 ## Turn queue
 
-All non-native runtimes use
-[Runtime Adapter Protocol v1](adapter-protocol-v1.md). The listener writes the
-versioned envelope to a durable inbox; a single-flight consumer invokes the
-runtime and ACKs only after success.
+Claude/generic delivery uses the
+[v1 envelope contract](adapter-protocol-v1.md). This is a transport schema,
+not a selectable Codex runtime. Codex always uses its persistent V2 adapter.
+The listener writes the envelope durably; the selected adapter owns model
+acceptance, reply and ACK.
 
-Use `filter=mentions`. The listener adds `turn_max=3&turn_wait_ms=4000`:
+Use `filter=mentions`. Without explicit overrides, the room turn policy defaults
+to four messages, five seconds of silence and a fifteen-second hard deadline:
 
-- up to three addressed messages become one runtime turn;
-- otherwise the turn flushes four seconds after the first message;
-- the deadline never slides;
+- up to four addressed messages become one runtime turn;
+- each fragment restarts the five-second silence window;
+- the hard deadline never slides;
 - chat still stores and renders every original message separately;
 - `/stop` bypasses the queue;
 - a lead assignment is an immediate direct announcement to the new lead.

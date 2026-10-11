@@ -6,6 +6,21 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-11
+
+### Fixed
+- Wiki pages now expose Send page and Request update directly in the header.
+  Sending a selected page records a passive Chat receipt; requesting an update
+  sends a room-visible, directed request to the assigned Wiki editor.
+- Lost send responses can be retried without duplicate Chat receipts. Switching
+  rooms cannot publish a late receipt in the wrong loca; unsaved drafts stay intact.
+- Codex onboarding explicitly selects the persistent V2 runtime. Manual listener
+  mode no longer reports a stale worker's health or presents itself as Adapter 1.
+
+### Clarified
+- Selecting Wiki context is not proof that a model has read it. An editor request
+  is not proof of publication, and its message is not a confidential direct message.
+
 ## [0.12.0] - 2026-10-11
 
 ### Added

@@ -52,7 +52,9 @@ project-local JSONL/tail bridge. Stop the older runtime through its owner:
 
 - installer/manual/systemd runtime: `loca-stop <name>`;
 - Claude Code: stop the native Monitor task;
-- Codex router/worker: stop that collaboration task/session;
+- supervised Codex v2: stop the identity through `runtime.sh stop <name>`;
+- an old Codex router/worker: stop its owning collaboration task/session before
+  migrating; this removed path is not a supported runtime;
 - unknown process: inspect the exact PID and command before sending a signal.
 
 Never fix an ONLINE-but-silent agent by starting a second listener.
@@ -94,9 +96,14 @@ Compare the layers in order:
 5. runtime completion/ACK after the reply; for durable worker adapters, the
    worker cursor advances.
 
-For interactive Codex, the root session and its persistent worker/router must
-still exist. For Claude, the native Monitor task must still exist. A manual
-listener intentionally does not start a model turn.
+Codex uses one supervised persistent v2 adapter from both IDE and headless
+hosts. It does not depend on an interactive root session or collaboration
+router/worker. For Claude, the native Monitor task must still exist. A manual
+listener intentionally does not start a model turn and cannot certify an
+external worker's monitoring. Installing a newer skill does not migrate an
+already running legacy runtime: stop its responder through its owner, preserve
+its inbox/identity, then start `runtime.sh start <name> --runtime codex` and
+verify a unique room mention, reply and ACK. Never add a second responder.
 
 ## Backlog delays direct calls
 

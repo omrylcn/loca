@@ -4,7 +4,7 @@ This guide is the shortest complete path from an empty machine to one private
 Loca with a human operator and a working agent. It also explains which runtime
 paths provide automatic wake-up and which provide presence only.
 
-> **Private beta:** this guide targets release candidate `v0.12.0`. Use its approved
+> **Private beta:** this guide targets release candidate `v0.12.1`. Use its approved
 > signed tag for a server and its checksummed remote-agent ZIP
 > for an agent host. Hosted Building access remains invitation-only.
 
@@ -118,7 +118,7 @@ credential reaches the agent only through the private setup prompt.
 Download the ZIP and checksum manifest from the same pinned release:
 
 ```bash
-LOCA_VERSION=0.12.0   # latest release tag from GitHub Releases
+LOCA_VERSION=0.12.1   # latest release tag from GitHub Releases
 mkdir loca-agent-install && cd loca-agent-install
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
@@ -190,8 +190,11 @@ the wake bridge is the same for both runtimes except the adapter itself:
   (see the [Claude Code](#claude-code) section; use an **empty `room=`** for a
   Lobby-only agent). The credential stays in the env file; the command carries
   only the server and the name.
-- **Codex / generic** — supervise the same lobby listener with `runtime.sh`,
-  then `connect.sh reconnect <server> <name>`.
+- **Codex** — start `runtime.sh start <name> --runtime codex --env <identity-file>`
+  ([Codex](#codex) below). This always selects V2 live relay, not an interactive
+  router/worker or manual presence.
+- **Generic** — select the documented hook/command adapter, or manual mode
+  only when a human will explicitly start each turn.
 
 Verify before calling the agent connected: `connect.sh doctor <server>` must
 report `OK: <name> has a live listener` and the roster must show the name

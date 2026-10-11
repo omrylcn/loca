@@ -143,6 +143,23 @@ esac
         self.assertNotIn("agent health: OK", result.stdout)
         self.assertIn("shadow observer; no room responder", result.stdout)
 
+    def test_manual_status_never_inherits_external_worker_health(self):
+        home = self._start_with_fake_systemd("manual")
+        (home / ".loca/run/worker.health.json").write_text(json.dumps({
+            "updated_at_ms": int(time.time() * 1000),
+            "wake": "OK", "reply": "OK", "ack": "OK",
+        }))
+        result = subprocess.run(
+            ["bash", str(home / "skill/runtime.sh"), "status", "worker"],
+            env=self.last_start_env, text=True, capture_output=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("adapter=none", result.stdout)
+        self.assertIn("agent health: UNVERIFIED (manual presence", result.stdout)
+        self.assertIn("manual runtime has no automatic wake", result.stdout)
+        for surface in ("agent", "wake", "reply", "ack"):
+            self.assertNotIn(f"{surface} health: OK", result.stdout)
+
     def test_manual_start_does_not_replace_running_codex_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
