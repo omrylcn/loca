@@ -490,7 +490,7 @@ pub(crate) async fn create_session_route(
         && (hub.member_for_credential(token).is_some()
             || matches!(
                 personal_authority.building_role,
-                Some(BuildingRole::Smaster)
+                Some(crate::store::BuildingRole::Smaster)
             ))
     {
         // Bind Smaster and Member credentials through canonical authority.

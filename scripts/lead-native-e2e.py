@@ -24,6 +24,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--timeout", type=int, default=150)
+    parser.add_argument("--direct", action="store_true", help="also usable for the direct-attention gate")
     args = parser.parse_args()
     codex = shutil.which("codex")
     gate.require(codex is not None, "native Codex unavailable")
@@ -79,7 +80,8 @@ def main():
                 marker = "NATIVE_LEAD_OK_" + uuid.uuid4().hex[:10]
                 source = gate.http(base, "POST", "/rooms/probe/messages",
                     {"sender": "fixture-operator", "sender_type": "user",
-                     "text": "Lead conformance test: no mention is used. Reply with exactly " + marker
+                     "text": ("@" + name + " " if args.direct else "")
+                             + "Lead conformance test. Reply with exactly " + marker
                              + ". Use no tools. This asks for a real room reply."}, headers=operator_headers)
                 replies = gate.eventually(lambda: [m for m in gate.http(
                     base, "GET", "/rooms/probe/messages?since=" + str(source["id"]), admin=True)
@@ -88,12 +90,19 @@ def main():
                 def acked():
                     with sqlite3.connect(ledger) as connection:
                         return connection.execute(
-                            "SELECT count(*) FROM attentions WHERE identity=? AND priority='lead_room' "
-                            "AND turn_completed_at_ms IS NOT NULL", (name,)).fetchone()[0] > 0
+                            "SELECT count(*) FROM attentions WHERE identity=? AND priority=? "
+                            "AND accepted_at_ms IS NOT NULL AND turn_completed_at_ms IS NOT NULL",
+                            (name, "direct_user" if args.direct else "lead_room")).fetchone()[0] == 1
                 gate.eventually(acked, "native turn completion/ACK missing", timeout=30)
+                replies = [m for m in gate.http(base, "GET", "/rooms/probe/messages?since="
+                    + str(source["id"]), admin=True)
+                    if m.get("sender") == name and marker in m.get("text", "")]
+                gate.require(len(replies) == 1, "native gate requires exactly one accepted reply")
+                gate.require(json.loads(health.read_text()).get("ack") == "OK", "adapter ACK missing")
                 print(json.dumps({"result": "PASS", "source_id": source["id"],
                                   "reply_ids": [m["id"] for m in replies],
-                                  "boundary": "plain Lead delivery -> native Codex -> accepted reply -> completion"}))
+                                  "boundary": ("direct" if args.direct else "plain Lead")
+                                      + " delivery -> native Codex -> one accepted reply -> completion/adapter ACK"}))
             finally:
                 for process in reversed(processes):
                     gate.stop(process)
