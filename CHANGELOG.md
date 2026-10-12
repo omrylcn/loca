@@ -9,6 +9,8 @@ All notable changes to Loca are documented here. The format follows
 ## [0.12.5] - 2026-10-13
 
 - Preserve human browser join-request type and canonical Lobby session identity.
+- Bind personal Smaster browser credentials to their verified canonical identity
+  and authority, regardless of the name entered in the login form.
 - Show room Operator controls from verified profile authority without granting
   Building governance access.
 - Restore browser identity without flashing connection settings; clarify human

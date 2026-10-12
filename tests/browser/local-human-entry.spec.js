@@ -1,5 +1,36 @@
 const { test, expect } = require("@playwright/test");
 
+test("Smaster browser login derives Building authority from its credential", async ({ page, request }) => {
+  const response = await request.post("/smasters", {
+    headers: { "x-admin-token": "MASTER" }, data: { name: "browser-deputy" }
+  });
+  expect(response.ok()).toBeTruthy();
+  const { token } = await response.json();
+  await page.goto("/");
+  await page.locator("#name").fill("not-the-canonical-name");
+  await page.locator("#roomToken").fill(token);
+  await page.evaluate(() => doConnect("iye"));
+  await expect(page.locator("#whoami")).toContainText("browser-deputy");
+  await expect(page.locator("#adminToggle")).toBeVisible();
+  const profile = await page.evaluate(async () =>
+    (await fetch("/profile?room=iye", { headers: adminHeaders({}) })).json());
+  expect(profile.building_role).toBe("smaster");
+  expect(profile.loca.operator_source).toBe("inherited_smaster");
+  const deputies = await (await request.get("/smasters", {
+    headers: { "x-admin-token": "MASTER" }
+  })).json();
+  const deputy = deputies.find(row => row.name === "browser-deputy");
+  expect(deputy).toBeTruthy();
+  expect((await request.delete(`/smasters/${deputy.id}`, {
+    headers: { "x-admin-token": "MASTER" }
+  })).ok()).toBeTruthy();
+  const revoked = await request.post("/sessions", {
+    headers: { "x-room-token": token },
+    data: { name: "operator", kind: "user" }
+  });
+  expect(revoked.status()).toBe(401);
+});
+
 test("appointed human Operator: profile, real HTTP permissions and visible controls agree", async ({ page, request }) => {
   const root = { "x-admin-token": "MASTER" };
   const name = "appointed-human";

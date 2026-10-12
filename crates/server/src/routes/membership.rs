@@ -453,6 +453,7 @@ pub(crate) async fn create_session_route(
     let supplied_admin_credential = admin_token_of(&headers);
     let credential_authority = hub.resolve_authority(supplied_admin_credential, None);
     let credential_principal = credential_authority.principal_id.is_some();
+    let personal_authority = hub.resolve_authority(token, None);
     // An explicitly supplied but revoked/unknown profile credential is not an
     // anonymous open-house login. Otherwise revocation could be bypassed by
     // presenting the dead key to `/sessions` and falling through to the
@@ -468,6 +469,7 @@ pub(crate) async fn create_session_route(
         && hub.member_for_credential(token).is_none()
         && !hub.is_invite_token(token)
         && !credential_principal
+        && personal_authority.principal_id.is_none()
     {
         return (StatusCode::UNAUTHORIZED, "davet required").into_response();
     }
@@ -484,9 +486,10 @@ pub(crate) async fn create_session_route(
         Some(hub.master_pairing_grant(ttl))
     } else if davet.is_none() && admin_token_of(&headers).is_some() {
         hub.admin_session_grant(admin_token_of(&headers), Hub::ADMIN_SESSION_TTL_MS)
-    } else if davet.is_none() && hub.member_for_credential(token).is_some() {
-        // A Lobby membership is a real principal, not an anonymous building
-        // key. Bind its canonical type, role and credential to this session.
+    } else if davet.is_none() {
+        // Resolve any personal credential through the same canonical authority
+        // path, including Smaster and Member credentials. Shared building keys
+        // have no principal grant and retain their existing anonymous behavior.
         hub.admin_session_grant(token, Hub::ADMIN_SESSION_TTL_MS)
     } else {
         None
