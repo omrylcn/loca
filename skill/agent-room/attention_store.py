@@ -15,7 +15,7 @@ import orchestrator_queue
 
 
 TERMINAL_STATUSES = {"failed", "interrupted", "cancelled", "expired"}
-CONTEXT_ONLY_PRIORITIES = {"lead_room", "informational"}
+CONTEXT_ONLY_PRIORITIES = {"informational"}
 DEFAULT_REPLY_REQUIRED = {"direct_user"}
 PROTECTED_PRIORITIES = {"security_control", "care_signal", "explicit_task"}
 
