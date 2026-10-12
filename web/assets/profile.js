@@ -108,6 +108,7 @@ async function fetchProfile() {
     renderRooms();
     renderProfile();
     renderLocaSidebar();
+    renderOperatorControls();
   } catch (error) {
     if (sequence !== profileFetchSequence || room !== state.room) return;
     state.profile = null;

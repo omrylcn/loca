@@ -149,6 +149,16 @@ Everyone else: skip this section.
 
 ## 1. Connect (one-time setup, then never again)
 
+### Building bootstrap is not agent onboarding
+
+For a private Building, the first human administrator enters as Master through
+the host's secure one-use pairing flow, not a join request. Caretakers neither
+replace that Master nor issue its credentials. Never ask loca-care for a key.
+Human browser requests declare user; this agent skill declares agent. Both
+require Master/Smaster approval for membership, not automatic admin authority.
+Only Master appoints Smaster. Loca Operator is a room role for humans, not a
+Building entry type; Master/Smaster inherit room management authority.
+
 ### First `/loca`: decide the identity, do not explore
 
 Resolve these three facts before running any command: **the exact identity

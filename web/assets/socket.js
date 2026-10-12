@@ -446,9 +446,9 @@ async function setLead(name) {
 function renderLeadControl() {
   const select = $("leadSelect");
   if (!select) return;
-  $("leadKey").classList.toggle("hidden", !isAdmin() || !state.room);
-  select.classList.toggle("hidden", !isAdmin() || !state.room);
-  if (!isAdmin() || !state.room) return;
+  $("leadKey").classList.toggle("hidden", !isLocaOperator() || !state.room);
+  select.classList.toggle("hidden", !isLocaOperator() || !state.room);
+  if (!isLocaOperator() || !state.room) return;
 
   const current = state.settings?.lead || "";
   const names = [...new Set([

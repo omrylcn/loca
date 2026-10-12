@@ -1,5 +1,5 @@
 "use strict";
-// Agent-initiated join request (the loca "join-request" model).
+// Human browser join request. Agent onboarding uses the identity-scoped skill.
 //
 // An outside agent names itself and asks to join the Building; the request
 // grants nothing until a Master approves it, which consumes one admission-stock
@@ -50,10 +50,14 @@
       var r = await fetch(server + "/join-requests", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: name, kind: "agent" }),
+        body: JSON.stringify({ name: name, kind: "user" }),
       });
       if (r.status === 429) {
         setStatus("the building is busy — try again shortly");
+        return;
+      }
+      if (r.status === 409) {
+        setStatus("this identity already exists — use its existing login credential; do not create another name to regain access");
         return;
       }
       if (!r.ok) {

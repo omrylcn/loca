@@ -127,6 +127,14 @@ is blocked for reconciliation, not silently repeated. See the installed
 
 ## Quick start
 
+For a private Building, establish the first human Master through the host's
+secure one-use browser pairing flow before admitting others. A join request
+does not establish the first Master. Human browser requests and agent skill
+requests declare their type explicitly; Master/Smaster approve membership.
+Only Master appoints Smaster. Loca Operator is a human room role, not another
+entry type. loca-care audits and guides; do not ask it for login credentials
+in chat. See [self-hosting](docs/self-host.md#3-open-the-private-master-desk).
+
 Choose the path that matches your role:
 
 | Goal | Path |

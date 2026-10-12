@@ -73,8 +73,8 @@ async function fetchSettings() {
 }
 function renderSettings() {
   const s = state.settings || {};
-  renderLeadControl();
-  if (isAdmin()) {
+  renderOperatorControls();
+  if (isLocaOperator()) {
     if (document.activeElement !== $("rlLimit")) $("rlLimit").value = s.rate_limit ?? 10;
     if (document.activeElement !== $("rlWindow")) $("rlWindow").value = s.rate_window_secs ?? 30;
     if (document.activeElement !== $("liveTimeout")) $("liveTimeout").value = s.live_timeout_secs ?? 120;
@@ -239,7 +239,7 @@ async function applySettings() {
   if (!Number.isNaN(th)) body.turn_max_wait_ms = th;
   try { Object.assign(body, reminderSettingsBody()); }
   catch (error) { alert(error.message); return; }
-  body.operators = $("opsList").value.split(",").map(x => x.trim()).filter(Boolean);
+  if (isAdmin()) body.operators = $("opsList").value.split(",").map(x => x.trim()).filter(Boolean);
   await putSettings(body);
 }
 async function applyReminderSettings() {
@@ -293,7 +293,22 @@ async function toggleLive() {
 
 /* ---- görevler (tasks): declaration, not a queue ---- */
 function isLocaOperator() {
-  return isAdmin() || (state.settings?.operators || []).includes(state.name);
+  return isAdmin() || (state.profile?.loca?.room === state.room
+    && ["human", "user"].includes(state.profile?.principal?.kind)
+    && state.profile?.loca?.roles?.includes("operator"));
+}
+
+function renderOperatorControls() {
+  const allowed = !!state.room && isLocaOperator();
+  $("adminbar").classList.toggle("on", allowed);
+  $("adminToggle").classList.toggle("hidden", !allowed);
+  $("liveToggle").classList.toggle("hidden", !allowed);
+  $("opsList").closest(".propertyfield").classList.toggle("hidden", !isAdmin());
+  for (const id of ["closeLocaBtn", "reopenLocaBtn", "sealLocaBtn"]) {
+    $(id).disabled = !isAdmin();
+  }
+  if (!allowed) closeProperties();
+  renderLeadControl();
 }
 /// Who holds a davet for this loca but is not connected right now. They still
 /// occupy a seat, so the master must be able to see and release them.

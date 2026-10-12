@@ -465,6 +465,7 @@ pub(crate) async fn create_session_route(
     }
     if !paired_admin
         && !hub.is_member(token)
+        && hub.member_for_credential(token).is_none()
         && !hub.is_invite_token(token)
         && !credential_principal
     {
@@ -483,6 +484,10 @@ pub(crate) async fn create_session_route(
         Some(hub.master_pairing_grant(ttl))
     } else if davet.is_none() && admin_token_of(&headers).is_some() {
         hub.admin_session_grant(admin_token_of(&headers), Hub::ADMIN_SESSION_TTL_MS)
+    } else if davet.is_none() && hub.member_for_credential(token).is_some() {
+        // A Lobby membership is a real principal, not an anonymous building
+        // key. Bind its canonical type, role and credential to this session.
+        hub.admin_session_grant(token, Hub::ADMIN_SESSION_TTL_MS)
     } else {
         None
     };
