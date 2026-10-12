@@ -488,7 +488,10 @@ pub(crate) async fn create_session_route(
         hub.admin_session_grant(admin_token_of(&headers), Hub::ADMIN_SESSION_TTL_MS)
     } else if davet.is_none()
         && (hub.member_for_credential(token).is_some()
-            || matches!(personal_authority.building_role, Some(BuildingRole::Smaster)))
+            || matches!(
+                personal_authority.building_role,
+                Some(BuildingRole::Smaster)
+            ))
     {
         // Bind Smaster and Member credentials through canonical authority.
         // Master pairing and anonymous/shared-key sandbox entry stay separate.
