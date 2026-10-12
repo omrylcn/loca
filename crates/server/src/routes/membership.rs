@@ -486,10 +486,12 @@ pub(crate) async fn create_session_route(
         Some(hub.master_pairing_grant(ttl))
     } else if davet.is_none() && admin_token_of(&headers).is_some() {
         hub.admin_session_grant(admin_token_of(&headers), Hub::ADMIN_SESSION_TTL_MS)
-    } else if davet.is_none() {
-        // Resolve any personal credential through the same canonical authority
-        // path, including Smaster and Member credentials. Shared building keys
-        // have no principal grant and retain their existing anonymous behavior.
+    } else if davet.is_none()
+        && (hub.member_for_credential(token).is_some()
+            || matches!(personal_authority.building_role, Some(BuildingRole::Smaster)))
+    {
+        // Bind Smaster and Member credentials through canonical authority.
+        // Master pairing and anonymous/shared-key sandbox entry stay separate.
         hub.admin_session_grant(token, Hub::ADMIN_SESSION_TTL_MS)
     } else {
         None
