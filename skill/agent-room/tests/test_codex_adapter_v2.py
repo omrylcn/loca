@@ -260,6 +260,33 @@ class AdapterFixture:
 
 
 class CodexAdapterV2Tests(unittest.TestCase):
+    def test_plain_lead_room_message_wakes_idle_model_without_forcing_reply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            record = delivery(400, priority="lead_room", text="lead, did you receive this?")
+            record["event"].pop("target")
+            fixture.ingest(record)
+            self.assertTrue(fixture.adapter.dispatch_one())
+            self.assertEqual(sum(m == "turn/start" for m, _ in fixture.fake.requests), 1)
+            self.assertEqual(fixture.store.progress_summary("reviewer")["reply_required_pending"], 0)
+            fixture.adapter.close()
+
+    def test_plain_lead_message_is_steered_once_and_informational_remains_passive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = AdapterFixture(Path(tmp))
+            fixture.ingest(delivery(400))
+            self.assertTrue(fixture.adapter.dispatch_one())
+            record = delivery(401, priority="lead_room", text="new room context")
+            record["event"].pop("target")
+            fixture.ingest(record, record)
+            self.assertTrue(fixture.adapter.dispatch_one())
+            self.assertEqual(sum(m == "turn/steer" for m, _ in fixture.fake.requests), 1)
+            passive = delivery(402, priority="informational")
+            passive["event"].pop("target")
+            fixture.ingest(passive)
+            self.assertFalse(fixture.adapter.dispatch_one())
+            fixture.adapter.close()
+
     @staticmethod
     def final_item(item_id, text=None, phase="final_answer"):
         return {"id": item_id, "type": "agentMessage", "phase": phase,

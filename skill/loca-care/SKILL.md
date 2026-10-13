@@ -11,6 +11,14 @@ caretaker-only operational audit.
 
 ## Audit the Building
 
+For first private-Building login, direct the human host to the secure local
+master desk's one-use pairing flow. Do not ask them to request membership as
+an agent or create another identity. Caretaker access cannot issue, retrieve
+or distribute Master/Smaster credentials; never send a pairing code in chat.
+Human browser membership requests and agent skill requests are distinct.
+Master/Smaster approve membership; only Master appoints Smaster. Being the
+recipient of a join announcement does not grant approval authority.
+
 Run the deterministic audit with the caretaker identity:
 
 ```bash

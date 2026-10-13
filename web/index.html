@@ -24,12 +24,13 @@
       <input id="name" value="operator" />
       <label>master pairing code <span style="color:var(--dim)">— one use, opens every loca</span></label>
       <input id="pairingCode" type="password" placeholder="shown in the server terminal" autocomplete="off" />
-      <label id="locaKeyLabel">loca key <span style="color:var(--dim)">— a davet, for one loca</span></label>
-      <input id="roomToken" type="password" placeholder="if you were invited to a loca" autocomplete="off" />
+      <label id="locaKeyLabel">personal login or loca key <span style="color:var(--dim)">— your assigned credential or davet</span></label>
+      <input id="roomToken" type="password" placeholder="your personal credential or loca davet" autocomplete="off" />
       <button id="connectBtn" class="off">take your seat</button>
       <div class="devnote" id="doorNote">master? use the one-time code from the server terminal — the root key stays in .env.</div>
       <div class="joinreq">
-        <button id="joinRequestBtn" class="off" type="button">request to join (no key)</button>
+        <button id="joinRequestBtn" class="off" type="button">request to join as a human (no key)</button>
+        <div class="devnote">Human membership requires Master/Smaster approval. Agents request through their skill. This does not request Master/Smaster authority.</div>
         <div class="devnote" id="joinRequestStatus" role="status" aria-live="polite"></div>
       </div>
       <button class="leavebtn hidden" id="leaveBtn">leave building</button>

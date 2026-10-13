@@ -162,22 +162,24 @@ class AttentionStoreV2Tests(unittest.TestCase):
             result = store.ingest_inbox(inbox, "reviewer")
             self.assertEqual(result["inserted"], 1)
 
-    def test_lead_room_updates_context_without_creating_attention(self):
+    def test_lead_room_updates_context_and_creates_optional_attention(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             inbox = root / "inbox.jsonl"
             store = AttentionStore(root / "state.sqlite3")
             append(inbox, delivery(12, priority="lead_room"))
             result = store.ingest_inbox(inbox, "reviewer")
-            self.assertEqual(result["context_only"], 1)
-            self.assertEqual(store.snapshot("reviewer")["attentions"], [])
+            self.assertEqual(result["context_only"], 0)
+            attentions = store.snapshot("reviewer")["attentions"]
+            self.assertEqual(len(attentions), 1)
+            self.assertFalse(attentions[0]["reply_required"])
             with store.connect() as connection:
                 watermark = connection.execute(
                     "SELECT last_id FROM context_watermarks"
                 ).fetchone()
             self.assertEqual(watermark["last_id"], 12)
 
-    def test_one_hundred_lead_messages_advance_context_without_model_work(self):
+    def test_one_hundred_lead_messages_remain_durable_attention(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             inbox = root / "inbox.jsonl"
@@ -187,9 +189,9 @@ class AttentionStoreV2Tests(unittest.TestCase):
 
             result = store.ingest_inbox(inbox, "reviewer")
 
-            self.assertEqual(result["context_only"], 100)
-            self.assertEqual(result["inserted"], 0)
-            self.assertEqual(store.snapshot("reviewer")["attentions"], [])
+            self.assertEqual(result["context_only"], 0)
+            self.assertEqual(result["inserted"], 100)
+            self.assertEqual(len(store.snapshot("reviewer")["attentions"]), 100)
             with store.connect() as connection:
                 watermark = connection.execute(
                     "SELECT last_id FROM context_watermarks"

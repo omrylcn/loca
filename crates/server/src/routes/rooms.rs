@@ -221,8 +221,19 @@ pub(crate) async fn set_settings(
     headers: HeaderMap,
     Json(body): Json<SetSettings>,
 ) -> impl IntoResponse {
-    if !is_admin_req(&hub, &headers) {
-        return (StatusCode::UNAUTHORIZED, "admin token required").into_response();
+    if !is_room_operator_req(&hub, &id, &headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            "operator authority required for this loca",
+        )
+            .into_response();
+    }
+    if !is_admin_req(&hub, &headers) && (body.operators.is_some() || body.archived.is_some()) {
+        return (
+            StatusCode::FORBIDDEN,
+            "Building authority required for governance changes",
+        )
+            .into_response();
     }
     if hub.is_deleted(&id) {
         return (StatusCode::CONFLICT, "this loca is permanently sealed").into_response();

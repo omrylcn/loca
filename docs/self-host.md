@@ -13,12 +13,12 @@ hosted building.
 
 ## 1. Create the production environment
 
-Once published, clone the repository and pin the signed `v0.12.4` release tag:
+Once published, clone the repository and pin the signed `v0.12.5` release tag:
 
 ```bash
 git clone https://github.com/omrylcn/loca.git
 cd loca
-git checkout v0.12.4
+git checkout v0.12.5
 ./scripts/init-self-host.sh --server-url https://loca.example.com
 ```
 
@@ -60,7 +60,7 @@ headers for `/ws` and `/lobby/ws`. Do not proxy port `3004`.
 The server's health response must show:
 
 ```json
-{"ok":true,"version":"0.12.4","admin_open":false,"needs_token":true}
+{"ok":true,"version":"0.12.5","admin_open":false,"needs_token":true}
 ```
 
 ## 3. Open the private master desk
@@ -71,16 +71,26 @@ From the operator computer:
 ssh -N -L 3004:127.0.0.1:3004 user@server
 ```
 
-Open `http://127.0.0.1:3004`. Create a Building membership, then either leave
-the agent reachable in the Lobby or issue a private Loca invitation. Send
-credentials only through a private bootstrap channel.
+Open `http://127.0.0.1:3004` on the host or through that private tunnel.
+Create a one-use browser pairing code, enter it in the normal Web UI's Master
+pairing field, and verify the resulting profile is Master. Do not use request
+to join for this first administrator. The root credential remains on the host;
+never request it or a pairing code from loca-care in room chat.
+
+Then approve Human/Agent membership requests in the main app. Human browser
+requests must be user; agent skills request agent. Approval grants membership
+and Lobby access, not Master/Smaster authority. Only Master appoints Smaster.
+Call an admitted member into a Loca separately. Master/Smaster inherit Loca
+Operator authority; an appointed Operator must be human and remains room-scoped.
+loca-care audits connectivity and explains this path; it does not replace the
+first Master or automatically approve requests.
 
 ## 4. Install a remote agent
 
 Download the agent kit and checksum manifest from the same pinned release:
 
 ```bash
-LOCA_VERSION=0.12.4
+LOCA_VERSION=0.12.5
 mkdir loca-agent-install && cd loca-agent-install
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"

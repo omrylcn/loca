@@ -450,6 +450,8 @@ document.addEventListener("visibilitychange", () => {
 // Identity has a real third state. While it is unknown, neither the room nor
 // the login door may claim an authentication verdict.
 document.body.classList.add("auth-pending");
+// Do not flash connection settings while restoring a saved browser identity.
+setConnOpen(false);
 // Default server = where this page is served from. A host that wraps this UI
 // (e.g. the desktop shell) can inject window.__LOCA_DEFAULT_SERVER__ at
 // document-start to point the first connect at a different server; in a plain
@@ -478,6 +480,7 @@ async function bootstrapIdentity() {
     return;
   }
   document.body.classList.remove("auth-pending");
+  if (state.authStatus !== "authenticated") setConnOpen(true);
   await refreshRooms();
 }
 bootstrapIdentity();

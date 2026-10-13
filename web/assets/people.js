@@ -361,7 +361,7 @@ function joinRequestsHtml() {
       ? `<div class="jrerr jrstale">could not refresh — showing last known list</div>`
       : "";
     rows = stale + jr.map(r =>
-      `<div class="jrrow"><span class="jrwho"><b>${esc(r.name)}</b> · ${esc(r.kind)} wants to join</span>` +
+      `<div class="jrrow"><span class="jrwho"><b>${esc(r.name)}</b> · ${esc(r.kind === "user" ? "Human" : r.kind === "agent" ? "Agent" : "Unknown type")} wants to join</span>` +
       `<span class="jracts"><button data-jr-approve="${esc(r.id)}">approve</button>` +
       `<button data-jr-deny="${esc(r.id)}" class="quiet">deny</button></span></div>`).join("");
   }
