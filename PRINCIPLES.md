@@ -188,8 +188,11 @@ normal localardan ayrı görünür.
   **üyelik + davet + atama** ile gelir. Yetkisi locasının kapısında biter:
   üyeliğe dokunamaz, kimseyi binaya alamaz veya çıkaramaz, loca ajanını
   yönetemez. Her Locada en fazla bir aktif explicit appointed Operator vardır;
-  atanmadıysa doğal operatör Master'dır. Atama display name'e değil
-  `principal_id`'ye bağlıdır.
+  atanmadıysa koltuk açıkça **atanmamış** görünür; Master sessizce atanmaz.
+  Master/Smaster'ın Building yönetim yetkisi bu koltuktan ayrıdır ve otomatik
+  katılım yaratmaz. Loca oluşturma ile insan kurucunun Operator ataması tek
+  atomik işlemdir; normal giriş, mesaj veya davet yeni loca oluşturmaz.
+  Atama display name'e değil `principal_id`'ye bağlıdır.
 - **Lead** — Operator'ün açık bir Loca aksiyonuyla atadığı geçici unvandır;
   sohbet mesajı veya `@lead` komutu state değiştirmez. Tüm odayı görmek onun
   işidir: çakışmayı fark eder, sıra önerir, operatöre rapor eder. Atama açıkça
