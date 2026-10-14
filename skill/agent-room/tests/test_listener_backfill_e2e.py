@@ -20,13 +20,15 @@ def free_port():
         return sock.getsockname()[1]
 
 
-def request_json(url, *, method="GET", token=None, body=None):
+def request_json(url, *, method="GET", token=None, admin_token=None, body=None):
     encoded = None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(url, data=encoded, method=method)
     if encoded is not None:
         request.add_header("content-type", "application/json")
     if token:
         request.add_header("x-room-token", token)
+    if admin_token:
+        request.add_header("x-admin-token", admin_token)
     with urllib.request.urlopen(request, timeout=10) as response:
         payload = response.read()
     return json.loads(payload.decode()) if payload else None
@@ -118,6 +120,8 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
                 server, server_log_handle = self.start_server(
                     port, database, server_log
                 )
+                request_json(f"{base}/rooms", method="POST", admin_token="e2e-admin",
+                             body={"name": "reviewer"})
                 endpoint = f"{base}/rooms/reviewer/messages"
                 baseline = request_json(
                     endpoint,
