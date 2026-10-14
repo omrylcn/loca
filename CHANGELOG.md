@@ -17,6 +17,7 @@ All notable changes to Loca are documented here. The format follows
   using their permanent identity, preserving assignments across restarts and renames.
 
 ### Fixed
+- Update the locked rustls client dependency to 0.23.46 for the release security gate.
 - Reject implicit closed-Building creation through messages, invitations and
   ordinary/watch WebSocket entry. Preserve open local sandbox behavior.
 - Restore legacy invitation-only locas on startup without silently assigning Operators.
