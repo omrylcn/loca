@@ -193,10 +193,9 @@ function renderLocaSidebar() {
     return;
   }
   const assignment = isLocaContextReady("operator") ? state.locaOperator?.appointed : null;
-  const inherited = isLocaContextReady("operator") ? state.locaOperator?.inherited_master : null;
   const operator = !isLocaContextReady("operator") ? "Loading…"
-    : assignment?.display_name || inherited?.display_name || "Not assigned";
-  const operatorSource = assignment ? "appointed" : inherited ? "inherited from Master" : "";
+    : assignment?.display_name || "Not assigned";
+  const operatorSource = assignment ? "appointed" : "";
   const lead = !isLocaContextReady("settings") ? "Loading…" : state.settings?.lead || "No lead";
   const roles = isLocaContextReady("profile") ? state.profile?.loca?.roles || [] : [];
   const myRole = !isLocaContextReady("profile") ? "Loading…" : roles.length

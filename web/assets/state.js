@@ -123,7 +123,7 @@ async function takeSession() {
         ...(adminExchange ? { "x-pairing-code": state.pairing } : {}),
         ...(!adminExchange && state.roomToken ? { "x-room-token": state.roomToken } : {}),
       },
-      body: JSON.stringify({ name: state.name, kind: "user" }),
+      body: JSON.stringify({ name: adminExchange ? "" : state.name, kind: "user" }),
     });
     if (r.ok) {
       const info = await r.json();

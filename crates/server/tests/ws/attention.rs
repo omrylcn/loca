@@ -280,6 +280,7 @@ async fn direct_caretaker_summon_and_message_commit_or_fail_together() {
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "project").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let sql = rusqlite::Connection::open(&db).unwrap();
@@ -350,8 +351,10 @@ async fn caretaker_claims_source_attention_without_source_room_access() {
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "project").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
+    create_test_room(port, "MASTER", "other").await;
     let care_davet = davet_for(&base, "MASTER", "iye", "loca-care").await;
     let care_session = session_with(
         &base,
@@ -502,6 +505,7 @@ async fn attention_has_one_owner_and_delivery_ack_is_not_resolution() {
     let db = dir.path().join("attention.sqlite");
     let db_path = db.to_string_lossy().to_string();
     let (port, guard) = spawn_server_env("MASTER", &[("DB_PATH", db_path.clone())]).await;
+    create_test_room(port, "MASTER", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let lead = client
@@ -603,6 +607,7 @@ async fn attention_has_one_owner_and_delivery_ack_is_not_resolution() {
 #[tokio::test]
 async fn reminders_cannot_be_enabled_for_a_missing_room_lead() {
     let (port, _guard) = spawn_server_with("buyuk").await;
+    create_test_room(port, "buyuk", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -638,6 +643,7 @@ async fn reminders_cannot_be_enabled_for_a_missing_room_lead() {
 #[tokio::test]
 async fn explicit_wait_cycle_wakes_only_the_live_lead_with_bounded_context() {
     let (port, _guard) = spawn_server_with("buyuk").await;
+    create_test_room(port, "buyuk", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     report_ready_runtime(&client, &base, "buyuk", "lead").await;
@@ -724,6 +730,7 @@ async fn loca_care_owns_the_signal_in_iye_when_no_live_lead_exists() {
         ],
     )
     .await;
+    create_test_room(port, "buyuk", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     report_ready_runtime(&client, &base, "buyuk", "loca-care").await;
@@ -797,6 +804,7 @@ async fn failed_lead_runtime_is_not_treated_as_healthy_presence() {
         ],
     )
     .await;
+    create_test_room(port, "buyuk", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let lead_token = report_ready_runtime(&client, &base, "buyuk", "lead").await;
@@ -864,6 +872,7 @@ async fn failed_lead_runtime_is_not_treated_as_healthy_presence() {
 #[tokio::test]
 async fn configured_task_goal_and_silence_checks_emit_distinct_care_reasons() {
     let (port, _guard) = spawn_server_with("buyuk").await;
+    create_test_room(port, "buyuk", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     report_ready_runtime(&client, &base, "buyuk", "lead").await;
@@ -999,6 +1008,7 @@ async fn direct_goal_progress_and_care_reset_commit_atomically() {
         .to_string_lossy()
         .to_string();
     let (port, _guard) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
+    create_test_room(port, "MASTER", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
@@ -1387,6 +1397,7 @@ async fn wait_reply_resets_the_overdue_generation() {
         &[("DB_PATH", db.clone()), ("CARE_WAIT_SECS", "1".into())],
     )
     .await;
+    create_test_room(port, "buyuk", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -1656,6 +1667,7 @@ async fn everyone_reminder_wakes_each_member_exactly_once_over_websockets() {
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -1792,6 +1804,7 @@ async fn everyone_reminder_ack_is_principal_scoped_over_http() {
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -1928,6 +1941,7 @@ async fn everyone_reminder_revoked_member_gets_zero_on_reconnect() {
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -2035,6 +2049,7 @@ async fn everyone_reminder_separates_two_same_named_principals_over_websockets()
     let dv_b;
     {
         let (_p, _guard) = spawn_server_env("MASTER", &boot_env(port)).await;
+        create_test_room(_p, "MASTER", "proj").await;
         dv_a = davet_for(&base, "MASTER", "proj", "sam").await;
         dv_b = davet_for(&base, "MASTER", "proj", "sam-two").await;
         client

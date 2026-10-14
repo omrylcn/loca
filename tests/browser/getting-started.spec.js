@@ -220,6 +220,11 @@ test("Host: successful provisioning keeps the warning hidden", async ({ page }) 
     };
   });
   await page.goto("/");
+  // Let the real unauthenticated startup finish before testing manual panel
+  // disclosure; its late membership response legitimately opens the door.
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("unauthenticated");
+  await page.evaluate(() => refreshRooms());
+  await expect.poll(() => page.evaluate(() => roomsRefreshing)).toBe(false);
   await page.evaluate(() => setConnOpen(false));
 
   await expect(page.locator("#connBox")).toBeHidden();

@@ -1,7 +1,9 @@
 const { test, expect } = require("@playwright/test");
+const { provisionRooms } = require("./support/building");
 
 test("real Wiki send and editor request persist in room history without claiming model acceptance", async ({ page, request }) => {
   const room = "wiki-send-e2e", admin = { "x-admin-token": "MASTER" };
+  await provisionRooms(request, [room]);
   const agents = {};
   for (const name of ["wiki-writer", "wiki-reader"]) {
     expect((await request.post("/members", { headers: admin, data: { name, kind: "agent" } })).ok()).toBeTruthy();

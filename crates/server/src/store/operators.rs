@@ -3,6 +3,43 @@ use rusqlite::{params, OptionalExtension, Row, Transaction};
 use super::{parse_sender_type, BuildingRole, LocaOperatorAssignment, LocaOperatorError, Store};
 
 impl Store {
+    /// Persist a new room and its founder appointment atomically, never replacing
+    /// a room or operator which already exists (including a sealed room).
+    pub fn create_room_with_operator(
+        &self,
+        room: &str,
+        settings: &protocol::RoomSettings,
+        founder: &str,
+        at: u64,
+    ) -> Result<LocaOperatorAssignment, LocaOperatorError> {
+        let Some(mut c) = self.conn() else {
+            return Err(LocaOperatorError::Storage);
+        };
+        let tx = c
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        validate_target(&tx, founder)?;
+        let role = validate_appointer(&tx, founder)?;
+        if role == BuildingRole::Member {
+            return Err(LocaOperatorError::AppointerNotAuthorized);
+        }
+        let exists: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM rooms WHERE room = ?1)",
+                params![room],
+                |row| row.get(0),
+            )
+            .map_err(storage)?;
+        if exists || query_active(&tx, room)?.is_some() {
+            return Err(LocaOperatorError::Conflict);
+        }
+        Self::write_room_state(&tx, room, &protocol::ChatMode::Free, settings).map_err(storage)?;
+        insert_assignment(&tx, room, founder, founder, role, at)?;
+        let assignment = query_active(&tx, room)?.ok_or(LocaOperatorError::Storage)?;
+        tx.commit().map_err(storage)?;
+        Ok(assignment)
+    }
+
     /// Return the room's one active explicit Loca Operator, if appointed.
     pub fn loca_operator(&self, room: &str) -> Option<LocaOperatorAssignment> {
         let c = self.conn()?;
@@ -73,20 +110,14 @@ impl Store {
             .map_err(storage)?;
         }
 
-        tx.execute(
-            "INSERT INTO room_operator_assignments
-             (room, principal_id, appointed_by_principal_id, appointed_by_role,
-              appointed_at, revoked_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
-            params![
-                room,
-                principal_id,
-                appointed_by_principal_id,
-                role_str(appointed_by_role),
-                appointed_at
-            ],
-        )
-        .map_err(storage)?;
+        insert_assignment(
+            &tx,
+            room,
+            principal_id,
+            appointed_by_principal_id,
+            appointed_by_role,
+            appointed_at,
+        )?;
         let assignment = query_active(&tx, room)?.ok_or(LocaOperatorError::Storage)?;
         tx.commit().map_err(storage)?;
         Ok(assignment)
@@ -122,6 +153,23 @@ impl Store {
         tx.commit().map_err(storage)?;
         Ok(assignment)
     }
+}
+
+fn insert_assignment(
+    tx: &Transaction<'_>,
+    room: &str,
+    principal_id: &str,
+    appointed_by_principal_id: &str,
+    role: BuildingRole,
+    at: u64,
+) -> Result<(), LocaOperatorError> {
+    tx.execute(
+        "INSERT INTO room_operator_assignments
+         (room, principal_id, appointed_by_principal_id, appointed_by_role, appointed_at, revoked_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+        params![room, principal_id, appointed_by_principal_id, role_str(role), at],
+    ).map_err(storage)?;
+    Ok(())
 }
 
 fn validate_target(tx: &Transaction<'_>, principal_id: &str) -> Result<(), LocaOperatorError> {

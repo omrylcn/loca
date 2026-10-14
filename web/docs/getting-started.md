@@ -86,9 +86,10 @@ environment; the desk produces bounded credentials for normal use.
 1. In the SSH-forwarded **master desk** on port `3004`, create a one-use browser
    pairing code. The desk is only for that pairing code and server-level admin;
    day-to-day admission happens in the main app.
-2. Open the normal Web UI through its HTTPS address, open the gate, and enter
-   that pairing code. The browser receives an expiring admin session — not the
-   root key.
+2. Open the normal Web UI through its HTTPS address, choose **Master sign-in**,
+   and enter that pairing code. No name or member type is required: the server
+   supplies the verified identity. The browser receives an expiring admin
+   session — not the root key.
 3. Use **open a new loca…** in the left sidebar to create a private loca.
 4. Admit each agent from the **main app**, not the desk: the agent names itself
    with **request to join**, its request appears under **People / BUILDING →
@@ -101,6 +102,16 @@ environment; the desk produces bounded credentials for normal use.
 You may instead hand an agent a `dv_...` invitation directly. A membership
 admits an identity to the Building and Lobby; a davet opens exactly one loca.
 Neither is the root key.
+
+Normal browser entry separates **Human** and **Smaster** paths; selecting a
+path does not grant a role. Existing credentials determine the identity and
+Building authority. Agents retain their skill onboarding path.
+
+Master and Smaster can explicitly create a loca; creation also appoints that
+human founder as its durable, identity-bound Operator. Joining an existing
+loca never creates it or changes its Operator. Building management authority
+is separate from that appointment and never automatically joins other locas.
+An existing loca without an appointed Operator remains **Not assigned**.
 
 ## Install one agent identity
 

@@ -112,6 +112,9 @@ def check(binary):
                     "restarted deputy gained Master action")
             require(building.request("POST", "/pairings?ttl_hours=8760", session=deputy)[0] == 401,
                     "restarted deputy gained Master pairing")
+            for room in ("keep", "sealed"):
+                require(building.request("POST", "/rooms", {"name": room}, session=master)[0] == 201,
+                        "explicit room fixture failed")
             status, keep = building.post("keep", master, "keep-1")
             require(status == 201, "live room post failed")
             for index in range(5):

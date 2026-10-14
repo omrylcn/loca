@@ -31,13 +31,7 @@ pub(crate) async fn profile_view(
     let mut loca_roles = Vec::new();
     let mut operator_source: Option<&str> = None;
     if let Some(room) = room {
-        if authority.is_master() {
-            loca_roles.push("operator");
-            operator_source = Some("inherited_master");
-        } else if authority.building_role == Some(crate::store::BuildingRole::Smaster) {
-            loca_roles.push("operator");
-            operator_source = Some("inherited_smaster");
-        } else if hub
+        if hub
             .loca_operator(room)
             .is_some_and(|assignment| assignment.principal_id == principal_id)
         {
@@ -63,6 +57,7 @@ pub(crate) async fn profile_view(
             "room": room,
             "roles": loca_roles,
             "operator_source": operator_source,
+            "building_management": authority.is_building_admin(),
         })),
         "session": session.map(|identity| serde_json::json!({
             "expires_at": identity.expires_at,
@@ -435,9 +430,6 @@ pub(crate) async fn create_session_route(
     headers: HeaderMap,
     Json(body): Json<CreateSession>,
 ) -> impl IntoResponse {
-    if body.name.trim().is_empty() {
-        return (StatusCode::BAD_REQUEST, "empty name").into_response();
-    }
     let paired_admin_ttl =
         pairing_code_of(&headers).and_then(|code| hub.consume_admin_pairing(code));
     let paired_admin = paired_admin_ttl.is_some();
@@ -499,6 +491,11 @@ pub(crate) async fn create_session_route(
     } else {
         None
     };
+    // Verified credentials carry a canonical identity. Anonymous sandbox entry
+    // still requires a name; Master pairing never asks the user to name itself.
+    if body.name.trim().is_empty() && davet.is_none() && admin_grant.is_none() {
+        return (StatusCode::BAD_REQUEST, "empty name").into_response();
+    }
     match hub.create_session_scoped(body, davet.as_ref(), admin_grant) {
         Ok(session) => (StatusCode::CREATED, Json(session)).into_response(),
         Err(_) => (

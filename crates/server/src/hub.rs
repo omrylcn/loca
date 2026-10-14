@@ -320,6 +320,8 @@ impl EnterDecision {
 /// A davet never creates identity — it seats an existing member.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InviteError {
+    /// Closed Buildings require an explicitly created loca before an invitation.
+    MissingRoom,
     /// The name is not a building member — admit them first.
     MemberNotFound,
     /// This member already holds a live davet for this loca.
@@ -1486,6 +1488,9 @@ impl Hub {
         if self.is_deleted(room) {
             return Err(InviteError::Sealed);
         }
+        if !self.admin_open() && !self.room_exists(room) {
+            return Err(InviteError::MissingRoom);
+        }
         let Some(member) = self.member_of(Some(member_token)) else {
             return Err(InviteError::MemberNotFound);
         };
@@ -2201,7 +2206,12 @@ impl Hub {
         Ok(self.sessions.lock_or_recover().remove(token).is_some())
     }
 
-    /// Get or create a room, seeding new rooms with the hub's default settings.
+    /// Check room existence without implicitly provisioning it.
+    pub fn room_exists(&self, room: &str) -> bool {
+        self.rooms.lock_or_recover().contains_key(room)
+    }
+
+    /// Internal sandbox/state helper; external closed-Building entry is gated.
     fn room_mut<'a>(
         rooms: &'a mut HashMap<String, Room>,
         name: &str,
@@ -3297,6 +3307,46 @@ impl Hub {
 
     pub fn loca_operator(&self, room: &str) -> Option<LocaOperatorAssignment> {
         self.store.loca_operator(room)
+    }
+
+    pub fn create_loca(
+        &self,
+        room: &str,
+        actor: &RequestAuthority,
+    ) -> Result<Option<LocaOperatorAssignment>, OperatorAssignmentError> {
+        if !actor.is_building_admin() {
+            return Err(OperatorAssignmentError::AuthorityRequired);
+        }
+        if self.is_deleted(room) {
+            return Err(OperatorAssignmentError::Conflict);
+        }
+        let mut rooms = self.rooms.lock_or_recover();
+        if rooms.contains_key(room) {
+            return Err(OperatorAssignmentError::Conflict);
+        }
+        let assignment = if self.store.is_persistent() && !self.admin_open() {
+            let founder = actor
+                .principal_id
+                .as_deref()
+                .ok_or(OperatorAssignmentError::AuthorityRequired)?;
+            Some(
+                self.store
+                    .create_room_with_operator(room, &self.default_settings, founder, self.now())
+                    .map_err(map_loca_operator_error)?,
+            )
+        } else {
+            // The deliberately open sandbox has no authenticated founder. It
+            // may still use SQLite to preserve its room state across restarts.
+            self.store
+                .save_room(room, &ChatMode::Free, &self.default_settings)
+                .map_err(|_| OperatorAssignmentError::Storage)?;
+            None
+        };
+        rooms.insert(
+            room.to_string(),
+            Room::with(ChatMode::Free, self.default_settings.clone(), 1),
+        );
+        Ok(assignment)
     }
 
     pub fn loca_operator_history(&self, room: &str) -> Vec<LocaOperatorAssignment> {

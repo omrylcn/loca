@@ -422,7 +422,7 @@ async fn main() {
             "/smasters/:token",
             axum::routing::delete(revoke_smaster_route),
         )
-        .route("/rooms", get(list_rooms))
+        .route("/rooms", get(list_rooms).post(create_loca_route))
         .route("/rooms/:id/messages", get(get_messages).post(post_message))
         .route(
             "/rooms/:id/attachments",
@@ -821,6 +821,11 @@ async fn admin_console_invite(
         Err(hub::InviteError::Storage) => {
             (StatusCode::SERVICE_UNAVAILABLE, "could not save davet").into_response()
         }
+        Err(hub::InviteError::MissingRoom) => (
+            StatusCode::NOT_FOUND,
+            "create the loca before issuing a davet",
+        )
+            .into_response(),
         Err(hub::InviteError::Sealed) => {
             (StatusCode::CONFLICT, "this loca is permanently sealed").into_response()
         }
@@ -1036,6 +1041,13 @@ async fn ws_handler(
         hub::EnterDecision::Denied => {
             return (StatusCode::UNAUTHORIZED, "davet required for this loca").into_response();
         }
+    }
+    if !hub.admin_open() && !hub.room_exists(&room) {
+        return (
+            StatusCode::NOT_FOUND,
+            "loca does not exist; create it first",
+        )
+            .into_response();
     }
     // A session OR davet names its holder authoritatively. Query-string names
     // are only a hint for open/legacy doors; allowing a davet to enter under an

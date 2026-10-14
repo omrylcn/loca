@@ -34,8 +34,8 @@ function renderProfile() {
   const locaLabels = roles
     .filter(role => role !== "participant" || roles.length === 1)
     .map(profileRoleLabel);
-  const source = loca?.operator_source === "appointed" ? "appointed"
-    : loca?.operator_source?.startsWith("inherited") ? "inherited" : "";
+  const source = loca?.operator_source === "appointed" ? "appointed" : "";
+  const management = loca?.building_management ? "Building management access" : "";
   const locaText = locaLabels.length ? locaLabels.join(" · ") : "PARTICIPANT";
   const expiry = profile.session?.expires_at
     ? `expires ${profileTime(profile.session.expires_at)}` : "verified credential";
@@ -59,7 +59,7 @@ function renderProfile() {
     `<div class="profileconnected">connected as <b>${esc(principal.display_name)}</b> · You · ${profileKindLabel(principal.kind)}</div>` +
     `<div class="profileroles">` +
       `<span><small>Building</small><b class="role building-${esc(profile.building_role)}">${profileRoleLabel(profile.building_role)}</b></span>` +
-      `<span><small>This Loca</small><b class="role loca-role">${esc(locaText)}</b>${source ? `<em>${source}</em>` : ""}</span>` +
+      `<span><small>This Loca</small><b class="role loca-role">${esc(locaText)}</b>${source ? `<em>${source}</em>` : ""}${management ? `<em>${management}</em>` : ""}</span>` +
     `</div>` +
     `<div class="profilesession"><small>Session</small><span>${profile.session ? "Bounded session" : "Direct credential"} · ${esc(expiry)}</span></div>` +
     `<details class="profileaccess"><summary>Your access <span>${state.credentials.filter(c => !c.revoked_at).length}</span></summary>` +

@@ -80,8 +80,12 @@ never request it or a pairing code from loca-care in room chat.
 Then approve Human/Agent membership requests in the main app. Human browser
 requests must be user; agent skills request agent. Approval grants membership
 and Lobby access, not Master/Smaster authority. Only Master appoints Smaster.
-Call an admitted member into a Loca separately. Master/Smaster inherit Loca
-Operator authority; an appointed Operator must be human and remains room-scoped.
+Call an admitted member into an existing Loca separately. Master/Smaster retain
+Building management authority, not an automatic Operator appointment in every
+loca. Explicit creation appoints its human founder as that loca's Operator;
+joining, messaging, or issuing a davet cannot create a missing loca. Operator
+appointments use permanent identity IDs, not display names. Existing vacant
+seats remain unassigned; Building authority does not imply room participation.
 loca-care audits connectivity and explains this path; it does not replace the
 first Master or automatically approve requests.
 

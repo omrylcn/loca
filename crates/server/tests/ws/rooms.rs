@@ -5,6 +5,7 @@ use super::*;
 #[tokio::test]
 async fn moderation_mute_kick_ban() {
     let (port, _guard) = spawn_server_with("adm").await;
+    create_test_room(port, "adm", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -72,6 +73,7 @@ async fn moderation_mute_kick_ban() {
 #[tokio::test]
 async fn closing_a_room_evicts_and_wipes_it() {
     let (port, _guard) = spawn_server_with("adm").await;
+    create_test_room(port, "adm", "doomed").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -153,6 +155,7 @@ async fn closing_a_room_evicts_and_wipes_it() {
 #[tokio::test]
 async fn archive_is_reversible_and_gates_delete() {
     let (port, _guard) = spawn_server_with("adm").await;
+    create_test_room(port, "adm", "attic").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -241,6 +244,7 @@ async fn archive_is_reversible_and_gates_delete() {
 #[tokio::test]
 async fn only_the_master_can_seal_an_archived_loca() {
     let (port, _guard) = spawn_server_with("MASTER").await;
+    create_test_room(port, "MASTER", "attic").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -301,6 +305,7 @@ async fn only_the_master_can_seal_an_archived_loca() {
 #[tokio::test]
 async fn loca_seats_seven() {
     let (port, _guard) = spawn_server_env("master", &[]).await;
+    create_test_room(port, "master", "mobile").await;
     let mut seated = Vec::new();
     for i in 1..=7 {
         let mut ws = connect_ws(port, "mobile", &format!("agent{i}"), "agent").await;
@@ -351,6 +356,7 @@ async fn loca_seats_seven() {
 #[tokio::test]
 async fn leaving_a_loca_has_four_distinct_meanings() {
     let (port, _guard) = spawn_server_env("MASTER", &[("ROOM_TOKEN", "building".into())]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -463,6 +469,7 @@ async fn leaving_a_loca_has_four_distinct_meanings() {
 #[tokio::test]
 async fn a_lead_is_named_in_the_open_and_only_by_an_operator() {
     let (port, _guard) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "genel").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -587,6 +594,7 @@ async fn a_lead_is_named_in_the_open_and_only_by_an_operator() {
 #[tokio::test]
 async fn ban_shuts_the_door_and_updates_the_roster() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
@@ -628,6 +636,7 @@ async fn ban_shuts_the_door_and_updates_the_roster() {
 #[tokio::test]
 async fn a_deleted_loca_does_not_come_back() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "gecici").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -730,6 +739,7 @@ async fn a_deleted_loca_does_not_come_back() {
 #[tokio::test]
 async fn ban_broadcasts_the_new_roster_live() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -779,6 +789,7 @@ async fn ban_broadcasts_the_new_roster_live() {
 #[tokio::test]
 async fn a_full_loca_refuses_the_eighth_even_with_a_davet() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "dolu").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -861,6 +872,7 @@ async fn round_robin_advances_wraps_and_refuses_out_of_turn() {
         };
 
     let (port, guard) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
+    create_test_room(port, "MASTER", "rr").await;
     client
         .post(format!("http://127.0.0.1:{port}/rooms/rr/messages"))
         .header("x-admin-token", "MASTER")
@@ -907,6 +919,7 @@ async fn round_robin_advances_wraps_and_refuses_out_of_turn() {
 #[tokio::test]
 async fn an_archived_loca_reads_but_refuses_posts() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "eski").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
@@ -954,6 +967,7 @@ async fn an_archived_loca_reads_but_refuses_posts() {
 #[tokio::test]
 async fn the_untested_endpoints_answer_correctly() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -1107,6 +1121,7 @@ async fn a_ban_survives_a_restart() {
             &[("DB_PATH", db.clone()), ("REQUIRE_INVITE", "1".into())],
         )
         .await;
+        create_test_room(port, "MASTER", "oda").await;
         let base = format!("http://127.0.0.1:{port}");
         let d = davet_for(&base, "MASTER", "oda", "cyber").await;
         // Read works before the ban.
@@ -1162,6 +1177,7 @@ async fn a_ban_survives_a_restart() {
 #[tokio::test]
 async fn a_sealed_loca_stays_sealed_against_posts() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "temp").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     // Create, archive, delete a loca.
@@ -1219,6 +1235,7 @@ async fn a_sealed_loca_stays_sealed_against_posts() {
 #[tokio::test]
 async fn release_leaves_no_ghost() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     admit(&base, "MASTER", "worker", "agent").await;
@@ -1249,6 +1266,7 @@ async fn release_leaves_no_ghost() {
 #[tokio::test]
 async fn release_to_lobby_and_one_click_recall_is_end_to_end() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let first_davet = davet_for(&base, "MASTER", "oda", "worker").await;
@@ -1376,6 +1394,7 @@ async fn iye_migration_preserves_history_and_reserves_the_loca() {
 
     {
         let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
+        create_test_room(port, "MASTER", "general").await;
         let base = format!("http://127.0.0.1:{port}");
         client
             .post(format!("{base}/rooms/general/messages"))
@@ -1486,6 +1505,7 @@ async fn a_mute_survives_a_restart() {
     let client = reqwest::Client::new();
     {
         let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
+        create_test_room(port, "MASTER", "oda").await;
         let base = format!("http://127.0.0.1:{port}");
         client
             .post(format!("{base}/rooms/oda/moderate"))
@@ -1524,6 +1544,7 @@ async fn unban_after_restart_clears_the_row() {
     let client = reqwest::Client::new();
     {
         let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
+        create_test_room(port, "MASTER", "oda").await;
         let base = format!("http://127.0.0.1:{port}");
         client
             .post(format!("{base}/rooms/oda/moderate"))
@@ -1618,6 +1639,7 @@ async fn a_sealed_loca_is_not_revived_by_a_watcher() {
 #[tokio::test]
 async fn archived_blocks_all_mutations() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
@@ -1811,6 +1833,7 @@ async fn a_sealed_loca_survives_restart_sealed() {
 #[tokio::test]
 async fn lead_endpoint_announces() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let mut ws = connect_ws(port, "oda", "watcher", "user").await;
@@ -1878,6 +1901,7 @@ async fn durable_backfill_pages_the_complete_archive_after_restart() {
 
     {
         let (port, _guard) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
+        create_test_room(port, "MASTER", "archive").await;
         let base = format!("http://127.0.0.1:{port}");
         for sequence in 1..=total {
             let response = client

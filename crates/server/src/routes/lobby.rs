@@ -68,6 +68,11 @@ pub(crate) async fn call_into_loca(
             "could not save davet — try again",
         )
             .into_response(),
+        Err(hub::InviteError::MissingRoom) => (
+            StatusCode::NOT_FOUND,
+            "create the loca before issuing a davet",
+        )
+            .into_response(),
         Err(hub::InviteError::Sealed) => {
             (StatusCode::CONFLICT, "this loca is permanently sealed").into_response()
         }
