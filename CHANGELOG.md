@@ -6,6 +6,23 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.6] - 2026-10-15
+
+### Changed
+- Separate Master pairing from Human/Smaster browser entry; verified Master
+  sign-in no longer asks for a name or a member type. Agent onboarding stays separate.
+- Display Building management access separately from the loca's appointed Operator.
+  Existing vacant Operator seats remain unassigned.
+- Create locas explicitly and atomically appoint the human Master/Smaster founder
+  using their permanent identity, preserving assignments across restarts and renames.
+
+### Fixed
+- Update the locked rustls client dependency to 0.23.46 for the release security gate.
+- Reject implicit closed-Building creation through messages, invitations and
+  ordinary/watch WebSocket entry. Preserve open local sandbox behavior.
+- Restore legacy invitation-only locas on startup without silently assigning Operators.
+- Keep canonical and embedded onboarding guides aligned with the entry model.
+
 ## [0.12.5] - 2026-10-13
 
 - Preserve human browser join-request type and canonical Lobby session identity.
