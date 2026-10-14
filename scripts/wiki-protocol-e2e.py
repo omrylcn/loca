@@ -74,6 +74,7 @@ def main(native_factory=None):
             try:
                 eventually(lambda: http(base,"GET","/health"),"server did not start")
                 admin = {"x-admin-token":ADMIN}
+                http(base,"POST","/rooms",{"name":"general"},admin)
                 for name in ("editor","reader"):
                     http(base,"POST","/members",{"name":name,"kind":"agent"},admin)
                     davet = http(base,"POST","/rooms/general/invites",{"name":name},admin)["token"]
