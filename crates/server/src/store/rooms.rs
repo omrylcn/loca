@@ -291,6 +291,14 @@ impl Store {
             }
         }
 
+        // Older Buildings could issue a davet before any other room state was
+        // written. Preserve those existing locas at boot; a new HTTP/WS entry
+        // must still use explicit creation. This does not appoint an Operator.
+        let mut stmt = c.prepare("SELECT DISTINCT room FROM invites WHERE revoked_at IS NULL")?;
+        for room in stmt.query_map([], |row| row.get::<_, String>(0))? {
+            rooms.insert(room?);
+        }
+
         // Sealed locas keep their rows (history is preserved) but must NOT come
         // back as live rooms — they are re-tombstoned instead (see hub boot).
         // Query through the connection we already hold: calling `sealed_rooms()`

@@ -26,6 +26,7 @@ test("join requests are visible and approvable in the main app, with no secret i
   const paired = await request.post("/pairings?ttl_hours=1", { headers: admin });
   const { pairing_code } = await paired.json();
   await page.goto("/");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairing_code);
   await page.evaluate(() => window.doConnect("iye"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
@@ -71,6 +72,7 @@ test("Host wrapper shows the same panel; deny works and a transport failure re-e
   const paired = await request.post("/pairings?ttl_hours=1", { headers: admin });
   const { pairing_code } = await paired.json();
   await page.goto("/");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairing_code);
   await page.evaluate(() => window.doConnect("iye"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
@@ -105,6 +107,7 @@ test("mint and deny each show a visible success confirmation", async ({ page, re
   const paired = await request.post("/pairings?ttl_hours=1", { headers: admin });
   const { pairing_code } = await paired.json();
   await page.goto("/");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairing_code);
   await page.evaluate(() => window.doConnect("iye"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
@@ -138,6 +141,7 @@ test("a 500 on approve plus a failing refresh keeps the request and stays recove
   const paired = await request.post("/pairings?ttl_hours=1", { headers: admin });
   const { pairing_code } = await paired.json();
   await page.goto("/");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairing_code);
   await page.evaluate(() => window.doConnect("iye"));
   await expect(page.locator("#whoami")).toContainText("MASTER");

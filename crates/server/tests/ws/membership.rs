@@ -8,6 +8,7 @@ use super::*;
 #[tokio::test]
 async fn reads_require_membership_too() {
     let (port, _guard) = spawn_server_env("adm", &[("ROOM_TOKEN", "join".into())]).await;
+    create_test_room(port, "adm", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -81,6 +82,7 @@ async fn reads_require_membership_too() {
 #[tokio::test]
 async fn membership_outlives_the_locas_you_are_called_into() {
     let (port, _guard) = spawn_server_env("MASTER", &[("ROOM_TOKEN", "building".into())]).await;
+    create_test_room(port, "MASTER", "sb-dev").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -181,6 +183,7 @@ async fn membership_outlives_the_locas_you_are_called_into() {
 #[tokio::test]
 async fn invite_requires_existing_member() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let r = reqwest::Client::new()
         .post(format!("{base}/rooms/general/invites"))
@@ -196,6 +199,7 @@ async fn invite_requires_existing_member() {
 #[tokio::test]
 async fn call_requires_existing_member() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let r = client
@@ -213,6 +217,7 @@ async fn call_requires_existing_member() {
 #[tokio::test]
 async fn invite_does_not_create_identity() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     admit(&base, "MASTER", "cyber", "agent").await;
@@ -242,6 +247,7 @@ async fn invite_does_not_create_identity() {
 #[tokio::test]
 async fn admit_and_invite_creates_two_distinct_records() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let m: Value = client
@@ -278,6 +284,7 @@ async fn admit_and_invite_creates_two_distinct_records() {
 #[tokio::test]
 async fn session_identity_comes_from_invited_member() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let d = davet_for(&base, "MASTER", "general", "alice").await;
@@ -318,6 +325,7 @@ async fn session_identity_comes_from_invited_member() {
 #[tokio::test]
 async fn resident_list_contains_only_building_members() {
     let (port, _g) = spawn_server_env("MASTER", &[("ROOM_TOKEN", "building".into())]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     admit(&base, "MASTER", "known", "agent").await;
     // A stranger connects with the building key — seated, but not a resident.
@@ -372,6 +380,7 @@ async fn member_without_seat_appears_in_the_lobby() {
 #[tokio::test]
 async fn duplicate_invite_for_same_member_and_room_is_rejected() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let _first = davet_for(&base, "MASTER", "general", "cyber").await;
     let again = reqwest::Client::new()
@@ -459,6 +468,7 @@ async fn legacy_invites_migrate_to_memberships() {
 #[tokio::test]
 async fn same_admin_key_two_names_one_seat() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let first_url =
         format!("ws://127.0.0.1:{port}/ws?room=general&name=operator&type=user&admin=MASTER");
@@ -491,6 +501,7 @@ async fn same_admin_key_two_names_one_seat() {
 #[tokio::test]
 async fn same_davet_two_names_one_seat() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let d = davet_for(&base, "MASTER", "general", "cyber").await;
     let (mut a, _) = tokio_tungstenite::connect_async(format!(
@@ -525,6 +536,7 @@ async fn same_davet_two_names_one_seat() {
 #[tokio::test]
 async fn two_different_members_same_display_name_two_seats() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let d1 = davet_for(&base, "MASTER", "general", "g1").await;
     let d2 = davet_for(&base, "MASTER", "general", "g2").await;
@@ -560,6 +572,8 @@ async fn two_different_members_same_display_name_two_seats() {
 #[tokio::test]
 async fn master_in_multiple_rooms_keeps_one_seat_each() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "oda-a").await;
+    create_test_room(port, "MASTER", "oda-b").await;
     let base = format!("http://127.0.0.1:{port}");
     let (mut a, _) = tokio_tungstenite::connect_async(format!(
         "ws://127.0.0.1:{port}/ws?room=oda-a&name=master&type=user&admin=MASTER"
@@ -592,6 +606,7 @@ async fn master_in_multiple_rooms_keeps_one_seat_each() {
 #[tokio::test]
 async fn capacity_counts_identities_not_names() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "dolu").await;
     let base = format!("http://127.0.0.1:{port}");
     // Seven members take the seven seats.
     let mut held = Vec::new();
@@ -654,6 +669,8 @@ async fn capacity_counts_identities_not_names() {
 #[tokio::test]
 async fn revoke_invite_checks_the_loca() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "real").await;
+    create_test_room(port, "MASTER", "other").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let d = davet_for(&base, "MASTER", "real", "cyber").await;
@@ -703,6 +720,7 @@ async fn revoke_invite_checks_the_loca() {
 #[tokio::test]
 async fn a_member_can_release_its_own_loca_into_the_lobby() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let davet = davet_for(&base, "MASTER", "oda", "worker").await;
@@ -761,6 +779,7 @@ async fn kick_keeps_membership_so_recall_is_one_step() {
     // Davet-only mode: the davet is the ONLY door, so stopping it truly shuts
     // the loca (in open mode the door is davet-independent and this can't show).
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let d = davet_for(&base, "MASTER", "oda", "cyber").await;
@@ -890,6 +909,8 @@ async fn admit_rejects_unknown_kind() {
 #[tokio::test]
 async fn revoking_membership_kills_davets_and_sessions() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "oda1").await;
+    create_test_room(port, "MASTER", "oda2").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     // cyber is a member seated in two locas.

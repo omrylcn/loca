@@ -1,5 +1,23 @@
 "use strict";
 // UI event wiring and application bootstrap.
+function setEntryPath(path) {
+  state.entryPath = path;
+  const master = path === "master";
+  $("masterEntry").classList.toggle("hidden", !master);
+  $("memberEntry").classList.toggle("hidden", master);
+  $("humanJoinRequest").classList.toggle("hidden", path !== "human");
+  $("masterEntryButton").textContent = master ? "Back to Human / Smaster sign-in" : "Master sign-in";
+  $("masterEntryButton").setAttribute("aria-expanded", String(master));
+  $("connectBtn").textContent = master ? "sign in as Master" : path === "smaster" ? "sign in as Smaster" : "sign in as Human";
+  $("entryHint").textContent = path === "smaster"
+    ? "Use the personal credential issued by Master. Selecting Smaster does not grant authority."
+    : "Existing credentials verify your recorded identity; a typed name cannot replace it.";
+  if (master) { $("roomToken").value = ""; state.roomToken = ""; }
+  else { $("pairingCode").value = ""; state.pairing = ""; }
+}
+$("masterEntryButton").onclick = () => setEntryPath(state.entryPath === "master" ? $("entryKind").value : "master");
+$("entryKind").onchange = () => setEntryPath($("entryKind").value);
+setEntryPath("human");
 function setConnOpen(open) {
   $("connBox").style.display = open ? "" : "none";
   $("connGear").textContent = open ? "✕" : "⚙";

@@ -6,6 +6,8 @@ use super::*;
 async fn gorev_lifecycle_and_operator_authority() {
     // Admin token set -> authority is real, not dev-open.
     let (port, _guard) = spawn_server_with("buyuk").await;
+    create_test_room(port, "buyuk", "proj").await;
+    create_test_room(port, "buyuk", "other").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -117,6 +119,7 @@ async fn gorev_lifecycle_and_operator_authority() {
 #[tokio::test]
 async fn one_active_goal_can_close_when_its_explicit_task_set_is_done() {
     let (port, _guard) = spawn_server_with("buyuk").await;
+    create_test_room(port, "buyuk", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
@@ -238,6 +241,7 @@ async fn journal_records_work_and_survives_restart() {
 
     let entry: Value = {
         let (port, _g) = spawn_server_env("master", &[("DB_PATH", db.clone())]).await;
+        create_test_room(port, "master", "general").await;
         let base = format!("http://127.0.0.1:{port}");
         let e: Value = client.post(format!("{base}/rooms/general/journal"))
             .json(&serde_json::json!({ "text": "davet sistemi prod'a çıktı", "by": "loca-dev", "by_type": "agent" }))
@@ -287,6 +291,9 @@ async fn work_state_only_rooms_survive_restart() {
 
     {
         let (port, _guard) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
+        create_test_room(port, "MASTER", "task-only").await;
+        create_test_room(port, "MASTER", "wait-only").await;
+        create_test_room(port, "MASTER", "journal-only").await;
         let base = format!("http://127.0.0.1:{port}");
 
         let task: Value = client
@@ -408,6 +415,14 @@ async fn storage_failures_are_503_and_do_not_mutate_memory() {
         .to_string_lossy()
         .to_string();
     let (port, _guard) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
+    create_test_room(port, "MASTER", "task-fail").await;
+    create_test_room(port, "MASTER", "goal-fail").await;
+    create_test_room(port, "MASTER", "wait-fail").await;
+    create_test_room(port, "MASTER", "journal-fail").await;
+    create_test_room(port, "MASTER", "note-fail").await;
+    create_test_room(port, "MASTER", "invite-fail").await;
+    create_test_room(port, "MASTER", "mod-fail").await;
+    create_test_room(port, "MASTER", "seal-fail").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let sql = rusqlite::Connection::open(&db).unwrap();
@@ -634,6 +649,7 @@ async fn linked_task_and_goal_progress_commit_atomically() {
         .to_string_lossy()
         .to_string();
     let (port, _guard) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
+    create_test_room(port, "MASTER", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let task: Value = client
@@ -738,6 +754,7 @@ async fn linked_task_and_goal_progress_commit_atomically() {
 #[tokio::test]
 async fn goal_stale_override_can_inherit_set_disable_and_clear() {
     let (port, _guard) = spawn_server_with("MASTER").await;
+    create_test_room(port, "MASTER", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
@@ -811,6 +828,7 @@ async fn goal_stale_override_can_inherit_set_disable_and_clear() {
 #[tokio::test]
 async fn require_sessions_blocks_task_spoof() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_SESSIONS", "1".into())]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     // No session token, claiming to be "operator".
     let r = reqwest::Client::new()

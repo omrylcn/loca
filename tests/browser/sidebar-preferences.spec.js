@@ -1,10 +1,12 @@
 const { test, expect } = require("@playwright/test");
+const { provisionRooms } = require("./support/building");
 
 // The Getting Started guide auto-shows on a fresh browser (empty localStorage)
 // and its backdrop intercepts clicks. These specs drive the connected app, not
 // onboarding, so start past the guide. (getting-started.spec.js deliberately
 // does NOT seed this — it tests the first-open guide itself.)
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, request }) => {
+  await provisionRooms(request, ["preference-security"]);
   await page.addInitScript(() => {
     try {
       localStorage.setItem("loca-gs-seen", "1");
@@ -18,6 +20,7 @@ test("unresolved or failed identity never sees or mutates another principal's lo
   });
   const { pairing_code: pairingCode } = await paired.json();
   await page.goto("/");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("preference-security"));
   await expect(page.locator("#whoami")).toContainText("MASTER");

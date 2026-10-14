@@ -1,6 +1,43 @@
 use crate::*;
 
 #[derive(serde::Deserialize)]
+pub(crate) struct CreateLoca {
+    name: String,
+}
+
+pub(crate) async fn create_loca_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    Json(body): Json<CreateLoca>,
+) -> impl IntoResponse {
+    let name = body.name.trim();
+    if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
+        return (StatusCode::BAD_REQUEST, "invalid loca name").into_response();
+    }
+    let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    match hub.create_loca(name, &actor) {
+        Ok(assignment) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({"room":name,"operator":assignment})),
+        )
+            .into_response(),
+        Err(hub::OperatorAssignmentError::AuthorityRequired) => {
+            (StatusCode::FORBIDDEN, "Building authority required").into_response()
+        }
+        Err(hub::OperatorAssignmentError::Conflict) => (
+            StatusCode::CONFLICT,
+            "loca already exists or is permanently sealed",
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not create loca and operator",
+        )
+            .into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
 pub(crate) struct AppointLocaOperator {
     principal_id: String,
 }
@@ -16,12 +53,12 @@ pub(crate) async fn get_loca_operator(
         Vec::new()
     };
     Json(serde_json::json!({
-        "inherited_master": hub.master_principal().map(|master| serde_json::json!({
+        "building_master": hub.master_principal().map(|master| serde_json::json!({
             "principal_id": master.id,
             "display_name": master.display_name,
             "kind": master.kind,
             "building_role": "master",
-            "source": "inherited",
+            "source": "building",
         })),
         "appointed": hub.loca_operator(&access.room),
         "history": history,
@@ -360,6 +397,11 @@ pub(crate) async fn create_invite(
             "could not save davet — try again",
         )
             .into_response(),
+        Err(hub::InviteError::MissingRoom) => (
+            StatusCode::NOT_FOUND,
+            "create the loca before issuing a davet",
+        )
+            .into_response(),
         Err(hub::InviteError::Sealed) => {
             (StatusCode::CONFLICT, "this loca is permanently sealed").into_response()
         }
@@ -485,11 +527,10 @@ pub(crate) async fn moderate(
 
 /// May this request run an operator action in `room`? PRINCIPLES: a loca
 /// operator (not only the master) runs their loca's mode/mute/moderation/lead.
-/// The admin token is an operator everywhere; otherwise the session's name must
-/// be on this loca's `operators` list. Identity comes from the session, never a
-/// body claim — an operator act cannot be spoofed by typing a name.
+/// Building management authority and an explicit room appointment independently
+/// permit management. Neither is derived from a client-supplied name.
 pub(crate) fn is_room_operator_req(hub: &Hub, room: &str, headers: &HeaderMap) -> bool {
-    // The master — by raw key OR admin session — operates every loca.
+    // Building administrators need not occupy this room's Operator appointment.
     if is_admin_req(hub, headers) {
         return true;
     }

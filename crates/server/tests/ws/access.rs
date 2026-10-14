@@ -5,6 +5,7 @@ use super::*;
 #[tokio::test]
 async fn room_token_gates_access() {
     let (port, _guard) = spawn_server_env("adm", &[("ROOM_TOKEN", "join".into())]).await;
+    create_test_room(port, "adm", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -67,6 +68,7 @@ async fn room_token_gates_access() {
 #[tokio::test]
 async fn control_and_can_write_require_admin_authority() {
     let (port, _guard) = spawn_server_with("sekrit").await;
+    create_test_room(port, "sekrit", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -201,6 +203,9 @@ async fn sessions_bind_identity_and_can_be_required() {
 #[tokio::test]
 async fn davet_opens_one_loca_only() {
     let (port, _guard) = spawn_server_env("master", &[("ROOM_TOKEN", "building".into())]).await;
+    for room in ["mobile", "general"] {
+        create_test_room(port, "master", room).await;
+    }
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -314,6 +319,9 @@ async fn davet_opens_one_loca_only() {
 #[tokio::test]
 async fn a_session_never_widens_a_davet() {
     let (port, _guard) = spawn_server_env("master", &[("ROOM_TOKEN", "building".into())]).await;
+    for room in ["mobile", "general"] {
+        create_test_room(port, "master", room).await;
+    }
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -384,6 +392,7 @@ async fn a_session_never_widens_a_davet() {
 #[tokio::test]
 async fn a_session_alone_opens_the_ws_door() {
     let (port, _guard) = spawn_server_env("master", &[("ROOM_TOKEN", "building".into())]).await;
+    create_test_room(port, "master", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -416,6 +425,7 @@ async fn a_session_alone_opens_the_ws_door() {
 #[tokio::test]
 async fn a_smaster_does_everything_but_the_master_has_the_last_word() {
     let (port, _guard) = spawn_server_env("MASTER", &[("ROOM_TOKEN", "building".into())]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -541,6 +551,7 @@ async fn a_smaster_does_everything_but_the_master_has_the_last_word() {
 #[tokio::test]
 async fn the_hierarchy_holds_at_every_door() {
     let (port, _guard) = spawn_server_env("MASTER", &[("ROOM_TOKEN", "building".into())]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -644,6 +655,8 @@ async fn the_hierarchy_holds_at_every_door() {
 #[tokio::test]
 async fn door_matrix_davet_only_mode() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "general").await;
+    create_test_room(port, "MASTER", "sb-dev").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -753,6 +766,8 @@ async fn door_matrix_davet_only_mode() {
 #[tokio::test]
 async fn door_matrix_building_key_mode() {
     let (port, _g) = spawn_server_env("MASTER", &[("ROOM_TOKEN", "building".into())]).await;
+    create_test_room(port, "MASTER", "general").await;
+    create_test_room(port, "MASTER", "sb-dev").await;
     let base = format!("http://127.0.0.1:{port}");
 
     // The browser's path: session taken with the building key, no loca scope.
@@ -789,6 +804,7 @@ async fn door_matrix_building_key_mode() {
 #[tokio::test]
 async fn a_ban_holds_against_a_valid_session() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
@@ -840,6 +856,8 @@ async fn a_ban_holds_against_a_valid_session() {
 #[tokio::test]
 async fn a_davet_for_one_loca_cannot_read_another() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "mine").await;
+    create_test_room(port, "MASTER", "yours").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     // Two locas exist (master's messages create them).
@@ -939,6 +957,7 @@ async fn a_davet_for_one_loca_cannot_read_another() {
 #[tokio::test]
 async fn a_watcher_cannot_speak() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     // A real member is seated to receive.
     let mut member = connect_ws(port, "oda", "member", "agent").await;
@@ -993,6 +1012,7 @@ async fn a_watcher_cannot_speak() {
 #[tokio::test]
 async fn revoking_a_davet_kills_its_session() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let d = davet_for(&base, "MASTER", "oda", "cyber").await;
@@ -1034,6 +1054,8 @@ async fn revoking_a_davet_kills_its_session() {
 #[tokio::test]
 async fn operator_manages_own_loca_not_others() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_SESSIONS", "1".into())]).await;
+    create_test_room(port, "MASTER", "oda1").await;
+    create_test_room(port, "MASTER", "oda2").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     // Two locas; "op" is operator of oda1 only.
@@ -1091,6 +1113,7 @@ async fn operator_manages_own_loca_not_others() {
 #[tokio::test]
 async fn master_pairing_is_one_use_and_logout_revokes_session() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -1209,6 +1232,8 @@ async fn master_pairing_is_one_use_and_logout_revokes_session() {
 #[tokio::test]
 async fn admin_session_grants_admin_without_raw_key() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "general").await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     // Exchange the master key for an admin session ONCE.
@@ -1354,6 +1379,8 @@ async fn admin_session_opens_the_door_in_davet_mode() {
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "general").await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     // Exchange the key for an admin session (pure admin, no davet).
@@ -1437,6 +1464,7 @@ async fn websocket_header_auth_hides_bearer_and_revoke_closes_alias() {
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "secret").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let davet = davet_for(&base, "MASTER", "secret", "real-agent").await;
@@ -1495,6 +1523,7 @@ async fn websocket_header_auth_hides_bearer_and_revoke_closes_alias() {
 #[tokio::test]
 async fn admin_session_logout_revokes_open_websocket_control() {
     let (port, _guard) = spawn_server_env("MASTER", &[("LEGACY_WS_QUERY_AUTH", "0".into())]).await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let session = session_with(&base, ("x-admin-token", "MASTER"), "operator", None).await;

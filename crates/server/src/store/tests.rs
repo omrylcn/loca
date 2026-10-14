@@ -6,6 +6,55 @@ use rusqlite::Connection;
 use super::Store;
 
 #[test]
+fn room_founder_creation_is_atomic_and_survives_restart() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("founder.db");
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    store
+        .ensure_master_principal("fixture-root", "founder", 1)
+        .unwrap();
+    let founder = store.active_master_principal().unwrap().id;
+    {
+        let c = store.conn().unwrap();
+        c.execute_batch(
+            "CREATE TEMP TRIGGER reject_founder BEFORE INSERT ON room_operator_assignments
+            BEGIN SELECT RAISE(ABORT, 'simulated appointment failure'); END;",
+        )
+        .unwrap();
+    }
+    assert!(store
+        .create_room_with_operator("new-room", &RoomSettings::default(), &founder, 2)
+        .is_err());
+    {
+        let c = store.conn().unwrap();
+        let count: i64 = c
+            .query_row(
+                "SELECT count(*) FROM rooms WHERE room='new-room'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0, "failed appointment must roll back the room too");
+        c.execute_batch("DROP TRIGGER reject_founder").unwrap();
+    }
+    let assigned = store
+        .create_room_with_operator("new-room", &RoomSettings::default(), &founder, 3)
+        .unwrap();
+    assert_eq!(assigned.principal_id, founder);
+    drop(store);
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    assert_eq!(
+        store.loca_operator("new-room").unwrap().principal_id,
+        founder
+    );
+    assert!(matches!(
+        store.create_room_with_operator("new-room", &RoomSettings::default(), &founder, 4),
+        Err(super::LocaOperatorError::Conflict)
+    ));
+    assert_eq!(store.loca_operator_history("new-room").len(), 1);
+}
+
+#[test]
 fn critical_save_room_does_not_erase_permanent_seal() {
     let temp = tempfile::tempdir().unwrap();
     let store = Store::open(Some(temp.path().join("sealed.db").to_str().unwrap())).unwrap();

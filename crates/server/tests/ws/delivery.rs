@@ -582,6 +582,7 @@ async fn a_message_owner_storage_error_rejects_the_reply() {
 #[tokio::test]
 async fn a_named_lead_hears_the_whole_room_until_the_title_ends() {
     let (port, _guard) = spawn_server_with("adm").await;
+    create_test_room(port, "adm", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let mut observer = connect_ws(port, "general", "operator", "user").await;
@@ -842,6 +843,7 @@ async fn turn_packet_defaults_come_from_loca_settings() {
 #[tokio::test]
 async fn live_mode_overrides_mention_filter() {
     let (port, _guard) = spawn_server_with("adm").await;
+    create_test_room(port, "adm", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -963,6 +965,7 @@ async fn message_op_id_is_idempotent_across_restart() {
 
     {
         let (port, _guard) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
+        create_test_room(port, "MASTER", "work").await;
         let base = format!("http://127.0.0.1:{port}");
         let mode = client
             .put(format!("{base}/rooms/work/mode"))
@@ -1066,6 +1069,7 @@ async fn an_announcement_stays_an_announcement() {
 
     {
         let (port, _g) = spawn_server_env("master", &[("DB_PATH", db.clone())]).await;
+        create_test_room(port, "master", "general").await;
         let base = format!("http://127.0.0.1:{port}");
         let m: Value = client
             .post(format!("{base}/rooms/general/messages"))
@@ -1112,6 +1116,7 @@ async fn an_announcement_stays_an_announcement() {
 #[tokio::test]
 async fn a_reconnect_leaves_no_ghost() {
     let (port, _guard) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -1153,6 +1158,7 @@ async fn a_reconnect_leaves_no_ghost() {
 #[tokio::test]
 async fn the_same_user_can_read_from_two_web_clients_without_reconnect_ping_pong() {
     let (port, _guard) = spawn_server_env("MASTER", &[("LEGACY_WS_QUERY_AUTH", "0".into())]).await;
+    create_test_room(port, "MASTER", "oda").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 

@@ -1,7 +1,8 @@
 const { test, expect } = require("@playwright/test");
 
 // Skip the first-open Getting Started guide (see notify-events.spec.js).
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, request }) => {
+  await require("./support/building").provisionRooms(request, ["e2e"]);
   await page.addInitScript(() => {
     try {
       localStorage.setItem("loca-gs-seen", "1");

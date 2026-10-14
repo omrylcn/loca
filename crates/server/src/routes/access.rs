@@ -214,6 +214,29 @@ pub(crate) async fn require_membership(
         || has_principal_authority
         || is_legacy_smaster
     {
+        // Closed Buildings create locas only through POST /rooms. Apply this to
+        // every room route, including legacy admin handlers without RoomAccess.
+        // The loopback sandbox deliberately retains its anonymous room model.
+        if !hub.admin_open() && path.starts_with("/rooms/") {
+            let (mut parts, body) = req.into_parts();
+            let params = <Path<HashMap<String, String>> as axum::extract::FromRequestParts<Hub>>::from_request_parts(&mut parts, &hub).await;
+            let Ok(Path(params)) = params else {
+                return (StatusCode::BAD_REQUEST, "invalid loca path").into_response();
+            };
+            if params
+                .get("id")
+                .is_some_and(|room| !hub.room_exists(room) && !hub.is_deleted(room))
+            {
+                return (
+                    StatusCode::NOT_FOUND,
+                    "loca does not exist; create it first",
+                )
+                    .into_response();
+            }
+            return next
+                .run(axum::extract::Request::from_parts(parts, body))
+                .await;
+        }
         return next.run(req).await;
     }
     (StatusCode::UNAUTHORIZED, "davet required").into_response()

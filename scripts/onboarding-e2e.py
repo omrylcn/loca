@@ -141,6 +141,7 @@ def check_runtime(base, kit, work, runtime, operator_session):
                         "/ws?room=&name=" + name + "&type=agent&filter=mentions&turn_max=1",
                         str(inbox), "--cursor", str(cursor), "--skip-own", name]
     room = "onboarding-" + runtime
+    http(base, "POST", "/rooms", {"name": room}, admin=True)
 
     def online():
         return any(row["name"] == name and row["online"]

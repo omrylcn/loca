@@ -75,6 +75,7 @@ wait_server || exit 1
 AH="x-admin-token: $ADMIN"
 RH="x-room-token: $ROOM"
 M='{"sender":"backend","sender_type":"agent","text":"hi"}'
+assert "create general explicitly -> 201" "201" "$(code POST /rooms '{"name":"general"}' -H "$AH")"
 
 echo "── health / auth ──"
 assert "web shell is served"              "200"  "$(code GET / -)"
@@ -283,10 +284,11 @@ assert "get settings -> bounded care" "120:300:2:8" \
 assert "spammer posts again -> 201"   "201" "$(code POST /rooms/general/messages "$S" -H "$RH")"
 
 echo "── new room creation ──"
-assert "post to new room -> 201" "201"  "$(code POST /rooms/project-x/messages '{"sender":"web","sender_type":"agent","text":"hello"}' -H "$RH")"
+assert "post cannot create room -> 404" "404" "$(code POST /rooms/project-x/messages '{"sender":"web","sender_type":"agent","text":"hello"}' -H "$RH")"
+assert "create project explicitly -> 201" "201" "$(code POST /rooms '{"name":"project-x"}' -H "$AH")"
 assert "new room listed"         "true" "$(curl -s -H "$RH" "$B/rooms" | jq '[.[].room] | index("project-x") != null')"
-assert "seed disposable room -> 201" "201" \
-  "$(code POST /rooms/disposable/messages '{"sender":"web","sender_type":"agent","text":"bye"}' -H "$AH")"
+assert "create disposable explicitly -> 201" "201" \
+  "$(code POST /rooms '{"name":"disposable"}' -H "$AH")"
 assert "archive disposable room -> 200" "200" \
   "$(code PUT /rooms/disposable/settings '{"archived":true}' -H "$AH")"
 assert "seal archived room -> 204" "204" "$(code DELETE /rooms/disposable - -H "$AH")"

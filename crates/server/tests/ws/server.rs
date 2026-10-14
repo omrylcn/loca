@@ -3,6 +3,39 @@
 use super::*;
 
 #[tokio::test]
+async fn open_local_sandbox_explicit_creation_survives_restart_without_operator_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory
+        .path()
+        .join("open-sandbox.sqlite")
+        .to_string_lossy()
+        .to_string();
+    let client = reqwest::Client::new();
+    {
+        let (port, _guard) = spawn_server_env("", &[("DB_PATH", db.clone())]).await;
+        let response = client
+            .post(format!("http://127.0.0.1:{port}/rooms"))
+            .json(&serde_json::json!({"name":"local-created"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 201);
+        let created: Value = response.json().await.unwrap();
+        assert!(created["operator"].is_null());
+    }
+    let (port, _guard) = spawn_server_env("", &[("DB_PATH", db)]).await;
+    let rooms: Vec<Value> = client
+        .get(format!("http://127.0.0.1:{port}/rooms"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(rooms.iter().any(|row| row["room"] == "local-created"));
+}
+
+#[tokio::test]
 async fn public_docs_serve_on_a_closed_building_but_protected_routes_stay_gated() {
     // Prod runs a CLOSED building (ROOM_TOKEN set) with REQUIRE_SESSIONS, so the
     // membership gate is live and an anonymous request is not a member. The
@@ -227,6 +260,7 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
 #[tokio::test]
 async fn chat_modes_are_enforced_and_admin_bypasses() {
     let (port, _guard) = spawn_server_with("s3cret").await;
+    create_test_room(port, "s3cret", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -324,6 +358,7 @@ async fn rate_limit_returns_429_and_is_admin_tunable() {
         ],
     )
     .await;
+    create_test_room(port, "tok", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -385,6 +420,7 @@ async fn state_survives_restart() {
     // Boot 1: write a message, a note, and set a restricted mode.
     {
         let (_p, _guard) = spawn_server_env("tok", &env(port)).await;
+        create_test_room(port, "tok", "general").await;
         client.post(format!("{base}/rooms/general/messages"))
             .json(&serde_json::json!({ "sender": "backend", "sender_type": "agent", "text": "persist me" }))
             .send().await.unwrap();

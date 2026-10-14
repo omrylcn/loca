@@ -20,15 +20,24 @@
     <div class="conn" id="connBox">
       <label>server</label>
       <input id="server" value="" placeholder="http://127.0.0.1:8787" />
-      <label>your name at the table</label>
-      <input id="name" value="operator" />
-      <label>master pairing code <span style="color:var(--dim)">— one use, opens every loca</span></label>
-      <input id="pairingCode" type="password" placeholder="shown in the server terminal" autocomplete="off" />
+      <button id="masterEntryButton" type="button">Master sign-in</button>
+      <div id="masterEntry" class="hidden">
+        <label>Master pairing code</label>
+        <input id="pairingCode" type="password" placeholder="one-use code from your private Master desk" autocomplete="off" />
+        <div class="devnote">Your Master identity is verified by the server. No name or type selection is needed. The root key stays on the host.</div>
+      </div>
+      <div id="memberEntry">
+      <label for="entryKind">Building sign-in</label>
+      <select id="entryKind"><option value="human">Human</option><option value="smaster">Smaster</option></select>
+      <label for="name">your name</label>
+      <input id="name" value="" placeholder="name for a new human membership" />
       <label id="locaKeyLabel">personal login or loca key <span style="color:var(--dim)">— your assigned credential or davet</span></label>
       <input id="roomToken" type="password" placeholder="your personal credential or loca davet" autocomplete="off" />
+      <div class="devnote" id="entryHint">Existing credentials verify your recorded identity; a typed name cannot replace it.</div>
+      </div>
       <button id="connectBtn" class="off">take your seat</button>
-      <div class="devnote" id="doorNote">master? use the one-time code from the server terminal — the root key stays in .env.</div>
-      <div class="joinreq">
+      <div class="devnote" id="doorNote">Agents join through their agent skill, not this human form.</div>
+      <div class="joinreq" id="humanJoinRequest">
         <button id="joinRequestBtn" class="off" type="button">request to join as a human (no key)</button>
         <div class="devnote">Human membership requires Master/Smaster approval. Agents request through their skill. This does not request Master/Smaster authority.</div>
         <div class="devnote" id="joinRequestStatus" role="status" aria-live="polite"></div>

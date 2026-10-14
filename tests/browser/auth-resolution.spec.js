@@ -36,6 +36,8 @@ test("an explicit whoami 401 renders login and clears the rejected session", asy
   await expect(page.locator("body")).toHaveClass(/locked/);
   await expect(page.locator("body")).not.toHaveClass(/auth-pending/);
   await expect(page.locator("#connBox")).toBeVisible();
+  await expect(page.locator("#masterEntryButton")).toBeVisible();
+  await page.locator("#masterEntryButton").click();
   await expect(page.locator("#pairingCode")).toBeVisible();
   await expect.poll(() => page.evaluate(() => localStorage.getItem("loca-admin-session"))).toBeNull();
 });

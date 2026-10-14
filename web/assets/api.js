@@ -108,8 +108,18 @@ function gotoMsg(id) {
 async function createRoom() {
   const name = $("newRoomName").value.trim();
   if (!name) return;
+  try {
+    const response = await fetch(`${serverBase()}/rooms`, {
+      method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ name }),
+    });
+    if (!response.ok) { addSys(`could not create loca: ${await response.text()}`); return; }
+  } catch (error) {
+    addSys("Loca creation could not be confirmed. Refresh Your Locas before retrying.");
+    return;
+  }
   $("newRoomName").value = "";
-  joinRoom(name);   // joining a non-existent room creates it server-side
+  joinRoom(name);
 }
 
 let sendInFlight = false;

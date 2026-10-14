@@ -110,6 +110,19 @@ async fn spawn_server_env(admin_token: &str, env: &[(&str, String)]) -> (u16, Se
     panic!("server did not come up on port {port:?}: {last_err}");
 }
 
+/// Explicit test setup, using the same creation boundary as the application.
+/// Joining, sending a message, or issuing a davet must not provision a loca.
+async fn create_test_room(port: u16, master: &str, room: &str) {
+    let response = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/rooms"))
+        .header("x-admin-token", master)
+        .json(&serde_json::json!({ "name": room }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 201, "explicit fixture creation: {room}");
+}
+
 async fn connect_ws(
     port: u16,
     room: &str,
@@ -332,16 +345,19 @@ async fn admit(base: &str, admin: &str, name: &str, kind: &str) {
 async fn davet_for(base: &str, admin: &str, room: &str, name: &str) -> String {
     admit(base, admin, name, "agent").await;
     let client = reqwest::Client::new();
-    let v: Value = client
+    let response = client
         .post(format!("{base}/rooms/{room}/invites"))
         .header("x-admin-token", admin)
         .json(&serde_json::json!({ "name": name }))
         .send()
         .await
-        .unwrap()
-        .json()
-        .await
         .unwrap();
+    assert!(
+        response.status().is_success(),
+        "davet fixture for {room}: {}",
+        response.status()
+    );
+    let v: Value = response.json().await.unwrap();
     v["token"].as_str().unwrap().to_string()
 }
 
@@ -744,6 +760,7 @@ async fn revoked_legacy_building_member_key_cannot_reenter_ws_but_spare_can() {
     // credential. The following boot deliberately uses that legacy member key
     // as the transitional ROOM_TOKEN, reproducing an upgraded installation.
     let (setup_port, setup_guard) = spawn_server_env(root, &[("DB_PATH", db_value.clone())]).await;
+    create_test_room(setup_port, root, "credential-room").await;
     let setup_base = format!("http://127.0.0.1:{setup_port}");
     let client = reqwest::Client::new();
     let member: Value = client
@@ -867,6 +884,17 @@ async fn loca_operator_is_one_human_principal_scoped_to_one_room() {
         }
     }
     for room in ["alpha", "beta", "race"] {
+        create_test_room(port, root, room).await;
+        // Exercise delegation into a deliberately vacant seat, not replacement
+        // of the founder appointed by explicit creation.
+        client
+            .delete(format!("{base}/rooms/{room}/operators"))
+            .header("x-admin-token", root)
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
         client
             .put(format!("{base}/rooms/{room}/settings"))
             .header("x-admin-token", root)
@@ -959,8 +987,8 @@ async fn loca_operator_is_one_human_principal_scoped_to_one_room() {
     assert!(race_view["appointed"].is_object());
     assert_eq!(
         race_view["history"].as_array().unwrap().len(),
-        1,
-        "the losing race must not revoke or manufacture audit history"
+        2,
+        "only the revoked founder and winning appointment belong in history"
     );
 
     let appointed = client
@@ -1100,8 +1128,8 @@ async fn loca_operator_is_one_human_principal_scoped_to_one_room() {
         .await
         .unwrap();
     assert_eq!(authority_view["appointed"]["principal_id"], carol_id);
-    assert_eq!(authority_view["history"].as_array().unwrap().len(), 2);
-    assert_eq!(authority_view["inherited_master"]["source"], "inherited");
+    assert_eq!(authority_view["history"].as_array().unwrap().len(), 3);
+    assert_eq!(authority_view["building_master"]["source"], "building");
 
     drop(guard);
     let (restart_port, _restart_guard) =
@@ -1168,6 +1196,15 @@ async fn legacy_operator_names_migrate_only_when_one_human_principal_is_unambigu
         ("multiple", serde_json::json!(["bob", "carol"])),
         ("ambiguous", serde_json::json!(["duplicate"])),
     ] {
+        create_test_room(port, root, room).await;
+        client
+            .delete(format!("{base}/rooms/{room}/operators"))
+            .header("x-admin-token", root)
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
         client
             .put(format!("{base}/rooms/{room}/settings"))
             .header("x-admin-token", root)

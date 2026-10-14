@@ -1,8 +1,10 @@
 const { test, expect } = require("@playwright/test");
+const { provisionRooms } = require("./support/building");
 
 // The Getting Started guide auto-shows on a fresh browser and its backdrop
 // intercepts clicks; skip it (see notify-events.spec.js).
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, request }) => {
+  await provisionRooms(request, ["e2e", "general"]);
   await page.addInitScript(() => {
     try {
       localStorage.setItem("loca-gs-seen", "1");

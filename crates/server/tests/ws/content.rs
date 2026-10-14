@@ -15,6 +15,8 @@ async fn wiki_http_editor_revision_and_private_room_boundaries() {
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "general").await;
+    create_test_room(port, "MASTER", "private").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let mut sessions = Vec::new();
@@ -440,6 +442,7 @@ async fn memory_ownership_does_not_transfer_to_a_reused_name() {
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let admitted: Value = client
@@ -1407,6 +1410,8 @@ async fn assert_cross_loca_memory_denied(method: &str, path: &str) {
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "loca-a").await;
+    create_test_room(port, "MASTER", "loca-b").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let b_davet = davet_for(&base, "MASTER", "loca-b", "agent-b").await;
@@ -1609,6 +1614,9 @@ async fn memory_frame_selects_a_bounded_complete_entry_suffix() {
     let db = directory.path().join("memory-frame-bounded.db");
     let (port, _guard) =
         spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    create_test_room(port, "MASTER", "exact-entry").await;
+    create_test_room(port, "MASTER", "separator-budget").await;
+    create_test_room(port, "MASTER", "legacy-entry").await;
     let exact = "ö".repeat(4 * 1024); // exactly 8192 UTF-8 bytes
     let conn = rusqlite::Connection::open(&db).unwrap();
     conn.execute(
@@ -1698,6 +1706,8 @@ async fn memory_frame_distinguishes_absent_from_empty() {
     let db = directory.path().join("memory-frame-status.db");
     let (port, _guard) =
         spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    create_test_room(port, "MASTER", "absent-memory").await;
+    create_test_room(port, "MASTER", "empty-memory").await;
     rusqlite::Connection::open(&db)
         .unwrap()
         .execute(
@@ -1725,6 +1735,7 @@ async fn memory_frame_exposes_inconsistent_provenance_as_a_red_status() {
     let db = directory.path().join("memory-frame-inconsistent.db");
     let (port, _guard) =
         spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    create_test_room(port, "MASTER", "inconsistent-memory").await;
     rusqlite::Connection::open(&db)
         .unwrap()
         .execute(
@@ -1749,6 +1760,7 @@ async fn absent_memory_is_an_explicit_frame_not_silence() {
     let db = directory.path().join("memory-frame-absent.db");
     let (port, _guard) =
         spawn_server_env("MASTER", &[("DB_PATH", db.to_string_lossy().into_owned())]).await;
+    create_test_room(port, "MASTER", "no-memory-row").await;
 
     let mut ws = connect_ws(port, "no-memory-row", "agent", "agent").await;
     let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
@@ -1771,6 +1783,7 @@ async fn caretaker_memory_is_metadata_only_and_owner_assignment_is_master_only()
         ],
     )
     .await;
+    create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let admit = |name: &'static str| {

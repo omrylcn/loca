@@ -1,4 +1,5 @@
 const { test, expect } = require("@playwright/test");
+const { provisionRooms } = require("./support/building");
 
 test("Smaster browser login derives Building authority from its credential", async ({ page, request }) => {
   const response = await request.post("/smasters", {
@@ -7,6 +8,7 @@ test("Smaster browser login derives Building authority from its credential", asy
   expect(response.ok()).toBeTruthy();
   const { token } = await response.json();
   await page.goto("/");
+  await page.locator("#entryKind").selectOption("smaster");
   await page.locator("#name").fill("not-the-canonical-name");
   await page.locator("#roomToken").fill(token);
   await page.evaluate(() => doConnect("iye"));
@@ -15,7 +17,16 @@ test("Smaster browser login derives Building authority from its credential", asy
   const profile = await page.evaluate(async () =>
     (await fetch("/profile?room=iye", { headers: adminHeaders({}) })).json());
   expect(profile.building_role).toBe("smaster");
-  expect(profile.loca.operator_source).toBe("inherited_smaster");
+  expect(profile.loca.operator_source).toBeNull();
+  expect(profile.loca.building_management).toBe(true);
+  await page.locator("#newRoomName").fill("deputy-created-loca");
+  await page.locator("#newRoomBtn").click();
+  await expect.poll(() => page.evaluate(() => state.room)).toBe("deputy-created-loca");
+  await expect.poll(() => page.evaluate(() => state.profile?.loca?.operator_source)).toBe("appointed");
+  const appointed = await (await request.get("/rooms/deputy-created-loca/operators", {
+    headers: { "x-admin-token": "MASTER" },
+  })).json();
+  expect(appointed.appointed.principal_id).toBe(profile.principal.id);
   const deputies = await (await request.get("/smasters", {
     headers: { "x-admin-token": "MASTER" }
   })).json();
@@ -70,7 +81,8 @@ test("appointed human Operator: profile, real HTTP permissions and visible contr
   await expect(page.locator("#adminbar")).toBeHidden();
 });
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, request }) => {
+  await provisionRooms(request, ["operator-test", "not-operated"]);
   await page.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
 });
 
@@ -110,6 +122,7 @@ test("refresh keeps restored identity connection settings closed", async ({ page
   const response = await request.post("/pairings?ttl_hours=1", { headers: { "x-admin-token": "MASTER" } });
   const { pairing_code } = await response.json();
   await page.goto("/");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairing_code);
   await page.evaluate(() => doConnect("iye"));
   await expect(page.locator("#connBox")).toBeHidden();

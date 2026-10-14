@@ -1,10 +1,12 @@
 const { test, expect } = require("@playwright/test");
+const { provisionRooms } = require("./support/building");
 
 // The Getting Started guide auto-shows on a fresh browser (empty localStorage)
 // and its backdrop intercepts clicks. These specs drive the connected app, not
 // onboarding, so start past the guide. (getting-started.spec.js deliberately
 // does NOT seed this — it tests the first-open guide itself.)
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, request }) => {
+  await provisionRooms(request, ["e2e", "markdown-chat", "focus-e2e", "reminder-no-lead", "message-actions", "profile-race-start", "sidebar-a", "sidebar-b", "prefs-a", "prefs-b", "prefs-c"]);
   await page.addInitScript(() => {
     try {
       localStorage.setItem("loca-gs-seen", "1");
@@ -254,6 +256,7 @@ test("admin properties use progressive disclosure and mobile navigation", async 
 
   await page.goto("/");
   await page.locator("#name").fill("operator");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("e2e"));
   const browserProfile = await page.evaluate(async () => {
@@ -383,6 +386,7 @@ test("notes render safe Markdown by default and edit the raw source", async ({
 
   await page.goto("/");
   await page.locator("#name").fill("operator");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("e2e"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
@@ -431,6 +435,7 @@ test("chat renders safe Markdown without losing mention styling", async ({ page,
 
   await page.goto("/");
   await page.locator("#name").fill("operator");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("markdown-chat"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
@@ -477,6 +482,7 @@ test("goal command, focus, optional tasks, and reminders share one human surface
 
   await page.goto("/");
   await page.locator("#name").fill("operator");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("focus-e2e"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
@@ -777,6 +783,7 @@ test("reminders with no room lead are visibly unavailable", async ({ page, reque
 
   await page.goto("/");
   await page.locator("#name").fill("operator");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("reminder-no-lead"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
@@ -835,6 +842,7 @@ test("message actions stay attached to each bubble on desktop and mobile", async
 
   await page.goto("/");
   await page.locator("#name").fill("operator");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("message-actions"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
@@ -963,6 +971,7 @@ test("a delayed profile fetch cannot overwrite the current loca roles", async ({
   const { pairing_code: pairingCode } = await paired.json();
   await page.goto("/");
   await page.locator("#name").fill("operator");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("profile-race-start"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
@@ -1073,6 +1082,7 @@ test("the loca sidebar never composes delayed facts from the previous room", asy
   });
 
   await page.goto("/");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("sidebar-a"));
   await expect(page.locator("#locaSummary")).not.toContainText("Purpose");
@@ -1125,6 +1135,7 @@ test("personal loca pin order and visibility persist without changing room lifec
   });
   const { pairing_code: pairingCode } = await paired.json();
   await page.goto("/");
+  await page.locator("#masterEntryButton").click();
   await page.locator("#pairingCode").fill(pairingCode);
   for (const room of ["prefs-a", "prefs-b", "prefs-c"]) {
     await page.evaluate(selected => window.doConnect(selected), room);

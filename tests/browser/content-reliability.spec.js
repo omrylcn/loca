@@ -1,7 +1,9 @@
 const { test, expect } = require("@playwright/test");
+const { provisionRooms } = require("./support/building");
 
 async function ownerRoom(page, request, suffix) {
   const room = `review-${suffix}`;
+  await provisionRooms(request, [room]);
   const name = `owner-${suffix}`;
   const admin = { "x-admin-token": "MASTER" };
   expect((await request.post("/members", { headers: admin, data: { name, kind: "user" } })).ok()).toBeTruthy();
