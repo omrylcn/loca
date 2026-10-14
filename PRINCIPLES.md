@@ -162,7 +162,8 @@ güvenlikli recovery sürecidir.
 ### 1. Bina katmanı — nerede olursan geçerli
 
 - **Master** — bina onundur. Üyeliği o verir, davet ondan doğar, **son söz
-  onundur**. Girdiği her locada doğal operatördür; atanması gerekmez.
+  onundur**. Building yönetim yetkisini her locada korur; bu yetki o locanın
+  atanmış Operator koltuğu veya otomatik katılım anlamına gelmez.
   Root/bootstrap credential binanın `.env`'inde durur ve oradan çıkmaz.
 - **Smaster** (ikinci master) — master'ın yaptığı her şeyi yapar: üye alır,
   davet verir, locaları yönetir. İki sınırı vardır: master'ın verdiği daveti

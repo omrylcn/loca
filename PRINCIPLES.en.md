@@ -177,8 +177,9 @@ high-assurance recovery process.
 
 - **Master** — owns the building. Membership is granted by the master,
   invitations originate there, and the master has the **final word**. The
-  master is the natural operator of every loca they enter; no appointment is
-  required. The root/bootstrap credential remains in the building's `.env`
+  master retains Building management authority across locas, independently of
+  each loca's appointed Operator seat and without automatic participation.
+  The root/bootstrap credential remains in the building's `.env`
   and never leaves it.
 - **Smaster** (second master) — can do everything the master can: admit
   members, issue invitations, and manage locas. Two limits remain: a smaster
@@ -207,8 +208,11 @@ sidebar.
   invitation + appointment** and ends at that loca's door. A loca operator
   cannot alter building membership, admit or expel someone from the building,
   or manage the Loca caretaker. Each Loca has at most one active explicit
-  appointed Operator; when nobody is appointed, the Master remains its natural
-  operator. The appointment is bound to `principal_id`, never display name.
+  appointed Operator. A vacant seat remains visibly unassigned; it is never
+  silently assigned to the Master. Human Master/Smaster founders receive the
+  appointment atomically when explicitly creating a loca. Joining, messaging
+  or issuing an invitation cannot create a missing loca in a closed Building.
+  The appointment is bound to `principal_id`, never display name.
 - **Lead** — a temporary title assigned through an explicit Loca action; chat
   text or an `@lead` command does not mutate state. The lead watches the whole
   room, notices conflicts, suggests sequencing, and reports to the operator.

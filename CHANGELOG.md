@@ -6,7 +6,7 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
-## [0.12.6] - 2026-10-15
+## [0.12.7] - 2026-10-15
 
 ### Changed
 - Separate Master pairing from Human/Smaster browser entry; verified Master
@@ -22,6 +22,13 @@ All notable changes to Loca are documented here. The format follows
   ordinary/watch WebSocket entry. Preserve open local sandbox behavior.
 - Restore legacy invitation-only locas on startup without silently assigning Operators.
 - Keep canonical and embedded onboarding guides aligned with the entry model.
+- Align both principles translations: Building management never implies an
+  automatic room Operator appointment or participation.
+
+## [0.12.6] - Unpublished candidate
+
+- Publication was withheld after a final principles-document consistency check.
+  The signed tag is retained and is not reused for changed content.
 
 ## [0.12.5] - 2026-10-13
 
