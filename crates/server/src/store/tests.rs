@@ -55,6 +55,50 @@ fn room_founder_creation_is_atomic_and_survives_restart() {
 }
 
 #[test]
+fn operator_appointment_follows_identity_not_renamed_or_reused_labels() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("operator-labels.db");
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    store
+        .ensure_master_principal("fixture-root", "founder", 1)
+        .unwrap();
+    let master = store.active_master_principal().unwrap().id;
+    store
+        .create_room_with_operator("r", &RoomSettings::default(), &master, 2)
+        .unwrap();
+    let member = |token: &str| protocol::Membership {
+        token: token.into(),
+        name: "alice".into(),
+        kind: "user".into(),
+        joined_at: 3,
+        admitted_by: "founder".into(),
+    };
+    store.add_member(&member("old-person")).unwrap();
+    let original = store.principal_for_credential("old-person").unwrap().id;
+    store
+        .appoint_loca_operator("r", &original, &master, 4)
+        .unwrap();
+    store
+        .conn()
+        .unwrap()
+        .execute(
+            "UPDATE principals SET display_name='renamed' WHERE id=?1",
+            [&original],
+        )
+        .unwrap();
+    assert_eq!(store.loca_operator("r").unwrap().principal_id, original);
+    assert_eq!(store.loca_operator("r").unwrap().display_name, "renamed");
+    store.add_member(&member("new-person")).unwrap();
+    let replacement = store.principal_for_credential("new-person").unwrap().id;
+    assert_ne!(original, replacement);
+    drop(store);
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    let operator = store.loca_operator("r").unwrap();
+    assert_eq!(operator.principal_id, original);
+    assert_ne!(operator.principal_id, replacement);
+}
+
+#[test]
 fn critical_save_room_does_not_erase_permanent_seal() {
     let temp = tempfile::tempdir().unwrap();
     let store = Store::open(Some(temp.path().join("sealed.db").to_str().unwrap())).unwrap();
