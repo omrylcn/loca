@@ -38,6 +38,9 @@ print(reply['body'], end='\\n' + str(reply['status']))
             payload.write_text(json.dumps({"lease":{"batch_id":1,"epoch":2},
                                           "review":{"pages":[]}}))
             arguments = [str(payload)] if command == "wiki-finish" else list(extra)
+            if command == "wiki-remove":
+                payload.write_text(json.dumps({"expected_revision": 3, "reason": "merged topic"}))
+                arguments = ["obsolete", str(payload)]
             env = {"HOME":str(root), "PATH":str(bindir)+":"+os.environ.get("PATH", ""),
                    "WIKI_FIXTURE":str(fixture),"WIKI_CALLS":str(root / "calls")}
             result = subprocess.run(["bash",str(SKILL / "connect.sh"),command,
@@ -53,6 +56,16 @@ print(reply['body'], end='\\n' + str(reply['status']))
             self.assertIn("HTTP " + str(status),result.stderr)
             self.assertNotIn("st_PRIVATE",result.stdout+result.stderr)
             self.assertEqual(len(calls),1)
+
+    def test_page_removal_uses_identity_scoped_delete_and_preserves_conflicts(self):
+        result, calls, _ = self.invoke("wiki-remove", [{"status": 200, "body": "{\"revision\":4}"}])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("DELETE", calls[0])
+        self.assertIn("https://loca.example/rooms/general/wiki/pages/obsolete", calls[0])
+        self.assertEqual(json.loads(calls[0][-1]), {"expected_revision": 3, "reason": "merged topic"})
+        result, _, _ = self.invoke("wiki-remove", [{"status": 409, "body": "st_PRIVATE"}])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("st_PRIVATE", result.stdout + result.stderr)
 
     def test_valid_null_claim_is_idle_and_invalid_json_not_accepted(self):
         result, _, _ = self.invoke("wiki-claim", [{"status":200,"body":"null"}])

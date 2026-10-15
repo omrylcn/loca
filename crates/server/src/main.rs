@@ -459,7 +459,9 @@ async fn main() {
         .route("/rooms/:id/wiki", get(get_wiki))
         .route(
             "/rooms/:id/wiki/pages/:slug",
-            get(get_wiki_page).put(edit_wiki_page),
+            get(get_wiki_page)
+                .put(edit_wiki_page)
+                .delete(remove_wiki_page),
         )
         .route("/rooms/:id/wiki/config", axum::routing::put(configure_wiki))
         .route("/rooms/:id/wiki/review", axum::routing::post(commit_wiki))

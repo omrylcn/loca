@@ -48,10 +48,23 @@ class WikiPageContext:
         requested = list(dict.fromkeys(slugs))
         if len(requested) > self.max_pages:
             raise ContextBudgetExceeded("Too many selected pages; nothing was injected")
-        if any(slug not in indexed for slug in requested):
+        missing = set(snapshot.get("missing", []))
+        if any(slug not in indexed and slug not in missing for slug in requested):
             raise KeyError("Requested Wiki page is absent")
         offered, changes = {}, []
         for slug in requested:
+            if slug not in indexed:
+                previous = self.injected_pages.get(slug)
+                if previous is None:
+                    continue
+                if snapshot["revision"] <= previous["revision"]:
+                    raise ValueError("Stale Wiki removal")
+                changes.append({"slug": slug, "kind": "removed",
+                                "revision": snapshot["revision"],
+                                "base_revision": previous["revision"],
+                                "base_hash": _digest(previous)})
+                offered[slug] = None
+                continue
             page = deepcopy(indexed[slug])
             if not isinstance(page.get("revision"), int) or page["revision"] < 0:
                 raise ValueError("Invalid page revision")
@@ -108,7 +121,8 @@ class WikiPageContext:
             return False
         for slug,page in deepcopy(pages).items():
             self.injected_pages.pop(slug,None)
-            self.injected_pages[slug] = page
+            if page is not None:
+                self.injected_pages[slug] = page
         while len(self.injected_pages) > self.max_pages:
             del self.injected_pages[next(iter(self.injected_pages))]
         del self.pending[packet_id]

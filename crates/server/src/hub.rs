@@ -3697,6 +3697,17 @@ impl Hub {
         self.store.commit_wiki(room, principal, update, self.now())
     }
 
+    pub fn remove_wiki_page(
+        &self,
+        room: &str,
+        principal: &str,
+        slug: &str,
+        removal: &crate::store::WikiPageRemoval,
+    ) -> Result<u64, crate::store::WikiError> {
+        self.store
+            .remove_wiki_page(room, principal, slug, removal, self.now())
+    }
+
     pub fn edit_wiki_page(
         &self,
         room: &str,

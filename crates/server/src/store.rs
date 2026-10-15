@@ -26,7 +26,9 @@ mod wiki;
 mod wiki_context;
 mod wiki_maintenance;
 mod work;
-pub use wiki::{WikiCommit, WikiError, WikiPageEdit, WikiPageSnapshot, WikiSnapshot};
+pub use wiki::{
+    WikiCommit, WikiError, WikiPageEdit, WikiPageRemoval, WikiPageSnapshot, WikiSnapshot,
+};
 pub use wiki_context::{WikiContextAck, WikiContextSelection};
 pub use wiki_maintenance::{WikiBatch, WikiLease};
 

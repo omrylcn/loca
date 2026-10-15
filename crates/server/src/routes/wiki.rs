@@ -36,6 +36,35 @@ pub(crate) async fn get_wiki_page(
     }
 }
 
+pub(crate) async fn remove_wiki_page(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+    Path(params): Path<HashMap<String, String>>,
+    headers: HeaderMap,
+    Json(body): Json<crate::store::WikiPageRemoval>,
+) -> impl IntoResponse {
+    if !hub.is_writable(&access.room) {
+        return (StatusCode::CONFLICT, "loca is read-only").into_response();
+    }
+    let Some(principal) = hub
+        .session_identity(session_of(&headers))
+        .and_then(|a| a.principal_id)
+    else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            "principal-bound editor session required",
+        )
+            .into_response();
+    };
+    match hub.remove_wiki_page(&access.room, &principal, &params["slug"], &body) {
+        Ok(revision) => {
+            Json(serde_json::json!({"room":access.room,"slug":params["slug"],"revision":revision}))
+                .into_response()
+        }
+        Err(e) => error(e),
+    }
+}
+
 pub(crate) async fn edit_wiki_page(
     State(hub): State<Hub>,
     access: RoomAccess,
