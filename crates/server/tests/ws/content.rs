@@ -154,6 +154,85 @@ async fn wiki_http_editor_revision_and_private_room_boundaries() {
         .unwrap()
         .iter()
         .any(|p| p["body"] == "proposal"));
+    let topic = serde_json::json!({"expected_revision":1,"reviewed_through":0,"reason":"topic",
+        "pages":[{"slug":"obsolete","title":"Obsolete","body":"retained in history","sources":[]}]});
+    assert!(client
+        .post(format!("{base}/rooms/general/wiki/review"))
+        .header("x-session-token", &sessions[0])
+        .json(&topic)
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .is_success());
+    let removal = serde_json::json!({"expected_revision":2,"reason":"merged into working"});
+    let url = format!("{base}/rooms/general/wiki/pages/obsolete");
+    assert_eq!(
+        client
+            .delete(&url)
+            .header("x-session-token", &sessions[1])
+            .json(&removal)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        client
+            .delete(&url)
+            .header("x-session-token", &sessions[0])
+            .json(&serde_json::json!({"expected_revision":1,"reason":"stale"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        409
+    );
+    assert_eq!(
+        client
+            .delete(format!("{base}/rooms/private/wiki/pages/obsolete"))
+            .header("x-session-token", &sessions[0])
+            .json(&removal)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    let receipt: Value = client
+        .delete(&url)
+        .header("x-session-token", &sessions[0])
+        .json(&removal)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(receipt["revision"], 3);
+    assert_eq!(
+        client
+            .get(&url)
+            .header("x-session-token", &sessions[0])
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    let after: Value = client
+        .get(format!("{base}/rooms/general/wiki"))
+        .header("x-session-token", &sessions[1])
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(after["pages"].as_array().unwrap().len(), 2);
     assert_eq!(
         client
             .get(format!("{base}/rooms/private/wiki"))
@@ -262,7 +341,7 @@ async fn wiki_http_editor_revision_and_private_room_boundaries() {
             >= batch["lease_expires_at"].as_u64().unwrap()
     );
     let mut finish = serde_json::json!({"lease":batch["lease"],"review":{
-        "expected_revision":1,"reviewed_through":source_id,"reason":"delegated bounded review",
+        "expected_revision":3,"reviewed_through":source_id,"reason":"delegated bounded review",
         "pages":[{"slug":"working","title":"Working area","body":"supported finding","sources":[source_id]}]}});
     finish["lease"]["epoch"] = serde_json::json!(99);
     assert_eq!(
@@ -289,7 +368,7 @@ async fn wiki_http_editor_revision_and_private_room_boundaries() {
         .json()
         .await
         .unwrap();
-    assert_eq!(result["revision"], 2);
+    assert_eq!(result["revision"], 4);
     let retry: Value = client
         .post(format!("{base}/rooms/general/wiki/maintenance/finish"))
         .header("x-session-token", &sessions[0])

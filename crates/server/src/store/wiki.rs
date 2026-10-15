@@ -66,6 +66,13 @@ pub struct WikiPageEdit {
     pub body: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WikiPageRemoval {
+    pub expected_revision: u64,
+    pub reason: String,
+}
+
 fn storage(_: rusqlite::Error) -> WikiError {
     WikiError::Storage
 }
@@ -102,6 +109,87 @@ fn pages(c: &Connection, room: &str) -> Result<Vec<WikiPage>, WikiError> {
 }
 
 impl Store {
+    /// Remove a topic from the active Wiki, retaining its last content in the
+    /// append-only history. This is not a review of new conversation sources.
+    pub fn remove_wiki_page(
+        &self,
+        room: &str,
+        principal: &str,
+        slug: &str,
+        removal: &WikiPageRemoval,
+        at: u64,
+    ) -> Result<u64, WikiError> {
+        if matches!(slug, "overview" | "working")
+            || slug.is_empty()
+            || slug.len() > 80
+            || !slug
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            || removal.reason.trim().is_empty()
+            || removal.reason.len() > 4096
+        {
+            return Err(WikiError::InvalidInput);
+        }
+        let mut c = self.conn().ok_or(WikiError::PersistenceUnavailable)?;
+        let tx = c
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage)?;
+        let (editor, revision): (String, u64) = tx
+            .query_row(
+                "SELECT editor_principal,revision FROM loca_wiki WHERE room=?1",
+                params![room],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(storage)?
+            .ok_or(WikiError::NotConfigured)?;
+        if editor != principal {
+            return Err(WikiError::NotEditor);
+        }
+        if revision != removal.expected_revision {
+            return Err(WikiError::Conflict);
+        }
+        let next = revision.checked_add(1).ok_or(WikiError::Storage)?;
+        let copied = tx
+            .execute(
+                "INSERT INTO loca_wiki_history
+             (room,slug,revision,title,body,sources,editor_principal,reason,edited_at)
+             SELECT room,slug,?3,title,body,sources,?4,?5,?6 FROM loca_wiki_pages
+             WHERE room=?1 AND slug=?2",
+                params![
+                    room,
+                    slug,
+                    next,
+                    principal,
+                    format!("page removed: {}", removal.reason),
+                    at
+                ],
+            )
+            .map_err(storage)?;
+        if copied != 1 {
+            return Err(WikiError::PageNotFound);
+        }
+        tx.execute(
+            "DELETE FROM loca_wiki_pages WHERE room=?1 AND slug=?2",
+            params![room, slug],
+        )
+        .map_err(storage)?;
+        tx.execute(
+            "UPDATE loca_wiki SET revision=?2,edited_at=?3 WHERE room=?1",
+            params![room, next, at],
+        )
+        .map_err(storage)?;
+        // An in-flight draft must reread the new Wiki, not resurrect the page.
+        tx.execute(
+            "UPDATE loca_wiki_batches SET status='cancelled' WHERE room=?1
+            AND status IN ('queued','running','blocked')",
+            params![room],
+        )
+        .map_err(storage)?;
+        tx.commit().map_err(storage)?;
+        Ok(next)
+    }
+
     /// The caller must verify operator authority and resolve an active agent's
     /// principal. Reassigning never resets content or review progress.
     pub fn configure_wiki(
@@ -478,6 +566,94 @@ mod tests {
             }],
         }
     }
+    #[test]
+    fn removal_is_editor_fenced_preserves_history_and_clears_active_context() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("wiki.db");
+        let s = Store::open(Some(path.to_str().unwrap())).unwrap();
+        s.configure_wiki("a", "editor", false, 30).unwrap();
+        let mut update = commit(0, "preserved content");
+        update.pages[0].slug = "obsolete".into();
+        s.commit_wiki("a", "editor", &update, 1).unwrap();
+        s.select_wiki_context(
+            "a",
+            "reader",
+            &super::super::WikiContextSelection {
+                slugs: vec!["obsolete".into()],
+                reason: "selected".into(),
+            },
+            1,
+        )
+        .unwrap();
+        let mut removal = WikiPageRemoval {
+            expected_revision: 1,
+            reason: "merged into overview".into(),
+        };
+        assert_eq!(
+            s.remove_wiki_page("a", "outsider", "obsolete", &removal, 2),
+            Err(WikiError::NotEditor)
+        );
+        removal.expected_revision = 0;
+        assert_eq!(
+            s.remove_wiki_page("a", "editor", "obsolete", &removal, 2),
+            Err(WikiError::Conflict)
+        );
+        removal.expected_revision = 1;
+        assert_eq!(
+            s.remove_wiki_page("a", "editor", "working", &removal, 2),
+            Err(WikiError::InvalidInput)
+        );
+        assert_eq!(
+            s.remove_wiki_page("a", "editor", "missing", &removal, 2),
+            Err(WikiError::PageNotFound)
+        );
+        {
+            let c = s.conn().unwrap();
+            c.execute_batch(
+                "CREATE TEMP TRIGGER reject_removal BEFORE DELETE ON loca_wiki_pages
+                BEGIN SELECT RAISE(ABORT, 'simulated removal failure'); END;",
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            s.remove_wiki_page("a", "editor", "obsolete", &removal, 2),
+            Err(WikiError::Storage)
+        );
+        assert_eq!(s.wiki_snapshot("a").unwrap().revision, 1);
+        assert!(s.wiki_page("a", "obsolete").is_ok());
+        s.conn()
+            .unwrap()
+            .execute_batch("DROP TRIGGER reject_removal")
+            .unwrap();
+        assert_eq!(
+            s.remove_wiki_page("a", "editor", "obsolete", &removal, 2),
+            Ok(2)
+        );
+        assert_eq!(
+            s.wiki_page("a", "obsolete").unwrap_err(),
+            WikiError::PageNotFound
+        );
+        let snapshot = s.wiki_snapshot("a").unwrap();
+        assert_eq!(snapshot.pages.len(), 2);
+        assert_eq!(snapshot.reviewed_at, Some(1));
+        assert_eq!(snapshot.reviewed_through, 0);
+        let context = s.wiki_context_for("a", "reader").unwrap();
+        assert_eq!(context["missing"], serde_json::json!(["obsolete"]));
+        assert_eq!(context["pages"], serde_json::json!([]));
+        let c = s.conn().unwrap();
+        let history: (String, String) = c.query_row("SELECT body,reason FROM loca_wiki_history WHERE room='a' AND slug='obsolete' AND revision=2", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(history.0, "preserved content");
+        assert!(history.1.starts_with("page removed:"));
+        drop(c);
+        drop(s);
+        let s = Store::open(Some(path.to_str().unwrap())).unwrap();
+        assert_eq!(s.wiki_snapshot("a").unwrap().pages.len(), 2);
+        assert_eq!(
+            s.commit_wiki("a", "editor", &update, 3),
+            Err(WikiError::Conflict)
+        );
+    }
+
     #[test]
     fn wiki_no_change_does_not_increment_content_revision() {
         let s = store();

@@ -105,6 +105,14 @@ automatic injection into a Claude Monitor model context is not certified.
 Revision history is stored, but there is no history reader yet. Existing memory
 records are retained, not automatically imported; there is no Legacy memory tab.
 
+The assigned editor can remove obsolete topic pages from the active Wiki with
+`connect.sh wiki-remove <server> <room> <name> <slug> <json-file>`. The file
+contains `expected_revision` and a nonempty `reason`. The server fences stale
+revisions, preserves the removed content in revision history, and invalidates
+in-flight drafts. The structural `overview` and `working` pages stay in place.
+This removes a page from the active index, not its historical records; there
+is no archive browser or automatic restore action.
+
 ### Enable Wiki maintenance
 
 1. Start the assigned editor's installed native runtime: persistent Codex v2

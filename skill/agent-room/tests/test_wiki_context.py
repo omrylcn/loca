@@ -30,6 +30,18 @@ class WikiPageContextTests(unittest.TestCase):
                                              "end_line": 2, "removed": "old rule\n", "inserted": "new rule\n"}])
         self.assertEqual(list(ctx.injected_pages), ["deploy"])
 
+    def test_page_removal_is_explicit_and_fences_pending_old_content(self):
+        ctx = self.baseline()
+        old = ctx.prepare(snapshot(2, "old pending update"), ["deploy"])
+        removed = {"room": "a", "revision": 3, "pages": [], "missing": ["deploy"]}
+        packet = ctx.prepare(removed, ["deploy"])
+        self.assertEqual(packet["pages"][0]["kind"], "removed")
+        self.assertIn("deploy", ctx.injected_pages)
+        self.assertFalse(ctx.acknowledge_injection(old["packet_id"], "a", "thread-a"))
+        self.assertTrue(ctx.acknowledge_injection(packet["packet_id"], "a", "thread-a"))
+        self.assertNotIn("deploy", ctx.injected_pages)
+        self.assertIsNone(ctx.prepare(removed, ["deploy"]))
+
     def test_removed_decision_is_explicit_and_not_left_as_current(self):
         ctx = self.baseline()
         packet = ctx.prepare(snapshot(2, "## Unrelated\nunchanged\n"), ["deploy"])

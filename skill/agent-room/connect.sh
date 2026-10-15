@@ -16,6 +16,7 @@
 #   connect.sh note-update <server> <room> <name> <key> <body>    # body only
 #   connect.sh wiki           <server> <room> <name>
 #   connect.sh wiki-review    <server> <room> <name> <json-file>
+#   connect.sh wiki-remove    <server> <room> <name> <slug> <json-file>
 #   connect.sh wiki-page      <server> <room> <name> <slug>
 #   connect.sh wiki-claim     <server> <room> <name>
 #   connect.sh wiki-finish    <server> <room> <name> <json-file>
@@ -169,7 +170,7 @@ _load_credential_file() {
 # selection as their final credential boundary.
 _requested_identity=""
 case "${1:-}" in
-  listen|send|release|note-create|note-update|memory-short|memory-append|wiki|wiki-review|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|announce|attention-claim|attention-resolve)
+  listen|send|release|note-create|note-update|memory-short|memory-append|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
   session|status|reconnect)
@@ -529,6 +530,16 @@ case "$cmd" in
     # large quoted payload on argv and leaves credentials in their boundary.
     payload=$(jq -ce 'select(type == "object" and (.pages | type == "array"))' "$review_file") || exit 2
     _wiki_request -X POST "$server/rooms/$room/wiki/review" -d "$payload"
+    ;;
+
+  wiki-remove)
+    server="$1"; room="$2"; name="$3"; slug="$4"; removal_file="$5"
+    use_loca "$room"
+    if [[ ! "$slug" =~ ^[a-z0-9-]{1,80}$ ]]; then
+      echo "Invalid Wiki page slug" >&2; exit 2
+    fi
+    payload=$(jq -ce 'select(type == "object" and (.expected_revision | type == "number") and (.reason | type == "string"))' "$removal_file") || exit 2
+    _wiki_request -X DELETE "$server/rooms/$room/wiki/pages/$slug" -d "$payload"
     ;;
 
   wiki-page)
