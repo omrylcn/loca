@@ -276,7 +276,7 @@ makes no admit/invite decision itself.
 
 | Identity/title | Building | Selected Loca | Seal |
 |---|---|---|---|
-| Master | Final word; exactly one principal | Natural Operator | Yes |
+| Master | Final word; exactly one principal | Building management authority; separate from Operator appointment | Yes |
 | Smaster | Delegated administration; cannot replace Master | Secondary manager within limits; cannot override a Master appointment | No |
 | Appointed Loca Operator | No Building authority | Mode, turn order, tasks, and moderation | No |
 | Lead | No Building authority | Observes, owns care, advises/reports; does not assign or moderate | No |

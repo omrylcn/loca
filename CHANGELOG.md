@@ -6,6 +6,16 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.8] - 2026-10-15
+
+### Fixed
+- Let the assigned Wiki editor remove obsolete topic pages with a revision-fenced
+  API and identity-scoped `wiki-remove` helper. Retain historical content, protect
+  structural pages, and cancel in-flight drafts rather than resurrecting removed pages.
+- Explicitly retire removed pages from selected native Wiki context; preserve
+  acknowledgement fences and reject stale or unauthorized removals.
+- Correct the remaining Master/Operator terminology in both principles matrices.
+
 ## [0.12.7] - 2026-10-15
 
 ### Changed
