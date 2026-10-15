@@ -101,13 +101,13 @@ def main(native_factory=None):
 
                 def command(name, kind, payload=None, slug=None, success=True):
                     args = ["bash",str(SKILL / "connect.sh"),kind,base,"general",name]
+                    if slug is not None:
+                        args.append(slug)
                     if payload is not None:
                         path = work / "publication.json"
                         path.write_text(json.dumps(payload))
                         path.chmod(0o600)
                         args.append(str(path))
-                    if slug is not None:
-                        args.append(slug)
                     result = subprocess.run(args,env=dict(env,HOME=str(work / name)),
                                             capture_output=True,text=True,timeout=20)
                     require(not re.search(r"(?:mb_|dv_|st_)[0-9a-f]{20,}",result.stdout+result.stderr),
@@ -185,6 +185,26 @@ def main(native_factory=None):
                 require(selected["revision"] == 2,"publication revision incorrect")
                 require(len(http(base,"GET","/rooms/general/messages",headers=admin)) == 4,
                         "maintenance generated chat spam")
+                # Real shell/API removal, not a mocked transport response.
+                current = command("editor", "wiki")
+                command("editor", "wiki-review", {
+                    "expected_revision": current["revision"],
+                    "reviewed_through": current["reviewed_through"], "reason": "obsolete topic fixture",
+                    "pages": [{"slug": "obsolete", "title": "Obsolete", "body": "retained finding", "sources": []}]})
+                current = command("reader", "wiki")
+                removal = {"expected_revision": current["revision"], "reason": "merged into overview"}
+                command("reader", "wiki-remove", removal, slug="obsolete", success=False)
+                receipt = command("editor", "wiki-remove", removal, slug="obsolete")
+                after = command("reader", "wiki")
+                require(receipt["revision"] == current["revision"] + 1, "removal revision missing")
+                require(len(after["pages"]) == len(current["pages"]) - 1, "obsolete page remains indexed")
+                require(after["reviewed_through"] == current["reviewed_through"], "removal claimed unread sources")
+                command("reader", "wiki-page", slug="obsolete", success=False)
+                command("editor", "wiki-remove", removal, slug="obsolete", success=False)
+                with sqlite3.connect(db) as connection:
+                    retained = connection.execute("SELECT body FROM loca_wiki_history WHERE room='general' AND slug='obsolete' ORDER BY revision DESC LIMIT 1").fetchone()
+                require(retained == ("retained finding",), "removal erased historical content")
+                print("Wiki removal E2E passed: real identity-scoped helper / editor-only / revision fence / smaller index / retained history / no review cursor advance")
                 if native:
                     print("Wiki native E2E passed: real scheduler / isolated model worker / HTTP publication / idempotent retry / model bootstrap + section delta / no chat spam")
                 else:

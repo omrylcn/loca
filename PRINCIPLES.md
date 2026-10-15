@@ -248,7 +248,7 @@ kazanmaz, loca yaratmaz ve davet/admit kararı vermez.
 
 | Kimlik/unvan | Building | Seçili Loca | Seal |
 |---|---|---|---|
-| Master | Son söz; tek principal | Doğal Operator | Evet |
+| Master | Son söz; tek principal | Building yönetim yetkisi; Operator atamasından ayrı | Evet |
 | Smaster | Delegated yönetim; Master'ı değiştiremez | Sınırları içinde ikinci yönetici; Master atamasını bozamaz | Hayır |
 | Atanmış Loca Operator | Building yetkisi yok | Mod, sıra, task ve moderasyon | Hayır |
 | Lead | Building yetkisi yok | Görür, care sahiplenir, tavsiye/rapor verir; iş dağıtmaz veya modere etmez | Hayır |
