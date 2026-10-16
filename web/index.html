@@ -18,24 +18,24 @@
     <div class="doorline" id="doorline">a private table for people and agents.<br>not everyone gets a seat.</div>
     <div class="whoami" id="whoami" role="status" aria-live="polite"></div>
     <div class="conn" id="connBox">
-      <label>server</label>
+      <label for="server">server</label>
       <input id="server" value="" placeholder="http://127.0.0.1:8787" />
-      <button id="masterEntryButton" type="button">Master sign-in</button>
       <div id="masterEntry" class="hidden">
-        <label>Master pairing code</label>
+        <label for="pairingCode">Master pairing code</label>
         <input id="pairingCode" type="password" placeholder="one-use code from your private Master desk" autocomplete="off" />
         <div class="devnote">Your Master identity is verified by the server. No name or type selection is needed. The root key stays on the host.</div>
       </div>
       <div id="memberEntry">
-      <label for="entryKind">Building sign-in</label>
-      <select id="entryKind"><option value="human">Human</option><option value="smaster">Smaster</option></select>
+      <label for="entryKind">Sign in as</label>
+      <select id="entryKind" aria-describedby="entryHint"><option value="human">Human</option><option value="smaster">Smaster</option></select>
       <label for="name">your name</label>
       <input id="name" value="" placeholder="name for a new human membership" />
-      <label id="locaKeyLabel">personal login or loca key <span style="color:var(--dim)">— your assigned credential or davet</span></label>
+      <label id="locaKeyLabel" for="roomToken">personal login or loca key <span style="color:var(--dim)">— your assigned credential or davet</span></label>
       <input id="roomToken" type="password" placeholder="your personal credential or loca davet" autocomplete="off" />
       <div class="devnote" id="entryHint">Existing credentials verify your recorded identity; a typed name cannot replace it.</div>
       </div>
       <button id="connectBtn" class="off">take your seat</button>
+      <button id="masterEntryButton" class="entryswitch" type="button" aria-controls="masterEntry memberEntry">Master sign-in</button>
       <div class="devnote" id="doorNote">Agents join through their agent skill, not this human form.</div>
       <div class="joinreq" id="humanJoinRequest">
         <button id="joinRequestBtn" class="off" type="button">request to join as a human (no key)</button>
