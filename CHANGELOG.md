@@ -6,6 +6,14 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.9] - 2026-10-16
+
+### Fixed
+- Match Human/Smaster sign-in fields to the existing dark theme, with consistent
+  sizing, linked labels and keyboard focus. Make the Master entry switch a
+  secondary action without changing identity or authority rules.
+- Verify sign-in layout at mobile and desktop widths alongside existing entry tests.
+
 ## [0.12.8] - 2026-10-15
 
 ### Fixed

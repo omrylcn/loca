@@ -9,6 +9,7 @@ function setEntryPath(path) {
   $("masterEntryButton").textContent = master ? "Back to Human / Smaster sign-in" : "Master sign-in";
   $("masterEntryButton").setAttribute("aria-expanded", String(master));
   $("connectBtn").textContent = master ? "sign in as Master" : path === "smaster" ? "sign in as Smaster" : "sign in as Human";
+  $("name").placeholder = path === "smaster" ? "optional — your key verifies your identity" : "name for a new human membership";
   $("entryHint").textContent = path === "smaster"
     ? "Use the personal credential issued by Master. Selecting Smaster does not grant authority."
     : "Existing credentials verify your recorded identity; a typed name cannot replace it.";
