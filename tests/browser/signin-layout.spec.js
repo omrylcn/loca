@@ -11,7 +11,10 @@ for (const width of [390, 1280]) {
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
     await expect(kind).toHaveValue("smaster");
+    await page.keyboard.press("Escape");
     await page.keyboard.press("Tab");
+    await expect(page.locator("#name")).toBeFocused();
+    await expect(page.locator("#name")).toHaveAttribute("placeholder", "optional — your key verifies your identity");
     await expect(page.locator("#joinRequestBtn")).toBeHidden();
     await expect(page.locator("#connectBtn")).toHaveText("sign in as Smaster");
     const sizes = await page.evaluate(() => {
