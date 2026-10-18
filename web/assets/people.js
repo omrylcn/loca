@@ -40,7 +40,7 @@ function applyResidentSnapshot(residents, { people = false, scope = null } = {})
   // Lobby is a live location state: connected to the Building, but seated
   // in no loca. Offline members remain visible in the Building directory as
   // disconnected; they must not inflate the Lobby count.
-  state.lobby = residents.filter(p => p.online && !(p.locas || []).length);
+  state.lobby = residents.filter(p => !p.suspended && p.online && !(p.locas || []).length);
   renderLobby();
   return true;
 }
@@ -90,7 +90,7 @@ async function openCallList() {
     if (!r.ok) { box.innerHTML = `<div class="callnone">could not fetch the list</div>`; return; }
     const all = await r.json();
     const here = new Set(state.members.map(m => m.name));
-    const free = all.filter(p => !here.has(p.name) && !(p.locas || []).includes(state.room));
+    const free = all.filter(p => !p.suspended && !here.has(p.name) && !(p.locas || []).includes(state.room));
     if (!free.length) {
       box.innerHTML = `<div class="callnone">nobody in the building to call</div>`;
       return;
@@ -292,6 +292,9 @@ function maybeDayChip(ts) {
 }
 
 async function fetchPeople() {
+  // Building management also works before taking a loca seat. Hydrate the
+  // verified Building role rather than relying on a room socket to fetch it.
+  if (isAdmin()) await fetchProfile();
   if (!isAdmin()) return;
   const scope = residentReadScope();
   const box = $("peopleList");
@@ -411,8 +414,11 @@ function renderPeople() {
       ? `<span class="pban">banned: ${esc(barred.join(", "))}</span>` : "";
     const unban = barred.map(r =>
       `<button data-unban="${esc(name)}" data-room="${esc(r)}">unban ${esc(r)}</button>`).join(" ");
+    const revoke = state.profile?.building_role === "master" && p?.membership_id
+      ? `<button type="button" data-suspend-member="${esc(p.membership_id)}" data-suspended="${p.suspended ? "0" : "1"}" data-member-name="${esc(name)}">${p.suspended ? "Resume" : "Suspend"}</button>` +
+        `<button type="button" data-revoke-member="${esc(p.membership_id)}" data-member-name="${esc(name)}">Revoke membership</button>` : "";
     return `<div class="prow"><span class="pname">${glyph}${esc(name)}${stage}</span>` +
-           `${statuses}<span class="pwhere">${esc(where)} ${banTxt}</span>${unban}</div>`;
+           `${statuses}<span class="pwhere">${p?.suspended ? "Suspended · " : ""}${esc(where)} ${banTxt}</span>${unban}${revoke}</div>`;
   }).join("");
 }
 

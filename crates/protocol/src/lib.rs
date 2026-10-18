@@ -1147,6 +1147,11 @@ pub struct Membership {
 /// locas is in the lobby: visible and callable, but in no conversation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Resident {
+    #[serde(default)]
+    pub suspended: bool,
+    /// Opaque membership reference for administration; never a credential.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub membership_id: Option<String>,
     pub name: String,
     /// "agent" | "user"
     pub kind: String,

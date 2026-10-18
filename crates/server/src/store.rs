@@ -480,6 +480,12 @@ impl Store {
             );
             CREATE UNIQUE INDEX IF NOT EXISTS principals_one_master
                 ON principals(building_role) WHERE building_role = 'master' AND disabled_at IS NULL;
+            -- Suspension is reversible and distinct from membership revocation.
+            CREATE TABLE IF NOT EXISTS member_suspensions (
+                member_token TEXT PRIMARY KEY REFERENCES members(token),
+                suspended_at INTEGER NOT NULL,
+                reason TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS credentials (
                 id TEXT PRIMARY KEY,
                 principal_id TEXT NOT NULL REFERENCES principals(id),

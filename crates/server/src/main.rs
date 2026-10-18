@@ -411,6 +411,10 @@ async fn main() {
             "/members/:token",
             axum::routing::delete(revoke_member_route),
         )
+        .route(
+            "/members/:token/suspension",
+            axum::routing::post(set_member_suspension_route),
+        )
         .route("/residents", get(list_residents))
         .route("/rooms/:id/call", axum::routing::post(call_into_loca))
         .route(

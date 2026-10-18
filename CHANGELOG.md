@@ -6,6 +6,20 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.10] - 2026-10-18
+
+### Added
+- Manage Building memberships from the People list with Master-only suspend,
+  resume and revoke controls, explicit confirmation and opaque member references.
+- Persist reversible suspension separately from revocation. Keep identity and
+  history, end existing sessions and loca invitations, and require fresh entry
+  after resuming. Revoked membership cannot be resumed.
+
+### Fixed
+- Enforce Master-only membership revocation on the server, not just in the UI.
+- Upgrade the ZIP dependency to the patched 9.x series and retain the skill
+  extraction path, permissions and installation regression gates.
+
 ## [0.12.9] - 2026-10-16
 
 ### Fixed

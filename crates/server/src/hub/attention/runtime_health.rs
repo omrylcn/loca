@@ -118,6 +118,8 @@ impl Hub {
             by_name.insert(
                 m.name.clone(),
                 protocol::Resident {
+                    suspended: self.member_suspended(&m.token),
+                    membership_id: Some(self.member_management_id(&m.token)),
                     name: m.name.clone(),
                     kind: m.kind.clone(),
                     locas: Vec::new(),

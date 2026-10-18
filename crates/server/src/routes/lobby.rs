@@ -211,6 +211,13 @@ pub(crate) async fn lobby_ws_session(socket: WebSocket, hub: Hub, member: protoc
                     let _ = sink.send(WsMessage::Text(frame)).await;
                     break;
                 }
+                Ok(LobbyEvent::MembershipSuspended { .. }) => {
+                    // Do not send membership_revoked: older listeners erase their
+                    // locally held membership on permanent revocation only.
+                    let frame = serde_json::json!({ "t": "membership_suspended" }).to_string();
+                    let _ = sink.send(WsMessage::Text(frame)).await;
+                    break;
+                }
                 Err(RecvError::Lagged(_)) => {
                     // The database-backed snapshot is authoritative; replay it
                     // after lag rather than trusting a lossy signal bus.

@@ -1,6 +1,69 @@
 use super::*;
 
 impl Store {
+    /// Persist the access cutoff before the Hub disconnects live sockets.
+    /// Credentials and principal IDs survive; existing sessions and davets do not.
+    pub fn suspend_member(&self, token: &str, reason: &str, at: u64) -> rusqlite::Result<bool> {
+        let Some(mut c) = self.conn() else {
+            return Err(rusqlite::Error::InvalidQuery);
+        };
+        let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let principal: Option<String> = tx
+            .query_row(
+                "SELECT p.id FROM members m JOIN credentials c ON c.secret_hash = ?2
+             JOIN principals p ON p.id = c.principal_id
+             WHERE m.token = ?1 AND m.revoked_at IS NULL AND p.building_role = 'member'",
+                params![token, secret_hash(token)],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(principal) = principal else {
+            return Ok(false);
+        };
+        tx.execute("INSERT OR IGNORE INTO member_suspensions(member_token, suspended_at, reason) VALUES (?1, ?2, ?3)", params![token, at, reason])?;
+        tx.execute(
+            "UPDATE principals SET disabled_at = ?2 WHERE id = ?1 AND disabled_at IS NULL",
+            params![principal, at],
+        )?;
+        tx.execute("UPDATE principal_sessions SET revoked_at = ?2 WHERE principal_id = ?1 AND revoked_at IS NULL", params![principal, at])?;
+        tx.execute(
+            "UPDATE invites SET revoked_at = ?2 WHERE member = ?1 AND revoked_at IS NULL",
+            params![token, at],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    pub fn resume_member(&self, token: &str) -> rusqlite::Result<bool> {
+        let Some(mut c) = self.conn() else {
+            return Err(rusqlite::Error::InvalidQuery);
+        };
+        let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let changed = tx.execute(
+            "DELETE FROM member_suspensions WHERE member_token = ?1
+             AND EXISTS(SELECT 1 FROM members WHERE token = ?1 AND revoked_at IS NULL)",
+            params![token],
+        )?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        tx.execute("UPDATE principals SET disabled_at = NULL WHERE id IN
+            (SELECT principal_id FROM credentials WHERE secret_hash = ?1) AND building_role = 'member'", params![secret_hash(token)])?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    pub fn member_suspended(&self, token: &str) -> rusqlite::Result<bool> {
+        let Some(c) = self.conn() else {
+            return Ok(false);
+        };
+        c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM member_suspensions WHERE member_token = ?1)",
+            params![token],
+            |row| row.get(0),
+        )
+    }
+
     pub fn principal_for_credential(&self, credential: &str) -> Option<PrincipalIdentity> {
         if credential.is_empty() {
             return None;
@@ -600,6 +663,14 @@ impl Store {
             return Ok(());
         };
         let tx = c.transaction()?;
+        let suspended: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM member_suspensions WHERE member_token = ?1)",
+            params![inv.member],
+            |row| row.get(0),
+        )?;
+        if suspended {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         Self::require_unsealed_room(&tx, &inv.room)?;
         tx.execute(
             "INSERT OR REPLACE INTO invites

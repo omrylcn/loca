@@ -14,6 +14,40 @@ use crate::store::{BuildingRole, Store};
 static TEST_NOW: AtomicU64 = AtomicU64::new(0);
 static TEST_CLOCK_LOCK: Mutex<()> = Mutex::new(());
 
+#[test]
+fn suspension_and_concurrent_davet_creation_cannot_leave_a_revivable_seat() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(directory.path().join("suspend-race.db").to_str()).unwrap());
+    let hub = critical_restart_hub(store, "race-fixture-root");
+    let member = hub.admit_member("race-worker", "agent", "master").unwrap();
+    let reference = hub.member_management_id(&member.token);
+    for _ in 0..20 {
+        let invite = protocol::Invite {
+            token: hub.new_invite_token(),
+            room: "race-room".into(),
+            member: member.token.clone(),
+            name: member.name.clone(),
+            kind: member.kind.clone(),
+            issued_at: 1,
+            issued_by: "master".into(),
+        };
+        let token = invite.token.clone();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let writer = hub.clone();
+        let ready = barrier.clone();
+        let thread = std::thread::spawn(move || {
+            ready.wait();
+            let _ = writer.add_invite(invite);
+        });
+        barrier.wait();
+        assert!(hub.set_member_suspended(&reference, true, "test").unwrap());
+        thread.join().unwrap();
+        assert!(!hub.has_active_invite("race-room", &member.token));
+        assert!(hub.set_member_suspended(&reference, false, "").unwrap());
+        assert!(hub.invite_for("race-room", Some(&token)).is_none());
+    }
+}
+
 fn critical_restart_hub(store: Arc<Store>, root: &str) -> Hub {
     Hub::build(
         HubConfig {

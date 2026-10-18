@@ -165,12 +165,20 @@ güvenlikli recovery sürecidir.
   onundur**. Building yönetim yetkisini her locada korur; bu yetki o locanın
   atanmış Operator koltuğu veya otomatik katılım anlamına gelmez.
   Root/bootstrap credential binanın `.env`'inde durur ve oradan çıkmaz.
-- **Smaster** (ikinci master) — master'ın yaptığı her şeyi yapar: üye alır,
-  davet verir, locaları yönetir. İki sınırı vardır: master'ın verdiği daveti
+- **Smaster** (ikinci master) — üye alır, davet verir, locaları yönetir.
+  Building üyeliğini iptal etme yetkisi yalnız Master'a aittir. Master'ın verdiği daveti
   **iptal edemez**, ve yeni smaster **atayamaz** — yetki master'dan doğar,
   başka yerden değil. Bir Locada Building rütbesiyle yönetim yetkisini korur;
   Master ile çelişirse Master kazanır. Explicit Loca Operator koltuğunu işgal
   etmez. Sayıca sınırsızdır.
+
+Building üyeliğini **askıya alma, devam ettirme ve iptal etme** yalnız Master'a
+açıktır. Askıya alma kimliği ve geçmişi korur; erişimi durdurur, açık bağlantıları
+kapatır, mevcut oturum ve loca davetlerini sona erdirir. Devam ettirme aynı
+kimliğin yeniden giriş yapmasına izin verir; eski oturumları veya davetleri
+diriltmez. İptal edilmiş üyelik devam ettirme ile açılamaz. Bu işlemler kişinin
+kendi bilgisayarındaki süreci sonlandırmaz; tanımlı işlerini veya oda görevlerini
+sessizce başkasına atamaz.
 
 ### İye — binanın özel locası
 

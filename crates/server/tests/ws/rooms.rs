@@ -1104,7 +1104,7 @@ async fn the_untested_endpoints_answer_correctly() {
         .send()
         .await
         .unwrap();
-    assert_eq!(no.status(), 401, "DELETE /members is master-only");
+    assert_eq!(no.status(), 403, "DELETE /members is master-only");
 }
 
 /// A ban survives a restart. Without persistence the ban set empties on boot
