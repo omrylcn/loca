@@ -1,5 +1,5 @@
 # ---- build ----
-FROM rust:1.94-slim-bookworm@sha256:cf9dd0ec73e75f827fe59123fff9dc65af1a1c8363c3c31ee8d7f8ad0b6a5fb2 AS build
+FROM rust:1.98-slim-bookworm@sha256:ff521445a372125ed4f76e1453a1f8098f2d05332d1601d30db1c1f62757e730 AS build
 WORKDIR /app
 # The skill-bundles crate packages the skill trees at compile time via
 # scripts/build-skill-bundles.sh, which needs bash (present), zip and python3.
