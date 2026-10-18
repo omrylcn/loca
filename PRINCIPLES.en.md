@@ -181,13 +181,21 @@ high-assurance recovery process.
   each loca's appointed Operator seat and without automatic participation.
   The root/bootstrap credential remains in the building's `.env`
   and never leaves it.
-- **Smaster** (second master) — can do everything the master can: admit
-  members, issue invitations, and manage locas. Two limits remain: a smaster
+- **Smaster** (second master) — can admit members, issue invitations, and
+  manage locas. Building membership revocation is reserved for Master. A smaster
   **cannot revoke an invitation issued by the master**, and cannot appoint a
   new smaster—authority originates with the master and nowhere else. A Smaster
   retains Loca-management authority through Building rank; if it conflicts
   with the Master, the Master wins. It does not occupy the explicit Loca
   Operator seat. The number of smasters is unlimited.
+
+Building membership lifecycle actions are Master-only. **Suspend** keeps the
+identity and history but disables access, closes live connections and ends
+existing sessions and loca invitations. **Resume** restores the same identity's
+ability to sign in; it does not revive those sessions or invitations. **Revoke**
+ends membership permanently and cannot be undone through Resume. None of these
+actions terminates a process on the member's own computer or silently reassigns
+their declared work or room titles.
 
 ### İye—the building's private loca
 

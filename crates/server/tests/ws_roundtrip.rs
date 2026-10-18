@@ -17,6 +17,234 @@ use tokio_tungstenite::tungstenite::{
 // schedule the room actor and polling requests under full-suite load.
 const ASYNC_STATE_HANG_GUARD: Duration = Duration::from_secs(30);
 
+#[tokio::test]
+async fn building_suspension_blocks_access_and_resume_keeps_identity() {
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("building-suspension.db");
+    let (port, _server) = spawn_server_env(
+        "suspension-master",
+        &[
+            ("DB_PATH", db.to_str().unwrap().into()),
+            ("REQUIRE_INVITE", "1".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let member: Value = client
+        .post(format!("{base}/members"))
+        .header("x-admin-token", "suspension-master")
+        .json(&serde_json::json!({"name": "suspension-worker", "kind": "agent"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let key = member["token"].as_str().unwrap();
+    let before: Value = client
+        .get(format!("{base}/profile"))
+        .header("x-admin-token", key)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let residents: Vec<Value> = client
+        .get(format!("{base}/residents"))
+        .header("x-admin-token", "suspension-master")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = residents
+        .iter()
+        .find(|r| r["name"] == "suspension-worker")
+        .unwrap()["membership_id"]
+        .as_str()
+        .unwrap();
+    create_test_room(port, "suspension-master", "suspension-room").await;
+    let davet = davet_for(
+        &base,
+        "suspension-master",
+        "suspension-room",
+        "suspension-worker",
+    )
+    .await;
+    let session = session_with(&base, ("x-room-token", &davet), "suspension-worker", None).await;
+    let url =
+        format!("ws://127.0.0.1:{port}/ws?room=suspension-room&name=suspension-worker&type=agent");
+    let mut socket =
+        connect_ws_protocols(url, &["loca.v1".into(), format!("loca.room.{davet}")]).await;
+    let mut lobby = connect_ws_protocols(
+        format!("ws://127.0.0.1:{port}/lobby/ws"),
+        &["loca.v1".into(), format!("loca.membership.{key}")],
+    )
+    .await;
+    for suspended in [true, false] {
+        let denied = client
+            .post(format!("{base}/members/{id}/suspension"))
+            .header("x-room-token", key)
+            .json(&serde_json::json!({"suspended": suspended}))
+            .send()
+            .await
+            .unwrap();
+        assert!(denied.status().is_client_error());
+        client
+            .post(format!("{base}/members/{id}/suspension"))
+            .header("x-admin-token", "suspension-master")
+            .json(&serde_json::json!({"suspended": suspended}))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+        let profile = client
+            .get(format!("{base}/profile"))
+            .header("x-admin-token", key)
+            .send()
+            .await
+            .unwrap();
+        if suspended {
+            assert!(profile.status().is_client_error());
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let frame = lobby
+                        .next()
+                        .await
+                        .expect("Lobby must notify suspension")
+                        .unwrap();
+                    if let WsMessage::Text(text) = frame {
+                        let value: Value = serde_json::from_str(&text).unwrap();
+                        assert_ne!(
+                            value["t"], "membership_revoked",
+                            "suspension must not erase the listener credential"
+                        );
+                        if value["t"] == "membership_suspended" {
+                            break;
+                        }
+                    }
+                }
+            })
+            .await
+            .expect("bounded Lobby suspension notification");
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while let Some(frame) = socket.next().await {
+                    match frame {
+                        Ok(WsMessage::Close(_)) | Err(_) => break,
+                        _ => {}
+                    }
+                }
+            })
+            .await
+            .expect("suspension must close the already-open room socket");
+        } else {
+            let after: Value = profile.error_for_status().unwrap().json().await.unwrap();
+            assert_eq!(before["principal"]["id"], after["principal"]["id"]);
+            assert!(after["principal"]["id"].is_string());
+        }
+        for (header, credential) in [("x-room-token", &davet), ("x-session-token", &session)] {
+            let response = client
+                .get(format!("{base}/rooms/suspension-room/messages"))
+                .header(header, credential)
+                .send()
+                .await
+                .unwrap();
+            assert!(
+                response.status().is_client_error(),
+                "old seats and sessions must not revive"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn building_membership_revocation_requires_master_and_uses_opaque_reference() {
+    let (port, _server) = spawn_server_with("test-building-master").await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let smaster: Value = client
+        .post(format!("{base}/smasters"))
+        .header("x-admin-token", "test-building-master")
+        .json(&serde_json::json!({"name": "test-deputy"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let member: Value = client
+        .post(format!("{base}/members"))
+        .header("x-admin-token", "test-building-master")
+        .json(&serde_json::json!({"name": "test-resident", "kind": "agent"}))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let residents: Vec<Value> = client
+        .get(format!("{base}/residents"))
+        .header("x-admin-token", "test-building-master")
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let resident = residents
+        .iter()
+        .find(|r| r["name"] == "test-resident")
+        .unwrap();
+    let id = resident["membership_id"].as_str().unwrap();
+    assert!(id.starts_with("mbid_"));
+    assert_ne!(resident["membership_id"], member["token"]);
+    for credential in [None, smaster["token"].as_str(), member["token"].as_str()] {
+        let mut request = client.delete(format!("{base}/members/{id}"));
+        if let Some(credential) = credential {
+            request = request.header("x-admin-token", credential);
+        }
+        let status = request.send().await.unwrap().status();
+        assert!(
+            status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::UNAUTHORIZED,
+            "unauthorized callers must be rejected before mutation"
+        );
+    }
+    assert_eq!(
+        client
+            .delete(format!("{base}/members/{id}"))
+            .header("x-admin-token", "test-building-master")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        reqwest::StatusCode::OK
+    );
+    let residents: Vec<Value> = client
+        .get(format!("{base}/residents"))
+        .header("x-admin-token", "test-building-master")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!residents.iter().any(|r| r["name"] == "test-resident"));
+}
+
 // Pull the server's router together the same way main does. Since main.rs owns
 // the app wiring, we rebuild a minimal equivalent by spawning the actual binary
 // would be heavier; instead we exercise it over a real socket via the public

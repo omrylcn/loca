@@ -222,13 +222,55 @@ pub(crate) async fn admit_member(
     }
 }
 /// End a membership.
+pub(crate) async fn set_member_suspension_route(
+    State(hub): State<Hub>,
+    Path(reference): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    if !is_master_req(&hub, &headers) {
+        return (StatusCode::FORBIDDEN, "Master authority required").into_response();
+    }
+    if !hub.member_suspension_supported() {
+        return (
+            StatusCode::CONFLICT,
+            "Suspension requires a persistent Building",
+        )
+            .into_response();
+    }
+    let Some(suspended) = body.get("suspended").and_then(|value| value.as_bool()) else {
+        return (StatusCode::BAD_REQUEST, "suspended must be a boolean").into_response();
+    };
+    let reason = body
+        .get("reason")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .trim();
+    if reason.len() > 500 {
+        return (StatusCode::BAD_REQUEST, "reason is too long").into_response();
+    }
+    match hub.set_member_suspended(&reference, suspended, reason) {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"suspended": suspended})),
+        )
+            .into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "membership or suspension not found").into_response(),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not save membership state",
+        )
+            .into_response(),
+    }
+}
+
 pub(crate) async fn revoke_member_route(
     State(hub): State<Hub>,
     Path(token): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if !is_admin_req(&hub, &headers) {
-        return (StatusCode::UNAUTHORIZED, "master only").into_response();
+    if !is_master_req(&hub, &headers) {
+        return (StatusCode::FORBIDDEN, "Master authority required").into_response();
     }
     match hub.revoke_member_ref(&token) {
         Ok(true) => (StatusCode::OK, "revoked").into_response(),

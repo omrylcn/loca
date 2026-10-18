@@ -6,6 +6,62 @@ use rusqlite::Connection;
 use super::Store;
 
 #[test]
+fn failed_suspension_rolls_back_access_and_suspension_marker() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("suspension-rollback.db");
+    let store = Store::open(path.to_str()).unwrap();
+    let member = protocol::Membership {
+        token: "rollback-fixture".into(),
+        name: "worker".into(),
+        kind: "agent".into(),
+        joined_at: 1,
+        admitted_by: "master".into(),
+    };
+    store.add_member(&member).unwrap();
+    store.conn().unwrap().execute_batch("CREATE TEMP TRIGGER reject_suspend BEFORE UPDATE ON principals BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
+    assert!(store.suspend_member(&member.token, "test", 2).is_err());
+    assert!(!store.member_suspended(&member.token).unwrap());
+    assert!(store.principal_for_credential(&member.token).is_some());
+}
+
+#[test]
+fn member_suspension_survives_restart_preserves_identity_and_cannot_undo_revocation() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("suspension.db");
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    let member = protocol::Membership {
+        token: "suspension-fixture".into(),
+        name: "worker".into(),
+        kind: "agent".into(),
+        joined_at: 1,
+        admitted_by: "master".into(),
+    };
+    store.add_member(&member).unwrap();
+    let id = store.principal_for_credential(&member.token).unwrap().id;
+    assert!(store
+        .suspend_member(&member.token, "maintenance", 2)
+        .unwrap());
+    assert!(store.member_suspended(&member.token).unwrap());
+    assert!(store.principal_for_credential(&member.token).is_none());
+    drop(store);
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    assert!(store.member_suspended(&member.token).unwrap());
+    assert!(store.principal_for_credential(&member.token).is_none());
+    assert!(store.resume_member(&member.token).unwrap());
+    assert_eq!(
+        store.principal_for_credential(&member.token).unwrap().id,
+        id
+    );
+    assert!(!store.resume_member(&member.token).unwrap());
+    store
+        .suspend_member(&member.token, "maintenance", 3)
+        .unwrap();
+    store.revoke_member_cascade(&member.token, 4).unwrap();
+    assert!(!store.resume_member(&member.token).unwrap());
+    assert!(store.principal_for_credential(&member.token).is_none());
+}
+
+#[test]
 fn room_founder_creation_is_atomic_and_survives_restart() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("founder.db");

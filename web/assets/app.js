@@ -144,6 +144,45 @@ $("peopleList").onclick = async (e) => {
       `${n} admission rights created`);
     return;
   }
+  const suspension = e.target.closest("[data-suspend-member]");
+  if (suspension) {
+    if (state.profile?.building_role !== "master") return;
+    const suspended = suspension.dataset.suspended === "1";
+    const name = suspension.dataset.memberName;
+    if (!window.confirm(suspended
+      ? `Suspend ${name}? All current sessions and loca invitations will end. The identity and history will be kept.`
+      : `Resume ${name}? They must sign in again and receive new loca invitations. Old sessions will not reopen.`)) return;
+    suspension.disabled = true;
+    try {
+      const response = await fetch(`${serverBase()}/members/${encodeURIComponent(suspension.dataset.suspendMember)}/suspension`, {
+        method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ suspended }),
+      });
+      if (!response.ok) throw new Error("Membership state could not be saved. Refresh and try again.");
+      await fetchPeople();
+    } catch (error) { window.alert(error.message); }
+    finally { suspension.disabled = false; }
+    return;
+  }
+  const revoke = e.target.closest("[data-revoke-member]");
+  if (revoke) {
+    if (state.profile?.building_role !== "master") return;
+    const name = revoke.dataset.memberName;
+    if (!window.confirm(`Revoke ${name}'s Building membership? Access to all locas will end. This does not stop the agent's local process or delete conversation history.`)) return;
+    revoke.disabled = true;
+    try {
+      const response = await fetch(`${serverBase()}/members/${encodeURIComponent(revoke.dataset.revokeMember)}`, {
+        method: "DELETE", headers: adminHeaders({}),
+      });
+      if (!response.ok) throw new Error("Membership could not be revoked. Refresh and try again.");
+      await fetchPeople();
+    } catch (error) {
+      window.alert(error.message);
+    } finally {
+      revoke.disabled = false;
+    }
+    return;
+  }
   const b = e.target.closest("[data-unban]");
   if (!b) return;
   await fetch(`${serverBase()}/rooms/${encodeURIComponent(b.dataset.room)}/moderate`, {

@@ -6,7 +6,7 @@ license.workspace = true
 description = "The embedded loca/loca-care skill distribution bundles, shared by the server download endpoint and the Desktop local Skill Library so both serve identical bytes."
 
 [dependencies]
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 serde_json = "1"
 sha2 = "0.10"
 

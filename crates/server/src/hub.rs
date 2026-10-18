@@ -253,6 +253,8 @@ pub struct Hub {
     /// Building-lobby signal bus. Lobby sockets never join a loca; they wait
     /// here for a davet addressed to their permanent membership.
     lobby_tx: broadcast::Sender<LobbyEvent>,
+    /// Serialize membership access cutoffs with davet persistence/cache writes.
+    member_lifecycle: Arc<Mutex<()>>,
     /// Live lobby sockets per membership token. A count (rather than a set)
     /// keeps presence correct while one identity is reconnecting.
     lobby_online: Arc<Mutex<HashMap<String, usize>>>,
@@ -290,12 +292,17 @@ pub enum LobbyEvent {
     MembershipRevoked {
         member: String,
     },
+    MembershipSuspended {
+        member: String,
+    },
 }
 
 impl LobbyEvent {
     pub fn member(&self) -> &str {
         match self {
-            Self::Called { member, .. } | Self::MembershipRevoked { member } => member,
+            Self::Called { member, .. }
+            | Self::MembershipRevoked { member }
+            | Self::MembershipSuspended { member } => member,
         }
     }
 }
@@ -496,6 +503,7 @@ impl Hub {
             require_invite,
             invites: Arc::new(Mutex::new(HashMap::new())),
             lobby_tx,
+            member_lifecycle: Arc::new(Mutex::new(())),
             lobby_online: Arc::new(Mutex::new(HashMap::new())),
             runtime_health: Arc::new(Mutex::new(HashMap::new())),
             care_deliveries: Arc::new(Mutex::new(HashMap::new())),
@@ -1085,12 +1093,16 @@ impl Hub {
     /// other — that is the whole point of it (DESIGN §5g).
     /// A davet by its token, whichever loca it belongs to.
     pub fn invite_by_token(&self, token: &str) -> Option<Invite> {
-        self.invites.lock_or_recover().get(token).cloned()
+        let invite = self.invites.lock_or_recover().get(token).cloned()?;
+        if !invite.member.is_empty() && self.member_suspended(&invite.member) {
+            return None;
+        }
+        Some(invite)
     }
 
     pub fn invite_for(&self, room: &str, token: Option<&str>) -> Option<Invite> {
         let token = token?;
-        let inv = self.invites.lock_or_recover().get(token).cloned()?;
+        let inv = self.invite_by_token(token)?;
         (inv.room == room).then_some(inv)
     }
 
@@ -1321,6 +1333,7 @@ impl Hub {
     /// every open connection at once — otherwise "you no longer belong here"
     /// would leave the ejected person still reading and speaking.
     pub fn revoke_member(&self, token: &str) -> rusqlite::Result<bool> {
+        let _lifecycle = self.member_lifecycle.lock_or_recover();
         if !self.members.lock_or_recover().contains_key(token) {
             return Ok(false);
         }
@@ -1357,6 +1370,57 @@ impl Hub {
         crate::store::hashed_id("mbid_", &format!("member:{token}"))
     }
 
+    pub fn set_member_suspended(
+        &self,
+        reference: &str,
+        suspended: bool,
+        reason: &str,
+    ) -> rusqlite::Result<bool> {
+        let _lifecycle = self.member_lifecycle.lock_or_recover();
+        let token = self
+            .members
+            .lock_or_recover()
+            .keys()
+            .find(|token| self.member_management_id(token) == reference)
+            .cloned();
+        let Some(token) = token else { return Ok(false) };
+        if !suspended {
+            return self.store.resume_member(&token);
+        }
+        if !self.store.suspend_member(&token, reason, self.now())? {
+            return Ok(false);
+        }
+        let davets: Vec<Invite> = self
+            .invites
+            .lock_or_recover()
+            .values()
+            .filter(|invite| invite.member == token)
+            .cloned()
+            .collect();
+        {
+            let mut invites = self.invites.lock_or_recover();
+            for invite in &davets {
+                invites.remove(&invite.token);
+            }
+        }
+        for invite in davets {
+            self.close_connections(&invite.room, &invite.name);
+        }
+        self.revoke_sessions_for_member(&token);
+        let _ = self
+            .lobby_tx
+            .send(LobbyEvent::MembershipSuspended { member: token });
+        Ok(true)
+    }
+
+    pub fn member_suspended(&self, token: &str) -> bool {
+        self.store.member_suspended(token).unwrap_or(true)
+    }
+
+    pub fn member_suspension_supported(&self) -> bool {
+        self.store.is_persistent()
+    }
+
     pub fn revoke_member_ref(&self, reference: &str) -> rusqlite::Result<bool> {
         let token = self
             .members
@@ -1375,6 +1439,9 @@ impl Hub {
     /// The member behind this key, if it is a live one.
     pub fn member_of(&self, token: Option<&str>) -> Option<protocol::Membership> {
         let token = token?;
+        if self.member_suspended(token) {
+            return None;
+        }
         self.members.lock_or_recover().get(token).cloned()
     }
 
@@ -1440,7 +1507,7 @@ impl Hub {
     /// gate, which cannot know the target loca; the per-loca decision is
     /// `may_enter`.
     pub fn is_invite_token(&self, token: Option<&str>) -> bool {
-        token.is_some_and(|t| self.invites.lock_or_recover().contains_key(t))
+        token.is_some_and(|t| self.invite_by_token(t).is_some())
     }
 
     /// Current time by the hub's own clock (tests can swap it).
@@ -1588,6 +1655,10 @@ impl Hub {
 
     /// Record a davet. The master issues; we only persist and index it.
     pub fn add_invite(&self, inv: Invite) -> rusqlite::Result<()> {
+        let _lifecycle = self.member_lifecycle.lock_or_recover();
+        if !inv.member.is_empty() && self.member_of(Some(&inv.member)).is_none() {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         if self.is_deleted(&inv.room) {
             return Err(rusqlite::Error::InvalidParameterName(
                 "room is permanently sealed".into(),
