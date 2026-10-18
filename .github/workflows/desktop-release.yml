@@ -33,12 +33,12 @@ jobs:
     outputs:
       release_id: ${{ steps.mk.outputs.release_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
       - name: Create a single draft release
         id: mk
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const { data } = await github.rest.repos.createRelease({
@@ -70,7 +70,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ inputs.tag || github.ref }}
@@ -103,7 +103,7 @@ jobs:
           fi
 
       - name: Build + upload installers
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
           LOCA_DEFAULT_SERVER: ${{ matrix.flavor == 'client' && 'https://loca.speakbetter.tech' || 'http://127.0.0.1:8787' }}
@@ -176,7 +176,7 @@ jobs:
             --repo "${{ github.repository }}" --clobber
 
       - name: Publish the release (un-draft)
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.repos.updateRelease({
