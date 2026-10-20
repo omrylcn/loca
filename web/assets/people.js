@@ -417,8 +417,9 @@ function renderPeople() {
     const revoke = state.profile?.building_role === "master" && p?.membership_id
       ? `<button type="button" data-suspend-member="${esc(p.membership_id)}" data-suspended="${p.suspended ? "0" : "1"}" data-member-name="${esc(name)}">${p.suspended ? "Resume" : "Suspend"}</button>` +
         `<button type="button" data-revoke-member="${esc(p.membership_id)}" data-member-name="${esc(name)}">Revoke membership</button>` : "";
-    return `<div class="prow"><span class="pname">${glyph}${esc(name)}${stage}</span>` +
-           `${statuses}<span class="pwhere">${p?.suspended ? "Suspended · " : ""}${esc(where)} ${banTxt}</span>${unban}${revoke}</div>`;
+    const actions = unban || revoke ? `<div class="pactions">${unban}${revoke}</div>` : "";
+    return `<div class="prow"><span class="pname"><span class="pmember">${glyph}${esc(name)}</span>${stage}</span>` +
+           `${statuses}<span class="pwhere">${p?.suspended ? "Suspended · " : ""}${esc(where)} ${banTxt}</span>${actions}</div>`;
   }).join("");
 }
 

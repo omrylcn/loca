@@ -6,6 +6,14 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.12.11] - 2026-10-21
+
+### Fixed
+- Keep Building membership controls compact, aligned and responsive without
+  changing membership permissions or lifecycle behavior.
+- Add explicit authenticated attachment downloads, including HTML files and
+  images, without opening downloaded HTML in the application origin.
+
 ## [0.12.10] - 2026-10-18
 
 ### Added
