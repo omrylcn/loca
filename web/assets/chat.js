@@ -394,9 +394,26 @@ function attachmentChip(room, a) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "attachchip";
-  btn.innerHTML = `<span class="aglyph">📎</span><span class="aname">${esc(a.name || a.id.slice(0, 8))}</span><span class="asize">${fmtBytes(a.size)}</span>`;
+  btn.innerHTML = `<span class="aglyph">📎</span><span class="aname">${esc(a.name || a.id.slice(0, 8))}</span><span class="asize">${fmtBytes(a.size)}</span><span>↓ Download</span>`;
   btn.title = `${esc(a.mime || "")}`;
-  btn.addEventListener("click", () => openAttachment(room, a));
+  btn.setAttribute("aria-label", `Download ${a.name || "attachment"}`);
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      const url = await fetchAttachmentBlob(room, a.id);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = (a.name || "attachment").split(/[\\/]/).pop() || "attachment";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (_) {
+      addSys(`could not download ${a.name || "attachment"}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
   return btn;
 }
 function renderAttachments(row, m) {
@@ -411,6 +428,7 @@ function renderAttachments(row, m) {
       img.alt = a.name || "image";
       img.loading = "lazy";
       wrap.appendChild(img);
+      wrap.appendChild(attachmentChip(room, a));
       fetchAttachmentBlob(room, a.id)
         .then((url) => {
           // The row may have been cleared (repaint/room change) while the blob

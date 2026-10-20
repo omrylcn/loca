@@ -248,7 +248,11 @@
     text-transform: uppercase; border-bottom: 1px solid var(--line); }
   .prow { padding: 8px 4px; border-bottom: 1px solid var(--line); }
   .pname { min-width: 0; }
-  .pwhere { min-width: 0; font-size: 12px; color: var(--dim); }
+  .prow .pname { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .pmember { min-width: 0; overflow-wrap: anywhere; }
+  .prow .pstage { margin-left: 0; }
+  .pwhere { min-width: 0; font-size: 12px; color: var(--dim); overflow-wrap: anywhere; }
+  .pactions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
   .pban { color: var(--bad); font-size: 11px; }
   .pstatus { width: max-content; max-width: 100%; padding: 2px 6px; border: 1px solid var(--line);
     border-radius: 999px; font-size: 9px; white-space: nowrap; }
@@ -264,6 +268,19 @@
   .prow button { background: transparent; border: 1px solid var(--line); border-radius: 5px;
     color: var(--muted); font-size: 11px; padding: 2px 8px; cursor: pointer; }
   .prow button:hover { color: var(--accent); border-color: var(--accent); }
+  .pactions button { width: auto; min-height: 32px; margin: 0; padding: 5px 10px;
+    line-height: 20px; font-family: inherit; white-space: nowrap; }
+  .pactions [data-revoke-member] { color: var(--danger, #e06c75); }
+  .pactions [data-revoke-member]:hover { color: var(--danger, #e06c75); border-color: currentColor; }
+  .pactions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (max-width: 600px) {
+    .peoplehead { display: none; }
+    .prow { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 12px 4px; }
+    .prow .pname, .prow .pwhere { grid-column: 1 / -1; }
+    .prow .pstatus { max-width: 100%; }
+    .pactions { justify-content: flex-start; }
+    .pactions button { min-height: 44px; }
+  }
   .callbtn { width: calc(100% - 24px); margin: 8px 12px 4px; background: transparent; color: var(--muted);
     border: 1px dashed var(--line); border-radius: 6px; padding: 6px; font-size: 12px; cursor: pointer; }
   .callbtn:hover { color: var(--accent); border-color: var(--accent); }
@@ -651,6 +668,8 @@
     color: var(--accent2); font: 11px var(--mono); cursor: pointer; }
   .attachchip:hover { border-color: var(--accent); }
   .attachchip .asize { color: var(--dim); }
+  .attachchip { max-width: 100%; min-height: 44px; flex-wrap: wrap; }
+  .attachchip .aname { overflow-wrap: anywhere; min-width: 0; }
   #feed.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
 
   /* ── notes & tasks panels ── */
