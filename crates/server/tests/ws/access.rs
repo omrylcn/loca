@@ -1576,3 +1576,69 @@ async fn admin_session_logout_revokes_open_websocket_control() {
         "a logged-out admin socket must not retain control authority"
     );
 }
+
+/// PRINCIPLES: the lower layer cannot undo the upper one. A Smaster operates
+/// every loca, but moderating the Master is refused, and a Smaster cannot
+/// moderate a peer Smaster; the Master still moderates a Smaster.
+#[tokio::test]
+async fn loca_moderation_refuses_to_reach_up_the_building_ranks() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("rank.db").to_string_lossy().to_string();
+    let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db)]).await;
+    create_test_room(port, "MASTER", "oda").await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let mut keys = Vec::new();
+    for name in ["murat", "selin"] {
+        let sm: Value = client
+            .post(format!("{base}/smasters"))
+            .header("x-admin-token", "MASTER")
+            .json(&serde_json::json!({ "name": name }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        keys.push(sm["token"].as_str().unwrap().to_string());
+    }
+    let profiles: Value = client
+        .get(format!("{base}/profiles"))
+        .header("x-admin-token", "MASTER")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let master_name = profiles
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["role"] == "master")
+        .and_then(|p| p["display_name"].as_str())
+        .expect("master profile")
+        .to_string();
+    let moderate = |key: String, action: &'static str, name: String| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .post(format!("{base}/rooms/oda/moderate"))
+                .header("x-admin-token", key)
+                .json(&serde_json::json!({ "action": action, "name": name }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    assert_eq!(
+        moderate(keys[0].clone(), "kick", master_name.clone()).await,
+        403
+    );
+    assert_eq!(moderate(keys[0].clone(), "mute", master_name).await, 403);
+    assert_eq!(moderate(keys[0].clone(), "ban", "selin".into()).await, 403);
+    assert_eq!(moderate("MASTER".into(), "mute", "selin".into()).await, 200);
+    assert_eq!(moderate(keys[0].clone(), "mute", "guest".into()).await, 200);
+}

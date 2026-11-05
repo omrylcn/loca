@@ -3432,6 +3432,63 @@ impl Hub {
         self.store.active_principals()
     }
 
+    /// May `actor` apply `action` to the participant labelled `target`?
+    ///
+    /// PRINCIPLES: the upper layer covers the lower one and the lower one
+    /// cannot undo the upper one's decision. Loca moderation is for the
+    /// table's participants, not for Building ranks: nobody mutes, kicks or
+    /// bans the Master, and only the Master does so to a Smaster. Lifting a
+    /// restriction (unmute/unban) never raises anyone's reach, so it stays
+    /// open to every operator.
+    pub fn may_moderate(
+        &self,
+        room: &str,
+        actor: &RequestAuthority,
+        action: protocol::ModAction,
+        target: &str,
+    ) -> bool {
+        use protocol::ModAction::*;
+        if matches!(action, Unmute | Unban) {
+            return true;
+        }
+        match self.building_rank_of(room, target) {
+            Some(BuildingRole::Master) => false,
+            Some(BuildingRole::Smaster) => actor.is_master(),
+            _ => true,
+        }
+    }
+
+    /// The Building rank wearing the label `name`, as far as the server can
+    /// prove it: a persisted profile first, then the live Smaster registry,
+    /// then the seat key of whoever sits in `room` under that label (which
+    /// also covers memory-only mode, where no profiles are persisted).
+    fn building_rank_of(&self, room: &str, name: &str) -> Option<BuildingRole> {
+        if let Some(profile) = self
+            .profiles()
+            .into_iter()
+            .find(|profile| profile.display_name == name)
+        {
+            return Some(profile.role);
+        }
+        if self.smasters.lock_or_recover().values().any(|n| n == name) {
+            return Some(BuildingRole::Smaster);
+        }
+        let rooms = self.rooms.lock_or_recover();
+        let seat = rooms.get(room).and_then(|r| {
+            r.members
+                .iter()
+                .find(|(_, (label, _, _))| label == name)
+                .map(|(identity, _)| identity.clone())
+        })?;
+        if seat == "@master" {
+            Some(BuildingRole::Master)
+        } else if seat.starts_with("sm:") {
+            Some(BuildingRole::Smaster)
+        } else {
+            None
+        }
+    }
+
     pub fn appoint_loca_operator(
         &self,
         room: &str,
