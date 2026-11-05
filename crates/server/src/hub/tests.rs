@@ -353,6 +353,41 @@ fn a_rank_renames_its_own_profile_everywhere_it_is_worn() {
 }
 
 #[test]
+fn loca_moderation_cannot_reach_up_the_building_ranks() {
+    use protocol::ModAction::*;
+    let temp = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(Some(temp.path().join("rank.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_alice", "alice", 1).unwrap();
+    store.add_smaster("sm_bob", "bob", 1).unwrap();
+    let hub = critical_restart_hub(store, "root");
+    hub.admit_member("worker", "agent", "master").unwrap();
+    let master_name = hub
+        .master_principal()
+        .expect("master principal")
+        .display_name;
+
+    let master = hub.resolve_authority(Some("root"), None);
+    let smaster = hub.resolve_authority(Some("sm_alice"), None);
+    let operator = hub.resolve_authority(None, None);
+
+    for action in [Mute, Kick, Ban, Release] {
+        // Nobody moderates the Master — not a Smaster, not a Loca Operator.
+        assert!(!hub.may_moderate("oda", &smaster, action, &master_name));
+        assert!(!hub.may_moderate("oda", &operator, action, &master_name));
+        // Only the Master moderates a Smaster; peers and Operators cannot.
+        assert!(hub.may_moderate("oda", &master, action, "alice"));
+        assert!(!hub.may_moderate("oda", &smaster, action, "bob"));
+        assert!(!hub.may_moderate("oda", &operator, action, "alice"));
+        // Ordinary participants stay under every operator's moderation.
+        assert!(hub.may_moderate("oda", &operator, action, "worker"));
+        assert!(hub.may_moderate("oda", &smaster, action, "worker"));
+    }
+    // Lifting a restriction never raises anyone's reach.
+    assert!(hub.may_moderate("oda", &operator, Unmute, &master_name));
+    assert!(hub.may_moderate("oda", &smaster, Unban, "bob"));
+}
+
+#[test]
 fn critical_root_rotation_revokes_old_root_and_derived_session() {
     let temp = tempfile::tempdir().unwrap();
     let store =
