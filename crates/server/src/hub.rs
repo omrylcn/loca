@@ -1279,6 +1279,18 @@ impl Hub {
         }
         if let Some(s) = session {
             if s.admin {
+                // `admin` is true for every Building administrator, Smaster
+                // included. A Smaster is a different person: give it the seat
+                // of its own principal, or it would share (and keep evicting)
+                // the Master's seat in every loca.
+                if s.building_role == BuildingRole::Smaster {
+                    if let Some(principal) = &s.principal_id {
+                        return format!("pr:{principal}");
+                    }
+                    if let Some(t) = session_tok {
+                        return format!("st:{t}");
+                    }
+                }
                 // Every session minted for the one Master principal occupies the
                 // same per-loca seat, regardless of the display name used
                 // while taking the session.

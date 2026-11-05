@@ -112,6 +112,40 @@ fn critical_restart_preserves_smaster_and_refuses_unbound_legacy_session() {
 }
 
 #[test]
+fn smaster_and_master_browser_sessions_take_separate_seats() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("seats.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "deputy", 1).unwrap();
+    let hub = critical_restart_hub(store, "root");
+    let master_a = critical_admin_session(&hub, "root");
+    let master_b = critical_admin_session(&hub, "root");
+    let smaster = critical_admin_session(&hub, "sm_deputy");
+    let seat = |tok: &str, name: &str| {
+        let s = hub.session_identity(Some(tok)).expect("live session");
+        hub.seat_identity(None, None, Some(&s), Some(tok), name)
+    };
+    let master_seat = seat(&master_a, "Master");
+    // Two Master screens are still one person, one seat.
+    assert_eq!(master_seat, seat(&master_b, "Master"));
+    let smaster_seat = seat(&smaster, "deputy");
+    assert_ne!(
+        master_seat, smaster_seat,
+        "a Smaster must not wear the Master's seat"
+    );
+
+    let mut rx = hub.subscribe("ops").0;
+    assert!(hub.join("ops", &master_seat, "Master", SenderType::User, 1));
+    assert!(hub.join("ops", &smaster_seat, "deputy", SenderType::User, 2));
+    while let Ok(frame) = rx.try_recv() {
+        assert!(
+            !matches!(frame, ServerFrame::Evicted { .. }),
+            "Master and Smaster must not evict each other"
+        );
+    }
+}
+
+#[test]
 fn critical_root_rotation_revokes_old_root_and_derived_session() {
     let temp = tempfile::tempdir().unwrap();
     let store =
