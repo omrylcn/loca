@@ -158,6 +158,20 @@ async function admitAndInvite(name) {
   } catch (e) { addSys("admit failed to send"); }
 }
 
+/// Building rank worn beside the name: the name says who, the badge says what.
+function rankBadge(role) {
+  if (role === "master") return ` <span class="rankbadge rank-master" title="Building Master">Master</span>`;
+  if (role === "smaster") return ` <span class="rankbadge rank-smaster" title="Building Smaster">Smaster</span>`;
+  return "";
+}
+/// The server refuses moderation that reaches up the Building ranks; do not
+/// offer buttons it will refuse. Nobody moderates the Master; only the Master
+/// moderates a Smaster.
+function canModerateSeat(m) {
+  if (m.role === "master") return false;
+  if (m.role === "smaster") return state.profile?.building_role === "master";
+  return true;
+}
 function renderMembers() {
   renderTopStatus();   // header subtitle shows online counts + mode
   renderLeadControl();
@@ -203,7 +217,7 @@ function renderMembers() {
     let acts = "";
     if (isAdmin()) {
       let moderation = "";
-      if (!isMe) {
+      if (!isMe && canModerateSeat(m)) {
         const mu = muted.has(m.name)
           ? `<button data-mod="unmute" data-n="${esc(m.name)}" title="unmute">🔊</button>`
           : `<button data-mod="mute" data-n="${esc(m.name)}" title="mute">🔇</button>`;
@@ -216,7 +230,7 @@ function renderMembers() {
       }
       acts = `<span class="omacts">${leadAct}${moderation}</span>`;
     }
-    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${flag}${leadTag}</span><span class="otag">${m.type}</span>${acts}`;
+    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}</span><span class="otag">${m.type}</span>${acts}`;
     ol.appendChild(d);
   }
   if (!seated.length) ol.innerHTML = `<div class="omem" style="color:var(--muted)">nobody seated</div>`;
@@ -299,11 +313,12 @@ async function fetchPeople() {
   const scope = residentReadScope();
   const box = $("peopleList");
   try {
-    const [resRooms, resPeople, resJoin, resStock] = await Promise.all([
+    const [resRooms, resPeople, resJoin, resStock, resRanks] = await Promise.all([
       fetch(`${serverBase()}/rooms`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/join-requests`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
+      fetch(`${serverBase()}/building/ranks`, { headers: adminHeaders({}) }),
     ]);
     if (!resPeople.ok) { if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">liste alınamadı</div>`; return; }
     const rooms = resRooms.ok ? await resRooms.json() : [];
@@ -321,6 +336,7 @@ async function fetchPeople() {
       state.joinRequestsError = true;
     }
     if (resStock.ok) state.admissionStock = await resStock.json();
+    if (resRanks.ok) state.ranks = await resRanks.json();
 
     // Ask each loca who it has barred; a ban lives in the room, not on the person.
     const bans = {};
@@ -383,13 +399,28 @@ function renderPeople() {
   Object.keys(bans).forEach(n => names.add(n));   // barred people may hold no seat
 
   const jrHtml = joinRequestsHtml();
+  // Ranks hold no Lobby membership, so the resident directory never lists
+  // them. They are still part of the Building: show them first, by name.
+  const ranks = Array.isArray(state.ranks) ? state.ranks : [];
+  const ranksHtml = ranks.length
+    ? `<div class="peoplehead"><span>building ranks</span><span>seat</span><span></span><span>location</span></div>` +
+      ranks.map(r => {
+        const seated = (r.locas || []).length;
+        const seat = seated
+          ? `<span class="pstatus connection ok" title="seated in a loca right now">seated</span>`
+          : `<span class="pstatus connection off" title="not seated in any loca">not seated</span>`;
+        const where = seated ? `in loca: ${r.locas.join(", ")}` : "not in a loca";
+        return `<div class="prow rankrow"><span class="pname">.${esc(r.name)}${rankBadge(r.role)}</span>` +
+          `${seat}<span></span><span class="pwhere">${esc(where)}</span></div>`;
+      }).join("")
+    : "";
   if (!names.size) {
-    box.innerHTML = jrHtml + `<div class="callnone">nobody in the building</div>`;
+    box.innerHTML = jrHtml + ranksHtml + `<div class="callnone">no members in the building yet</div>`;
     return;
   }
   const statusHead = `<div class="peoplehead"><span>member</span>` +
     `<span>connection</span><span>wake</span><span>location</span></div>`;
-  box.innerHTML = jrHtml + statusHead + [...names].sort().map(name => {
+  box.innerHTML = jrHtml + ranksHtml + statusHead + [...names].sort().map(name => {
     const p = people.find(x => x.name === name);
     const glyph = p?.kind === "agent" ? "*" : ".";
     const locas = p?.locas || [];
@@ -426,10 +457,11 @@ async function refreshPeopleRuntime() {
   if (!isAdmin() || state.tab !== "people") return;
   const scope = residentReadScope();
   try {
-    const [resPeople, resJoin, resStock] = await Promise.all([
+    const [resPeople, resJoin, resStock, resRanks] = await Promise.all([
       fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/join-requests`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
+      fetch(`${serverBase()}/building/ranks`, { headers: adminHeaders({}) }),
     ]);
     if (!resPeople.ok) return;
     if (!applyResidentSnapshot(await resPeople.json(), { people: true, scope })) return;
@@ -442,6 +474,7 @@ async function refreshPeopleRuntime() {
       state.joinRequestsError = true; // keep the last known list; flag the error
     }
     if (resStock.ok) state.admissionStock = await resStock.json();
+    if (resRanks.ok) state.ranks = await resRanks.json();
     renderPeople();
   } catch (e) { /* the normal health indicator owns transport errors */ }
 }

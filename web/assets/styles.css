@@ -232,6 +232,18 @@
     color: #ffe0a0; font-size: 9px; font-weight: 800; padding: 1px 6px;
     border-radius: 10px; margin-left: 6px; letter-spacing: .06em; text-transform: uppercase; }
   .leadtag::before { content: "◆"; color: #f5c76b; font-size: 8px; }
+  /* Building rank worn beside a name: the name says who, the badge says what. */
+  .rankbadge { display: inline-flex; align-items: center; font-size: 9px; font-weight: 800;
+    padding: 1px 6px; border-radius: 10px; margin-left: 6px; letter-spacing: .06em;
+    text-transform: uppercase; border: 1px solid var(--accent); color: var(--accent); }
+  .rankbadge.rank-master { background: var(--accent); color: var(--bg); }
+  .prow.rankrow .pname { font-weight: 700; }
+  .profilerename { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .profilerename label { font-size: 10px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+  .profilerenamerow { display: flex; gap: 6px; }
+  .profilerenamerow input { flex: 1; min-width: 0; }
+  .profilerenamehint { font-size: 11px; color: var(--accent); }
+  .profilerenamenote { font-size: 11px; color: var(--dim); min-height: 1em; }
   .omem.is-lead { background: linear-gradient(90deg, rgba(245,199,107,.22), rgba(245,199,107,.04) 82%);
     box-shadow: inset 3px 0 #f5c76b; }
   .omem.is-lead .oname { color: #ffe0a0; font-weight: 800; }

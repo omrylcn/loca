@@ -841,6 +841,51 @@ impl Store {
         }
         out
     }
+    /// Change an active principal's display name. The principal id, its
+    /// credentials, sessions and Building role are untouched: the name is only
+    /// the label (PRINCIPLES). Returns `Ok(false)` when another active
+    /// principal already wears that name (case-insensitively), so two people
+    /// can never be told apart only by letter case. `smaster_token` keeps the
+    /// legacy Smaster registry row in step with the principal.
+    pub fn rename_principal(
+        &self,
+        principal_id: &str,
+        name: &str,
+        smaster_token: Option<&str>,
+    ) -> rusqlite::Result<bool> {
+        let Some(mut c) = self.conn() else {
+            return Ok(true);
+        };
+        let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let clash: Option<String> = tx
+            .query_row(
+                "SELECT id FROM principals
+                 WHERE disabled_at IS NULL AND id <> ?1 AND lower(display_name) = lower(?2)
+                 LIMIT 1",
+                params![principal_id, name],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if clash.is_some() {
+            return Ok(false);
+        }
+        let changed = tx.execute(
+            "UPDATE principals SET display_name = ?2 WHERE id = ?1 AND disabled_at IS NULL",
+            params![principal_id, name],
+        )?;
+        if changed == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        if let Some(token) = smaster_token {
+            tx.execute(
+                "UPDATE smasters SET name = ?2 WHERE token = ?1 AND revoked_at IS NULL",
+                params![token, name],
+            )?;
+        }
+        tx.commit()
+            .inspect_err(|e| tracing::error!(error = %e, "rename_principal failed"))?;
+        Ok(true)
+    }
     pub fn add_smaster(&self, token: &str, name: &str, at: u64) -> rusqlite::Result<()> {
         let Some(mut c) = self.conn() else {
             return Ok(());

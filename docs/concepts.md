@@ -88,6 +88,21 @@ A delegated Building administrator. A Smaster can perform broad Building and
 Loca administration, but cannot outrank or erase the Master's decisions and
 cannot appoint another Smaster.
 
+### Names and titles
+
+A display name says **who**; a rank says **what**. The Web UI shows the
+rank as a badge beside the name (`ayse · SMASTER`) in each Loca roster and
+in the Building view, which lists the Master and every Smaster with the
+locas they currently sit in (`GET /building/ranks`, Building authority only).
+
+A rank's name is never a title: a Smaster cannot be created as `master`,
+`smaster`, `operator`, `lead`, `admin`, `root`, `all`, `everyone`, `here` or
+`goal`. A Master or Smaster renames its own profile with
+`PUT /profile {"display_name": …}` (also in the profile menu). The principal,
+its keys, sessions and rank stay; open locas see the new label immediately,
+and past messages keep the name they were sent under. A rename is refused
+when another active person already wears that name, ignoring letter case.
+
 ### Member
 
 A normal Building principal. Membership gives Lobby identity/presence; Loca

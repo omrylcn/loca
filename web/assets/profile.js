@@ -56,7 +56,8 @@ function renderProfile() {
       `<span><b>${esc(principal.display_name)}</b><small>You · ${profileKindLabel(principal.kind)}</small></span></span>` +
     `<span class="profilechevron" aria-hidden="true">›</span></summary>` +
     `<div class="profilepanel"><div class="profilepanelhead"><span>Profile</span><small>Identity &amp; access</small></div>` +
-    `<div class="profileconnected">connected as <b>${esc(principal.display_name)}</b> · You · ${profileKindLabel(principal.kind)}</div>` +
+    `<div class="profileconnected">connected as <b>${esc(principal.display_name)}</b>${rankBadge(profile.building_role)} · You · ${profileKindLabel(principal.kind)}</div>` +
+    profileRenameHtml(profile, principal) +
     `<div class="profileroles">` +
       `<span><small>Building</small><b class="role building-${esc(profile.building_role)}">${profileRoleLabel(profile.building_role)}</b></span>` +
       `<span><small>This Loca</small><b class="role loca-role">${esc(locaText)}</b>${source ? `<em>${source}</em>` : ""}${management ? `<em>${management}</em>` : ""}</span>` +
@@ -69,6 +70,47 @@ function renderProfile() {
       `<div class="credentialsecret hidden" id="credentialSecret" role="status"></div>` +
     `</details></div></details>`;
   box.classList.add("on");
+}
+
+// Titles are not names. A Master or Smaster sets its own display name here;
+// the server keeps identity, keys and rank, and refuses titles and names
+// someone else already wears.
+const PROFILE_TITLE_WORDS = ["master", "smaster", "operator", "lead", "admin", "root"];
+function profileRenameHtml(profile, principal) {
+  const role = profile.building_role;
+  if (role !== "master" && role !== "smaster") return "";
+  const isTitle = PROFILE_TITLE_WORDS.includes(String(principal.display_name).toLowerCase());
+  const hint = isTitle
+    ? `<div class="profilerenamehint">Your name is currently a title. Set your own name so people can tell who you are.</div>`
+    : "";
+  return `<div class="profilerename">${hint}` +
+    `<label for="profileNameInput">Display name</label>` +
+    `<div class="profilerenamerow"><input id="profileNameInput" maxlength="64" autocomplete="off" spellcheck="false" value="${esc(principal.display_name)}" />` +
+    `<button type="button" id="profileRename">Rename</button></div>` +
+    `<div class="profilerenamenote" id="profileRenameNote" role="status"></div></div>`;
+}
+
+async function renameProfile() {
+  const input = $("profileNameInput");
+  const note = $("profileRenameNote");
+  const name = input?.value.trim();
+  if (!name || name === state.profile?.principal?.display_name) return;
+  const response = await fetch(`${serverBase()}/profile`, {
+    method: "PUT",
+    headers: adminHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({ display_name: name }),
+  });
+  if (!response.ok) {
+    if (note) note.textContent = await response.text();
+    return;
+  }
+  const renamed = await response.json();
+  state.name = renamed.display_name;
+  await fetchProfile();
+  const menu = $("whoami").querySelector("details.profilemenu");
+  if (menu) menu.open = true;
+  const after = $("profileRenameNote");
+  if (after) after.textContent = `Renamed to ${renamed.display_name}.`;
 }
 
 let profileFetchSequence = 0;
@@ -180,9 +222,14 @@ async function revokeProfileCredential(id, current) {
   await fetchProfile();
 }
 
+$("whoami").addEventListener("keydown", event => {
+  if (event.key === "Enter" && event.target.id === "profileNameInput") renameProfile();
+});
+
 $("whoami").addEventListener("click", event => {
   const create = event.target.closest("#credentialCreate");
   if (create) { createProfileCredential(); return; }
+  if (event.target.closest("#profileRename")) { renameProfile(); return; }
   const revoke = event.target.closest("[data-revoke-credential]");
   if (revoke) revokeProfileCredential(
     revoke.dataset.revokeCredential,

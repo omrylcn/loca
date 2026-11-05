@@ -1576,3 +1576,114 @@ async fn admin_session_logout_revokes_open_websocket_control() {
         "a logged-out admin socket must not retain control authority"
     );
 }
+
+/// Titles are not names. A Smaster cannot be created as "smaster"; a rank
+/// renames its own profile with `PUT /profile`; `/building/ranks` lists every
+/// rank by name for Building authority only.
+#[tokio::test]
+async fn ranks_carry_their_own_names_and_appear_in_the_building() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("names.db").to_string_lossy().to_string();
+    let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db)]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    let refused = client
+        .post(format!("{base}/smasters"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "name": "Smaster" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 400, "a title is not a Smaster's name");
+
+    let sm: Value = client
+        .post(format!("{base}/smasters"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "name": "deputy" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let key = sm["token"].as_str().unwrap().to_string();
+    let member: Value = client
+        .post(format!("{base}/members"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "name": "worker", "kind": "agent" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let member_key = member["token"].as_str().unwrap().to_string();
+
+    let rename = |key: String, name: &'static str| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .put(format!("{base}/profile"))
+                .header("x-admin-token", key)
+                .json(&serde_json::json!({ "display_name": name }))
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(rename(key.clone(), "master").await.status(), 400);
+    assert_eq!(rename(key.clone(), "worker").await.status(), 409);
+    assert_eq!(rename(member_key.clone(), "boss").await.status(), 403);
+    let ok = rename(key.clone(), "ayse").await;
+    assert_eq!(ok.status(), 200);
+    let profile: Value = ok.json().await.unwrap();
+    assert_eq!(profile["display_name"], "ayse");
+    assert_eq!(profile["role"], "smaster");
+    assert_eq!(rename("MASTER".into(), "omrylcn").await.status(), 200);
+
+    let ranks = |key: String| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .get(format!("{base}/building/ranks"))
+                .header("x-admin-token", key)
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(ranks(member_key).await.status(), 403);
+    let listed: Value = ranks(key.clone()).await.json().await.unwrap();
+    let pairs: Vec<(String, String)> = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["name"].as_str().unwrap().to_string(),
+                r["role"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        pairs,
+        vec![
+            ("omrylcn".to_string(), "master".to_string()),
+            ("ayse".to_string(), "smaster".to_string()),
+        ]
+    );
+    // The Smaster key keeps working under the new name.
+    let smasters: Value = client
+        .get(format!("{base}/smasters"))
+        .header("x-admin-token", "MASTER")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(smasters[0]["name"], "ayse");
+}

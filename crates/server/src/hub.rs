@@ -183,14 +183,28 @@ impl Room {
     fn member_list(&self) -> Vec<Member> {
         let mut list: Vec<Member> = self
             .members
-            .values()
-            .map(|(name, kind, _)| Member {
+            .iter()
+            .map(|(identity, (name, kind, _))| Member {
                 name: name.clone(),
                 kind: *kind,
+                role: seat_rank(identity).map(str::to_string),
             })
             .collect();
         list.sort_by(|a, b| a.name.cmp(&b.name));
         list
+    }
+}
+
+/// The Building rank a seat key proves. Seat keys are minted only by
+/// `Hub::seat_identity` from server-side credentials, so the prefix is
+/// authoritative: `@master` is the Master, every Smaster seat starts `sm:`.
+pub(crate) fn seat_rank(identity: &str) -> Option<&'static str> {
+    if identity == "@master" {
+        Some("master")
+    } else if identity.starts_with("sm:") {
+        Some("smaster")
+    } else {
+        None
     }
 }
 
@@ -398,6 +412,61 @@ pub struct SessionIdentity {
     /// (davet/building sessions keep their old behaviour). Admin sessions get a
     /// finite TTL so the key's stand-in cannot outlive the sitting.
     pub expires_at: u64,
+}
+
+/// Words that name a rank, a title or an addressing keyword. A person's name
+/// is only a label, so it must never read as a title: "smaster" on the roster
+/// says nothing about who is sitting there, and `@all` is not a person.
+const RESERVED_NAMES: &[&str] = &[
+    "master", "smaster", "operator", "lead", "admin", "root", "all", "everyone", "here", "goal",
+];
+
+/// Why a display name is refused (see `validate_display_name`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameError {
+    /// Empty, too long, or containing characters a `@mention` cannot carry.
+    Invalid,
+    /// A rank, title or addressing keyword (`RESERVED_NAMES`).
+    Reserved,
+}
+
+/// A person's display name: 1–64 ASCII letters, digits, `-`, `_` or `.`
+/// (the join-request rule, so it survives `@mention`), and never a rank or
+/// title word.
+pub fn validate_display_name(name: &str) -> Result<&str, NameError> {
+    let name = name.trim();
+    if name.is_empty()
+        || name.len() > 64
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(NameError::Invalid);
+    }
+    let folded = crate::store::search_fold(name);
+    if RESERVED_NAMES.contains(&folded.as_str()) {
+        return Err(NameError::Reserved);
+    }
+    Ok(name)
+}
+
+/// Why `Hub::rename_profile` refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileRenameError {
+    /// Only a verified Master or Smaster principal renames itself here.
+    AuthorityRequired,
+    Name(NameError),
+    /// Another active person already wears this name.
+    NameTaken,
+    Failed,
+}
+
+/// One Building rank and where it currently sits (see `Hub::building_ranks`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct RankPresence {
+    pub name: String,
+    pub role: &'static str,
+    pub locas: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1282,13 +1351,14 @@ impl Hub {
                 // `admin` is true for every Building administrator, Smaster
                 // included. A Smaster is a different person: give it the seat
                 // of its own principal, or it would share (and keep evicting)
-                // the Master's seat in every loca.
+                // the Master's seat in every loca. Every Smaster seat starts
+                // `sm:` so the roster can show the rank (`seat_rank`).
                 if s.building_role == BuildingRole::Smaster {
                     if let Some(principal) = &s.principal_id {
-                        return format!("pr:{principal}");
+                        return format!("sm:pr:{principal}");
                     }
                     if let Some(t) = session_tok {
-                        return format!("st:{t}");
+                        return format!("sm:st:{t}");
                     }
                 }
                 // Every session minted for the one Master principal occupies the
@@ -3442,6 +3512,153 @@ impl Hub {
 
     pub fn profiles(&self) -> Vec<PrincipalIdentity> {
         self.store.active_principals()
+    }
+
+    /// The Building's ranks — the Master and every Smaster — with the locas
+    /// each one is seated in right now. Ranks hold no Lobby membership, so the
+    /// resident directory never lists them; this is how the Building view
+    /// shows everyone who is part of the Building.
+    pub fn building_ranks(&self) -> Vec<RankPresence> {
+        let mut ranks: Vec<RankPresence> = Vec::new();
+        let mut add = |name: String, role: &'static str| {
+            if !ranks.iter().any(|r| r.name == name && r.role == role) {
+                ranks.push(RankPresence {
+                    name,
+                    role,
+                    locas: Vec::new(),
+                });
+            }
+        };
+        for profile in self.profiles() {
+            match profile.role {
+                BuildingRole::Master => add(profile.display_name, "master"),
+                BuildingRole::Smaster => add(profile.display_name, "smaster"),
+                BuildingRole::Member => {}
+            }
+        }
+        // Memory-only mode persists no profiles; the live registry still knows
+        // every Smaster.
+        for name in self.smasters.lock_or_recover().values() {
+            add(name.clone(), "smaster");
+        }
+        let deleted = self.deleted.lock_or_recover().clone();
+        let rooms = self.rooms.lock_or_recover();
+        let mut names: Vec<&String> = rooms.keys().filter(|r| !deleted.contains(*r)).collect();
+        names.sort();
+        for room in names {
+            for (identity, (label, _, _)) in &rooms[room].members {
+                let Some(role) = seat_rank(identity) else {
+                    continue;
+                };
+                // There is one Master, so its seat is its whatever the label;
+                // a Smaster seat is matched by the label its session wears.
+                let found = ranks
+                    .iter_mut()
+                    .find(|r| r.role == role && (role == "master" || r.name == *label));
+                match found {
+                    Some(rank) => rank.locas.push(room.clone()),
+                    None => ranks.push(RankPresence {
+                        name: label.clone(),
+                        role,
+                        locas: vec![room.clone()],
+                    }),
+                }
+            }
+        }
+        ranks.sort_by(|a, b| (a.role != "master", &a.name).cmp(&(b.role != "master", &b.name)));
+        ranks
+    }
+
+    /// A Master or Smaster renames its own profile. Identity, credentials,
+    /// sessions and rank stay; only the label changes, everywhere it is worn
+    /// live: the Smaster registry, open sessions and every loca seat. Past
+    /// messages keep the name they were sent under (history is immutable).
+    pub fn rename_profile(
+        &self,
+        actor: &RequestAuthority,
+        requested: &str,
+    ) -> Result<PrincipalIdentity, ProfileRenameError> {
+        if !actor.is_building_admin() {
+            return Err(ProfileRenameError::AuthorityRequired);
+        }
+        let Some(principal_id) = actor.principal_id.clone() else {
+            return Err(ProfileRenameError::AuthorityRequired);
+        };
+        let name = validate_display_name(requested).map_err(ProfileRenameError::Name)?;
+        let current = actor.display_name.clone().unwrap_or_default();
+        let folded = crate::store::search_fold(name);
+        let worn_by_other =
+            |other: &str| other != current && crate::store::search_fold(other) == folded;
+        let smaster_token = self
+            .smasters
+            .lock_or_recover()
+            .keys()
+            .find(|token| {
+                crate::store::hashed_id("pr_", &format!("smaster:{token}")) == principal_id
+            })
+            .cloned();
+        if self
+            .members
+            .lock_or_recover()
+            .values()
+            .any(|m| worn_by_other(&m.name))
+            || self
+                .smasters
+                .lock_or_recover()
+                .iter()
+                .any(|(token, n)| Some(token) != smaster_token.as_ref() && worn_by_other(n))
+        {
+            return Err(ProfileRenameError::NameTaken);
+        }
+        match self
+            .store
+            .rename_principal(&principal_id, name, smaster_token.as_deref())
+        {
+            Ok(true) => {}
+            Ok(false) => return Err(ProfileRenameError::NameTaken),
+            Err(_) => return Err(ProfileRenameError::Failed),
+        }
+        if let Some(token) = &smaster_token {
+            self.smasters
+                .lock_or_recover()
+                .insert(token.clone(), name.to_string());
+        }
+        for session in self.sessions.lock_or_recover().values_mut() {
+            if session.principal_id.as_deref() == Some(principal_id.as_str()) {
+                session.name = name.to_string();
+            }
+        }
+        let mut seat_keys = vec![format!("sm:pr:{principal_id}")];
+        if actor.is_master() {
+            seat_keys.push("@master".into());
+        }
+        if let Some(token) = &smaster_token {
+            seat_keys.push(format!("sm:{token}"));
+        }
+        let mut rooms = self.rooms.lock_or_recover();
+        for room in rooms.values_mut() {
+            let mut touched = false;
+            for key in &seat_keys {
+                if let Some(seat) = room.members.get_mut(key) {
+                    seat.0 = name.to_string();
+                    touched = true;
+                }
+            }
+            if touched {
+                let members = room.member_list();
+                let _ = room.tx.send(ServerFrame::Members { members });
+            }
+        }
+        drop(rooms);
+        Ok(self
+            .store
+            .active_principal(&principal_id)
+            .unwrap_or(PrincipalIdentity {
+                id: principal_id,
+                display_name: name.to_string(),
+                kind: SenderType::User,
+                role: actor.building_role.unwrap_or(BuildingRole::Member),
+            }))
     }
 
     pub fn appoint_loca_operator(
