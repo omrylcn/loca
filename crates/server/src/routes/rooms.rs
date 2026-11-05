@@ -514,6 +514,14 @@ pub(crate) async fn moderate(
         )
             .into_response();
     }
+    let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    if !hub.may_moderate(&id, &actor, body.action, &body.name) {
+        return (
+            StatusCode::FORBIDDEN,
+            "Master and Smaster ranks are moderated only from above",
+        )
+            .into_response();
+    }
     match hub.moderate(&id, body.action, &body.name) {
         Ok(state) => (StatusCode::OK, Json(state)).into_response(),
         Err(_) => (
