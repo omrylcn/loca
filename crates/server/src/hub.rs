@@ -257,6 +257,9 @@ pub struct Hub {
     /// When true, posting requires a valid session token: `sender` can no
     /// longer be spoofed via the request body (PRODUCTION.md Aşama 0).
     require_sessions: bool,
+    /// Seats per loca (`LOCA_CAPACITY`, default [`Hub::LOCA_KAPASITE`]).
+    /// Shared across clones so one configured value governs every handler.
+    loca_capacity: Arc<std::sync::atomic::AtomicUsize>,
     /// When true, an empty room_token means 'davet-only', not 'open house'.
     /// This is how the building key is retired: no key, but the door still
     /// demands a davet for every loca.
@@ -347,7 +350,7 @@ pub enum InviteError {
     MemberNotFound,
     /// This member already holds a live davet for this loca.
     AlreadyInvited,
-    /// The loca is full — LOCA_KAPASITE seats are already handed out.
+    /// The loca is full — every configured seat is already handed out.
     Full,
     /// The davet could not be persisted.
     Storage,
@@ -569,6 +572,7 @@ impl Hub {
             })),
             join_create_times: Arc::new(Mutex::new(std::collections::HashMap::new())),
             require_sessions,
+            loca_capacity: Arc::new(std::sync::atomic::AtomicUsize::new(Self::LOCA_KAPASITE)),
             require_invite,
             invites: Arc::new(Mutex::new(HashMap::new())),
             lobby_tx,
@@ -1650,7 +1654,7 @@ impl Hub {
             return Err(InviteError::AlreadyInvited);
         }
         // Model A: the seat IS the davet (PRINCIPLES: "davetli — bir locada
-        // koltuğu vardır"). A loca seats at most LOCA_KAPASITE, so no more than
+        // koltuğu vardır"). A loca seats at most `loca_capacity()`, so no more than
         // that many live davets may exist for it — the cap is checked here at
         // mint, not only when someone connects. (The join-time guard stays as
         // defence in depth.)
@@ -1660,7 +1664,7 @@ impl Hub {
             .values()
             .filter(|i| i.room == room)
             .count();
-        if active >= Self::LOCA_KAPASITE {
+        if active >= self.loca_capacity() {
             return Err(InviteError::Full);
         }
         let inv = Invite {
@@ -2403,6 +2407,26 @@ impl Hub {
     /// a different kind of place (DESIGN §5g). Watchers do not take a seat, so
     /// they are not counted here (they never call `join`).
     pub const LOCA_KAPASITE: usize = 7;
+    /// The bounds a configured capacity is held to: a loca stays a small,
+    /// private table — at least a pair, never a hall.
+    pub const LOCA_CAPACITY_MIN: usize = 2;
+    pub const LOCA_CAPACITY_MAX: usize = 32;
+
+    /// Seats per loca. Every person — human or agent — takes one; watchers
+    /// take none.
+    pub fn loca_capacity(&self) -> usize {
+        self.loca_capacity
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Configure seats per loca, clamped to the bounds above. Seats already
+    /// taken are never revoked by lowering it; only new seats are refused.
+    pub fn set_loca_capacity(&self, seats: usize) -> usize {
+        let seats = seats.clamp(Self::LOCA_CAPACITY_MIN, Self::LOCA_CAPACITY_MAX);
+        self.loca_capacity
+            .store(seats, std::sync::atomic::Ordering::Relaxed);
+        seats
+    }
 
     /// Seat a member. Returns false when the loca is full — the caller must
     /// refuse the connection.
@@ -2431,7 +2455,7 @@ impl Hub {
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
         // Capacity counts identities, not names: an identity rejoining under
         // any name evicts itself, never overflows.
-        if !r.members.contains_key(identity) && r.members.len() >= Self::LOCA_KAPASITE {
+        if !r.members.contains_key(identity) && r.members.len() >= self.loca_capacity() {
             return false;
         }
         let additional_human_reader =
