@@ -442,6 +442,15 @@ $("pinnedContent").onclick = () => {
 $("pinJumpBtn").onclick = () => {
   if (state.pinned?.id) { switchTab("chat"); gotoMsg(state.pinned.id); }
 };
+$("seatToggle").onclick = () => setSeat(isWatchingDoor());
+// Another tab of this browser sat down or stepped out of the shown loca:
+// follow it, so this tab neither speaks from the door nor stays seated alone.
+window.addEventListener("storage", (e) => {
+  if (e.key !== SEATED_ROOMS_KEY || !state.room || state.adminSession !== true) return;
+  const wasWatching = state.ws && /[?&]watch=1/.test(state.ws.url || "");
+  if (wasWatching !== isWatchingDoor()) openWs(); else renderDoor();
+});
+$("doorTakeSeat").onclick = () => setSeat(true);
 $("stopBtn").onclick = () => { if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify({ t: "control", cmd: "stop" })); };
 $("clearBtn").onclick = () => { revokeInlineAttachmentUrls(); $("feed").innerHTML = ""; };
 

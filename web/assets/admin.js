@@ -31,6 +31,7 @@ function renderMode() {
 }
 
 function canITalk() {
+  if (isWatchingDoor()) return false;
   if (isAdmin()) return true;
   const m = state.mode || { mode: "free" };
   if (m.mode === "free") return true;
@@ -101,6 +102,34 @@ function renderSettings() {
   $("composer").classList.toggle("gated", arch || !canITalk());
   $("msg").disabled = arch;
   $("msg").placeholder = arch ? "this loca is closed — read-only" : "say it to the table…  (Enter = send · Shift+Enter = new line)";
+  renderDoor();
+}
+
+// The door bar: a Building rank watching a loca sees that it is outside the
+// table and how to step in; once seated, the header offers the way back out.
+function renderDoor() {
+  if (!$("doorBar") || !$("seatToggle")) return;
+  const rank = state.adminSession === true && !!state.room;
+  const watching = isWatchingDoor();
+  const archived = !!(state.settings && state.settings.archived);
+  $("doorBar").classList.toggle("hidden", !watching);
+  $("seatToggle").classList.toggle("hidden", !rank);
+  $("seatToggle").textContent = watching ? "🪑 Take a seat" : "🚪 Step out";
+  $("seatToggle").title = watching
+    ? "sit at this table — you join the roster and may speak"
+    : "leave your seat and watch from the door";
+  $("composer").classList.toggle("gated", archived || !canITalk());
+  $("msg").disabled = archived || watching;
+  for (const id of ["sendBtn", "stopBtn", "attachBtn"]) $(id).disabled = watching;
+  if (watching && !archived) $("msg").placeholder = "watching from the door — take a seat to speak";
+  else if (!archived) $("msg").placeholder = "say it to the table…  (Enter = send · Shift+Enter = new line)";
+}
+
+function setSeat(seated) {
+  if (!state.room) return;
+  setSeatedHere(state.room, seated);
+  renderDoor();
+  openWs();
 }
 const REMINDER_RULES = [
   ["careGoalOn", "careGoal", "care_goal_secs", 10, "Goal"],

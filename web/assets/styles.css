@@ -981,3 +981,9 @@
 .gspath.hidden { display: none; }
 .gserror { margin: 8px 0; padding: 7px 9px; font-size: 11px; color: #ffb4a2; background: rgba(255,107,107,.08); border: 1px solid rgba(255,107,107,.3); border-radius: 6px; }
 .gserror.hidden { display: none; }
+
+  /* The door: a Building rank looking into a loca without sitting at it. */
+  .seattoggle { background: transparent; border: 1px solid var(--line); color: var(--accent2); border-radius: 7px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 11px; white-space: nowrap; }
+  .seattoggle:hover { border-color: var(--accent); color: var(--accent); }
+  .doorbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 16px 8px; padding: 9px 12px; border: 1px dashed var(--line); border-radius: 9px; background: var(--panel2); color: var(--muted); font-size: 12px; }
+  .doorbar button { background: var(--accent); color: var(--bg); border: 0; border-radius: 7px; padding: 6px 12px; font-weight: 700; cursor: pointer; }

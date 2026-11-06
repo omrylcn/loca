@@ -206,7 +206,9 @@ function openWs() {
   // Bearers travel in the WebSocket protocol header, never in URLs that may
   // be retained by proxies, APM, browser history, or access logs. The server
   // negotiates only the non-secret `loca.v1` protocol in its response.
-  const url = `${wsBase()}/ws?room=${encodeURIComponent(state.room)}&name=${encodeURIComponent(state.name)}&type=user`;
+  const watch = isWatchingDoor() ? "&watch=1" : "";
+  const url = `${wsBase()}/ws?room=${encodeURIComponent(state.room)}&name=${encodeURIComponent(state.name)}&type=user${watch}`;
+  renderDoor();
   const ws = new WebSocket(url, protocols);
   state.ws = ws;
   setStatus("connecting…", false);
