@@ -1007,6 +1007,77 @@ async fn a_watcher_cannot_speak() {
     );
 }
 
+/// Looking in from the door is not sitting at the table: a Building rank that
+/// watches a loca keeps watching when its own identity takes (or re-takes)
+/// the seat in another tab — a watcher holds no seat, so no seat change
+/// evicts it.
+#[tokio::test]
+async fn a_seat_change_never_evicts_a_watcher_on_the_same_identity() {
+    let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "kapi").await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let (mut watcher, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=kapi&name=boss&type=user&admin=MASTER&watch=1"
+    ))
+    .await
+    .unwrap();
+    let _ = wait_for(&mut watcher, |v| v["t"] == "history").await;
+    // The same identity sits down in another tab, then again under a new label
+    // — the second join evicts the first seat holder, never the watcher.
+    let (mut seated, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=kapi&name=boss&type=user&admin=MASTER"
+    ))
+    .await
+    .unwrap();
+    let _ = wait_for(&mut seated, |v| v["t"] == "history").await;
+    let (mut renamed, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=kapi&name=boss2&type=user&admin=MASTER"
+    ))
+    .await
+    .unwrap();
+    let _ = wait_for(&mut renamed, |v| v["t"] == "history").await;
+    wait_for_member(
+        &client,
+        &base,
+        "kapi",
+        "boss2",
+        Some(("x-admin-token", "MASTER")),
+    )
+    .await;
+    // The old seat holder was told to step aside and closed.
+    let _ = wait_for(&mut seated, |v| v["t"] == "evicted").await;
+    // The watcher still hears the table.
+    let posted = client
+        .post(format!("{base}/rooms/kapi/messages"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "sender": "boss2", "sender_type": "user", "text": "still there?" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(posted.status().is_success());
+    let heard = wait_for(&mut watcher, |v| {
+        v["t"] == "evicted" || (v["t"] == "msg" && v["message"]["text"] == "still there?")
+    })
+    .await;
+    assert_eq!(
+        heard["t"], "msg",
+        "a watcher is never evicted by a seat change"
+    );
+    // And it never appeared in the roster.
+    let members: Vec<Value> = client
+        .get(format!("{base}/rooms/kapi/members"))
+        .header("x-admin-token", "MASTER")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(members.len(), 1, "one identity, one seat: {members:?}");
+    drop(renamed);
+}
+
 /// Revoking a DAVET kills the session minted from it: the old session token no
 /// longer opens the loca. The door is shut in fact, not just on paper.
 #[tokio::test]

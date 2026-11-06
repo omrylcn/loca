@@ -101,10 +101,10 @@
         <div class="roomline">
           <div class="rname" id="curRoom">—</div>
           <div class="roomprops">
-            <span class="pill free" id="modePill">free</span>
+            <span class="pill free" id="modePill" tabindex="0" data-tip="Speaking mode: free" data-tip-detail="Anyone at the table can talk.">free</span>
             <span class="detail" id="modeDetail">anyone can talk</span>
-            <span class="livebadge hidden" id="liveBadge">● live</span>
-            <span class="archbadge hidden" id="archBadge">closed · read-only</span>
+            <span class="livebadge hidden" id="liveBadge" tabindex="0" data-tip="Live mode is on" data-tip-detail="Every message reaches everyone at the table, no @ needed.">● live</span>
+            <span class="archbadge hidden" id="archBadge" tabindex="0" data-tip="This loca is closed" data-tip-detail="History stays readable; nobody can post until it is reopened.">closed · read-only</span>
           </div>
         </div>
         <div class="substatus" id="subStatus" role="status" aria-live="polite">not connected</div>
@@ -118,14 +118,15 @@
       </div>
       <div class="roomactions">
         <span id="leadKey" class="leadkey hidden">@lead</span>
-        <select id="leadSelect" class="leadselect hidden" title="name or replace this loca's lead">
+        <select id="leadSelect" class="leadselect hidden" aria-label="Loca lead" data-tip="Loca lead" data-tip-detail="Name, transfer, or end this loca's lead.">
           <option value="">◇ no lead</option>
         </select>
-        <button id="liveToggle" class="livebtn hidden" title="live (WhatsApp) mode — everyone gets every message, no @ needed">◉ Live: off</button>
-        <button class="admintoggle hidden" id="adminToggle" aria-expanded="false"
-          aria-controls="adminbar">properties ▾</button>
+        <button id="liveToggle" class="livebtn hidden" type="button" aria-pressed="false" data-tip="Live mode is off" data-tip-detail="Turn on so every message reaches everyone, no @ needed.">◉ Live: off</button>
+        <button class="iconbtn seattoggle hidden" id="seatToggle" type="button"></button>
+        <button class="iconbtn admintoggle hidden" id="adminToggle" type="button" aria-expanded="false"
+          aria-controls="adminbar" aria-label="Properties" data-tip="Properties" data-tip-detail="Lifecycle, speaking mode, operators, reminders."><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="var(--panel)"/><circle cx="15" cy="12" r="2" fill="var(--panel)"/><circle cx="7" cy="18" r="2" fill="var(--panel)"/></svg></button>
       </div>
-      <span class="conndot" id="connDot" role="status" aria-label="disconnected" title="disconnected"></span>
+      <span class="conndot" id="connDot" role="status" tabindex="0" aria-label="disconnected" data-tip="Disconnected" data-tip-detail="Not linked to the server; trying again."></span>
     </div>
 
     <!-- admin control bar (only with a valid admin token) -->
@@ -213,6 +214,10 @@
     </div>
     <div class="mentionpop hidden" id="mentionPop"></div>
     <div class="attachstrip hidden" id="attachStrip" aria-label="Files staged to send"></div>
+    <div class="doorbar hidden" id="doorBar" role="status">
+      <span><b>Watching from the door.</b> You are not at the table: not in the roster, and nothing you type reaches it.</span>
+      <button id="doorTakeSeat" type="button">Take a seat</button>
+    </div>
     <div class="composer" id="composer">
       <select id="target" title="who should reply"></select>
       <input type="file" id="attachInput" class="hidden" multiple
@@ -508,6 +513,7 @@
   </div>
 
 <script src="/assets/state.js"></script>
+<script src="/assets/tooltip.js"></script>
 <script src="/assets/socket.js"></script>
 <script src="/assets/people.js"></script>
 <script src="/assets/chat.js"></script>

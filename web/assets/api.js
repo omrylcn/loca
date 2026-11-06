@@ -226,6 +226,7 @@ async function uploadAttachment(file) {
 // and add the returned refs to the pending strip. Duplicate ids are ignored.
 async function stageAttachments(files) {
   if (!state.room) { addSys("join a loca before attaching a file"); return; }
+  if (isWatchingDoor()) { addSys("you are watching from the door — take a seat to attach a file"); return; }
   for (const file of files) {
     if (state.pendingAttachments.length >= ATTACH_MAX_COUNT) {
       addSys(`at most ${ATTACH_MAX_COUNT} attachments per message`);
@@ -283,6 +284,10 @@ async function send() {
   const input = $("msg"); const text = input.value.trim();
   const hasAttachments = state.pendingAttachments.length > 0;
   if ((!text && !hasAttachments) || !state.room || sendInFlight) return;
+  if (isWatchingDoor()) {
+    addSys("you are watching from the door — take a seat to speak");
+    return;
+  }
   const leadCommand = parseLeadCommand(text);
   if (leadCommand) {
     if (!isAdmin()) {

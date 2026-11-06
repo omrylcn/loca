@@ -402,9 +402,10 @@
   .roomprops .detail { color: var(--muted); font-size: 10px; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
   .roomprops .detail b { color: var(--txt); }
-  .top .rname { font-weight: 700; line-height: 1.25; font-size: 14px; }
+  .top .rname { font-weight: 700; line-height: 1.25; font-size: 14px; white-space: nowrap; flex: 0 0 auto; }
   .top .rname::before { content: "# "; color: var(--dim); font-weight: 400; }
   .main.global .top .rname::before { content: ""; }
+  .main.global .doorbar,
   .main.global .tabs, .main.global .roomprops, .main.global .roomactions,
   .main.global .adminbar { display: none !important; }
   .substatus { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -969,3 +970,32 @@
 .gspath.hidden { display: none; }
 .gserror { margin: 8px 0; padding: 7px 9px; font-size: 11px; color: #ffb4a2; background: rgba(255,107,107,.08); border: 1px solid rgba(255,107,107,.3); border-radius: 6px; }
 .gserror.hidden { display: none; }
+
+  /* The door: a Building rank looking into a loca without sitting at it. */
+  /* Header icon pair: seat (chair / door) beside Properties. */
+  .iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; background: none; border: 1px solid transparent; border-radius: 7px; color: var(--muted); cursor: pointer; }
+  .iconbtn:hover, .iconbtn:focus-visible { color: var(--accent); border-color: var(--line); }
+  .iconbtn.on { color: var(--accent); border-color: var(--line); background: var(--panel2); }
+  .seattoggle.watching { color: var(--accent2); }
+  .iconbtn.hidden { display: none; }
+  .doorbar b { color: var(--txt); font-weight: 600; }
+  .doorbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 16px 8px; padding: 9px 12px; border: 1px dashed var(--line); border-radius: 9px; background: var(--panel2); color: var(--muted); font-size: 12px; }
+  .doorbar button { background: var(--accent); color: var(--bg); border: 0; border-radius: 7px; padding: 6px 12px; font-weight: 700; cursor: pointer; }
+
+  /* Header tooltips (tooltip.js): one fixed bubble, mono, panel-coloured,
+     with a small arrow pointing at the control it describes. */
+  .tip { position: fixed; z-index: 1000; max-width: 260px; pointer-events: none;
+    background: var(--panel2); color: var(--txt); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 9px; font: 11px/1.4 var(--mono);
+    box-shadow: 0 6px 18px rgba(0,0,0,.35); animation: tipin .12s ease-out; }
+  .tip[hidden] { display: none; }
+  .tip b { display: block; font-weight: 700; }
+  .tip span { display: block; color: var(--muted); margin-top: 2px; }
+  .tip::before { content: ""; position: absolute; left: var(--tip-arrow, 50%); top: -5px;
+    width: 8px; height: 8px; margin-left: -4px; background: var(--panel2);
+    border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg); }
+  .tip.above::before { top: auto; bottom: -5px; transform: rotate(225deg); }
+  @keyframes tipin { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+  .conndot:focus-visible, .pill:focus-visible, .livebadge:focus-visible, .archbadge:focus-visible {
+    outline: 1px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { .tip { animation: none; } .livebadge { animation: none; } }

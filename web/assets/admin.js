@@ -23,6 +23,14 @@ function renderMode() {
     detail = `turn: <b>${esc(who || "?")}</b> &nbsp; (${(m.order || []).map(esc).join(" → ")})`;
   }
   $("modeDetail").innerHTML = detail;
+  pill.dataset.tip = `Speaking mode: ${pill.textContent}`;
+  pill.dataset.tipDetail = {
+    free: "Anyone at the table can talk.",
+    paused: "The table is quiet; only the host holds the floor.",
+    restricted: "Only the named seats can talk.",
+    roundrobin: "Seats talk one at a time, in turn order.",
+  }[m.mode] || "";
+  refreshTip(pill);
   // gate the composer visually if this user can't talk right now
   $("composer").classList.toggle("gated", !canITalk());
   // reflect current mode in the admin selector
@@ -31,6 +39,7 @@ function renderMode() {
 }
 
 function canITalk() {
+  if (isWatchingDoor()) return false;
   if (isAdmin()) return true;
   const m = state.mode || { mode: "free" };
   if (m.mode === "free") return true;
@@ -86,7 +95,13 @@ function renderSettings() {
     if (document.activeElement !== $("careCtx")) $("careCtx").value = s.care_context_messages ?? 8;
     const lt = $("liveToggle");
     lt.classList.toggle("on", !!s.live);
-    lt.textContent = s.live ? "🔴 Live: ON" : "◉ Live: off";
+    lt.textContent = s.live ? "● Live: on" : "◉ Live: off";
+    lt.setAttribute("aria-pressed", String(!!s.live));
+    lt.dataset.tip = s.live ? "Live mode is on" : "Live mode is off";
+    lt.dataset.tipDetail = s.live
+      ? "Every message reaches everyone, no @ needed. Click to turn off."
+      : "Turn on so every message reaches everyone, no @ needed.";
+    refreshTip(lt);
   }
   renderReminderSettings();
   renderLocaSidebar();
@@ -101,6 +116,43 @@ function renderSettings() {
   $("composer").classList.toggle("gated", arch || !canITalk());
   $("msg").disabled = arch;
   $("msg").placeholder = arch ? "this loca is closed — read-only" : "say it to the table…  (Enter = send · Shift+Enter = new line)";
+  renderDoor();
+}
+
+// The door bar: a Building rank watching a loca sees that it is outside the
+// table and how to step in. The header carries one small icon beside
+// Properties: a chair (take a seat) at the door, a door (step out) at the table.
+const SEAT_ICON_CHAIR = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z"/><path d="M5 18v2M19 18v2"/></svg>';
+const SEAT_ICON_DOOR = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h8"/><path d="M15 12h6M18 9l3 3-3 3"/><circle cx="11" cy="12" r=".6" fill="currentColor"/></svg>';
+function renderDoor() {
+  if (!$("doorBar") || !$("seatToggle")) return;
+  const rank = state.adminSession === true && !!state.room;
+  const watching = isWatchingDoor();
+  const archived = !!(state.settings && state.settings.archived);
+  $("doorBar").classList.toggle("hidden", !watching);
+  const toggle = $("seatToggle");
+  toggle.classList.toggle("hidden", !rank);
+  toggle.classList.toggle("watching", watching);
+  const label = watching ? "Take a seat at this table" : "Step out to the door";
+  toggle.setAttribute("aria-label", label);
+  toggle.dataset.tip = watching ? "Take a seat" : "Step out to the door";
+  toggle.dataset.tipDetail = watching
+    ? "You are watching from the door. Sit down to join the roster and speak."
+    : "Leave the roster and keep watching; nothing you type reaches the table.";
+  refreshTip(toggle);
+  toggle.innerHTML = watching ? SEAT_ICON_CHAIR : SEAT_ICON_DOOR;
+  $("composer").classList.toggle("gated", archived || !canITalk());
+  $("msg").disabled = archived || watching;
+  for (const id of ["sendBtn", "stopBtn", "attachBtn"]) $(id).disabled = watching;
+  if (watching && !archived) $("msg").placeholder = "watching from the door — take a seat to speak";
+  else if (!archived) $("msg").placeholder = "say it to the table…  (Enter = send · Shift+Enter = new line)";
+}
+
+function setSeat(seated) {
+  if (!state.room) return;
+  setSeatedHere(state.room, seated);
+  renderDoor();
+  openWs();
 }
 const REMINDER_RULES = [
   ["careGoalOn", "careGoal", "care_goal_secs", 10, "Goal"],

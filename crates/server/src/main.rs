@@ -95,6 +95,7 @@ const WEB_API: &str = include_str!("../../../web/assets/api.js");
 const WEB_APP: &str = include_str!("../../../web/assets/app.js");
 const WEB_JOINREQUEST: &str = include_str!("../../../web/assets/joinrequest.js");
 const WEB_GETSTARTED: &str = include_str!("../../../web/assets/getstarted.js");
+const WEB_TOOLTIP: &str = include_str!("../../../web/assets/tooltip.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
@@ -676,6 +677,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "app.js" => Some(("text/javascript; charset=utf-8", WEB_APP)),
         "joinrequest.js" => Some(("text/javascript; charset=utf-8", WEB_JOINREQUEST)),
         "getstarted.js" => Some(("text/javascript; charset=utf-8", WEB_GETSTARTED)),
+        "tooltip.js" => Some(("text/javascript; charset=utf-8", WEB_TOOLTIP)),
         _ => None,
     };
     match asset {
@@ -1427,7 +1429,10 @@ async fn ws_session(
                     if let ServerFrame::Evicted { identity: who, session, .. } = &frame {
                         // Our own eviction broadcast carries our session id;
                         // ignore it. Anyone else on our identity steps aside.
-                        if who == &identity && *session != session_id {
+                        // A watcher holds no seat, so a seat change on its
+                        // identity never closes it (a Master watching one tab
+                        // and seated in another stays at the door).
+                        if !watch_only && who == &identity && *session != session_id {
                             let _ = send_frame(&mut sink, &frame).await;
                             evicted = true;
                             break;
