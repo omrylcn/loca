@@ -439,6 +439,9 @@ test("chat renders safe Markdown without losing mention styling", async ({ page,
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("markdown-chat"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
+  // Opening a loca only watches it; the Master sits down to speak.
+  await page.locator("#doorTakeSeat").click();
+  await expect(page.locator("#msg")).toBeEnabled();
 
   const markdown = [
     "## Release check",
@@ -486,6 +489,9 @@ test("goal command, focus, optional tasks, and reminders share one human surface
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("focus-e2e"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
+  // Opening a loca only watches it; the Master sits down to speak.
+  await page.locator("#doorTakeSeat").click();
+  await expect(page.locator("#msg")).toBeEnabled();
 
   const lead = await request.post("/rooms/focus-e2e/lead", {
     headers: { "x-admin-token": "MASTER" },
@@ -787,6 +793,9 @@ test("reminders with no room lead are visibly unavailable", async ({ page, reque
   await page.locator("#pairingCode").fill(pairingCode);
   await page.evaluate(() => window.doConnect("reminder-no-lead"));
   await expect(page.locator("#whoami")).toContainText("MASTER");
+  // Opening a loca only watches it; the Master sits down to speak.
+  await page.locator("#doorTakeSeat").click();
+  await expect(page.locator("#msg")).toBeEnabled();
 
   await page.locator("#msg").fill('@goal "release is verified"');
   await page.locator("#msg").press("Enter");

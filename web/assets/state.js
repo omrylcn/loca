@@ -161,6 +161,25 @@ async function takeSession() {
 // Admin with a live master session, or when the server has no ADMIN_TOKEN
 // configured (dev mode — open to everyone).
 function isAdmin() { return state.adminSession === true || state.adminOpen === true; }
+// Looking in from the door is not sitting at the table. A Master or Smaster
+// can open every loca; opening one only WATCHES it (a `?watch=1` socket: the
+// stream flows, no roster seat, nothing said). Taking a seat is an explicit,
+// per-loca choice remembered in this browser.
+const SEATED_ROOMS_KEY = "loca-seated-rooms";
+function seatedRooms() {
+  try {
+    const list = JSON.parse(localStorage.getItem(SEATED_ROOMS_KEY) || "[]");
+    return new Set(Array.isArray(list) ? list.filter(r => typeof r === "string") : []);
+  } catch (e) { return new Set(); }
+}
+function setSeatedHere(room, seated) {
+  const rooms = seatedRooms();
+  if (seated) rooms.add(room); else rooms.delete(room);
+  try { localStorage.setItem(SEATED_ROOMS_KEY, JSON.stringify([...rooms])); } catch (e) {}
+}
+function isWatchingDoor() {
+  return state.adminSession === true && !!state.room && !seatedRooms().has(state.room);
+}
 // The door: locked until this client is actually a member of the server.
 function setLocked(on) {
   if (state.authStatus === "unknown") return;

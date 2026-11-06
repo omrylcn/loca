@@ -1427,7 +1427,10 @@ async fn ws_session(
                     if let ServerFrame::Evicted { identity: who, session, .. } = &frame {
                         // Our own eviction broadcast carries our session id;
                         // ignore it. Anyone else on our identity steps aside.
-                        if who == &identity && *session != session_id {
+                        // A watcher holds no seat, so a seat change on its
+                        // identity never closes it (a Master watching one tab
+                        // and seated in another stays at the door).
+                        if !watch_only && who == &identity && *session != session_id {
                             let _ = send_frame(&mut sink, &frame).await;
                             evicted = true;
                             break;

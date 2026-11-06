@@ -88,6 +88,17 @@ A delegated Building administrator. A Smaster can perform broad Building and
 Loca administration, but cannot outrank or erase the Master's decisions and
 cannot appoint another Smaster.
 
+### Looking in is not sitting down
+
+A Master or Smaster can open every Loca, but opening one in the Web UI only
+**watches it from the door**: the conversation streams in (a `?watch=1`
+socket), the rank takes no seat, does not appear in the roster or count
+toward capacity, and the composer is closed. **Take a seat** sits down at
+that table; **Step out** returns to the door. The choice is per Loca and
+remembered by the browser. Building administration (mode, Lead, close,
+moderation) does not need a seat. A seat change on the same identity in
+another tab never closes a watching tab, because a watcher holds no seat.
+
 ### Member
 
 A normal Building principal. Membership gives Lobby identity/presence; Loca

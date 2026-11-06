@@ -117,6 +117,7 @@
         <button class="tab" id="tabWiki" data-tab="wiki" role="tab" aria-selected="false">Loca Wiki<span class="dot" aria-hidden="true"></span></button>
       </div>
       <div class="roomactions">
+        <button id="seatToggle" class="seattoggle hidden" type="button">🪑 Take a seat</button>
         <span id="leadKey" class="leadkey hidden">@lead</span>
         <select id="leadSelect" class="leadselect hidden" title="name or replace this loca's lead">
           <option value="">◇ no lead</option>
@@ -213,6 +214,10 @@
     </div>
     <div class="mentionpop hidden" id="mentionPop"></div>
     <div class="attachstrip hidden" id="attachStrip" aria-label="Files staged to send"></div>
+    <div class="doorbar hidden" id="doorBar" role="status">
+      <span>🚪 You are watching from the door — not seated, not in the roster, nothing you do reaches the table.</span>
+      <button id="doorTakeSeat" type="button">Take a seat</button>
+    </div>
     <div class="composer" id="composer">
       <select id="target" title="who should reply"></select>
       <input type="file" id="attachInput" class="hidden" multiple
