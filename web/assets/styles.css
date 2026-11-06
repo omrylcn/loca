@@ -402,7 +402,7 @@
   .roomprops .detail { color: var(--muted); font-size: 10px; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
   .roomprops .detail b { color: var(--txt); }
-  .top .rname { font-weight: 700; line-height: 1.25; font-size: 14px; }
+  .top .rname { font-weight: 700; line-height: 1.25; font-size: 14px; white-space: nowrap; flex: 0 0 auto; }
   .top .rname::before { content: "# "; color: var(--dim); font-weight: 400; }
   .main.global .top .rname::before { content: ""; }
   .main.global .tabs, .main.global .roomprops, .main.global .roomactions,
@@ -971,7 +971,10 @@
 .gserror.hidden { display: none; }
 
   /* The door: a Building rank looking into a loca without sitting at it. */
-  .seattoggle { background: transparent; border: 1px solid var(--line); color: var(--accent2); border-radius: 7px; padding: 5px 10px; cursor: pointer; font: inherit; font-size: 11px; white-space: nowrap; }
-  .seattoggle:hover { border-color: var(--accent); color: var(--accent); }
+  .seatline { padding: 0 26px 4px; color: var(--dim); font-size: 10px; text-align: right; }
+  .seatline .linkbtn { background: none; border: 0; padding: 0; color: var(--muted); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  .seatline .linkbtn:hover { color: var(--accent); }
+  @media (max-width: 760px) { .seatline { padding-inline: 12px; } }
+  .doorbar b { color: var(--txt); font-weight: 600; }
   .doorbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 16px 8px; padding: 9px 12px; border: 1px dashed var(--line); border-radius: 9px; background: var(--panel2); color: var(--muted); font-size: 12px; }
   .doorbar button { background: var(--accent); color: var(--bg); border: 0; border-radius: 7px; padding: 6px 12px; font-weight: 700; cursor: pointer; }

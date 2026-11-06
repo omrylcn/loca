@@ -106,18 +106,15 @@ function renderSettings() {
 }
 
 // The door bar: a Building rank watching a loca sees that it is outside the
-// table and how to step in; once seated, the header offers the way back out.
+// table and how to step in; once seated, a quiet line under the composer
+// offers the way back out. Neither crowds the header.
 function renderDoor() {
-  if (!$("doorBar") || !$("seatToggle")) return;
+  if (!$("doorBar") || !$("seatLine")) return;
   const rank = state.adminSession === true && !!state.room;
   const watching = isWatchingDoor();
   const archived = !!(state.settings && state.settings.archived);
   $("doorBar").classList.toggle("hidden", !watching);
-  $("seatToggle").classList.toggle("hidden", !rank);
-  $("seatToggle").textContent = watching ? "🪑 Take a seat" : "🚪 Step out";
-  $("seatToggle").title = watching
-    ? "sit at this table — you join the roster and may speak"
-    : "leave your seat and watch from the door";
+  $("seatLine").classList.toggle("hidden", !rank || watching);
   $("composer").classList.toggle("gated", archived || !canITalk());
   $("msg").disabled = archived || watching;
   for (const id of ["sendBtn", "stopBtn", "attachBtn"]) $(id).disabled = watching;

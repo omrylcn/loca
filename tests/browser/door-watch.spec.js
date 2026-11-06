@@ -40,7 +40,7 @@ test("opening a loca only watches it from the door; a seat is a separate, explic
 
   // Watching: the stream flows, the roster does not include us, nothing can be said.
   await expect(page.locator("#doorBar")).toBeVisible();
-  await expect(page.locator("#seatToggle")).toHaveText(/Take a seat/);
+  await expect(page.locator("#seatLine")).toBeHidden();
   await expect(page.locator("#msg")).toBeDisabled();
   await expect(page.locator("#sendBtn")).toBeDisabled();
   await expect(page.locator("#stopBtn")).toBeDisabled();
@@ -61,7 +61,7 @@ test("opening a loca only watches it from the door; a seat is a separate, explic
   await page.locator("#doorTakeSeat").click();
   await expect.poll(() => roster(request, "door-room")).toContain("Master");
   await expect(page.locator("#doorBar")).toBeHidden();
-  await expect(page.locator("#seatToggle")).toHaveText(/Step out/);
+  await expect(page.locator("#seatLine")).toBeVisible();
   await expect(page.locator("#msg")).toBeEnabled();
   await page.locator("#msg").fill("now at the table");
   await page.locator("#sendBtn").click();
@@ -75,7 +75,7 @@ test("opening a loca only watches it from the door; a seat is a separate, explic
   await expect(page.locator("#doorBar")).toBeHidden();
 
   // Step out: back to the door, gone from the roster.
-  await page.locator("#seatToggle").click();
+  await page.locator("#stepOut").click();
   await expect.poll(() => roster(request, "door-room")).not.toContain("Master");
   await expect(page.locator("#doorBar")).toBeVisible();
   await expect(page.locator("#msg")).toBeDisabled();
@@ -97,11 +97,11 @@ test("a watcher cannot send even if the composer is forced", async ({ page, requ
   expect(list.some(m => m.text === "sneaky")).toBe(false);
 });
 
-test("members are unaffected: no door bar, no seat toggle", async ({ page }) => {
+test("members are unaffected: no door bar, no seat line", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
   await page.goto("/");
   await page.evaluate(() => { state.adminSession = false; state.room = "x"; renderDoor(); });
   await expect(page.locator("#doorBar")).toBeHidden();
-  await expect(page.locator("#seatToggle")).toBeHidden();
+  await expect(page.locator("#seatLine")).toBeHidden();
   expect(await page.evaluate(() => isWatchingDoor())).toBe(false);
 });

@@ -117,7 +117,6 @@
         <button class="tab" id="tabWiki" data-tab="wiki" role="tab" aria-selected="false">Loca Wiki<span class="dot" aria-hidden="true"></span></button>
       </div>
       <div class="roomactions">
-        <button id="seatToggle" class="seattoggle hidden" type="button">🪑 Take a seat</button>
         <span id="leadKey" class="leadkey hidden">@lead</span>
         <select id="leadSelect" class="leadselect hidden" title="name or replace this loca's lead">
           <option value="">◇ no lead</option>
@@ -215,7 +214,7 @@
     <div class="mentionpop hidden" id="mentionPop"></div>
     <div class="attachstrip hidden" id="attachStrip" aria-label="Files staged to send"></div>
     <div class="doorbar hidden" id="doorBar" role="status">
-      <span>🚪 You are watching from the door — not seated, not in the roster, nothing you do reaches the table.</span>
+      <span><b>Watching from the door.</b> You are not at the table: not in the roster, and nothing you type reaches it.</span>
       <button id="doorTakeSeat" type="button">Take a seat</button>
     </div>
     <div class="composer" id="composer">
@@ -228,6 +227,7 @@
       <button class="ctl stop" id="stopBtn" title="broadcast /stop to agents">/stop</button>
       <button class="ctl" id="clearBtn" title="clear this view">clear</button>
     </div>
+    <div class="seatline hidden" id="seatLine">Seated at this table · <button type="button" class="linkbtn" id="stepOut">step out to the door</button></div>
     <div class="hint" id="hint">Target <b>@all</b> invites every agent to reply; a name is a direct address; <b>—</b> is a plain wall post. Operators set the room purpose with <b>@goal &lt;outcome&gt;</b>.</div>
 
     <!-- PEOPLE (the building, from above: who belongs, where they sit, who is barred) -->

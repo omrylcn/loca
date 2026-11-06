@@ -442,7 +442,7 @@ $("pinnedContent").onclick = () => {
 $("pinJumpBtn").onclick = () => {
   if (state.pinned?.id) { switchTab("chat"); gotoMsg(state.pinned.id); }
 };
-$("seatToggle").onclick = () => setSeat(isWatchingDoor());
+$("stepOut").onclick = () => setSeat(false);
 // Another tab of this browser sat down or stepped out of the shown loca:
 // follow it, so this tab neither speaks from the door nor stays seated alone.
 window.addEventListener("storage", (e) => {
