@@ -23,6 +23,14 @@ function renderMode() {
     detail = `turn: <b>${esc(who || "?")}</b> &nbsp; (${(m.order || []).map(esc).join(" → ")})`;
   }
   $("modeDetail").innerHTML = detail;
+  pill.dataset.tip = `Speaking mode: ${pill.textContent}`;
+  pill.dataset.tipDetail = {
+    free: "Anyone at the table can talk.",
+    paused: "The table is quiet; only the host holds the floor.",
+    restricted: "Only the named seats can talk.",
+    roundrobin: "Seats talk one at a time, in turn order.",
+  }[m.mode] || "";
+  refreshTip(pill);
   // gate the composer visually if this user can't talk right now
   $("composer").classList.toggle("gated", !canITalk());
   // reflect current mode in the admin selector
@@ -87,7 +95,13 @@ function renderSettings() {
     if (document.activeElement !== $("careCtx")) $("careCtx").value = s.care_context_messages ?? 8;
     const lt = $("liveToggle");
     lt.classList.toggle("on", !!s.live);
-    lt.textContent = s.live ? "🔴 Live: ON" : "◉ Live: off";
+    lt.textContent = s.live ? "● Live: on" : "◉ Live: off";
+    lt.setAttribute("aria-pressed", String(!!s.live));
+    lt.dataset.tip = s.live ? "Live mode is on" : "Live mode is off";
+    lt.dataset.tipDetail = s.live
+      ? "Every message reaches everyone, no @ needed. Click to turn off."
+      : "Turn on so every message reaches everyone, no @ needed.";
+    refreshTip(lt);
   }
   renderReminderSettings();
   renderLocaSidebar();
@@ -120,8 +134,12 @@ function renderDoor() {
   toggle.classList.toggle("hidden", !rank);
   toggle.classList.toggle("watching", watching);
   const label = watching ? "Take a seat at this table" : "Step out to the door";
-  toggle.title = label;
   toggle.setAttribute("aria-label", label);
+  toggle.dataset.tip = watching ? "Take a seat" : "Step out to the door";
+  toggle.dataset.tipDetail = watching
+    ? "You are watching from the door. Sit down to join the roster and speak."
+    : "Leave the roster and keep watching; nothing you type reaches the table.";
+  refreshTip(toggle);
   toggle.innerHTML = watching ? SEAT_ICON_CHAIR : SEAT_ICON_DOOR;
   $("composer").classList.toggle("gated", archived || !canITalk());
   $("msg").disabled = archived || watching;

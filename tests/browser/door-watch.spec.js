@@ -144,3 +144,15 @@ test("the header keeps the seat icon beside Properties, never a text button", as
   const box = await page.locator("#curRoom").boundingBox();
   expect(box.height).toBeLessThan(24);
 });
+
+test("the door bar belongs to a loca, never to the Building view", async ({ page, request }) => {
+  await provisionRooms(request, ["door-building"]);
+  const info = await masterSession(request, "door-building-boss");
+  await openAs(page, info, "door-building-boss");
+  await page.evaluate(() => joinRoom("door-building"));
+  await expect(page.locator("#doorBar")).toBeVisible();
+  await page.evaluate(() => switchTab("people"));
+  await expect(page.locator("#doorBar")).toBeHidden();
+  await page.evaluate(() => switchTab("chat"));
+  await expect(page.locator("#doorBar")).toBeVisible();
+});
