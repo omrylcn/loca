@@ -337,6 +337,62 @@ pub(crate) async fn list_smasters(State(hub): State<Hub>, headers: HeaderMap) ->
         .collect();
     Json(rows).into_response()
 }
+fn name_error_response(error: hub::NameError) -> axum::response::Response {
+    let message = match error {
+        hub::NameError::Invalid => {
+            "a name is 1-64 ASCII letters, digits, '-', '_' or '.', so it can be @mentioned"
+        }
+        hub::NameError::Reserved => {
+            "that word is a title or keyword, not a name — use the person's own name"
+        }
+    };
+    (StatusCode::BAD_REQUEST, message).into_response()
+}
+
+/// Building ranks — the Master and every Smaster — with where each sits now.
+/// Ranks hold no Lobby membership, so this completes the Building directory.
+pub(crate) async fn list_building_ranks(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !is_admin_req(&hub, &headers) {
+        return (StatusCode::FORBIDDEN, "Building authority required").into_response();
+    }
+    Json(hub.building_ranks()).into_response()
+}
+
+/// `PUT /profile {"display_name": …}` — a Master or Smaster renames itself.
+/// The verified principal comes from the credential/session, never the body.
+pub(crate) async fn rename_profile_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    let requested = body
+        .get("display_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    match hub.rename_profile(&actor, requested) {
+        Ok(profile) => (StatusCode::OK, Json(profile)).into_response(),
+        Err(hub::ProfileRenameError::AuthorityRequired) => (
+            StatusCode::FORBIDDEN,
+            "only a signed-in Master or Smaster renames its own profile here",
+        )
+            .into_response(),
+        Err(hub::ProfileRenameError::Name(error)) => name_error_response(error),
+        Err(hub::ProfileRenameError::NameTaken) => (
+            StatusCode::CONFLICT,
+            "that name is already used by someone in this Building",
+        )
+            .into_response(),
+        Err(hub::ProfileRenameError::Failed) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not save the new name — try again",
+        )
+            .into_response(),
+    }
+}
 /// Make someone a second master. Only the master may — smaster authority
 /// flows from the master and nowhere else, so a smaster cannot appoint one.
 pub(crate) async fn create_smaster(
@@ -359,6 +415,10 @@ pub(crate) async fn create_smaster(
     if name.is_empty() {
         return (StatusCode::BAD_REQUEST, "a smaster needs a name").into_response();
     }
+    let name = match hub::validate_display_name(name) {
+        Ok(name) => name,
+        Err(error) => return name_error_response(error),
+    };
     match hub.add_smaster(name) {
         Ok(token) => (
             StatusCode::CREATED,

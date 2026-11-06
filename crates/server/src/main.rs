@@ -388,7 +388,8 @@ async fn main() {
             axum::routing::post(ack_join_request_route),
         )
         .route("/whoami", get(whoami))
-        .route("/profile", get(profile_view))
+        .route("/profile", get(profile_view).put(rename_profile_route))
+        .route("/building/ranks", get(list_building_ranks))
         .route(
             "/profile/credentials",
             get(list_profile_credentials).post(create_profile_credential_route),

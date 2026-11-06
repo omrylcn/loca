@@ -265,9 +265,7 @@ function switchTab(tab) {
   document.querySelector(".main").classList.toggle("global", global);
   if (global) {
     $("curRoom").textContent = "Building";
-    const people = state.people || [];
-    const lobby = people.filter(p => !(p.locas || []).length).length;
-    $("subStatus").textContent = `${people.length} members · ${lobby} in lobby`;
+    renderBuildingSummary();
   } else {
     $("curRoom").textContent = state.room || "—";
   }

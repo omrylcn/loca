@@ -72,6 +72,10 @@ pub struct Member {
     pub name: String,
     #[serde(rename = "type")]
     pub kind: SenderType,
+    /// Building rank worn into this loca: `"master"` or `"smaster"`. Absent
+    /// for ordinary members and agents; older clients simply ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 /// Body of `POST /rooms/{id}/messages`. The server fills in `id`/`ts`/`room`.

@@ -8,7 +8,10 @@ use protocol::{
     SenderType, ServerFrame, SetWait, TaskStatus, UpdateGoal, UpdateTask,
 };
 
-use super::{AttentionError, CareDraft, GoalError, Hub, HubConfig};
+use super::{
+    validate_display_name, AttentionError, CareDraft, GoalError, Hub, HubConfig, NameError,
+    ProfileRenameError,
+};
 use crate::store::{BuildingRole, Store};
 
 static TEST_NOW: AtomicU64 = AtomicU64::new(0);
@@ -143,6 +146,210 @@ fn smaster_and_master_browser_sessions_take_separate_seats() {
             "Master and Smaster must not evict each other"
         );
     }
+}
+
+#[test]
+fn display_names_are_labels_never_titles() {
+    for ok in ["omrylcn", "ayse.k", "dev_ops-2", "a"] {
+        assert_eq!(validate_display_name(&format!("  {ok} ")), Ok(ok));
+    }
+    for bad in [
+        "",
+        "   ",
+        "two words",
+        "ömer",
+        "a@b",
+        "x".repeat(65).as_str(),
+    ] {
+        assert_eq!(
+            validate_display_name(bad),
+            Err(NameError::Invalid),
+            "{bad:?}"
+        );
+    }
+    // A title is refused in any letter case, Turkish dotted I included.
+    for title in [
+        "master", "Master", "SMASTER", "Operator", "lead", "ALL", "admin", "root",
+    ] {
+        assert_eq!(
+            validate_display_name(title),
+            Err(NameError::Reserved),
+            "{title}"
+        );
+    }
+    assert_eq!(
+        validate_display_name("ADM\u{0130}N"),
+        Err(NameError::Invalid)
+    );
+    // Agent identities with their own fixed names stay valid.
+    assert_eq!(validate_display_name("loca-care"), Ok("loca-care"));
+}
+
+#[test]
+fn loca_roster_wears_each_building_rank_beside_the_name() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("roster.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "deputy", 1).unwrap();
+    let hub = critical_restart_hub(store, "root");
+    let member = hub.admit_member("worker", "agent", "master").unwrap();
+    let master = critical_admin_session(&hub, "root");
+    let smaster = critical_admin_session(&hub, "sm_deputy");
+    let seat = |tok: &str, name: &str| {
+        let s = hub.session_identity(Some(tok)).expect("live session");
+        hub.seat_identity(None, None, Some(&s), Some(tok), name)
+    };
+    let mut rx = hub.subscribe("ops").0;
+    assert!(hub.join(
+        "ops",
+        &seat(&master, "Master"),
+        "Master",
+        SenderType::User,
+        1
+    ));
+    assert!(hub.join(
+        "ops",
+        &seat(&smaster, "deputy"),
+        "deputy",
+        SenderType::User,
+        2
+    ));
+    let worker_seat = format!("mb:{}", member.token);
+    assert!(hub.join("ops", &worker_seat, "worker", SenderType::Agent, 3));
+    let mut last = None;
+    while let Ok(frame) = rx.try_recv() {
+        if let ServerFrame::Members { members } = frame {
+            last = Some(members);
+        }
+    }
+    let roles: Vec<(String, Option<String>)> = last
+        .expect("a roster frame")
+        .into_iter()
+        .map(|m| (m.name, m.role))
+        .collect();
+    assert_eq!(
+        roles,
+        vec![
+            ("Master".into(), Some("master".into())),
+            ("deputy".into(), Some("smaster".into())),
+            ("worker".into(), None),
+        ]
+    );
+
+    // Ordinary members carry no role on the wire, and an old frame without
+    // the field still parses.
+    let wire = serde_json::to_value(protocol::Member {
+        name: "worker".into(),
+        kind: SenderType::Agent,
+        role: None,
+    })
+    .unwrap();
+    assert!(wire.get("role").is_none());
+    let old: protocol::Member =
+        serde_json::from_value(serde_json::json!({ "name": "x", "type": "user" })).unwrap();
+    assert_eq!(old.role, None);
+
+    // The Building directory lists every rank — seated or not — with its locas.
+    let ranks = hub.building_ranks();
+    let summary: Vec<(String, &str, Vec<String>)> = ranks
+        .into_iter()
+        .map(|r| (r.name, r.role, r.locas))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            ("Master".into(), "master", vec!["ops".to_string()]),
+            ("deputy".into(), "smaster", vec!["ops".to_string()]),
+        ]
+    );
+    hub.leave("ops", &seat(&smaster, "deputy"));
+    let deputy = hub
+        .building_ranks()
+        .into_iter()
+        .find(|r| r.role == "smaster")
+        .expect("an unseated Smaster is still part of the Building");
+    assert!(deputy.locas.is_empty());
+}
+
+#[test]
+fn a_rank_renames_its_own_profile_everywhere_it_is_worn() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("rename.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "smaster", 1).unwrap();
+    store.add_smaster("sm_other", "selin", 1).unwrap();
+    let hub = critical_restart_hub(store.clone(), "root");
+    let member = hub.admit_member("worker", "agent", "master").unwrap();
+    let session = critical_admin_session(&hub, "sm_deputy");
+    let identity = hub.session_identity(Some(&session)).unwrap();
+    let seat = hub.seat_identity(None, None, Some(&identity), Some(&session), "smaster");
+    assert!(hub.join("ops", &seat, "smaster", SenderType::User, 1));
+    let mut rx = hub.subscribe("ops").0;
+
+    let actor = hub.resolve_authority(None, Some(&session));
+    // A title, a malformed label, or another person's name is refused.
+    assert_eq!(
+        hub.rename_profile(&actor, "master"),
+        Err(ProfileRenameError::Name(NameError::Reserved))
+    );
+    assert_eq!(
+        hub.rename_profile(&actor, "two words"),
+        Err(ProfileRenameError::Name(NameError::Invalid))
+    );
+    assert_eq!(
+        hub.rename_profile(&actor, "SELIN"),
+        Err(ProfileRenameError::NameTaken)
+    );
+    assert_eq!(
+        hub.rename_profile(&actor, "worker"),
+        Err(ProfileRenameError::NameTaken)
+    );
+
+    let renamed = hub.rename_profile(&actor, "ayse").expect("rename");
+    assert_eq!(renamed.display_name, "ayse");
+    assert_eq!(renamed.role, BuildingRole::Smaster);
+    // Same principal, same rank, new label — in the store, the registry,
+    // the live session, the request authority and the loca seat.
+    assert_eq!(renamed.id, actor.principal_id.clone().unwrap());
+    assert_eq!(hub.smaster_name(Some("sm_deputy")).as_deref(), Some("ayse"));
+    assert_eq!(hub.session_identity(Some(&session)).unwrap().name, "ayse");
+    let after = hub.resolve_authority(None, Some(&session));
+    assert_eq!(after.display_name.as_deref(), Some("ayse"));
+    assert_eq!(after.building_role, Some(BuildingRole::Smaster));
+    let mut roster = None;
+    while let Ok(frame) = rx.try_recv() {
+        if let ServerFrame::Members { members } = frame {
+            roster = Some(members);
+        }
+    }
+    let roster = roster.expect("the rename is broadcast to the loca");
+    assert_eq!(roster.len(), 1, "a rename keeps the one seat");
+    assert_eq!(roster[0].name, "ayse");
+    assert_eq!(roster[0].role.as_deref(), Some("smaster"));
+    // Renaming to one's own current name in another case is not a clash.
+    assert!(hub.rename_profile(&after, "Ayse").is_ok());
+
+    // The new name survives a restart.
+    drop(hub);
+    let hub = critical_restart_hub(store, "root");
+    assert_eq!(hub.smaster_name(Some("sm_deputy")).as_deref(), Some("Ayse"));
+    assert!(hub
+        .profiles()
+        .iter()
+        .any(|p| p.display_name == "Ayse" && p.role == BuildingRole::Smaster));
+
+    // The Master renames itself too; an ordinary member cannot use this path.
+    let master = hub.resolve_authority(Some("root"), None);
+    assert_eq!(
+        hub.rename_profile(&master, "omrylcn").unwrap().role,
+        BuildingRole::Master
+    );
+    assert_eq!(hub.master_principal().unwrap().display_name, "omrylcn");
+    let worker = hub.resolve_authority(Some(&member.token), None);
+    assert_eq!(
+        hub.rename_profile(&worker, "boss"),
+        Err(ProfileRenameError::AuthorityRequired)
+    );
 }
 
 #[test]
