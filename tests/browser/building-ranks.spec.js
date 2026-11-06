@@ -104,3 +104,28 @@ test("loca roster shows rank badges and offers no moderation the server would re
   await expect(row("selin").locator('[data-mod="kick"]')).toHaveCount(1);
   await expect(row("omrylcn").locator("[data-mod]")).toHaveCount(0);
 });
+
+test("Building header counts what the directory shows, and a phone never scrolls sideways", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.goto("/");
+  // Open the Building view without a live server fetch, then render fixtures.
+  await page.evaluate(() => { state.adminSession = false; switchTab("people"); });
+  await page.evaluate(() => {
+    state.adminSession = true;
+    state.profile = { building_role: "master" };
+    state.ranks = [{ name: "omrylcn", role: "master", locas: ["fa-backend"] }, { name: "ayse", role: "smaster", locas: [] }];
+    state.people = [
+      { name: "claude-api", kind: "agent", online: true, locas: ["fa-backend"], membership_id: "mbid_a", runtime: { ready: true } },
+      { name: "a-very-long-agent-name-that-should-not-push-the-page", kind: "agent", online: false, locas: [], membership_id: "mbid_b" },
+      { name: "selin", kind: "user", online: true, locas: [], membership_id: "mbid_c" },
+    ];
+    state.joinRequests = [];
+    renderPeople();
+  });
+  await expect(page.locator("#subStatus")).toHaveText("2 ranks · 3 members · 2 online · 1 in lobby");
+  await expect(page.locator("#peopleList .locachip").first()).toHaveText("#fa-backend");
+  await expect(page.locator("[data-revoke-member]").first()).toHaveText("Revoke");
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});
