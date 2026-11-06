@@ -248,6 +248,11 @@ async fn main() {
         default_settings,
         epoch,
     );
+    // LOCA_CAPACITY: seats per loca, humans and agents alike (default 7,
+    // clamped 2..=32). Watchers never take a seat.
+    let capacity =
+        hub.set_loca_capacity(env_u32("LOCA_CAPACITY", hub::Hub::LOCA_KAPASITE as u32) as usize);
+    tracing::info!(capacity, "seats per loca");
     if hub.admin_pairing_code().is_some() {
         tracing::info!(
             "master browser pairing is available from the loopback master desk; code omitted from logs"
@@ -979,6 +984,8 @@ async fn health(State(hub): State<Hub>) -> impl IntoResponse {
         "version": env!("CARGO_PKG_VERSION"),
         "epoch": hub.epoch(),
         "needs_token": !hub.is_member(None),
+        // Seats per loca (LOCA_CAPACITY), humans and agents alike.
+        "loca_capacity": hub.loca_capacity(),
         // true when no ADMIN_TOKEN is configured: admin actions are open to all
         // (dev mode), so clients can surface admin controls without a token.
         "admin_open": hub.is_admin(None),
@@ -1301,7 +1308,7 @@ async fn ws_session(
             &ServerFrame::Control {
                 cmd: format!(
                     "loca full ({} seats). ask the master for a seat, or watch with ?watch=1",
-                    hub::Hub::LOCA_KAPASITE
+                    hub.loca_capacity()
                 ),
             },
         )

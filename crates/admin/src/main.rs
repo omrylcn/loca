@@ -483,7 +483,7 @@ fn draw_davets(f: &mut Frame, app: &mut App, area: Rect) {
     );
 
     let title = match app.selected_loca() {
-        Some(l) => format!(" davets in {l} ({}/7 seats) ", app.davets.len()),
+        Some(l) => format!(" davets in {l} ({} seats taken) ", app.davets.len()),
         None => " davets ".into(),
     };
     let items: Vec<ListItem> = app

@@ -301,6 +301,74 @@ async fn only_the_master_can_seal_an_archived_loca() {
     assert_eq!(sealed.status(), 204, "Master may seal the archived Loca");
 }
 
+/// LOCA_CAPACITY sets the seats per loca. Every person takes one, human or
+/// agent alike; the next identity is refused with a word; a watcher still
+/// gets in because it takes no seat; and /health tells clients the number.
+#[tokio::test]
+async fn loca_capacity_is_configurable_and_counts_humans_and_agents_alike() {
+    let (port, _guard) = spawn_server_env("master", &[("LOCA_CAPACITY", "15".to_string())]).await;
+    create_test_room(port, "master", "salon").await;
+    let client = reqwest::Client::new();
+    let health: Value = client
+        .get(format!("http://127.0.0.1:{port}/health"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(health["loca_capacity"], 15);
+    let mut seated = Vec::new();
+    for i in 1..=15 {
+        // Alternate humans and agents: both count as one seat each.
+        let kind = if i % 2 == 0 { "user" } else { "agent" };
+        let mut ws = connect_ws(port, "salon", &format!("p{i}"), kind).await;
+        let _ = wait_for(&mut ws, |frame| frame["t"] == "history").await;
+        seated.push(ws);
+    }
+    let members: Value = client
+        .get(format!("http://127.0.0.1:{port}/rooms/salon/members"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(members.as_array().unwrap().len(), 15, "fifteen fit");
+
+    let mut sixteenth = connect_ws(port, "salon", "p16", "user").await;
+    let frame = wait_for(&mut sixteenth, |v| v["t"] == "control").await;
+    let cmd = frame["cmd"].as_str().unwrap();
+    assert!(cmd.contains("full") && cmd.contains("15 seats"), "{cmd}");
+
+    // A watcher takes no seat, so a full loca still lets it look in.
+    let (mut watcher, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=salon&name=door&type=user&admin=master&watch=1"
+    ))
+    .await
+    .unwrap();
+    let _ = wait_for(&mut watcher, |frame| frame["t"] == "history").await;
+}
+
+/// Out-of-range values are held to a small table: never below a pair, never
+/// a hall.
+#[tokio::test]
+async fn loca_capacity_is_clamped() {
+    for (raw, expected) in [("1", 2), ("500", 32), ("nonsense", 7)] {
+        let (port, _guard) =
+            spawn_server_env("master", &[("LOCA_CAPACITY", raw.to_string())]).await;
+        let health: Value = reqwest::Client::new()
+            .get(format!("http://127.0.0.1:{port}/health"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(health["loca_capacity"], expected, "LOCA_CAPACITY={raw}");
+    }
+}
+
 /// A loca seats seven. More than that is a salon — a different kind of place.
 #[tokio::test]
 async fn loca_seats_seven() {
