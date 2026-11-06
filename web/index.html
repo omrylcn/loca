@@ -122,8 +122,9 @@
           <option value="">◇ no lead</option>
         </select>
         <button id="liveToggle" class="livebtn hidden" title="live (WhatsApp) mode — everyone gets every message, no @ needed">◉ Live: off</button>
-        <button class="admintoggle hidden" id="adminToggle" aria-expanded="false"
-          aria-controls="adminbar">properties ▾</button>
+        <button class="iconbtn seattoggle hidden" id="seatToggle" type="button"></button>
+        <button class="iconbtn admintoggle hidden" id="adminToggle" type="button" aria-expanded="false"
+          aria-controls="adminbar" aria-label="Properties" title="Properties"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="var(--panel)"/><circle cx="15" cy="12" r="2" fill="var(--panel)"/><circle cx="7" cy="18" r="2" fill="var(--panel)"/></svg></button>
       </div>
       <span class="conndot" id="connDot" role="status" aria-label="disconnected" title="disconnected"></span>
     </div>
@@ -227,7 +228,6 @@
       <button class="ctl stop" id="stopBtn" title="broadcast /stop to agents">/stop</button>
       <button class="ctl" id="clearBtn" title="clear this view">clear</button>
     </div>
-    <div class="seatline hidden" id="seatLine">Seated at this table · <button type="button" class="linkbtn" id="stepOut">step out to the door</button></div>
     <div class="hint" id="hint">Target <b>@all</b> invites every agent to reply; a name is a direct address; <b>—</b> is a plain wall post. Operators set the room purpose with <b>@goal &lt;outcome&gt;</b>.</div>
 
     <!-- PEOPLE (the building, from above: who belongs, where they sit, who is barred) -->

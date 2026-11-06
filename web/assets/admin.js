@@ -106,15 +106,23 @@ function renderSettings() {
 }
 
 // The door bar: a Building rank watching a loca sees that it is outside the
-// table and how to step in; once seated, a quiet line under the composer
-// offers the way back out. Neither crowds the header.
+// table and how to step in. The header carries one small icon beside
+// Properties: a chair (take a seat) at the door, a door (step out) at the table.
+const SEAT_ICON_CHAIR = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 9V6a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v3"/><path d="M3 16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z"/><path d="M5 18v2M19 18v2"/></svg>';
+const SEAT_ICON_DOOR = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h8"/><path d="M15 12h6M18 9l3 3-3 3"/><circle cx="11" cy="12" r=".6" fill="currentColor"/></svg>';
 function renderDoor() {
-  if (!$("doorBar") || !$("seatLine")) return;
+  if (!$("doorBar") || !$("seatToggle")) return;
   const rank = state.adminSession === true && !!state.room;
   const watching = isWatchingDoor();
   const archived = !!(state.settings && state.settings.archived);
   $("doorBar").classList.toggle("hidden", !watching);
-  $("seatLine").classList.toggle("hidden", !rank || watching);
+  const toggle = $("seatToggle");
+  toggle.classList.toggle("hidden", !rank);
+  toggle.classList.toggle("watching", watching);
+  const label = watching ? "Take a seat at this table" : "Step out to the door";
+  toggle.title = label;
+  toggle.setAttribute("aria-label", label);
+  toggle.innerHTML = watching ? SEAT_ICON_CHAIR : SEAT_ICON_DOOR;
   $("composer").classList.toggle("gated", archived || !canITalk());
   $("msg").disabled = archived || watching;
   for (const id of ["sendBtn", "stopBtn", "attachBtn"]) $(id).disabled = watching;

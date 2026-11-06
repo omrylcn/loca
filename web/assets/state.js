@@ -164,21 +164,32 @@ function isAdmin() { return state.adminSession === true || state.adminOpen === t
 // Looking in from the door is not sitting at the table. A Master or Smaster
 // can open every loca; opening one only WATCHES it (a `?watch=1` socket: the
 // stream flows, no roster seat, nothing said). Taking a seat is an explicit,
-// per-loca choice remembered in this browser.
+// per-loca choice remembered in this browser. İye is the exception: it is
+// the ranks' own house (PRINCIPLES: "Master ve Smaster rütbeleriyle girer"),
+// so there they sit by default and stepping out is the remembered choice.
 const SEATED_ROOMS_KEY = "loca-seated-rooms";
-function seatedRooms() {
+const DOOR_ROOMS_KEY = "loca-door-rooms";
+function roomSet(key) {
   try {
-    const list = JSON.parse(localStorage.getItem(SEATED_ROOMS_KEY) || "[]");
+    const list = JSON.parse(localStorage.getItem(key) || "[]");
     return new Set(Array.isArray(list) ? list.filter(r => typeof r === "string") : []);
   } catch (e) { return new Set(); }
 }
+function saveRoomSet(key, rooms) {
+  try { localStorage.setItem(key, JSON.stringify([...rooms])); } catch (e) {}
+}
+function isRankHome(room) { return !!room && room === state.homeRoom; }
 function setSeatedHere(room, seated) {
-  const rooms = seatedRooms();
-  if (seated) rooms.add(room); else rooms.delete(room);
-  try { localStorage.setItem(SEATED_ROOMS_KEY, JSON.stringify([...rooms])); } catch (e) {}
+  const key = isRankHome(room) ? DOOR_ROOMS_KEY : SEATED_ROOMS_KEY;
+  const rooms = roomSet(key);
+  const listed = isRankHome(room) ? !seated : seated;
+  if (listed) rooms.add(room); else rooms.delete(room);
+  saveRoomSet(key, rooms);
 }
 function isWatchingDoor() {
-  return state.adminSession === true && !!state.room && !seatedRooms().has(state.room);
+  if (state.adminSession !== true || !state.room) return false;
+  if (isRankHome(state.room)) return roomSet(DOOR_ROOMS_KEY).has(state.room);
+  return !roomSet(SEATED_ROOMS_KEY).has(state.room);
 }
 // The door: locked until this client is actually a member of the server.
 function setLocked(on) {
