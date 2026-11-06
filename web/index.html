@@ -117,14 +117,14 @@
         <button class="tab" id="tabWiki" data-tab="wiki" role="tab" aria-selected="false">Loca Wiki<span class="dot" aria-hidden="true"></span></button>
       </div>
       <div class="roomactions">
-        <button id="seatToggle" class="seattoggle hidden" type="button">🪑 Take a seat</button>
         <span id="leadKey" class="leadkey hidden">@lead</span>
         <select id="leadSelect" class="leadselect hidden" title="name or replace this loca's lead">
           <option value="">◇ no lead</option>
         </select>
         <button id="liveToggle" class="livebtn hidden" title="live (WhatsApp) mode — everyone gets every message, no @ needed">◉ Live: off</button>
-        <button class="admintoggle hidden" id="adminToggle" aria-expanded="false"
-          aria-controls="adminbar">properties ▾</button>
+        <button class="iconbtn seattoggle hidden" id="seatToggle" type="button"></button>
+        <button class="iconbtn admintoggle hidden" id="adminToggle" type="button" aria-expanded="false"
+          aria-controls="adminbar" aria-label="Properties" title="Properties"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="var(--panel)"/><circle cx="15" cy="12" r="2" fill="var(--panel)"/><circle cx="7" cy="18" r="2" fill="var(--panel)"/></svg></button>
       </div>
       <span class="conndot" id="connDot" role="status" aria-label="disconnected" title="disconnected"></span>
     </div>
@@ -215,7 +215,7 @@
     <div class="mentionpop hidden" id="mentionPop"></div>
     <div class="attachstrip hidden" id="attachStrip" aria-label="Files staged to send"></div>
     <div class="doorbar hidden" id="doorBar" role="status">
-      <span>🚪 You are watching from the door — not seated, not in the roster, nothing you do reaches the table.</span>
+      <span><b>Watching from the door.</b> You are not at the table: not in the roster, and nothing you type reaches it.</span>
       <button id="doorTakeSeat" type="button">Take a seat</button>
     </div>
     <div class="composer" id="composer">

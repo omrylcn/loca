@@ -108,9 +108,11 @@ when another active person already wears that name, ignoring letter case.
 A Master or Smaster can open every Loca, but opening one in the Web UI only
 **watches it from the door**: the conversation streams in (a `?watch=1`
 socket), the rank takes no seat, does not appear in the roster or count
-toward capacity, and the composer is closed. **Take a seat** sits down at
-that table; **Step out** returns to the door. The choice is per Loca and
-remembered by the browser. Building administration (mode, Lead, close,
+toward capacity, and the composer is closed. **Take a seat** (the door bar,
+or the chair icon beside Properties) sits down at that table; the door icon
+**steps out** again. The choice is per Loca and remembered by the browser.
+İye is the ranks' own house, so there a Master or Smaster sits by default and
+stepping out is the remembered choice. Building administration (mode, Lead, close,
 moderation) does not need a seat. A seat change on the same identity in
 another tab never closes a watching tab, because a watcher holds no seat.
 

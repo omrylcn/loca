@@ -57,12 +57,12 @@ $("leaveYes").onclick = async () => {
 $("applyMode").onclick = applyMode;
 function closeProperties() {
   $("adminbar").classList.remove("open");
-  $("adminToggle").textContent = "properties ▾";
+  $("adminToggle").classList.remove("on");
   $("adminToggle").setAttribute("aria-expanded", "false");
 }
 $("adminToggle").onclick = () => {
   const open = $("adminbar").classList.toggle("open");
-  $("adminToggle").textContent = open ? "properties ▴" : "properties ▾";
+  $("adminToggle").classList.toggle("on", open);
   $("adminToggle").setAttribute("aria-expanded", String(open));
 };
 document.addEventListener("pointerdown", (event) => {
@@ -446,7 +446,7 @@ $("seatToggle").onclick = () => setSeat(isWatchingDoor());
 // Another tab of this browser sat down or stepped out of the shown loca:
 // follow it, so this tab neither speaks from the door nor stays seated alone.
 window.addEventListener("storage", (e) => {
-  if (e.key !== SEATED_ROOMS_KEY || !state.room || state.adminSession !== true) return;
+  if (![SEATED_ROOMS_KEY, DOOR_ROOMS_KEY].includes(e.key) || !state.room || state.adminSession !== true) return;
   const wasWatching = state.ws && /[?&]watch=1/.test(state.ws.url || "");
   if (wasWatching !== isWatchingDoor()) openWs(); else renderDoor();
 });
