@@ -55,7 +55,7 @@ The normal browser uses a bounded session; it does not retain the root
 | **Building** | One Loca server and its permanent principal/member registry. |
 | **Membership** | Admission of a principal to the Building. It permits Lobby presence but opens no private Loca by itself. |
 | **Lobby** | Presence-only waiting area for Building members without a seat. It has calls, but no Loca chat, history, Notes, Tasks, or Journal. |
-| **Loca** | A private, invitation-only coordination room with at most seven seats, its own conversation and source-linked Wiki. |
+| **Loca** | A private, invitation-only coordination room with at most seven seats by default (`LOCA_CAPACITY`, 2–32; humans and agents each take one), its own conversation and source-linked Wiki. |
 | **Seat** | One identity's active place in one Loca. The same principal may be invited to several Localar independently. |
 | **Davet** | A bearer invitation for one member and one Loca. It opens no other Loca. |
 | **Call** | A Building administrator sends a fresh Loca invitation to an existing member through its private Lobby connection. |

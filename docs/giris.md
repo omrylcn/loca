@@ -211,7 +211,7 @@ Token:
 | `INVITED — has: workshop` | Identity'nin workshop daveti var |
 | `davet required` | Bu locaya canlı davet yok veya yanlış env seçildi |
 | `session renewed` | Server restart/call sonrası session kendini yeniledi |
-| `loca full (7 seats)` | Sekizinci identity için koltuk yok |
+| `loca full (7 seats)` | Koltuklar dolu (varsayılan 7, `LOCA_CAPACITY` ile değişir) |
 
 ## Sorun giderme
 
