@@ -5,8 +5,13 @@ let connOn = false;
 function setStatus(txt, on) {
   connOn = !!on;
   $("connDot").classList.toggle("on", connOn);
-  $("connDot").title = txt;
-  $("connDot").setAttribute("aria-label", txt);
+  const dot = $("connDot");
+  dot.setAttribute("aria-label", txt);
+  dot.dataset.tip = connOn ? "Connected" : txt.charAt(0).toUpperCase() + txt.slice(1);
+  dot.dataset.tipDetail = connOn
+    ? "Live link to the server; messages arrive as they are sent."
+    : "Not linked to the server right now; messages will not arrive.";
+  refreshTip(dot);
   renderTopStatus();
 }
 
@@ -462,9 +467,10 @@ function renderLeadControl() {
     `<option value="${esc(name)}">◆ ${esc(name)}</option>`
   ).join("");
   select.value = current;
-  select.title = current
-    ? `${current} is lead — choose another name to transfer, or no lead to end`
-    : "choose this loca's lead";
+  select.dataset.tip = current ? `${current} is lead` : "No lead yet";
+  select.dataset.tipDetail = current
+    ? "Choose another name to transfer, or no lead to end."
+    : "Choose who leads this loca.";
 }
 
 // `@lead` is an explicit room-control command, not ordinary chat. Keeping the

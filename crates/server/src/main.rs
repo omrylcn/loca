@@ -95,6 +95,7 @@ const WEB_API: &str = include_str!("../../../web/assets/api.js");
 const WEB_APP: &str = include_str!("../../../web/assets/app.js");
 const WEB_JOINREQUEST: &str = include_str!("../../../web/assets/joinrequest.js");
 const WEB_GETSTARTED: &str = include_str!("../../../web/assets/getstarted.js");
+const WEB_TOOLTIP: &str = include_str!("../../../web/assets/tooltip.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
@@ -676,6 +677,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "app.js" => Some(("text/javascript; charset=utf-8", WEB_APP)),
         "joinrequest.js" => Some(("text/javascript; charset=utf-8", WEB_JOINREQUEST)),
         "getstarted.js" => Some(("text/javascript; charset=utf-8", WEB_GETSTARTED)),
+        "tooltip.js" => Some(("text/javascript; charset=utf-8", WEB_TOOLTIP)),
         _ => None,
     };
     match asset {
