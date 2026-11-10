@@ -105,7 +105,11 @@ async function renameProfile() {
     return;
   }
   const renamed = await response.json();
-  state.name = renamed.display_name;
+  const before = state.name;
+  adoptOwnName(renamed.display_name);
+  // The server relabels history and tells every open feed; reconnecting
+  // here covers a loca with nothing said yet (no frame arrives).
+  if (before !== renamed.display_name && state.room) openWs();
   await fetchProfile();
   const menu = $("whoami").querySelector("details.profilemenu");
   if (menu) menu.open = true;

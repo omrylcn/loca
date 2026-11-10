@@ -3596,7 +3596,8 @@ impl Hub {
     /// A Master or Smaster renames its own profile. Identity, credentials,
     /// sessions and rank stay; only the label changes, everywhere it is worn
     /// live: the Smaster registry, open sessions and every loca seat. Past
-    /// messages keep the name they were sent under (history is immutable).
+    /// messages follow the person: what it said under the old name now reads
+    /// the new one, in every loca, and open feeds are told to relabel.
     pub fn rename_profile(
         &self,
         actor: &RequestAuthority,
@@ -3634,10 +3635,12 @@ impl Hub {
         {
             return Err(ProfileRenameError::NameTaken);
         }
-        match self
-            .store
-            .rename_principal(&principal_id, name, smaster_token.as_deref())
-        {
+        match self.store.rename_principal(
+            &principal_id,
+            name,
+            smaster_token.as_deref(),
+            Some(current.as_str()).filter(|old| !old.is_empty() && *old != name),
+        ) {
             Ok(true) => {}
             Ok(false) => return Err(ProfileRenameError::NameTaken),
             Err(_) => return Err(ProfileRenameError::Failed),
@@ -3659,8 +3662,27 @@ impl Hub {
         if let Some(token) = &smaster_token {
             seat_keys.push(format!("sm:{token}"));
         }
+        let relabel = !current.is_empty() && current != name;
         let mut rooms = self.rooms.lock_or_recover();
         for room in rooms.values_mut() {
+            if relabel {
+                let mut said_here = false;
+                for message in room.history.iter_mut() {
+                    if message.sender_type == SenderType::User && message.sender == current {
+                        message.sender = name.to_string();
+                        said_here = true;
+                    }
+                    if message.reply_to_sender.as_deref() == Some(current.as_str()) {
+                        message.reply_to_sender = Some(name.to_string());
+                    }
+                }
+                if said_here {
+                    let _ = room.tx.send(ServerFrame::Renamed {
+                        from: current.clone(),
+                        to: name.to_string(),
+                    });
+                }
+            }
             let mut touched = false;
             for key in &seat_keys {
                 if let Some(seat) = room.members.get_mut(key) {

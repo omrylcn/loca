@@ -852,6 +852,7 @@ impl Store {
         principal_id: &str,
         name: &str,
         smaster_token: Option<&str>,
+        relabel_from: Option<&str>,
     ) -> rusqlite::Result<bool> {
         let Some(mut c) = self.conn() else {
             return Ok(true);
@@ -880,6 +881,17 @@ impl Store {
             tx.execute(
                 "UPDATE smasters SET name = ?2 WHERE token = ?1 AND revoked_at IS NULL",
                 params![token, name],
+            )?;
+        }
+        // Past messages follow the person. A rank's own posts carry the
+        // principal `user:<name>` (or none, when sent without an op id); a
+        // member's carry `mb:…`, so a member who once wore the label keeps it.
+        if let Some(old) = relabel_from {
+            tx.execute(
+                "UPDATE messages SET sender = ?2
+                 WHERE sender = ?1 AND sender_type = 'user'
+                   AND (principal IS NULL OR principal = 'user:' || ?1)",
+                params![old, name],
             )?;
         }
         tx.commit()

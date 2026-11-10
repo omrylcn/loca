@@ -1000,6 +1000,12 @@ pub enum ServerFrame {
     Members {
         members: Vec<Member>,
     },
+    /// A Building rank renamed its profile. Past messages it sent under
+    /// `from` now read `to`; clients relabel the feed they already show.
+    Renamed {
+        from: String,
+        to: String,
+    },
     /// Out-of-band control, e.g. the operator broadcasting `/stop`.
     Control {
         cmd: String,

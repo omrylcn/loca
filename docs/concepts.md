@@ -100,7 +100,8 @@ A rank's name is never a title: a Smaster cannot be created as `master`,
 `goal`. A Master or Smaster renames its own profile with
 `PUT /profile {"display_name": …}` (also in the profile menu). The principal,
 its keys, sessions and rank stay; open locas see the new label immediately,
-and past messages keep the name they were sent under. A rename is refused
+and past messages follow the person: what it said under the old name now
+reads the new one, in every loca and in feeds already open. A rename is refused
 when another active person already wears that name, ignoring letter case.
 
 ### Looking in is not sitting down
