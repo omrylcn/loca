@@ -197,6 +197,50 @@ function joinRoom(room) {
   openWs();
 }
 
+// A Building rank renamed its profile: what it said under the old name now
+// reads the new one. Relabel the messages already shown and repaint the feed
+// in place. If the rename is ours, adopt the name and reconnect so this
+// socket routes @mentions to the new name too.
+function onRenamed(from, to) {
+  if (!from || !to || from === to) return;
+  for (const m of state.msgs) {
+    if (m.sender_type === "user" && m.sender === from) m.sender = to;
+    if (m.reply_to_sender === from) m.reply_to_sender = to;
+  }
+  if (state.name === from) {
+    adoptOwnName(to);
+    openWs();
+    return;
+  }
+  const feed = $("feed");
+  const keep = nearBottom() ? null : feed.scrollTop;
+  const msgs = state.msgs.slice();
+  state.msgs = [];
+  state.seen = new Set();
+  state.lastId = 0;
+  lastDayKey = null;
+  feed.innerHTML = "";
+  resetReminderChatProjection();
+  for (const m of msgs) addMsg(m);
+  rebuildReminderChatProjection();
+  fetchReactions().catch(() => {});
+  if (keep !== null) feed.scrollTop = keep; else scrollFeed(true);
+}
+
+// One name everywhere this browser keeps it: state, the name field and the
+// remembered session, so a reload or another tab does not bring the old back.
+function adoptOwnName(name) {
+  state.name = name;
+  if ($("name")) $("name").value = name;
+  try {
+    const cached = JSON.parse(localStorage.getItem("loca-admin-session") || "null");
+    if (cached && cached.token) {
+      cached.name = name;
+      localStorage.setItem("loca-admin-session", JSON.stringify(cached));
+    }
+  } catch (e) { /* storage unavailable: the server still knows the name */ }
+}
+
 function openWs() {
   if (state.ws) { state.ws.onclose = null; state.ws.close(); }
   if (!state.room) return;
@@ -310,6 +354,7 @@ function onFrame(f) {
     }
   }
   else if (f.t === "members") { state.members = f.members; renderMembers(); fetchSeated(); fetchLobby(); }
+  else if (f.t === "renamed") { onRenamed(f.from, f.to); }
   else if (f.t === "control") {
     if (f.cmd && f.cmd.startsWith("note-deleted:")) { const k = f.cmd.slice("note-deleted:".length); delete state.notes[k]; if (state.tab === "notes") renderNotes(); }
     else if (f.cmd && f.cmd.startsWith("live-expired:")) { addSys(`⏱ live mode auto-disabled after ${f.cmd.split(":")[1]}s of silence`); }

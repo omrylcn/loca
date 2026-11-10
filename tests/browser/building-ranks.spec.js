@@ -129,3 +129,55 @@ test("Building header counts what the directory shows, and a phone never scrolls
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test("a rename carries the rank's past messages, live in every open feed and after reload", async ({ page, browser, request }) => {
+  const { provisionRooms } = require("./support/building");
+  await provisionRooms(request, ["rename-room"]);
+  const { token } = await (await request.post("/smasters", { headers: MASTER, data: { name: "ui-said-before" } })).json();
+  const info = await adminSession(request, token, "x");
+  await page.addInitScript(({ token, expiresAt }) => {
+    localStorage.setItem("loca-gs-seen", "1");
+    if (!sessionStorage.getItem("init")) {
+      sessionStorage.setItem("init", "1");
+      localStorage.setItem("loca-admin-session", JSON.stringify({ token, expiresAt, name: "ui-said-before" }));
+      localStorage.setItem("loca-seated-rooms", JSON.stringify(["rename-room"]));
+    }
+  }, { token: info.session_token, expiresAt: info.expires_at });
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
+  await page.evaluate(() => joinRoom("rename-room"));
+  await expect.poll(() => page.evaluate(() => state.ws && state.ws.readyState)).toBe(1);
+  await page.fill("#msg", "said under the old name");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#feed")).toContainText("said under the old name");
+
+  // Someone else watches the same loca in another browser.
+  const other = await browser.newPage();
+  const watcher = await adminSession(request, "MASTER", "w");
+  await other.addInitScript(({ token, expiresAt }) => {
+    localStorage.setItem("loca-gs-seen", "1");
+    localStorage.setItem("loca-admin-session", JSON.stringify({ token, expiresAt, name: "Master" }));
+  }, { token: watcher.session_token, expiresAt: watcher.expires_at });
+  await other.goto("/");
+  await expect.poll(() => other.evaluate(() => state.authStatus)).toBe("authenticated");
+  await other.evaluate(() => joinRoom("rename-room"));
+  const otherSender = other.locator("#feed .row", { hasText: "said under the old name" }).locator(".sender");
+  await expect(otherSender).toHaveText("ui-said-before");
+
+  await page.locator("#whoami summary").first().click();
+  await page.locator("#profileNameInput").fill("ui-said-after");
+  await page.locator("#profileRename").click();
+  await expect(page.locator("#profileRenameNote")).toHaveText("Renamed to ui-said-after.");
+
+  // The other feed relabels without a reload; ours too, and the name sticks.
+  await expect(otherSender).toHaveText("ui-said-after");
+  const mine = page.locator("#feed .row", { hasText: "said under the old name" }).locator(".sender");
+  await expect(mine).toHaveText("ui-said-after");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("loca-admin-session")).name)).toBe("ui-said-after");
+  await expect(page.locator("#name")).toHaveValue("ui-said-after");
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
+  await page.evaluate(() => joinRoom("rename-room"));
+  await expect(mine).toHaveText("ui-said-after");
+  await other.close();
+});
