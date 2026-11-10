@@ -90,6 +90,32 @@ function profileRenameHtml(profile, principal) {
     `<div class="profilerenamenote" id="profileRenameNote" role="status"></div></div>`;
 }
 
+// Set the display name chosen at sign-in. Returns "" on success, or the
+// server's reason when it is refused (a title, or a name someone else wears).
+async function applyChosenName(name) {
+  try {
+    const response = await fetch(`${serverBase()}/profile`, {
+      method: "PUT",
+      headers: adminHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ display_name: name }),
+    });
+    if (!response.ok) return (await response.text()) || "the name was refused";
+    adoptOwnName((await response.json()).display_name);
+    return "";
+  } catch (e) {
+    return "could not reach the server to set the name";
+  }
+}
+
+function showRenameRefusal(name, reason) {
+  const menu = $("whoami").querySelector("details.profilemenu");
+  if (menu) menu.open = true;
+  const note = $("profileRenameNote");
+  if (note) note.textContent = `"${name}" was not set: ${reason}`;
+  const input = $("profileNameInput");
+  if (input) { input.value = name; input.focus(); }
+}
+
 async function renameProfile() {
   const input = $("profileNameInput");
   const note = $("profileRenameNote");

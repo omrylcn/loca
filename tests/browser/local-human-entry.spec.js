@@ -9,7 +9,8 @@ test("Smaster browser login derives Building authority from its credential", asy
   const { token } = await response.json();
   await page.goto("/");
   await page.locator("#entryKind").selectOption("smaster");
-  await page.locator("#name").fill("not-the-canonical-name");
+  // The name field is left empty: the credential alone names the seat.
+  // (A typed name becomes the display name — building-ranks.spec.js.)
   await page.locator("#roomToken").fill(token);
   await page.evaluate(() => doConnect("iye"));
   await expect(page.locator("#whoami")).toContainText("browser-deputy");

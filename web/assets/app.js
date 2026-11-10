@@ -9,9 +9,9 @@ function setEntryPath(path) {
   $("masterEntryButton").textContent = master ? "Back to Human / Smaster sign-in" : "Master sign-in";
   $("masterEntryButton").setAttribute("aria-expanded", String(master));
   $("connectBtn").textContent = master ? "sign in as Master" : path === "smaster" ? "sign in as Smaster" : "sign in as Human";
-  $("name").placeholder = path === "smaster" ? "optional — your key verifies your identity" : "name for a new human membership";
+  $("name").placeholder = path === "smaster" ? "your display name — leave empty to keep it" : "name for a new human membership";
   $("entryHint").textContent = path === "smaster"
-    ? "Use the personal credential issued by Master. Selecting Smaster does not grant authority."
+    ? "Use the personal credential issued by Master; it proves who you are. A name typed here becomes your display name."
     : "Existing credentials verify your recorded identity; a typed name cannot replace it.";
   if (master) { $("roomToken").value = ""; state.roomToken = ""; }
   else { $("pairingCode").value = ""; state.pairing = ""; }

@@ -98,7 +98,8 @@ locas they currently sit in (`GET /building/ranks`, Building authority only).
 A rank's name is never a title: a Smaster cannot be created as `master`,
 `smaster`, `operator`, `lead`, `admin`, `root`, `all`, `everyone`, `here` or
 `goal`. A Master or Smaster renames its own profile with
-`PUT /profile {"display_name": …}` (also in the profile menu). The principal,
+`PUT /profile {"display_name": …}` (also in the profile menu, and a name typed
+at Smaster sign-in is applied the same way; empty keeps the current name). The principal,
 its keys, sessions and rank stay; open locas see the new label immediately,
 and past messages follow the person: what it said under the old name now
 reads the new one, in every loca and in feeds already open. A rename is refused
