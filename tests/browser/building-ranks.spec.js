@@ -181,3 +181,32 @@ test("a rename carries the rank's past messages, live in every open feed and aft
   await expect(mine).toHaveText("ui-said-after");
   await other.close();
 });
+
+test("a name typed at Smaster sign-in becomes the display name; a refused one is explained", async ({ page, request }) => {
+  const { token } = await (await request.post("/smasters", { headers: MASTER, data: { name: "ui-placeholder-sm" } })).json();
+  await page.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
+  await page.goto("/");
+  await page.locator("#entryKind").selectOption("smaster");
+  await expect(page.locator("#name")).toHaveAttribute("placeholder", /display name/);
+  await page.locator("#name").fill("ui-chosen-name");
+  await page.locator("#roomToken").fill(token);
+  await page.locator("#connectBtn").click();
+  await expect.poll(() => page.evaluate(() => state.profile?.principal?.display_name)).toBe("ui-chosen-name");
+  await expect.poll(() => page.evaluate(() => state.name)).toBe("ui-chosen-name");
+  const ranks = await (await request.get("/building/ranks", { headers: MASTER })).json();
+  expect(ranks.some(r => r.name === "ui-chosen-name" && r.role === "smaster")).toBe(true);
+  expect(ranks.some(r => r.name === "ui-placeholder-sm")).toBe(false);
+
+  // A title is refused: the key still signs in, and the profile says why.
+  const second = await (await request.post("/smasters", { headers: MASTER, data: { name: "ui-placeholder-two" } })).json();
+  const fresh = await page.context().browser().newPage();
+  await fresh.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
+  await fresh.goto("/");
+  await fresh.locator("#entryKind").selectOption("smaster");
+  await fresh.locator("#name").fill("ui-chosen-name");
+  await fresh.locator("#roomToken").fill(second.token);
+  await fresh.locator("#connectBtn").click();
+  await expect(fresh.locator("#profileRenameNote")).toContainText('"ui-chosen-name" was not set');
+  await expect.poll(() => fresh.evaluate(() => state.name)).toBe("ui-placeholder-two");
+  await fresh.close();
+});

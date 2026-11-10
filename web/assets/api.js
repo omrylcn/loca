@@ -392,7 +392,8 @@ async function send() {
 // sidebar (no more "joined as the default name before pressing connect").
 async function doConnect(room) {
   setMobileSidebar(false);
-  const nextName = $("name").value.trim() || "operator";
+  const typedName = $("name").value.trim();
+  const nextName = typedName || "operator";
   const nextPairing = $("pairingCode").value.trim();
   const nextRoomToken = $("roomToken").value.trim();
   const identityChanged = nextName !== state.name
@@ -415,6 +416,13 @@ async function doConnect(room) {
     return;
   }
   document.body.classList.remove("auth-pending");
+  // A Smaster's key names it; the name typed at sign-in is the name it
+  // wants to be called. Apply it as a profile rename before taking a seat,
+  // so it is the name the table sees. Empty keeps the current name.
+  let renameRefused = "";
+  if (state.entryPath === "smaster" && state.adminSession && typedName && typedName !== state.name) {
+    renameRefused = await applyChosenName(typedName);
+  }
   startHealthPoll();
   $("adminbar").classList.toggle("on", isAdmin());
   $("adminToggle").classList.toggle("hidden", !isAdmin());
@@ -431,6 +439,7 @@ async function doConnect(room) {
   // room list and ONLINE panel get the sidebar space.
   setConnOpen(false);
   await fetchProfile();
+  if (renameRefused) showRenameRefusal(typedName, renameRefused);
   $("leaveBtn").classList.remove("hidden");
   // Remember the seat: an auto-reloaded page retakes it without a click. The
   // The one-use master pairing code is deliberately NOT stored. After a reload
