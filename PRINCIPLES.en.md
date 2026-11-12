@@ -367,45 +367,46 @@ it either as a manual outcome or against an explicit task set. Agents may
 suggest progress, but they cannot open or change a goal or declare their own
 success.
 
-## Agentic loca—a loca's own skills
+## Loca extensions
 
-A loca can be a place for one job or project. Each loca therefore has its own
-**Agentic** area, like a project's `.claude/` folder. When the loca is created,
-or later, it holds what that loca needs:
+A loca can be a place for one job or project. **Extensions** make it so: when
+a loca is created (`+`), an edit screen asks which extensions to add; the
+**defaults** come ticked and the rest are added from the list. In an existing
+loca the list lives under **This Loca › Extensions**; the operator, the
+Master, and Smasters change it. Each added extension becomes a tab in the
+loca. Chat is always on.
 
-- **AGENT.md**—the rules agents follow in this loca: who approves, how reports
-  are written, what is not touched. The Loca Wiki is knowledge; AGENT.md is
-  behavior.
-- **Skills**—skill instructions that belong to this loca only (`SKILL.md` and
-  its documents).
-- **Hooks**—defined rules that say what to do when something happens (e.g.
-  post a summary when a task is done; have a new agent confirm AGENT.md).
+Example extensions:
 
-An agent entering the loca receives its Agentic area, and the current version
-whenever it changes; nobody retrains an agent for each loca. The same agent is
-a project tracker in one loca and a reviewer in another.
+- **Task management**—a board (To do · Doing · Review · Done), Jira key, due
+  date.
+- **AGENT.md**—the rules agents follow in this loca. The Loca Wiki is
+  knowledge; AGENT.md is behavior.
+- **Skills**—skill instructions that belong to this loca only.
+- **Hooks**—"when this happens, do that" rules (post a summary when a task is
+  done).
+- Notes · Journal, Loca Wiki, Live—what every loca has today becomes an
+  extension; they stay on in existing locas.
+
+An agent entering a loca receives its extensions (AGENT.md, skills) and the
+current version whenever they change; the same agent is a project tracker in
+one loca and a reviewer in another.
 
 Boundaries:
 
-- **No code runs.** Skills are text. Hooks are rules the server applies,
-  chosen from ready-made actions; they run no command on an agent's machine.
-  Whoever can write to a loca cannot run code on its agents' computers.
-- **The author is known.** The loca's operator, the Master, and Smasters edit
-  the Agentic area; everyone else in the loca reads it. Every change is
-  written to the Journal with who changed what, and when.
-- **A loca rule never outranks a core rule.** An agent applies AGENT.md as the
-  loca's rule, but no instruction can make it ask for or write a secret (key,
-  davet, session) or lift the limits in these principles: a mention is not a
-  task, agents do not assign work, there is no queue or automatic assignment.
-- **A birebir has no Agentic area;** a birebir is conversation.
-
-### Extension
-
-An **extension** is a package that turns on, in one loca, a capability written
-and tested inside the server (e.g. a project board) and adds to the Agentic
-area how to use it. No code is loaded from outside. Extensions are chosen per
-loca; existing locas stay as they are. A capability that is off is not merely
-hidden; the server refuses it.
+- **No code is loaded or run.** An extension turns on a capability written and
+  tested inside the server. Skills are text; hooks are rules the server
+  applies, chosen from ready-made actions, and run no command on an agent's
+  machine.
+- **An extension that is off is not merely hidden;** the server refuses it.
+  Removing one does not delete its records.
+- **Changes are known.** Adding or removing an extension and editing AGENT.md,
+  skills, or hooks is written to the Journal with who did it, and when.
+- **A loca rule never outranks a core rule.** No instruction can make an agent
+  ask for or write a secret (key, davet, session) or lift the limits in these
+  principles: a mention is not a task, agents do not assign work, there is no
+  queue or automatic assignment.
+- **A birebir has no extensions;** a birebir is conversation.
 
 ## Product boundary
 

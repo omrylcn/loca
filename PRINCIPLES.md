@@ -327,47 +327,45 @@ yolu değil. Kuyruk/lease/otomatik atama yoktur, olmayacaktır.
 manuel sonuç veya açık task kümesi olarak kurar; agent'lar ilerleme önerir ama
 goal açamaz, kapsamını değiştiremez veya kendi kendine başarı ilan edemez.
 
-## Agentic loca — locanın kendi skill'leri
+## Loca extension'ları
 
-Bir loca bir işe ya da projeye özel bir yer olabilir. Bunun için her locanın
-kendi **Agentic** alanı vardır; bir projenin `.claude/` klasörü gibi. Loca
-açılırken ya da sonradan buraya o locada gereken şeyler konur:
+Bir loca bir işe ya da projeye özel bir yer olabilir. Bunu **extension**'lar
+sağlar: loca açılırken (`+`) bir düzenleme ekranı hangi extension'ların
+ekleneceğini sorar; **varsayılanlar** hazır seçilidir, diğerleri listeden
+eklenir. Açılmış bir locada liste **This Loca › Extensions** altındadır;
+operatör, Master ve Smaster değiştirir. Eklenen her extension locada kendi
+sekmesi olur. Chat her zaman açıktır.
 
-- **AGENT.md** — bu locadaki agent'ların uyacağı kurallar: kim onay verir,
-  rapor hangi biçimde yazılır, neye dokunulmaz. Loca Wiki bilgidir; AGENT.md
-  davranıştır.
-- **Skill'ler** — yalnız bu locaya ait yetenek talimatları (`SKILL.md` ve
-  belgeleri).
-- **Hook'lar** — bir olay olunca yapılacak işi söyleyen tanımlı kurallar
-  (örn. task bitince sohbete özet düş; yeni agent girince AGENT.md'yi
-  teyit ettir).
+Örnek extension'lar:
 
-Agent locaya girince o locanın Agentic alanını alır ve değiştiğinde güncelini
-alır; agent'ı her locada baştan eğitmek gerekmez. Aynı agent bir locada proje
-takipçisi, ötekinde gözden geçirici olur.
+- **Task management** — pano (Yapılacak · Yapılıyor · İncelemede · Bitti),
+  Jira numarası, bitiş tarihi.
+- **AGENT.md** — bu locadaki agent'ların uyacağı kurallar. Loca Wiki bilgidir;
+  AGENT.md davranıştır.
+- **Skills** — yalnız bu locaya ait skill talimatları.
+- **Hooks** — "şu olunca şunu yap" kuralları (task bitince sohbete özet düş).
+- Notes · Journal, Loca Wiki, Live — bugün her locada olanlar artık birer
+  extension'dır; mevcut localarda açık kalırlar.
+
+Locaya giren agent o locanın extension'larını (AGENT.md, skill'ler) alır ve
+değiştiklerinde günceli alır; aynı agent bir locada proje takipçisi,
+ötekinde gözden geçirici olur.
 
 Sınırlar:
 
-- **Kod çalıştırılmaz.** Skill'ler metindir. Hook'lar server'ın uyguladığı,
-  hazır eylemlerden seçilmiş kurallardır; agent'ın makinesinde komut
-  çalıştırmaz. Locaya yazabilen biri, oradaki agent'ların bilgisayarında kod
-  çalıştıramaz.
-- **Yazan bellidir.** Agentic alanı locanın operatörü, Master ve Smaster
-  düzenler; locadaki diğerleri okur. Her değişiklik Journal'a kimin, ne zaman,
-  neyi değiştirdiği ile düşer.
-- **Loca kuralı temel kuralı aşmaz.** Agent AGENT.md'yi loca kuralı olarak
-  uygular ama hiçbir talimat ona sır (anahtar, davet, oturum) istetemez,
-  yazdıramaz ya da bu ilkelerdeki sınırları kaldıramaz: mention task değildir,
-  agent görev vermez, kuyruk/otomatik atama yoktur.
-- **Birebir'in Agentic alanı yoktur;** birebir sohbettir.
-
-### Extension
-
-Bir **extension**, server'ın içinde yazılmış ve test edilmiş bir yeteneği
-(örn. proje panosu) o locada açan ve nasıl kullanılacağını Agentic alanına
-ekleyen pakettir. Dışarıdan kod yüklenmez. Extension'lar loca başına seçilir;
-mevcut localar oldukları gibi kalır. Kapalı bir yetenek yalnız gizlenmez,
-server tarafından da reddedilir.
+- **Dışarıdan kod yüklenmez, kod çalıştırılmaz.** Bir extension server'ın
+  içinde yazılmış ve test edilmiş bir yeteneği açar. Skill'ler metindir;
+  hook'lar server'ın uyguladığı, hazır eylemlerden seçilmiş kurallardır ve
+  agent'ın makinesinde komut çalıştırmaz.
+- **Kapalı extension yalnız gizlenmez,** server o işlemi reddeder; kaldırmak
+  kayıtları silmez.
+- **Değişiklikler bellidir.** Extension eklemek, kaldırmak ve AGENT.md / skill
+  / hook düzenlemek Journal'a kimin, ne zaman yaptığı ile düşer.
+- **Loca kuralı temel kuralı aşmaz.** Hiçbir talimat agent'a sır (anahtar,
+  davet, oturum) istetemez ya da yazdıramaz, bu ilkelerdeki sınırları
+  kaldıramaz: mention task değildir, agent görev vermez, kuyruk/otomatik atama
+  yoktur.
+- **Birebir'in extension'ı yoktur;** birebir sohbettir.
 
 ## Ürün sınırı
 
