@@ -307,9 +307,10 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
   Lobby yine sohbet yeri değildir.
 - **İçeriği o iki kişiden başka kimse görmez.** Rütbe kapıdan bakamaz,
   loca-care okumaz, birebir normal loca listelerinde çıkmaz.
-- **Master yalnız varlığını görür.** Building'in son sözü olarak Master,
+- **Master yalnız varlığını görür.** Building çöplüğe dönmesin diye Master,
   ayrı bir sekmede birebirlerin var olduğunu görür: kimin arasında olduğunu ve
-  en son ne zaman konuşulduğunu. İçeriği görmez. Smaster bunu da görmez.
+  en son ne zaman konuşulduğunu. Böylece unutulmuş veya kötüye kullanılan
+  birebirleri toplayabilir. İçeriği görmez. Smaster bunu da görmez.
 - **İçeri alınan görür.** Taraflardan biri Master'ı **açıkça** içeri alırsa
   Master içeriği görür. Bu bir davettir, kapıdan bakma değildir; kayıtta
   kimin aldığı görünür. Başka hiçbir yolla içerik üçüncü kişiye açılmaz.
