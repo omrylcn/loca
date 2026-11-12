@@ -43,7 +43,8 @@ test("Building lists the Master and every Smaster by name, with the rank beside 
   await expect(rows.filter({ hasText: "ui-rank-listed" })).toHaveCount(1);
   await expect(rows.filter({ hasText: "ui-rank-listed" }).locator(".rankbadge")).toHaveText("Smaster");
   await expect(rows.locator(".rankbadge.rank-master")).toHaveCount(1);
-  await expect(rows.filter({ hasText: "ui-rank-listed" })).toContainText("not in a loca");
+  // Nobody signed in with it yet: the Building calls it an unused key, not a person.
+  await expect(rows.filter({ hasText: "ui-rank-listed" })).toContainText("unused code");
 });
 
 test("a Smaster renames its own profile; titles and taken names are refused", async ({ page, request }) => {

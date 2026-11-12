@@ -357,6 +357,7 @@ async function fetchPeople() {
     state.bans = bans;
     renderPeople();
     fetchBirebirOverview();
+    fetchKeyLedger();
   } catch (e) {
     if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">sunucuya ulaşılamadı</div>`;
   }
@@ -434,11 +435,20 @@ function renderPeople() {
       ranks.map(r => {
         const seated = (r.locas || []).length;
         // Location already says where; the status only marks a live seat.
-        const status = seated
-          ? `<span class="pstatus connection ok" title="seated in a loca right now">seated</span>`
+        // An issued but never-used Smaster code is a code, not a person.
+        const status = r.unused
+          ? `<span class="pstatus warn" title="This Smaster code was issued but nobody has signed in with it">unused code</span>`
+          : seated
+            ? `<span class="pstatus connection ok" title="seated in a loca right now">seated</span>`
+            : "";
+        const where = r.unused
+          ? `<span class="pnowhere">nobody has signed in with it yet</span>`
+          : whereHtml(r.locas, "not in a loca");
+        const rename = state.profile?.building_role === "master" && r.role === "smaster"
+          ? `<button type="button" class="btn" data-rename-smaster="${esc(r.name)}" title="Set this Smaster's real name">Rename</button>`
           : "";
-        return `<div class="prow rankrow"><span class="pname">${kindMark("human")}<span class="pnametext">${esc(r.name)}</span>${rankBadge(r.role)}</span>` +
-          `<span class="pstatuses">${status}</span><span class="pwhere">${whereHtml(r.locas, "not in a loca")}</span><span class="pacts"></span></div>`;
+        return `<div class="prow rankrow${r.unused ? " unusedcode" : ""}"><span class="pname">${kindMark("human")}<span class="pnametext">${esc(r.name)}</span>${rankBadge(r.role)}</span>` +
+          `<span class="pstatuses">${status}</span><span class="pwhere">${where}</span><span class="pacts">${rename}</span></div>`;
       }).join("") + `</section>`
     : "";
   if (!names.size) {

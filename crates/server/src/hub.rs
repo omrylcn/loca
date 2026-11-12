@@ -8,9 +8,11 @@
 
 mod attention;
 mod birebir;
+mod keys;
 mod work;
 
 pub use birebir::{BirebirError, BirebirView};
+pub use keys::KeyRevokeError;
 pub use work::{GoalError, TaskError, WaitError};
 
 use std::collections::HashMap;
@@ -298,6 +300,9 @@ struct AdminPairing {
     code: String,
     session_ttl_ms: u64,
     expires_at_ms: u64,
+    /// The ledger row of a code that was handed out; `None` for the internal
+    /// placeholder rotated in after a use or an expiry (never handed out).
+    log_id: Option<String>,
 }
 
 /// A private signal delivered only to the lobby socket carrying `member`.
@@ -474,6 +479,9 @@ pub struct RankPresence {
     pub name: String,
     pub role: &'static str,
     pub locas: Vec<String>,
+    /// A Smaster code that was issued but never used: a code, not a person.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unused: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -574,6 +582,7 @@ impl Hub {
                 code: Self::secure_token("pair_", 16),
                 session_ttl_ms: Self::ADMIN_SESSION_TTL_MS,
                 expires_at_ms: pairing_now.saturating_add(Self::ADMIN_PAIRING_TTL_MS),
+                log_id: None,
             })),
             join_create_times: Arc::new(Mutex::new(std::collections::HashMap::new())),
             require_sessions,
@@ -1990,8 +1999,15 @@ impl Hub {
         if self.admin_token.is_empty() {
             return None;
         }
-        let expires_at_ms = (self.now_ms)().saturating_add(Self::ADMIN_PAIRING_TTL_MS);
+        let now = (self.now_ms)();
+        let expires_at_ms = now.saturating_add(Self::ADMIN_PAIRING_TTL_MS);
         let mut current = self.admin_pairing.lock_or_recover();
+        // Only one Master code works at a time: an unused earlier one is
+        // superseded, and the ledger says so.
+        if let Some(previous) = current.log_id.take() {
+            let _ = self.store.mark_pairing_superseded(&previous, now);
+        }
+        let log_id = Self::secure_token("pl_", 12);
         *current = AdminPairing {
             code: Self::secure_token("pair_", 16),
             session_ttl_ms: session_ttl_ms.clamp(
@@ -1999,7 +2015,17 @@ impl Hub {
                 Self::MAX_ADMIN_SESSION_TTL_MS,
             ),
             expires_at_ms,
+            log_id: Some(log_id.clone()),
         };
+        if let Err(error) = self.store.log_pairing(
+            &log_id,
+            &current.code,
+            now,
+            expires_at_ms,
+            current.session_ttl_ms,
+        ) {
+            tracing::error!(%error, "could not record the Master code in the key ledger");
+        }
         Some((current.code.clone(), current.expires_at_ms))
     }
 
@@ -2017,6 +2043,7 @@ impl Hub {
                 code: Self::secure_token("pair_", 16),
                 session_ttl_ms: Self::ADMIN_SESSION_TTL_MS,
                 expires_at_ms: now.saturating_add(Self::ADMIN_PAIRING_TTL_MS),
+                log_id: None,
             };
             return None;
         }
@@ -2032,10 +2059,14 @@ impl Hub {
             return None;
         }
         let session_ttl_ms = current.session_ttl_ms;
+        if let Some(id) = current.log_id.as_deref() {
+            let _ = self.store.mark_pairing_used(id, now);
+        }
         *current = AdminPairing {
             code: Self::secure_token("pair_", 16),
             session_ttl_ms: Self::ADMIN_SESSION_TTL_MS,
             expires_at_ms: now.saturating_add(Self::ADMIN_PAIRING_TTL_MS),
+            log_id: None,
         };
         tracing::info!("master browser paired; next one-use pairing code is ready");
         Some(session_ttl_ms)
@@ -3606,26 +3637,30 @@ impl Hub {
     /// shows everyone who is part of the Building.
     pub fn building_ranks(&self) -> Vec<RankPresence> {
         let mut ranks: Vec<RankPresence> = Vec::new();
-        let mut add = |name: String, role: &'static str| {
+        let mut add = |name: String, role: &'static str, unused: bool| {
             if !ranks.iter().any(|r| r.name == name && r.role == role) {
                 ranks.push(RankPresence {
                     name,
                     role,
                     locas: Vec::new(),
+                    unused,
                 });
             }
         };
         for profile in self.profiles() {
             match profile.role {
-                BuildingRole::Master => add(profile.display_name, "master"),
-                BuildingRole::Smaster => add(profile.display_name, "smaster"),
+                BuildingRole::Master => add(profile.display_name, "master", false),
+                BuildingRole::Smaster => {
+                    let unused = !self.principal_ever_used(&profile.id);
+                    add(profile.display_name, "smaster", unused)
+                }
                 BuildingRole::Member => {}
             }
         }
         // Memory-only mode persists no profiles; the live registry still knows
         // every Smaster.
         for name in self.smasters.lock_or_recover().values() {
-            add(name.clone(), "smaster");
+            add(name.clone(), "smaster", false);
         }
         let deleted = self.deleted.lock_or_recover().clone();
         let rooms = self.rooms.lock_or_recover();
@@ -3651,6 +3686,7 @@ impl Hub {
                         name: label.clone(),
                         role,
                         locas: vec![room.clone()],
+                        unused: false,
                     }),
                 }
             }

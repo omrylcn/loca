@@ -274,7 +274,7 @@ function renderRooms() {
       const badge = unread
         ? `<span class="unreadbadge" title="${unread} unread message${unread === 1 ? "" : "s"}">${unread > 99 ? "99+" : unread}</span>`
         : "";
-      el.innerHTML = `<div class="rrow"><span class="rname">${esc(rm.room)}</span>${pres}</div>` +
+      el.innerHTML = `<div class="rrow"><span class="rname" title="${esc(rm.room)}">${esc(rm.room)}</span>${pres}</div>` +
         (rm.last || badge ? `<div class="rlastrow"><div class="rlast">${esc(rm.last || "")}</div>${badge}</div>` : "");
       // The room list is only visible after identity resolution. Moving
       // between locas is navigation, not a new login: re-reading an autofilled

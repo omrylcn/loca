@@ -97,6 +97,7 @@ const WEB_JOINREQUEST: &str = include_str!("../../../web/assets/joinrequest.js")
 const WEB_GETSTARTED: &str = include_str!("../../../web/assets/getstarted.js");
 const WEB_TOOLTIP: &str = include_str!("../../../web/assets/tooltip.js");
 const WEB_BIREBIR: &str = include_str!("../../../web/assets/birebir.js");
+const WEB_KEYS: &str = include_str!("../../../web/assets/keys.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
@@ -271,6 +272,7 @@ async fn main() {
                 tick.tick().await;
                 hub.expire_live();
                 hub.tick_wiki();
+                hub.expire_unused_smasters();
             }
         });
     }
@@ -432,8 +434,10 @@ async fn main() {
         .route("/smasters", get(list_smasters).post(create_smaster))
         .route(
             "/smasters/:token",
-            axum::routing::delete(revoke_smaster_route),
+            axum::routing::delete(revoke_smaster_route).put(rename_smaster_route),
         )
+        .route("/keys", get(list_keys).post(issue_key))
+        .route("/keys/:id", axum::routing::delete(revoke_key_route))
         .route("/rooms", get(list_rooms).post(create_loca_route))
         .route("/rooms/:id/messages", get(get_messages).post(post_message))
         .route(
@@ -708,6 +712,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "getstarted.js" => Some(("text/javascript; charset=utf-8", WEB_GETSTARTED)),
         "tooltip.js" => Some(("text/javascript; charset=utf-8", WEB_TOOLTIP)),
         "birebir.js" => Some(("text/javascript; charset=utf-8", WEB_BIREBIR)),
+        "keys.js" => Some(("text/javascript; charset=utf-8", WEB_KEYS)),
         _ => None,
     };
     match asset {

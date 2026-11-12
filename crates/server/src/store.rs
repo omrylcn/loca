@@ -18,8 +18,10 @@ mod attention;
 mod birebir;
 pub(crate) use attachment_index::{AttachError, BlobServe};
 pub use birebir::Birebir;
+pub use keys::KeyRecord;
 mod content;
 mod identity;
+mod keys;
 mod memory;
 mod messages;
 mod operators;
@@ -614,6 +616,18 @@ impl Store {
             -- The Master's call-in is the only third-party access, recorded
             -- here with who called and since when; earlier history opens only
             -- when both sides allow it.
+            -- Every Master pairing code handed out. The code itself is never
+            -- stored: only a short fingerprint to recognise it, when it was
+            -- issued, until when it could be used, and what became of it.
+            CREATE TABLE IF NOT EXISTS pairing_log (
+                id TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                issued_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                session_ttl_ms INTEGER NOT NULL,
+                used_at INTEGER,
+                superseded_at INTEGER
+            );
             CREATE TABLE IF NOT EXISTS birebirs (
                 room TEXT PRIMARY KEY,
                 a TEXT NOT NULL,

@@ -365,7 +365,10 @@
   .roompref:disabled { opacity: .45; cursor: not-allowed; }
   .room.active { background: var(--panel2); border-left-color: var(--accent); }
   .room .rrow { display: flex; align-items: baseline; gap: 8px; }
-  .room .rname { font-weight: 600; }
+  /* One line per loca name: a long name (investment_gold_and_currency) used
+     to wrap after "# " and leave the mark alone on its own line. */
+  .room .rname { font-weight: 600; min-width: 0; flex: 1 1 auto;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .room .rname::before { content: "# "; color: var(--dim); font-weight: 400; }
   .room .pres { margin-left: auto; font-size: 10px; color: var(--muted); white-space: nowrap; }
   .room .rlastrow { display: flex; align-items: center; gap: 7px; min-height: 16px; padding-left: 13px; }
@@ -1097,3 +1100,44 @@
     .bbrow { grid-template-columns: 1fr auto; grid-template-areas: "pair acts" "when when"; }
     .bbrow .bbpair { grid-area: pair; } .bbrow .bbwhen { grid-area: when; } .bbrow .pacts { grid-area: acts; }
   }
+
+  /* Keys (keys.js): the Master's one place to issue codes, and the ledger. */
+  .keyform { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+  .keyform select, .keyform input { background: var(--panel2); color: var(--txt); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 8px; font: 12px var(--mono); color-scheme: dark; min-width: 0; }
+  .keyform select { flex: 1 1 260px; }
+  .keyform input { flex: 1 1 160px; }
+  .keyform input.hidden { display: none; }
+  .keyissued { border: 1px solid var(--accent); border-radius: 9px; padding: 9px 11px; margin: 4px 0 10px;
+    font-size: 12px; display: grid; gap: 6px; background: var(--panel2); }
+  .keyissued.hidden { display: none; }
+  .keyissued .bad { color: var(--bad); }
+  .keysecret { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .keysecret code { overflow-wrap: anywhere; color: var(--accent2); font-size: 12px; }
+  .keyfilters { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+  .chip { background: none; border: 1px solid var(--line); border-radius: 12px; padding: 2px 10px;
+    color: var(--muted); font: 11px var(--mono); cursor: pointer; }
+  .chip.on { color: var(--txt); background: var(--panel2); border-color: var(--accent); }
+  .keyrow { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.4fr) 90px 76px;
+    gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12px; }
+  .keykind { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .keykind code { color: var(--muted); font-size: 11px; }
+  .keywho { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .keyloca { color: var(--muted); }
+  .keydates { font-size: 11px; color: var(--muted); }
+  .keydim { color: var(--dim); }
+  .keystate { justify-self: start; font-size: 10px; font-weight: 700; padding: 1px 8px; border-radius: 10px;
+    border: 1px solid var(--line); color: var(--muted); }
+  .keystate.state-unused { color: var(--warn); border-color: rgba(255,176,102,.4); }
+  .keystate.state-active, .keystate.state-used { color: var(--human); border-color: rgba(87,217,163,.35); }
+  .keystate.state-expired, .keystate.state-revoked, .keystate.state-superseded { color: var(--dim); }
+  .prow.unusedcode .pnametext { color: var(--muted); font-style: italic; }
+  .pstatus.warn { color: var(--warn); }
+  @media (max-width: 760px) {
+    .keyrow { grid-template-columns: 1fr auto; grid-template-areas: "kind state" "who who" "dates acts"; }
+    .keyrow .keykind { grid-area: kind; } .keyrow .keystate { grid-area: state; justify-self: end; }
+    .keyrow .keywho { grid-area: who; } .keyrow .keydates { grid-area: dates; } .keyrow .pacts { grid-area: acts; }
+  }
+  .keylisthead { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12px; color: var(--txt); font-weight: 600; }
+  .keylisthead span { color: var(--muted); font-weight: 400; }
+  .keylisthead small { display: block; color: var(--muted); font-weight: 400; font-size: 11px; margin-top: 2px; }

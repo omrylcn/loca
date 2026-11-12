@@ -183,9 +183,9 @@ function renderBirebirOverview() {
       return `<div class="bbrow"><span class="bbpair">${esc(b.between[0])} <span class="bbamp">&amp;</span> ${esc(b.between[1])}</span>` +
         `<span class="bbwhen">${esc(last)}</span>${state_}<span class="pacts">${reading}${close}</span></div>`;
     }).join("")
-    : `<div class="bbempty">No birebirs yet.</div>`;
-  box.innerHTML = `<div class="bbhead"><b>Birebirs</b> <span>${rows.length}</span>` +
-    `<small>You see only that they exist. You read one only when a side calls you in.</small></div>${body}` +
+    : `<div class="bbempty">No private messages yet.</div>`;
+  box.innerHTML = `<div class="bbhead"><b>Private messages</b> <span>${rows.length}</span>` +
+    `<small>You see only that they exist, never what is said. You can read one only when one of the two calls you in.</small></div>${body}` +
     `<div class="bbwitness hidden" id="bbWitness"></div>`;
 }
 
@@ -217,7 +217,7 @@ async function birebirOverviewClick(event) {
     return;
   }
   if (seal) {
-    if (!confirm("Seal this birebir for good? The two cannot open a new one, and you still cannot read it.")) return;
+    if (!confirm("Seal this conversation for good? The two cannot start a new one, and you still cannot read it.")) return;
     await fetch(`${serverBase()}/building/birebirs/${encodeURIComponent(seal.dataset.bbseal)}/seal`, {
       method: "POST",
       headers: adminHeaders({}),
