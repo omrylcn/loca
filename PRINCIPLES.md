@@ -305,10 +305,14 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
 - **Kim kime yazar:** Bina üyesi ortak bir locada oturduğu kişiye birebir
   açabilir. Master ve Smaster, zaten çağırabildikleri her bina üyesine açabilir.
   Lobby yine sohbet yeri değildir.
-- **O iki kişiden başka kimse görmez:** ne içeriğini ne de var olduğunu.
-  Master ve Smaster dahil; rütbe kapıdan bakamaz, loca-care okumaz, hiçbir
-  listede çıkmaz. İçerik ancak taraflardan birinin **açık eylemiyle** başka
-  birine gösterilir.
+- **İçeriği o iki kişiden başka kimse görmez.** Rütbe kapıdan bakamaz,
+  loca-care okumaz, birebir normal loca listelerinde çıkmaz.
+- **Master yalnız varlığını görür.** Building'in son sözü olarak Master,
+  ayrı bir sekmede birebirlerin var olduğunu görür: kimin arasında olduğunu ve
+  en son ne zaman konuşulduğunu. İçeriği görmez. Smaster bunu da görmez.
+- **İçeri alınan görür.** Taraflardan biri Master'ı **açıkça** içeri alırsa
+  Master içeriği görür. Bu bir davettir, kapıdan bakma değildir; kayıtta
+  kimin aldığı görünür. Başka hiçbir yolla içerik üçüncü kişiye açılmaz.
 - **Özel, ama şifreli değil.** Arayüz bunu dürüstçe söyler: sunucuyu işleten
   kişi diskteki kaydı okuyabilir. Söz verilemeyecek bir gizlilik vaat edilmez.
 - **Birebir sohbettir.** Task, goal, wiki, operatör veya lead yoktur. İş ortak
@@ -316,8 +320,8 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
   taşınır.
 - **Yaşam döngüsü:** Birebiri gizlemek yalnız kendi sidebar tercihidir, karşı
   tarafın kaydını silmez. Üyeliği biten tarafın birebiri read-only kalır.
-  Taraflardan biri kötüye kullanımı Master'a bildirirse Master o birebiri
-  **Close** veya **Seal** edebilir; bu ona içeriği okuma hakkı vermez.
+  Master, varlığını gördüğü bir birebiri kötüye kullanımda **Close** veya
+  **Seal** edebilir; bu ona içeriği okuma hakkı vermez.
 - Birebir loca kapasitesine, Building'in loca listesine ve İye'ye karışmaz;
   sidebar'da **Mesajlar** başlığı altında ayrı görünür.
 
