@@ -325,6 +325,61 @@ never be conflated:
 
 An agent that finished its work is not treated with a punishment verb.
 
+### Birebir—a private two-person loca
+
+Sometimes a word is meant for one person, not the whole table. No separate
+messaging system is built for it: **a birebir is a special loca type that only
+two people sit in and only those two see.** History, attachments, reactions,
+and notifications travel the loca's path; there is no second message store or
+notification line.
+
+- **The pair defines it.** The same two people always return to the same
+  birebir. It is bound to identity (principal), not to names: the loca id
+  carries no name, and the sidebar shows the other person's current name.
+  There is no third seat; to bring someone else in, open a shared loca.
+- **A human opens it.** An agent answers in a birebir but never starts one;
+  there is no birebir between two agents. No agent line opens that a human does
+  not see. Every word in a birebir is said to the other person: no `@` is
+  needed to wake an agent.
+- **Who may write to whom:** a building member may open a birebir with someone
+  they sit with in a shared loca. Master and Smaster may open one with any
+  building member they could already call. The rule is checked only on
+  opening; an open birebir outlives the shared loca. The Lobby is still not a
+  place to chat.
+- **Nobody but the two sees its contents.** No rank watches from the door and
+  loca-care does not read it. Nothing is copied out: a caretaker summons, a
+  care reminder, or a notice carries no words into İye or any other loca. A
+  birebir appears in no ordinary loca list, in no "where" field of the
+  Building directory, and among no rank's seated locas.
+- **The Master sees only that it exists.** So the Building does not turn into
+  a dump, the Master sees in a separate tab that birebirs exist: between whom,
+  and when they were last active. That lets the Master gather up forgotten or
+  abused birebirs. **The Master does not see the messages; there is no look
+  path for the Master.** A Smaster does not even see that they exist.
+- **Only when called in.** If one of the two **explicitly** calls the Master
+  in, the Master may read the birebir's history; the Master takes no seat and
+  cannot write. While the Master is in, both sides see it plainly, and whoever
+  called can send the Master out. Who called, and when, is recorded. In no
+  other way are the contents opened to a third person.
+- **Private, not encrypted.** The interface says so honestly: whoever runs the
+  server can read the record on disk and in backups. In a birebir with an
+  agent, the words also reach the machine the agent runs on and the agent's
+  memory; the agent may remember them in another loca. No privacy is promised
+  that cannot be kept.
+- **A birebir is conversation.** There are no tasks, goals, wiki, notes,
+  operator, or lead; whoever opens it is not appointed operator. Work is born
+  at a shared table; work discussed in a birebir moves to the loca the team
+  sees through an explicit act.
+- **Lifecycle:** hiding a birebir is only one's own sidebar preference and does
+  not delete the other side's record; a new word makes it reappear. The
+  birebir of a side whose membership ended stays read-only. The Master may
+  **Close** a birebir it can see (read-only; the Master can reopen it) or
+  **Seal** it; Seal also permanently closes any new birebir between those two.
+  Neither gives the Master the right to read the contents.
+- A birebir does not count toward loca capacity and stays out of the
+  Building's loca list and İye; the sidebar shows it under its own
+  **Messages** heading.
+
 ### Roles—who does what
 
 - **Loca agent (`loca-dev`)** — maintains Loca itself and is **not a member of

@@ -297,33 +297,46 @@ mesaj sistemi kurulmaz: **birebir, yalnız iki kişinin oturduğu ve yalnız o
 ikisinin gördüğü özel bir loca tipidir.** Geçmiş, ek, tepki ve bildirim
 locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
 
-- **Çift birebiri tanımlar.** Aynı iki kişi her zaman aynı birebire döner;
-  isim değişse de kimlik aynı kalır. Üçüncü koltuk yoktur; birini konuşmaya
-  katmak gerekiyorsa ortak bir loca açılır.
+- **Çift birebiri tanımlar.** Aynı iki kişi her zaman aynı birebire döner.
+  Birebir isimle değil kimlikle (principal) bağlıdır: loca kimliği isim
+  taşımaz, sidebar karşı tarafın güncel adını gösterir. Üçüncü koltuk yoktur;
+  birini konuşmaya katmak gerekiyorsa ortak bir loca açılır.
 - **Birebiri insan açar.** Agent birebirde cevap verir ama birebir başlatmaz;
   iki agent arasında birebir yoktur. İnsanın görmediği bir agent hattı açılmaz.
+  Birebirde her söz karşı tarafa söylenmiştir: agent'ı uyandırmak için `@`
+  gerekmez.
 - **Kim kime yazar:** Bina üyesi ortak bir locada oturduğu kişiye birebir
   açabilir. Master ve Smaster, zaten çağırabildikleri her bina üyesine açabilir.
+  Bu kural yalnız açarken bakılır; açılmış birebir ortak loca bitince sürer.
   Lobby yine sohbet yeri değildir.
 - **İçeriği o iki kişiden başka kimse görmez.** Rütbe kapıdan bakamaz,
-  loca-care okumaz, birebir normal loca listelerinde çıkmaz.
+  loca-care okumaz. Birebirden hiçbir şey dışarı kopyalanmaz: caretaker
+  çağrısı, care hatırlatması veya bildirim İye'ye ya da başka bir locaya söz
+  taşımaz. Birebir normal loca listelerinde, Building rehberinin "nerede"
+  bilgisinde ve rütbelerin oturduğu localar arasında çıkmaz.
 - **Master yalnız varlığını görür.** Building çöplüğe dönmesin diye Master,
   ayrı bir sekmede birebirlerin var olduğunu görür: kimin arasında olduğunu ve
   en son ne zaman konuşulduğunu. Böylece unutulmuş veya kötüye kullanılan
   birebirleri toplayabilir. **Mesajları görmez; Master için "bak/look" yolu
   yoktur.** Smaster birebirlerin varlığını da görmez.
-- **İçeri alınan görür.** Taraflardan biri Master'ı **açıkça** içeri alırsa
-  Master içeriği görür. Bu bir davettir, kapıdan bakma değildir; kayıtta
-  kimin aldığı görünür. Başka hiçbir yolla içerik üçüncü kişiye açılmaz.
+- **Yalnız içeri çağrılırsa.** Taraflardan biri Master'ı **açıkça** içeri
+  çağırırsa Master birebirin geçmişini okuyabilir; koltuk almaz, yazamaz.
+  Master içerideyken iki taraf da bunu açıkça görür; çağıran onu çıkarabilir.
+  Kimin, ne zaman çağırdığı kayda geçer. Başka hiçbir yolla içerik üçüncü
+  kişiye açılmaz.
 - **Özel, ama şifreli değil.** Arayüz bunu dürüstçe söyler: sunucuyu işleten
-  kişi diskteki kaydı okuyabilir. Söz verilemeyecek bir gizlilik vaat edilmez.
-- **Birebir sohbettir.** Task, goal, wiki, operatör veya lead yoktur. İş ortak
-  masada doğar; birebirde konuşulan iş, ekibin göreceği locaya açık bir eylemle
-  taşınır.
+  kişi diskteki kaydı ve yedekleri okuyabilir. Bir agent'la birebirde söz,
+  agent'ın çalıştığı makineye ve agent'ın hafızasına da ulaşır; agent onu başka
+  bir locada hatırlayabilir. Söz verilemeyecek bir gizlilik vaat edilmez.
+- **Birebir sohbettir.** Task, goal, wiki, not, operatör veya lead yoktur;
+  açan kişi operatör atanmaz. İş ortak masada doğar; birebirde konuşulan iş,
+  ekibin göreceği locaya açık bir eylemle taşınır.
 - **Yaşam döngüsü:** Birebiri gizlemek yalnız kendi sidebar tercihidir, karşı
-  tarafın kaydını silmez. Üyeliği biten tarafın birebiri read-only kalır.
-  Master, varlığını gördüğü bir birebiri kötüye kullanımda **Close** veya
-  **Seal** edebilir; bu ona içeriği okuma hakkı vermez.
+  tarafın kaydını silmez; yeni bir söz gelince birebir yeniden görünür.
+  Üyeliği biten tarafın birebiri read-only kalır. Master, varlığını gördüğü
+  bir birebiri **Close** (read-only; Master yeniden açabilir) veya **Seal**
+  edebilir; Seal o iki kişi arasında yeni birebiri de kalıcı olarak kapatır.
+  Hiçbiri Master'a içeriği okuma hakkı vermez.
 - Birebir loca kapasitesine, Building'in loca listesine ve İye'ye karışmaz;
   sidebar'da **Mesajlar** başlığı altında ayrı görünür.
 
