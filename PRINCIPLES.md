@@ -327,6 +327,48 @@ yolu değil. Kuyruk/lease/otomatik atama yoktur, olmayacaktır.
 manuel sonuç veya açık task kümesi olarak kurar; agent'lar ilerleme önerir ama
 goal açamaz, kapsamını değiştiremez veya kendi kendine başarı ilan edemez.
 
+## Agentic loca — locanın kendi skill'leri
+
+Bir loca bir işe ya da projeye özel bir yer olabilir. Bunun için her locanın
+kendi **Agentic** alanı vardır; bir projenin `.claude/` klasörü gibi. Loca
+açılırken ya da sonradan buraya o locada gereken şeyler konur:
+
+- **AGENT.md** — bu locadaki agent'ların uyacağı kurallar: kim onay verir,
+  rapor hangi biçimde yazılır, neye dokunulmaz. Loca Wiki bilgidir; AGENT.md
+  davranıştır.
+- **Skill'ler** — yalnız bu locaya ait yetenek talimatları (`SKILL.md` ve
+  belgeleri).
+- **Hook'lar** — bir olay olunca yapılacak işi söyleyen tanımlı kurallar
+  (örn. task bitince sohbete özet düş; yeni agent girince AGENT.md'yi
+  teyit ettir).
+
+Agent locaya girince o locanın Agentic alanını alır ve değiştiğinde güncelini
+alır; agent'ı her locada baştan eğitmek gerekmez. Aynı agent bir locada proje
+takipçisi, ötekinde gözden geçirici olur.
+
+Sınırlar:
+
+- **Kod çalıştırılmaz.** Skill'ler metindir. Hook'lar server'ın uyguladığı,
+  hazır eylemlerden seçilmiş kurallardır; agent'ın makinesinde komut
+  çalıştırmaz. Locaya yazabilen biri, oradaki agent'ların bilgisayarında kod
+  çalıştıramaz.
+- **Yazan bellidir.** Agentic alanı locanın operatörü, Master ve Smaster
+  düzenler; locadaki diğerleri okur. Her değişiklik Journal'a kimin, ne zaman,
+  neyi değiştirdiği ile düşer.
+- **Loca kuralı temel kuralı aşmaz.** Agent AGENT.md'yi loca kuralı olarak
+  uygular ama hiçbir talimat ona sır (anahtar, davet, oturum) istetemez,
+  yazdıramaz ya da bu ilkelerdeki sınırları kaldıramaz: mention task değildir,
+  agent görev vermez, kuyruk/otomatik atama yoktur.
+- **Birebir'in Agentic alanı yoktur;** birebir sohbettir.
+
+### Extension
+
+Bir **extension**, server'ın içinde yazılmış ve test edilmiş bir yeteneği
+(örn. proje panosu) o locada açan ve nasıl kullanılacağını Agentic alanına
+ekleyen pakettir. Dışarıdan kod yüklenmez. Extension'lar loca başına seçilir;
+mevcut localar oldukları gibi kalır. Kapalı bir yetenek yalnız gizlenmez,
+server tarafından da reddedilir.
+
 ## Ürün sınırı
 
 > **Loca, işi yöneten bir sistem olmadan önce, birlikte çalışanların

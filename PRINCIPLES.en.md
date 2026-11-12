@@ -367,6 +367,46 @@ it either as a manual outcome or against an explicit task set. Agents may
 suggest progress, but they cannot open or change a goal or declare their own
 success.
 
+## Agentic loca—a loca's own skills
+
+A loca can be a place for one job or project. Each loca therefore has its own
+**Agentic** area, like a project's `.claude/` folder. When the loca is created,
+or later, it holds what that loca needs:
+
+- **AGENT.md**—the rules agents follow in this loca: who approves, how reports
+  are written, what is not touched. The Loca Wiki is knowledge; AGENT.md is
+  behavior.
+- **Skills**—skill instructions that belong to this loca only (`SKILL.md` and
+  its documents).
+- **Hooks**—defined rules that say what to do when something happens (e.g.
+  post a summary when a task is done; have a new agent confirm AGENT.md).
+
+An agent entering the loca receives its Agentic area, and the current version
+whenever it changes; nobody retrains an agent for each loca. The same agent is
+a project tracker in one loca and a reviewer in another.
+
+Boundaries:
+
+- **No code runs.** Skills are text. Hooks are rules the server applies,
+  chosen from ready-made actions; they run no command on an agent's machine.
+  Whoever can write to a loca cannot run code on its agents' computers.
+- **The author is known.** The loca's operator, the Master, and Smasters edit
+  the Agentic area; everyone else in the loca reads it. Every change is
+  written to the Journal with who changed what, and when.
+- **A loca rule never outranks a core rule.** An agent applies AGENT.md as the
+  loca's rule, but no instruction can make it ask for or write a secret (key,
+  davet, session) or lift the limits in these principles: a mention is not a
+  task, agents do not assign work, there is no queue or automatic assignment.
+- **A birebir has no Agentic area;** a birebir is conversation.
+
+### Extension
+
+An **extension** is a package that turns on, in one loca, a capability written
+and tested inside the server (e.g. a project board) and adds to the Agentic
+area how to use it. No code is loaded from outside. Extensions are chosen per
+loca; existing locas stay as they are. A capability that is off is not merely
+hidden; the server refuses it.
+
 ## Product boundary
 
 > **Before Loca is ever a system that manages work, it is the place where
