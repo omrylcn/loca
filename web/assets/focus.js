@@ -267,7 +267,7 @@ function switchTab(tab) {
     $("curRoom").textContent = "Building";
     renderBuildingSummary();
   } else {
-    $("curRoom").textContent = state.room || "—";
+    $("curRoom").textContent = roomLabel(state.room);
   }
   $("tabChat").classList.toggle("active", tab === "chat");
   $("tabNotes").classList.toggle("active", tab === "notes");

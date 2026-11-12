@@ -1053,3 +1053,47 @@
   .conndot:focus-visible, .pill:focus-visible, .livebadge:focus-visible, .archbadge:focus-visible {
     outline: 1px solid var(--accent); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { .tip { animation: none; } .livebadge { animation: none; } }
+
+  /* Birebir (birebir.js): Messages in the sidebar, the privacy bar above the
+     composer, and the Master's existence-only list in the Building view. */
+  .dmsection { margin-top: 14px; }
+  .buildingview .rooms.dmsection { flex: 0 0 auto; max-height: 32vh; min-height: 0; }
+  .dmsection.empty .dmhint { color: var(--dim); font-size: 11px; padding: 2px 10px 6px; }
+  .room.dm .dmname { display: inline-flex; align-items: center; gap: 6px; }
+  .room.dm .dmname::before { content: none; }
+  .dmmaster { font-size: 10px; color: var(--warn); border: 1px solid var(--line); border-radius: 10px; padding: 0 6px; margin-left: auto; }
+  .dmbtn { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+    padding: 0; margin-left: 4px; background: none; border: 1px solid transparent; border-radius: 6px;
+    color: var(--muted); cursor: pointer; flex: 0 0 auto; }
+  .dmbtn:hover, .dmbtn:focus-visible { color: var(--accent); border-color: var(--line); }
+  .birebirbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+    margin: 0 16px 8px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--panel2); color: var(--muted); font-size: 12px; }
+  .birebirbar b { color: var(--txt); font-weight: 600; }
+  .birebirbar .bbacts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .main.birebir .tabs, .main.birebir .roomprops, .main.birebir #liveToggle,
+  .main.birebir #adminToggle, .main.birebir #leadKey, .main.birebir #leadSelect,
+  .main.birebir #seatToggle, .main.birebir #target, .main.birebir #hint,
+  .main.birebir #stopBtn { display: none !important; }
+  .main.birebir .top .rname::before { content: "@ "; }
+  .main.global .birebirbar { display: none !important; }
+  .birebiroverview { margin: 18px 0 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); }
+  .birebiroverview.hidden { display: none; }
+  .bbhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+  .bbhead span { color: var(--muted); }
+  .bbhead small { flex-basis: 100%; color: var(--muted); font-size: 11px; }
+  .bbrow { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto auto; gap: 10px;
+    align-items: center; padding: 8px 0; border-top: 1px solid var(--line); font-size: 12px; }
+  .bbpair { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bbamp { color: var(--dim); }
+  .bbwhen { color: var(--muted); font-size: 11px; }
+  .bbempty { color: var(--dim); font-size: 12px; padding: 6px 0; }
+  .bbwitness { margin-top: 10px; border-top: 1px dashed var(--line); padding-top: 8px; max-height: 320px; overflow: auto; }
+  .bbwitness.hidden { display: none; }
+  .bbwhead { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 11px; margin-bottom: 6px; }
+  .bbline { font-size: 12px; padding: 3px 0; overflow-wrap: anywhere; }
+  .bbtime { color: var(--dim); margin-right: 8px; font-size: 11px; }
+  @media (max-width: 760px) {
+    .bbrow { grid-template-columns: 1fr auto; grid-template-areas: "pair acts" "when when"; }
+    .bbrow .bbpair { grid-area: pair; } .bbrow .bbwhen { grid-area: when; } .bbrow .pacts { grid-area: acts; }
+  }

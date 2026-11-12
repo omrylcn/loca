@@ -310,7 +310,8 @@ function addMsg(m) {
     quote = `<div class="quote" data-goto="${m.reply_to}">↩ ${esc(q.sender)}: ${esc(q.text.slice(0, 70))}</div>`;
   }
   let source = m.text;
-  if (m.target && m.target !== "all" && !m.text.includes("@" + m.target)) {
+  // In a birebir every word is to the other side; saying so on each line is noise.
+  if (m.target && m.target !== "all" && !isBirebir(m.room) && !m.text.includes("@" + m.target)) {
     source = `@${m.target} ${source}`;
   }
   const txt = renderChatMarkdown(source);

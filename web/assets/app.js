@@ -91,6 +91,8 @@ $("sealLocaBtn").onclick = () => deleteRoom(state.room);
 $("applySettings").onclick = applySettings;
 $("liveToggle").onclick = toggleLive;
 $("peopleList").onclick = async (e) => {
+  const dm = e.target.closest("[data-dm]");
+  if (dm) { openBirebir(dm.dataset.dm); return; }
   const jrNote = (t) => { const n = $("jrNotice"); if (n) n.textContent = t; };
   // One admission action, transport-safe: a network failure surfaces a notice
   // and re-enables the button instead of an unhandled rejection + stuck button.
@@ -354,6 +356,8 @@ $("feed").addEventListener("click", (e) => {
   }
 });
 $("onlineList").addEventListener("click", (e) => {
+  const dm = e.target.closest("[data-dm]");
+  if (dm) { openBirebir(dm.dataset.dm); return; }
   const b = e.target.closest("[data-mod]");
   if (b) moderate(b.dataset.mod, b.dataset.n);
   const lead = e.target.closest("[data-lead]");

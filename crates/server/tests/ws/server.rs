@@ -136,6 +136,7 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "window.openGettingStarted",
         ),
         ("tooltip.js", "text/javascript", "window.refreshTip"),
+        ("birebir.js", "text/javascript", "function openBirebir("),
     ];
     for (name, content_type, marker) in assets {
         assert!(

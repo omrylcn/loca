@@ -188,6 +188,8 @@ function setSeatedHere(room, seated) {
 }
 function isWatchingDoor() {
   if (state.adminSession !== true || !state.room) return false;
+  // A birebir has no door: its two sit, and nobody else is let near it.
+  if (isBirebir(state.room)) return false;
   if (isRankHome(state.room)) return roomSet(DOOR_ROOMS_KEY).has(state.room);
   return !roomSet(SEATED_ROOMS_KEY).has(state.room);
 }
@@ -235,7 +237,9 @@ async function refreshRooms() {
     if (!rooms.length) rooms.push({ room: state.homeRoom, members: 0 });
     ensureReadCursors();
     await updateUnreadCounts(rooms);
-    state.rooms = rooms;
+    // Birebirs live under Messages, never in the loca list.
+    state.rooms = rooms.filter(rm => !isBirebir(rm.room));
+    await fetchBirebirs();
     renderRooms();
     renderLocaSidebar();
   } catch (e) {
@@ -276,13 +280,14 @@ function renderRooms() {
       // between locas is navigation, not a new login: re-reading an autofilled
       // or already-spent credential here could replace a healthy session with
       // the login door until refresh.
-      el.onclick = () => joinRoom(rm.room);
+      el.onclick = () => { setMobileSidebar(false); joinRoom(rm.room); };
       const item = document.createElement("div");
       item.className = "roomitem";
       item.append(el, renderRoomPreferenceActions(rm.room));
       list.appendChild(item);
   }
   renderHiddenRooms();
+  renderBirebirList();
 }
 
 function ensureReadCursors() {

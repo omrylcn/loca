@@ -2589,9 +2589,10 @@ impl Hub {
                 return Err(PostReject::Archived);
             }
             // Every word in a birebir is said to the other person: it wakes
-            // an agent listening for mentions without an `@`.
-            if body.target.is_none() {
-                body.target = self.birebir_peer_of(room, &body.sender);
+            // an agent listening for mentions without an `@`, and an `@all`
+            // left over from another loca cannot widen it.
+            if let Some(peer) = self.birebir_peer_of(room, &body.sender) {
+                body.target = Some(peer);
             }
         }
         let op_id = body.op_id.filter(|id| !id.is_empty());

@@ -230,7 +230,12 @@ function renderMembers() {
       }
       acts = `<span class="omacts">${leadAct}${moderation}</span>`;
     }
-    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}</span><span class="otag">${m.type}</span>${acts}`;
+    // Anyone at the table may speak to one person privately — never from
+    // inside a birebir (there is nobody else to reach).
+    const dm = !isMe && !isBirebir(state.room)
+      ? `<button type="button" class="dmbtn" data-dm="${esc(m.name)}" aria-label="Message ${esc(m.name)} privately" data-tip="Message ${esc(m.name)}" data-tip-detail="A birebir: only the two of you see it.">${BIREBIR_ICON}</button>`
+      : "";
+    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}</span><span class="otag">${m.type}</span>${dm}${acts}`;
     ol.appendChild(d);
   }
   if (!seated.length) ol.innerHTML = `<div class="omem" style="color:var(--muted)">nobody seated</div>`;
@@ -321,7 +326,8 @@ async function fetchPeople() {
       fetch(`${serverBase()}/building/ranks`, { headers: adminHeaders({}) }),
     ]);
     if (!resPeople.ok) { if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">liste alınamadı</div>`; return; }
-    const rooms = resRooms.ok ? await resRooms.json() : [];
+    // A rank's own birebirs are not Building locas; they never show here.
+    const rooms = (resRooms.ok ? await resRooms.json() : []).filter(r => !isBirebir(r.room));
     const people = await resPeople.json();
     if (!residentReadCurrent(scope)) return;
     // Durable source of truth for admissions: reloaded from the server on every
@@ -350,6 +356,7 @@ async function fetchPeople() {
     if (!applyResidentSnapshot(people, { people: true, scope })) return;
     state.bans = bans;
     renderPeople();
+    fetchBirebirOverview();
   } catch (e) {
     if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">sunucuya ulaşılamadı</div>`;
   }
@@ -468,7 +475,7 @@ function renderPeople() {
       `<span class="pname">${kindMark(kind)}<span class="pnametext">${esc(name)}</span><span class="pkind">${kind}</span>${stage}</span>` +
       `<span class="pstatuses">${residentStatusBadges(p)}</span>` +
       `<span class="pwhere">${suspended}${whereHtml(locas, fallback)}${banTxt}</span>` +
-      `<span class="pacts">${unban}${manage}</span></div>`;
+      `<span class="pacts">${name !== state.name ? `<button type="button" class="btn" data-dm="${esc(name)}" title="Open a birebir with ${esc(name)}">Message</button>` : ""}${unban}${manage}</span></div>`;
   }).join("");
   box.innerHTML = jrHtml + ranksHtml +
     `<section class="bblock"><div class="bsection">Members <span class="bcount">${names.size}</span></div>` +

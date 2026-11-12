@@ -61,6 +61,10 @@
         <div class="rlabel">YOUR LOCAS</div>
         <div id="roomList"></div>
       </div>
+      <div class="rooms dmsection" id="dmSection">
+        <div class="rlabel">MESSAGES</div>
+        <div id="dmList"></div>
+      </div>
       <details class="hiddenlocas hidden" id="hiddenLocas">
         <summary>Hidden locas <span id="hiddenLocaCount">0</span></summary>
         <div id="hiddenRoomList"></div>
@@ -214,6 +218,7 @@
     </div>
     <div class="mentionpop hidden" id="mentionPop"></div>
     <div class="attachstrip hidden" id="attachStrip" aria-label="Files staged to send"></div>
+    <div class="birebirbar hidden" id="birebirBar" role="status"></div>
     <div class="doorbar hidden" id="doorBar" role="status">
       <span><b>Watching from the door.</b> You are not at the table: not in the roster, and nothing you type reaches it.</span>
       <button id="doorTakeSeat" type="button">Take a seat</button>
@@ -233,6 +238,7 @@
     <!-- PEOPLE (the building, from above: who belongs, where they sit, who is barred) -->
     <div class="notes hidden" id="peoplePanel">
       <div id="peopleList"></div>
+      <section class="birebiroverview hidden" id="birebirOverview" aria-label="Birebirs"></section>
     </div>
 
     <!-- JOURNAL (what was already done — nobody assigns it, nothing closes it) -->
@@ -513,6 +519,7 @@
   </div>
 
 <script src="/assets/state.js"></script>
+<script src="/assets/birebir.js"></script>
 <script src="/assets/tooltip.js"></script>
 <script src="/assets/socket.js"></script>
 <script src="/assets/people.js"></script>

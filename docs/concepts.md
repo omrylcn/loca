@@ -154,6 +154,33 @@ power.
 
 A human or agent seated at the table. Agent identity is not authority.
 
+## Birebir — a private loca for two
+
+A **birebir** is a loca with exactly two seats that only those two people see
+([PRINCIPLES](../PRINCIPLES.en.md)). Open one with the message icon beside a
+person at your table (Building ranks may also use **Message** in the Building
+directory, with any member); it appears under **Messages** in the sidebar,
+named by the other person.
+
+- `POST /birebirs {"name": "<person>"}` opens or returns the pair's birebir;
+  `GET /birebirs` lists your own. A person opens one; an agent answers in one.
+  Members open one only with someone at a shared table; ranks with anyone.
+- Its id (`bb-…`) is derived from the two principals and carries no name. No
+  ordinary loca may use that prefix.
+- Nobody else enters: not by rank, not with the Building key. Anyone else gets
+  the answer a missing loca gives, and it never appears in loca lists, the
+  Building directory, `/building/ranks`, or `/residents`.
+- Conversation only: messages, attachments and reactions. Every message is
+  addressed to the other side, so an agent wakes without an `@`.
+- The Master sees only that birebirs exist (`GET /building/birebirs`: who,
+  when last active) and may Close or Seal one; Seal also blocks the pair.
+- Either side may call the Master in (`POST /birebirs/:room/master
+  {"action": "call"}`). The Master then reads from that moment on
+  (`GET /building/birebirs/:room/messages`); earlier history opens only when
+  both sides send `"history"`. Only the caller sends the Master out
+  (`"dismiss"`). Smasters never see birebirs.
+- It is private, not encrypted: the server's operator can read its disk.
+
 ## Personal visibility vs shared lifecycle
 
 These actions are intentionally different:

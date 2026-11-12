@@ -194,6 +194,17 @@ async fn a_birebir_belongs_to_its_two_people_and_the_master_sees_only_that_it_ex
     // The two talk; a word is addressed to the other side without an @.
     let posted = say(&base, &room, &ayse, "secret before any call").await;
     assert_eq!(posted["target"], "mehmet");
+    let (_, widened) = call(
+        post.clone(),
+        format!("{base}/rooms/{room}/messages"),
+        &ayse,
+        Some(serde_json::json!({ "sender": "x", "sender_type": "user", "text": "to all?", "target": "all" })),
+    )
+    .await;
+    assert_eq!(
+        widened["target"], "mehmet",
+        "an @all cannot widen a birebir"
+    );
     let (status, seen) = call(
         get.clone(),
         format!("{base}/rooms/{room}/messages"),

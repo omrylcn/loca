@@ -169,8 +169,8 @@ function joinRoom(room) {
   renderMembers();
   renderMode();
   markRoomRead(room, state.roomLatest[room]);
-  $("curRoom").textContent = room;
-  $("roomAvatar").textContent = (room[0] || "#").toUpperCase();
+  $("curRoom").textContent = roomLabel(room);
+  $("roomAvatar").textContent = (roomLabel(room)[0] || "#").toUpperCase();
   revokeInlineAttachmentUrls();
   $("feed").innerHTML = "";
   loadPinned(); // this room's personal pin (localStorage), if any
@@ -365,6 +365,7 @@ function onFrame(f) {
   else if (f.t === "control") {
     if (f.cmd && f.cmd.startsWith("note-deleted:")) { const k = f.cmd.slice("note-deleted:".length); delete state.notes[k]; if (state.tab === "notes") renderNotes(); }
     else if (f.cmd && f.cmd.startsWith("live-expired:")) { addSys(`⏱ live mode auto-disabled after ${f.cmd.split(":")[1]}s of silence`); }
+    else if (f.cmd === "birebir-access") { fetchBirebirs(); }
     else if (f.cmd === "room-closed") { addSys(`this loca was closed — moving you to ${state.homeRoom}`); setTimeout(() => doConnect(state.homeRoom), 800); }
     else { addSys("control: /" + f.cmd); scrollFeed(); }
   }
