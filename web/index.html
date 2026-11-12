@@ -237,9 +237,17 @@
 
     <!-- PEOPLE (the building, from above: who belongs, where they sit, who is barred) -->
     <div class="notes hidden" id="peoplePanel">
-      <div id="peopleList"></div>
-      <section class="birebiroverview keyledger hidden" id="keyLedger" aria-label="Key generator"></section>
-      <section class="birebiroverview hidden" id="birebirOverview" aria-label="Private messages"></section>
+      <!-- The Building, from above, in three places. Keys and Private
+           messages are the Master's alone: the server refuses everyone
+           else, and the tabs are not drawn for them. -->
+      <div class="buildingtabs" role="tablist" aria-label="Building views">
+        <button type="button" class="btab active" role="tab" id="btabPeople" data-btab="people" aria-selected="true" aria-controls="peopleList">People</button>
+        <button type="button" class="btab hidden" role="tab" id="btabKeys" data-btab="keys" aria-selected="false" aria-controls="keyLedger">Keys</button>
+        <button type="button" class="btab hidden" role="tab" id="btabPrivate" data-btab="private" aria-selected="false" aria-controls="birebirOverview">Private messages</button>
+      </div>
+      <div id="peopleList" role="tabpanel" aria-labelledby="btabPeople"></div>
+      <section class="buildingpane keyledger hidden" id="keyLedger" role="tabpanel" aria-labelledby="btabKeys"></section>
+      <section class="buildingpane hidden" id="birebirOverview" role="tabpanel" aria-labelledby="btabPrivate"></section>
     </div>
 
     <!-- JOURNAL (what was already done — nobody assigns it, nothing closes it) -->

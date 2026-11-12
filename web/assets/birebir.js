@@ -151,10 +151,8 @@ async function birebirMasterAction(action) {
 async function fetchBirebirOverview() {
   const box = $("birebirOverview");
   if (!box) return;
-  if (state.profile?.building_role !== "master") {
-    box.classList.add("hidden");
-    return;
-  }
+  syncBuildingTabs();
+  if (state.profile?.building_role !== "master") return;
   try {
     const r = await fetch(`${serverBase()}/building/birebirs`, { headers: adminHeaders({}) });
     state.birebirOverview = r.ok ? await r.json() : [];
@@ -167,7 +165,6 @@ async function fetchBirebirOverview() {
 function renderBirebirOverview() {
   const box = $("birebirOverview");
   if (!box) return;
-  box.classList.remove("hidden");
   const rows = state.birebirOverview;
   const body = rows.length
     ? rows.map(b => {

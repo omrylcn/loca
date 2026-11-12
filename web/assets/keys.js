@@ -27,10 +27,8 @@ const KEY_STATE_LABEL = {
 async function fetchKeyLedger() {
   const box = $("keyLedger");
   if (!box) return;
-  if (state.profile?.building_role !== "master") {
-    box.classList.add("hidden");
-    return;
-  }
+  syncBuildingTabs();
+  if (state.profile?.building_role !== "master") return;
   try {
     const r = await fetch(`${serverBase()}/keys`, { headers: adminHeaders({}) });
     state.keyLedger = r.ok ? await r.json() : [];
@@ -47,7 +45,6 @@ function keyWhen(ms) {
 function renderKeyLedger() {
   const box = $("keyLedger");
   if (!box) return;
-  box.classList.remove("hidden");
   const keepIssued = box.querySelector("#keyIssued")?.outerHTML || `<div class="keyissued hidden" id="keyIssued" role="status"></div>`;
   const filters = [
     ["all", "All"], ["unused", "Unused"], ["active", "In use"], ["used", "Used"], ["closed", "Expired · revoked"],
@@ -180,4 +177,45 @@ $("keyLedger").addEventListener("submit", (event) => issueKey(event));
 $("peopleList").addEventListener("click", (event) => {
   const rename = event.target.closest("[data-rename-smaster]");
   if (rename) renameSmaster(rename.dataset.renameSmaster);
+});
+
+// ---- Building sub-tabs: People · Keys · Private messages ----------------
+// Keys and Private messages are the Master's alone (the server answers 403 to
+// anyone else); for everyone else those tabs are not drawn at all.
+state.buildingTab = "people";
+
+function syncBuildingTabs() {
+  const master = state.profile?.building_role === "master";
+  $("btabKeys").classList.toggle("hidden", !master);
+  $("btabPrivate").classList.toggle("hidden", !master);
+  if (!master && state.buildingTab !== "people") state.buildingTab = "people";
+  const panes = { people: "peopleList", keys: "keyLedger", private: "birebirOverview" };
+  for (const [tab, pane] of Object.entries(panes)) {
+    const on = state.buildingTab === tab;
+    $(pane).classList.toggle("hidden", !on);
+    const button = document.querySelector(`[data-btab="${tab}"]`);
+    button.classList.toggle("active", on);
+    button.setAttribute("aria-selected", String(on));
+    button.tabIndex = on ? 0 : -1;
+  }
+}
+
+function setBuildingTab(tab) {
+  state.buildingTab = tab;
+  syncBuildingTabs();
+  if (tab === "keys") fetchKeyLedger();
+  if (tab === "private") fetchBirebirOverview();
+}
+
+document.querySelector(".buildingtabs").addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-btab]");
+  if (tab) setBuildingTab(tab.dataset.btab);
+});
+document.querySelector(".buildingtabs").addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+  const tabs = [...document.querySelectorAll(".buildingtabs .btab:not(.hidden)")];
+  const index = tabs.findIndex(t => t.dataset.btab === state.buildingTab);
+  const next = tabs[(index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+  setBuildingTab(next.dataset.btab);
+  next.focus();
 });

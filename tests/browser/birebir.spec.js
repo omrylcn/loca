@@ -61,6 +61,7 @@ test("a birebir is seen by its two only; the Master sees that it exists and read
 
   // The Master's Building view: existence only, no Read.
   await master.evaluate(() => switchTab("people"));
+  await master.locator("#btabPrivate").click();
   const overview = master.locator("#birebirOverview");
   await expect(overview).toContainText("bb-sa");
   await expect(overview).toContainText("bb-sb");
