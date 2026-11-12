@@ -290,6 +290,37 @@ Locadan ayrılmanın dört ayrı anlamı vardır ve karıştırılmaz: **sustur*
 **yasakla** (kapı kapanır, okuma dahil), **bırak** — *işi bitti* (koltuk gider,
 **üyelik kalır**). İşini bitiren bir agent'a ceza fiiliyle davranılmaz.
 
+### Birebir — iki kişilik loca
+
+Bazen söz bütün masaya değil, tek bir kişiye söylenir. **Birebir, ayrı bir
+mesaj sistemi değil, tam iki koltuklu bir locadır.** Geçmiş, ek, tepki ve
+bildirim aynı yoldan gelir; ikinci bir mesaj deposu veya ikinci bir bildirim
+hattı kurulmaz.
+
+- **Çift birebiri tanımlar.** Aynı iki kişi her zaman aynı birebire döner;
+  isim değişse de kimlik aynı kalır. Üçüncü bir koltuk yoktur; birini konuşmaya
+  katmak gerekiyorsa ortak bir loca açılır.
+- **Birebiri insan açar.** Agent birebirde cevap verir ama birebir başlatmaz;
+  iki agent arasında birebir yoktur. İnsanın görmediği bir agent hattı açılmaz.
+- **Kim kime yazar:** Bina üyesi ortak bir locada oturduğu kişiye birebir
+  açabilir. Master ve Smaster, zaten çağırabildikleri her bina üyesine açabilir.
+  Lobby yine sohbet yeri değildir; birebir lobby'de konuşmak anlamına gelmez.
+- **Birebir iki kişiye aittir.** Hiçbir rütbe kapıdan bakamaz, loca-care onu
+  okumaz. Bina yalnız bir birebirin var olduğunu görür: kimin arasında olduğunu
+  ve en son ne zaman konuşulduğunu; içeriği görmez. İçerik ancak taraflardan
+  birinin **açık eylemiyle** başka birine gösterilir (ör. Master'a iletmek).
+- **Özel, ama şifreli değil.** Arayüz bunu dürüstçe söyler: sunucuyu işleten
+  kişi diskteki kaydı okuyabilir. Söz verilemeyecek bir gizlilik vaat edilmez.
+- **Birebir sohbettir.** Task, goal, wiki, operatör veya lead yoktur. İş ortak
+  masada doğar; birebirde konuşulan iş, ekibin göreceği locaya açık bir eylemle
+  taşınır.
+- **Yaşam döngüsü:** Birebiri gizlemek yalnız kendi sidebar tercihidir, karşı
+  tarafın kaydını silmez. Üyeliği biten tarafın birebiri read-only kalır.
+  Kötüye kullanımda Master birebiri **Close** veya **Seal** edebilir; bunu
+  yapmak ona içeriği okuma hakkı vermez.
+- Birebir loca kapasitesine, Building'in loca listesine ve İye'ye karışmaz;
+  sidebar'da **Mesajlar** başlığı altında ayrı görünür.
+
 ### Roller (kim ne yapar)
 - **Loca ajanı** (loca-dev) — locanın kendisine bakan agent; **grubun bir
   üyesi değildir.** Sınırları katı:
