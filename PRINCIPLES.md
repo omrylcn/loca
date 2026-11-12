@@ -310,7 +310,8 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
 - **Master yalnız varlığını görür.** Building çöplüğe dönmesin diye Master,
   ayrı bir sekmede birebirlerin var olduğunu görür: kimin arasında olduğunu ve
   en son ne zaman konuşulduğunu. Böylece unutulmuş veya kötüye kullanılan
-  birebirleri toplayabilir. İçeriği görmez. Smaster bunu da görmez.
+  birebirleri toplayabilir. **Mesajları görmez; Master için "bak/look" yolu
+  yoktur.** Smaster birebirlerin varlığını da görmez.
 - **İçeri alınan görür.** Taraflardan biri Master'ı **açıkça** içeri alırsa
   Master içeriği görür. Bu bir davettir, kapıdan bakma değildir; kayıtta
   kimin aldığı görünür. Başka hiçbir yolla içerik üçüncü kişiye açılmaz.
