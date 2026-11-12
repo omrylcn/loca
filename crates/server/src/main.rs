@@ -90,6 +90,7 @@ const WEB_NOTES: &str = include_str!("../../../web/assets/notes.js");
 const WEB_MEMORY: &str = include_str!("../../../web/assets/memory.js");
 const WEB_WIKI: &str = include_str!("../../../web/assets/wiki.js");
 const WEB_PROFILE: &str = include_str!("../../../web/assets/profile.js");
+const WEB_THEME: &str = include_str!("../../../web/assets/theme.js");
 const WEB_SIDEBAR: &str = include_str!("../../../web/assets/sidebar.js");
 const WEB_API: &str = include_str!("../../../web/assets/api.js");
 const WEB_APP: &str = include_str!("../../../web/assets/app.js");
@@ -390,6 +391,10 @@ async fn main() {
         .route("/whoami", get(whoami))
         .route("/profile", get(profile_view))
         .route(
+            "/profile/preferences",
+            get(get_profile_preferences).put(put_profile_preferences),
+        )
+        .route(
             "/profile/credentials",
             get(list_profile_credentials).post(create_profile_credential_route),
         )
@@ -671,6 +676,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "memory.js" => Some(("text/javascript; charset=utf-8", WEB_MEMORY)),
         "wiki.js" => Some(("text/javascript; charset=utf-8", WEB_WIKI)),
         "profile.js" => Some(("text/javascript; charset=utf-8", WEB_PROFILE)),
+        "theme.js" => Some(("text/javascript; charset=utf-8", WEB_THEME)),
         "sidebar.js" => Some(("text/javascript; charset=utf-8", WEB_SIDEBAR)),
         "api.js" => Some(("text/javascript; charset=utf-8", WEB_API)),
         "app.js" => Some(("text/javascript; charset=utf-8", WEB_APP)),

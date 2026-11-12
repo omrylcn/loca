@@ -1315,3 +1315,201 @@ async fn join_request_bootstrap_is_refetchable_until_ack_over_http() {
         "the delivered membership stays valid after ack"
     );
 }
+
+/// Appearance preferences are personal: each principal reads and writes only
+/// their own row, values are a closed set, and the row survives a restart.
+#[tokio::test]
+async fn profile_preferences_are_private_validated_and_durable() {
+    let root = "root-preferences-test";
+    let db_dir = tempfile::tempdir().unwrap();
+    let db_path = db_dir.path().join("preferences.sqlite3");
+    let env = [("DB_PATH", db_path.to_string_lossy().into_owned())];
+    let (port, guard) = spawn_server_env(root, &env).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    let mut keys = Vec::new();
+    for name in ["pref-ada", "pref-bo"] {
+        let member: Value = client
+            .post(format!("{base}/members"))
+            .header("x-admin-token", root)
+            .json(&serde_json::json!({ "name": name, "kind": "user" }))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        keys.push(member["token"].as_str().unwrap().to_string());
+    }
+    let ada = session_with(&base, ("x-admin-token", &keys[0]), "pref-ada", None).await;
+    let bo = session_with(&base, ("x-admin-token", &keys[1]), "pref-bo", None).await;
+    let url = format!("{base}/profile/preferences");
+
+    // Signed-out callers get nothing, not even the defaults.
+    let anonymous = client.get(&url).send().await.unwrap();
+    assert_eq!(anonymous.status(), reqwest::StatusCode::UNAUTHORIZED);
+    let anonymous_put = client
+        .put(&url)
+        .json(&serde_json::json!({ "theme": "light" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anonymous_put.status(), reqwest::StatusCode::UNAUTHORIZED);
+
+    let defaults: Value = client
+        .get(&url)
+        .header("x-session-token", &ada)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        defaults,
+        serde_json::json!({
+            "theme": "dark", "accent": "teal", "density": "comfortable", "font_size": "normal"
+        })
+    );
+
+    let saved: Value = client
+        .put(&url)
+        .header("x-session-token", &ada)
+        .json(&serde_json::json!({ "theme": "light", "accent": "violet", "density": "compact" }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let expected = serde_json::json!({
+        "theme": "light", "accent": "violet", "density": "compact", "font_size": "normal"
+    });
+    assert_eq!(saved, expected);
+
+    // A partial update keeps the other fields.
+    let partial: Value = client
+        .put(&url)
+        .header("x-session-token", &ada)
+        .json(&serde_json::json!({ "font_size": "large" }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(partial["accent"], "violet");
+    assert_eq!(partial["font_size"], "large");
+
+    // Every value outside the allowed set is refused, and nothing changes.
+    for bad in [
+        serde_json::json!({ "theme": "solarized" }),
+        serde_json::json!({ "accent": "#ff0000" }),
+        serde_json::json!({ "density": "tiny" }),
+        serde_json::json!({ "font_size": 18 }),
+        serde_json::json!({ "theme": "light", "owner": "pref-bo" }),
+        serde_json::json!(["light"]),
+    ] {
+        let response = client
+            .put(&url)
+            .header("x-session-token", &ada)
+            .json(&bad)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::BAD_REQUEST,
+            "{bad} must be refused"
+        );
+    }
+    let not_json = client
+        .put(&url)
+        .header("x-session-token", &ada)
+        .body("theme=light")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(not_json.status(), reqwest::StatusCode::BAD_REQUEST);
+
+    // Another person's session sees only their own (default) preferences.
+    let bo_view: Value = client
+        .get(&url)
+        .header("x-session-token", &bo)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(bo_view, defaults, "bo never sees ada's preferences");
+    let bo_saved: Value = client
+        .put(&url)
+        .header("x-session-token", &bo)
+        .json(&serde_json::json!({ "accent": "amber" }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(bo_saved["theme"], "dark");
+    assert_eq!(bo_saved["accent"], "amber");
+
+    let expected = serde_json::json!({
+        "theme": "light", "accent": "violet", "density": "compact", "font_size": "large"
+    });
+    let ada_after: Value = client
+        .get(&url)
+        .header("x-session-token", &ada)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(ada_after, expected, "bo's write never touches ada's row");
+
+    drop(guard);
+    wait_for_server_shutdown(port).await;
+    let (port, _guard) = spawn_server_env(root, &env).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let url = format!("{base}/profile/preferences");
+    let restored: Value = client
+        .get(&url)
+        .header("x-admin-token", &keys[0])
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(restored, expected, "preferences survive a restart");
+    let fresh_bo = session_with(&base, ("x-admin-token", &keys[1]), "pref-bo", None).await;
+    let bo_restored: Value = client
+        .get(&url)
+        .header("x-session-token", &fresh_bo)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(bo_restored["accent"], "amber");
+    assert_eq!(bo_restored["theme"], "dark");
+}

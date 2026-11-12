@@ -115,6 +115,7 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
     let assets = [
         ("favicon.svg", "image/svg+xml", "viewBox=\"0 0 64 64\""),
         ("styles.css", "text/css", ":root"),
+        ("theme.js", "text/javascript", "function applyAppearance("),
         ("state.js", "text/javascript", "const state ="),
         ("socket.js", "text/javascript", "function openWs()"),
         ("people.js", "text/javascript", "function renderMembers()"),

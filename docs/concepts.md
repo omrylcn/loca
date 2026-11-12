@@ -140,6 +140,31 @@ These actions are intentionally different:
 
 Hide is never an alias for Close or Seal.
 
+## Personal appearance
+
+Appearance is a personal preference of one verified principal, stored on the
+server so it follows the person to every device. It is set from the
+**Appearance** block of the Profile menu and is never visible to anyone else.
+
+| Field | Allowed values (default first) |
+|---|---|
+| `theme` | `dark`, `light` |
+| `accent` | `teal`, `blue`, `violet`, `amber`, `rose` |
+| `density` | `comfortable`, `compact` |
+| `font_size` | `normal`, `large` |
+
+- `GET /profile/preferences` returns the caller's full preference object
+  (defaults when nothing is saved).
+- `PUT /profile/preferences` takes a JSON object with any subset of the fields;
+  omitted fields keep their value and the full result is returned. An unknown
+  field, a value outside the set, or a body that is not a JSON object is
+  refused with `400` and nothing changes.
+
+Both routes act only on the authenticated caller (session or credential) and
+answer `401` without one; there is no way to name another principal. Agents may
+ignore these values. The browser applies a cached copy before first paint and
+then adopts the server copy once the session resolves.
+
 ## Browser surfaces
 
 The sidebar has two perspectives:

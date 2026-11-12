@@ -969,3 +969,171 @@
 .gspath.hidden { display: none; }
 .gserror { margin: 8px 0; padding: 7px 9px; font-size: 11px; color: #ffb4a2; background: rgba(255,107,107,.08); border: 1px solid rgba(255,107,107,.3); border-radius: 6px; }
 .gserror.hidden { display: none; }
+
+/* ── personal appearance: tokens ─────────────────────────────────────────
+   Appended (not merged into the rules above) so concurrent stylesheet work
+   merges cleanly. New tokens and the theme/accent overrides come first;
+   then every rule above that hard-coded a colour is re-declared with the
+   matching token, so it follows the light theme and the chosen accent. In
+   the default dark/teal look each re-declaration computes to the original. */
+:root {
+  --scheme: dark; --me: var(--accent); --on-accent: #06231d; --on-bad: #2a0e0e;
+  --gold: #f5c76b; --gold-txt: #ffe0a0; --master: #e7b95a; --smaster: #d3a95d;
+}
+/* Personal appearance (GET/PUT /profile/preferences). theme.js sets
+   data-theme / data-accent / data-density / data-font-size on <html>.
+   Every accent has a bright dark-theme pair and a deep light-theme pair so
+   accent text keeps 4.5:1 on --bg, --panel and --panel2 in both themes. */
+:root[data-accent="blue"] { --accent: #7aa7ff; --accent2: #a8c4ff; }
+:root[data-accent="violet"] { --accent: #b99aff; --accent2: #d3bfff; }
+:root[data-accent="amber"] { --accent: #ffbe4d; --accent2: #ffd585; }
+:root[data-accent="rose"] { --accent: #ff7eaa; --accent2: #ffaac8; }
+:root[data-theme="light"] {
+  --scheme: light;
+  --bg: #f5f7fa; --panel: #ffffff; --panel2: #e9edf2; --line: #c9d1db;
+  --txt: #1a1f27; --muted: #4a5568; --dim: #566173;
+  --accent: #00766b; --accent2: #006a60; --on-accent: #ffffff;
+  --agent: #0a5fa8; --human: #0b6e47;
+  --iye: #6a3db5; --iye-deep: #ece3fb;
+  --warn: #8f4a00; --bad: #b8212a; --on-bad: #ffffff;
+  --gold: #7d5200; --gold-txt: #6e4800; --master: #7d5200; --smaster: #6e4800;
+}
+:root[data-theme="light"][data-accent="blue"] { --accent: #2c56cf; --accent2: #2448b3; }
+:root[data-theme="light"][data-accent="violet"] { --accent: #6c3fd0; --accent2: #5c32b5; }
+:root[data-theme="light"][data-accent="amber"] { --accent: #8c5400; --accent2: #7a4800; }
+:root[data-theme="light"][data-accent="rose"] { --accent: #c02460; --accent2: #a61f53; }
+/* Hard-coded colours above, re-declared with tokens. */
+.wikiindex button.active { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.wikiprimary { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.profileroles b.building-master { color: var(--master); }
+.profileroles b.building-smaster { color: var(--smaster); }
+.conn .leavebtn { border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+.leaveconfirm { border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+.conn .leaveconfirm .yes { color: var(--on-bad); }
+.leadtag { background: color-mix(in srgb, var(--gold) 18%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 62%, transparent); color: var(--gold-txt); }
+.leadtag::before { color: var(--gold); }
+.omem.is-lead { background: linear-gradient(90deg, color-mix(in srgb, var(--gold) 22%, transparent), color-mix(in srgb, var(--gold) 4%, transparent) 82%); box-shadow: inset 3px 0 var(--gold); }
+.omem.is-lead .oname { color: var(--gold-txt); }
+.memoryownertag { background: color-mix(in srgb, var(--accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 52%, transparent); }
+.omem.is-memory-owner:not(.is-lead) { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), color-mix(in srgb, var(--accent) 3%, transparent) 82%); }
+.pstatus.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.pstage.relay { color: var(--warn); }
+.callrow:hover { background: var(--panel2, color-mix(in srgb, var(--txt) 4%, transparent)); }
+.row.announce .bub { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.conn select { color-scheme: var(--scheme); }
+.conn button { color: var(--on-accent); }
+.roomitem { border-bottom: 1px solid color-mix(in srgb, var(--txt) 2.5%, transparent); }
+.roompref:hover, .roompref:focus-visible { background: color-mix(in srgb, var(--txt) 5.5%, transparent); }
+.room .unreadbadge { color: var(--on-accent); }
+.newroom button { color: var(--on-accent); }
+.lobby .lobbycall { border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+.lobby .lobbycall:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.omem .glyph.lead { color: var(--gold); text-shadow: 0 0 9px color-mix(in srgb, var(--gold) 72%, transparent); }
+.omacts button.release { border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); }
+.omacts button.release:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.conndot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 12%, transparent); }
+.conndot.on { box-shadow: 0 0 0 3px color-mix(in srgb, var(--human) 12%, transparent); }
+.pill.free { background: color-mix(in srgb, var(--human) 14%, transparent); }
+.pill.restricted { background: color-mix(in srgb, var(--agent) 14%, transparent); }
+.pill.roundrobin { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.pill.paused { background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.livebadge { background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.archbadge { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.leadkey { color: var(--gold); }
+.leadselect { color-scheme: var(--scheme); background: color-mix(in srgb, var(--gold) 10%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 48%, transparent); color: var(--gold-txt); }
+.leadselect:focus { outline: 1px solid var(--gold); }
+.propertyfield { border: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 34%, transparent); }
+.propertyfield.lifecycle { border-color: color-mix(in srgb, var(--bad) 20%, transparent); }
+.adminbar button { color: var(--on-accent); }
+.adminbar button.danger { border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent); }
+.livebtn.on { color: var(--on-bad) !important; }
+.pinnedbar { border-color: color-mix(in srgb, var(--iye) 38%, transparent); border-left-color: var(--iye); background: linear-gradient(100deg, color-mix(in srgb, var(--iye-deep) 42%, transparent), var(--panel2)); }
+.row.mine .bubble { background: color-mix(in srgb, var(--accent) 7%, transparent); border-color: color-mix(in srgb, var(--accent) 28%, transparent); }
+.row.locareminder .bubble { background: color-mix(in srgb, var(--warn) 11%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.bubble .mention.leadkeyword, .txt .mention.leadkeyword { color: var(--gold); }
+.jump { color: var(--on-accent); }
+@keyframes flash { from { background: color-mix(in srgb, var(--accent) 14%, transparent); } to { background: transparent; } }
+.composer:focus-within { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent); }
+.composer button.send { color: var(--on-accent); }
+.composer.sending { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.memorysteward { border:1px solid color-mix(in srgb, var(--accent) 52%, transparent); background:color-mix(in srgb, var(--accent) 10%, transparent); }
+.note .nkey { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.markdown blockquote { background: color-mix(in srgb, var(--agent) 5%, transparent); }
+.newnote button { color: var(--on-accent); }
+.tchip.open { background: color-mix(in srgb, var(--agent) 14%, transparent); }
+.tchip.taken { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.tchip.done { background: color-mix(in srgb, var(--human) 14%, transparent); }
+.tchip.claimed { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.tchip.resolved { background: color-mix(in srgb, var(--human) 14%, transparent); }
+.tchip.cancelled { background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.goalbar { border-bottom: 1px solid color-mix(in srgb, var(--gold) 22%, transparent); background: color-mix(in srgb, var(--gold) 3.5%, transparent); }
+.goalbar .goalmark { color: var(--gold); }
+.goalbar .goallabel { color: var(--gold); }
+.reminderstatus.on .reminderstate { border-color: color-mix(in srgb, var(--accent2) 32%, transparent); background: color-mix(in srgb, var(--accent2) 7%, transparent); }
+.reminderrecipientcontrol button.selected { background: color-mix(in srgb, var(--accent2) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent2) 27%, transparent); }
+.reminderrow:has(> input:checked) { border-color: color-mix(in srgb, var(--accent2) 25%, transparent); background: color-mix(in srgb, var(--accent2) 2.5%, transparent); }
+.reminderrow > input[type="checkbox"]:checked { border-color: color-mix(in srgb, var(--accent2) 48%, transparent); background: color-mix(in srgb, var(--accent2) 14%, transparent); }
+.reminderview #saveReminders { color: var(--on-accent); }
+.mentionpop div.sel, .mentionpop div:hover { color: var(--on-accent); }
+.jrerr { color: var(--bad); }
+.gserror { color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+
+/* ── personal appearance ─────────────────────────────────────────────── */
+/* Light theme: the few dark-only gradients keep their shape, lighter. */
+:root[data-theme="light"] .room.special { border-color: color-mix(in srgb, var(--iye) 45%, var(--line));
+  background: linear-gradient(105deg, color-mix(in srgb, var(--iye) 12%, transparent), transparent); }
+:root[data-theme="light"] .room.special:hover, :root[data-theme="light"] .room.special.active {
+  background: linear-gradient(105deg, color-mix(in srgb, var(--iye) 20%, transparent), color-mix(in srgb, var(--iye) 6%, transparent)); }
+:root[data-theme="light"] .omem .glyph.lead { text-shadow: none; }
+/* Compact density: tighter sidebar rows and feed, nothing else moves. */
+:root[data-density="compact"] .rooms { padding: 4px 0; }
+:root[data-density="compact"] .roomitem { min-height: 36px; }
+:root[data-density="compact"] .room { padding: 5px 12px 5px 13px; }
+:root[data-density="compact"] .rlabel { padding: 3px 16px; }
+:root[data-density="compact"] .omem { padding: 1px 16px; }
+:root[data-density="compact"] .feed { padding: 8px 20px 6px; gap: 3px; }
+:root[data-density="compact"] .bubble { padding: 4px 10px 3px; border-radius: 9px; }
+:root[data-density="compact"] .composer { padding: 7px 10px; }
+/* Large text: reading surfaces only, so the chrome keeps its layout. */
+:root[data-font-size="large"] .body, :root[data-font-size="large"] .row .txt,
+:root[data-font-size="large"] .composer textarea#msg { font-size: 15px; }
+:root[data-font-size="large"] .line .sender { font-size: 13px; }
+:root[data-font-size="large"] .note .nbody { font-size: 14px; }
+:root[data-font-size="large"] .wikibody { font-size: 17px; }
+@media (max-width: 760px) {
+  :root[data-density="compact"] .feed { padding-inline: 10px; }
+}
+/* Appearance block in the profile menu: real radios, styled as chips. */
+.profileappearance { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); display: grid; gap: 5px; }
+.profileappearance > small { color: var(--dim); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+.appearancerow { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; gap: 6px; }
+.appearancerow > span { color: var(--muted); font-size: 9px; }
+.appearanceopts { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.appearanceopt { position: relative; display: inline-flex; cursor: pointer; }
+.appearanceopt input { position: absolute; inset: 0; z-index: 1; margin: 0; opacity: 0; cursor: pointer; }
+.appearanceopt > span { display: inline-flex; align-items: center; min-height: 22px; padding: 2px 7px;
+  border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 9px; background: var(--panel); }
+.appearanceopt:hover > span { color: var(--txt); }
+.appearanceopt input:checked + span { border-color: var(--accent); color: var(--accent2);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel)); font-weight: 700; }
+.appearanceopt input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.appearanceopt > span.swatch { width: 22px; padding: 0; justify-content: center; border-radius: 50%;
+  border: 2px solid var(--panel2); box-shadow: 0 0 0 1px var(--line); background: var(--sw); }
+.appearanceopt input:checked + span.swatch { border-color: var(--panel2); box-shadow: 0 0 0 2px var(--txt); background: var(--sw); }
+.appearanceopt input:checked + span.swatch::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--panel2); }
+.swatch.teal { --sw: #2ee6c8; } .swatch.blue { --sw: #7aa7ff; } .swatch.violet { --sw: #b99aff; }
+.swatch.amber { --sw: #ffbe4d; } .swatch.rose { --sw: #ff7eaa; }
+:root[data-theme="light"] .swatch.teal { --sw: #00766b; } :root[data-theme="light"] .swatch.blue { --sw: #2c56cf; }
+:root[data-theme="light"] .swatch.violet { --sw: #6c3fd0; } :root[data-theme="light"] .swatch.amber { --sw: #8c5400; }
+:root[data-theme="light"] .swatch.rose { --sw: #c02460; }
+.visuallyhidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.appearancestatus { color: var(--bad); font-size: 9px; min-height: 0; }
+.appearancestatus:empty { display: none; }
+/* The closed off-canvas sidebar keeps no shadow: on the light theme it would
+   leave a grey band along the left edge of the phone layout. */
+@media (max-width: 760px) {
+  body:not(.locked):not(.sidebar-open) .side { box-shadow: none; }
+}
+/* The sign-in card floats on a light page: a softer shadow keeps its edge. */
+:root[data-theme="light"] body.locked .side { box-shadow: 0 16px 48px rgba(16,24,40,.14); }

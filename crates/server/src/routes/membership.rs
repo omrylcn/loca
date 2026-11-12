@@ -68,6 +68,44 @@ pub(crate) async fn profile_view(
     .into_response()
 }
 
+/// The caller's own appearance preferences. There is deliberately no way to
+/// name another principal: the row is always the authenticated caller's.
+pub(crate) async fn get_profile_preferences(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let Some(principal_id) = request_principal(&hub, &headers) else {
+        return (StatusCode::UNAUTHORIZED, "verified profile required").into_response();
+    };
+    Json(hub.preferences_for(&principal_id)).into_response()
+}
+
+/// Partial update: fields left out keep their value; any unknown field or
+/// value outside the allowed set rejects the whole body with 400.
+pub(crate) async fn put_profile_preferences(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    let Some(principal_id) = request_principal(&hub, &headers) else {
+        return (StatusCode::UNAUTHORIZED, "verified profile required").into_response();
+    };
+    let Ok(patch) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return (StatusCode::BAD_REQUEST, "preferences must be a JSON object").into_response();
+    };
+    match hub.update_preferences(&principal_id, &patch) {
+        Ok(preferences) => Json(preferences).into_response(),
+        Err(crate::store::PreferenceError::Invalid(reason)) => {
+            (StatusCode::BAD_REQUEST, reason).into_response()
+        }
+        Err(crate::store::PreferenceError::Storage) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not save preferences — try again",
+        )
+            .into_response(),
+    }
+}
+
 pub(crate) async fn list_profile_credentials(
     State(hub): State<Hub>,
     headers: HeaderMap,
