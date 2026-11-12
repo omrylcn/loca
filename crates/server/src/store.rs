@@ -15,7 +15,9 @@
 mod attachment_index;
 mod attachments;
 mod attention;
+mod birebir;
 pub(crate) use attachment_index::{AttachError, BlobServe};
+pub use birebir::Birebir;
 mod content;
 mod identity;
 mod memory;
@@ -607,6 +609,23 @@ impl Store {
             -- message_id FKs messages ON DELETE CASCADE, so deleting a message
             -- automatically drops its refs; the sweep then collects any blob
             -- whose global count fell to 0.
+            -- A birebir: a private loca for exactly two principals. `a` < `b`
+            -- so the pair maps to one row; the room id is derived from it.
+            -- The Master's call-in is the only third-party access, recorded
+            -- here with who called and since when; earlier history opens only
+            -- when both sides allow it.
+            CREATE TABLE IF NOT EXISTS birebirs (
+                room TEXT PRIMARY KEY,
+                a TEXT NOT NULL,
+                b TEXT NOT NULL,
+                opened_by TEXT NOT NULL,
+                opened_at INTEGER NOT NULL,
+                master_called_by TEXT,
+                master_since INTEGER,
+                history_a INTEGER NOT NULL DEFAULT 0,
+                history_b INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (a, b)
+            );
             CREATE TABLE IF NOT EXISTS attachment_refs (
                 room TEXT NOT NULL,
                 message_id INTEGER NOT NULL,

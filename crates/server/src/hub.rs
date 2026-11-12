@@ -7,8 +7,10 @@
 //! runtimes remain single-writer and replace a stale predecessor on reconnect.
 
 mod attention;
+mod birebir;
 mod work;
 
+pub use birebir::{BirebirError, BirebirView};
 pub use work::{GoalError, TaskError, WaitError};
 
 use std::collections::HashMap;
@@ -218,6 +220,8 @@ pub struct Hub {
     /// name is deleted, do not resurrect it"; it is cleared when the master
     /// explicitly opens the loca again.
     deleted: Arc<Mutex<std::collections::HashSet<String>>>,
+    /// Birebirs by room id (PRINCIPLES "Birebir"): private two-person locas.
+    birebirs: Arc<Mutex<HashMap<String, crate::store::Birebir>>>,
     next_id: Arc<AtomicU64>,
     /// Monotonic product-state generation. Wall clocks can repeat or move
     /// backwards; Attention identities must still advance after real progress.
@@ -554,6 +558,7 @@ impl Hub {
         let hub = Hub {
             rooms: Arc::new(Mutex::new(HashMap::new())),
             deleted: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            birebirs: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicU64::new(1)),
             condition_generation: Arc::new(AtomicU64::new(0)),
             now_ms: default_now_ms,
@@ -901,6 +906,16 @@ impl Hub {
                 deleted.insert(room);
             }
         }
+        {
+            let mut birebirs = hub.birebirs.lock_or_recover();
+            for b in hub
+                .store
+                .load_birebirs()
+                .expect("persistent birebirs are unreadable; refusing to start")
+            {
+                birebirs.insert(b.room.clone(), b);
+            }
+        }
         hub
     }
 
@@ -1196,6 +1211,12 @@ impl Hub {
     /// That indirection is important: revoking the original legacy bearer must
     /// close the door, while another credential of the same principal keeps
     /// the principal's inherited building-key access.
+    /// Only a davet minted for exactly this room — never the building key or
+    /// a membership. Birebirs use this narrow door.
+    fn may_enter_by_davet(&self, room: &str, token: Option<&str>) -> bool {
+        self.invite_for(room, token).is_some()
+    }
+
     pub fn may_enter(&self, room: &str, token: Option<&str>) -> bool {
         if self.invite_for(room, token).is_some() {
             return true;
@@ -1244,6 +1265,31 @@ impl Hub {
         // away in davet mode: the admin session's loca is None, so it matched no
         // loca and every room read/WS handshake 401'd.
         let credential_authority = self.resolve_authority(admin_tok, None);
+        // A birebir belongs to its two people. This comes BEFORE the rank
+        // bypass below: no Master or Smaster reaches one by rank, and nobody
+        // else learns it exists (PRINCIPLES "Birebir").
+        if let Some(b) = self.birebir(room) {
+            let principal = session
+                .and_then(|s| s.principal_id.as_deref())
+                .or(credential_authority.principal_id.as_deref());
+            if principal.is_some_and(|p| b.has(p)) {
+                return EnterDecision::Allowed;
+            }
+            // The other side may be an agent holding the davet the opener's
+            // call minted for this room, or a session taken with it.
+            if self.may_enter_by_davet(room, davet_tok)
+                || session.is_some_and(|s| s.loca.as_deref() == Some(room))
+            {
+                return EnterDecision::Allowed;
+            }
+            return EnterDecision::Denied;
+        }
+        // The birebir id space is reserved: nobody reaches (and so nobody
+        // creates by joining or posting) an ordinary loca there, so a pair's
+        // room can never be squatted with someone else's davets in it.
+        if room.starts_with(Self::BIREBIR_PREFIX) {
+            return EnterDecision::Denied;
+        }
         if credential_authority.is_building_admin() && admin_tok.is_some() {
             return EnterDecision::Allowed;
         }
@@ -2536,6 +2582,18 @@ impl Hub {
         if self.is_deleted(room) {
             return Err(PostReject::Deleted);
         }
+        let mut body = body;
+        if let Some(b) = self.birebir(room) {
+            // A side that left the building leaves the birebir read-only.
+            if self.birebir_read_only(&b) {
+                return Err(PostReject::Archived);
+            }
+            // Every word in a birebir is said to the other person: it wakes
+            // an agent listening for mentions without an `@`.
+            if body.target.is_none() {
+                body.target = self.birebir_peer_of(room, &body.sender);
+            }
+        }
         let op_id = body.op_id.filter(|id| !id.is_empty());
         if let Some(id) = op_id.as_deref() {
             match self.store.message_by_operation(room, principal, id) {
@@ -2687,39 +2745,42 @@ impl Hub {
             reply_to_sender,
             ts: self.next_condition_generation(now, r.last_msg_ms),
         };
-        let caretaker_summons: Vec<CareSignal> = if room == self.home_room.as_str() {
-            Vec::new()
-        } else {
-            self.addressed_caretakers(&msg)
-                .into_iter()
-                .map(|owner| CareSignal {
-                    id: format!("summon:{room}:{}:{owner}", msg.id),
-                    attention_id: format!("attention:{room}:summon:{}:{owner}", msg.id),
-                    // Re-home the envelope onto the caretaker's home loca (where
-                    // it is delivered) so signal.room matches the receiving
-                    // socket. The true origin travels in source_room; the
-                    // attention_id and the ledger stay keyed to the source loca.
-                    room: self.home_room.as_ref().clone(),
-                    source_room: room.to_string(),
-                    reason: CareReason::DirectSummon,
-                    audience: AttentionAudience::Person {
-                        name: owner.clone(),
-                    },
-                    owner: Some(owner.clone()),
-                    owner_principal_id: None,
-                    group: None,
-                    target: Some(owner.clone()),
-                    participants: vec![msg.sender.clone(), owner],
-                    subject: format!("{} directly summoned a caretaker", msg.sender),
-                    created_by: msg.sender.clone(),
-                    context: vec![msg.clone()],
-                    attempt: 1,
-                    at: now,
-                    escalated: false,
-                    state: protocol::ReminderState::Running,
-                })
-                .collect()
-        };
+        // Nothing leaves a birebir: a caretaker summons would copy its words
+        // into İye, where every rank reads (PRINCIPLES "Birebir").
+        let caretaker_summons: Vec<CareSignal> =
+            if room == self.home_room.as_str() || self.is_birebir(room) {
+                Vec::new()
+            } else {
+                self.addressed_caretakers(&msg)
+                    .into_iter()
+                    .map(|owner| CareSignal {
+                        id: format!("summon:{room}:{}:{owner}", msg.id),
+                        attention_id: format!("attention:{room}:summon:{}:{owner}", msg.id),
+                        // Re-home the envelope onto the caretaker's home loca (where
+                        // it is delivered) so signal.room matches the receiving
+                        // socket. The true origin travels in source_room; the
+                        // attention_id and the ledger stay keyed to the source loca.
+                        room: self.home_room.as_ref().clone(),
+                        source_room: room.to_string(),
+                        reason: CareReason::DirectSummon,
+                        audience: AttentionAudience::Person {
+                            name: owner.clone(),
+                        },
+                        owner: Some(owner.clone()),
+                        owner_principal_id: None,
+                        group: None,
+                        target: Some(owner.clone()),
+                        participants: vec![msg.sender.clone(), owner],
+                        subject: format!("{} directly summoned a caretaker", msg.sender),
+                        created_by: msg.sender.clone(),
+                        context: vec![msg.clone()],
+                        attempt: 1,
+                        at: now,
+                        escalated: false,
+                        state: protocol::ReminderState::Running,
+                    })
+                    .collect()
+            };
 
         // P0#1: an explicit direct reply re-wakes exactly the waiter it
         // answers. The trigger is deliberately strict and structured — no
@@ -3494,7 +3555,7 @@ impl Hub {
         if !actor.is_building_admin() {
             return Err(OperatorAssignmentError::AuthorityRequired);
         }
-        if self.is_deleted(room) {
+        if self.is_deleted(room) || room.starts_with(Self::BIREBIR_PREFIX) {
             return Err(OperatorAssignmentError::Conflict);
         }
         let mut rooms = self.rooms.lock_or_recover();
@@ -3567,7 +3628,11 @@ impl Hub {
         }
         let deleted = self.deleted.lock_or_recover().clone();
         let rooms = self.rooms.lock_or_recover();
-        let mut names: Vec<&String> = rooms.keys().filter(|r| !deleted.contains(*r)).collect();
+        let birebirs = self.birebirs.lock_or_recover().clone();
+        let mut names: Vec<&String> = rooms
+            .keys()
+            .filter(|r| !deleted.contains(*r) && !birebirs.contains_key(*r))
+            .collect();
         names.sort();
         for room in names {
             for (identity, (label, _, _)) in &rooms[room].members {

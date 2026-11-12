@@ -554,6 +554,28 @@ async fn main() {
             axum::routing::post(ack_care),
         )
         .route("/ws", get(ws_handler))
+        .route("/birebirs", get(list_my_birebirs).post(open_birebir_route))
+        .route(
+            "/birebirs/:room/master",
+            axum::routing::post(birebir_master_route),
+        )
+        .route("/building/birebirs", get(birebir_overview_route))
+        .route(
+            "/building/birebirs/:room/messages",
+            get(birebir_witness_route),
+        )
+        .route(
+            "/building/birebirs/:room/close",
+            axum::routing::post(birebir_close_route),
+        )
+        .route(
+            "/building/birebirs/:room/seal",
+            axum::routing::post(birebir_seal_route),
+        )
+        .route_layer(axum::middleware::from_fn_with_state(
+            hub.clone(),
+            birebir_fence,
+        ))
         .route_layer(axum::middleware::from_fn_with_state(
             hub.clone(),
             require_membership,
@@ -732,7 +754,7 @@ fn admin_console_write_allowed(headers: &HeaderMap) -> bool {
 
 async fn admin_console_state(State(hub): State<Hub>) -> impl IntoResponse {
     Json(serde_json::json!({
-        "locas": hub.room_summaries_for(|_| true),
+        "locas": hub.room_summaries_for(|room| !hub.is_birebir(room)),
         // Resident deliberately omits the mb_ membership token. The browser
         // needs names and loca occupancy, never identity credentials.
         "residents": hub.residents(),

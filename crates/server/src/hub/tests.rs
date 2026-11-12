@@ -381,7 +381,12 @@ fn a_rename_carries_the_rank_s_past_messages_but_not_a_member_s() {
     let first = say("smaster2", "with op id", Some("op-1"), "user:smaster2");
     say("smaster2", "without op id", None, "user:smaster2");
     // A member that once wore the same label is someone else.
-    say("smaster2", "a member's words", Some("op-2"), "mb:mb_someone");
+    say(
+        "smaster2",
+        "a member's words",
+        Some("op-2"),
+        "mb:mb_someone",
+    );
     let mut rx = hub.subscribe("ops").0;
 
     let actor = hub.resolve_authority(None, Some(&session));
@@ -401,7 +406,11 @@ fn a_rename_carries_the_rank_s_past_messages_but_not_a_member_s() {
             told = Some((from, to));
         }
     }
-    assert_eq!(told, Some(("smaster2".into(), "zhd".into())), "open feeds are told");
+    assert_eq!(
+        told,
+        Some(("smaster2".into(), "zhd".into())),
+        "open feeds are told"
+    );
 
     // On disk too: a restart shows the new name on the rank's messages and
     // leaves the member's untouched.
@@ -411,7 +420,10 @@ fn a_rename_carries_the_rank_s_past_messages_but_not_a_member_s() {
     assert_eq!(by_text("with op id"), "zhd");
     assert_eq!(by_text("without op id"), "zhd");
     assert_eq!(by_text("a member's words"), "smaster2");
-    assert_eq!(stored.iter().find(|m| m.id == first.id).unwrap().sender, "zhd");
+    assert_eq!(
+        stored.iter().find(|m| m.id == first.id).unwrap().sender,
+        "zhd"
+    );
 }
 
 #[test]

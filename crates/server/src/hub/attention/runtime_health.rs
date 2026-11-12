@@ -130,7 +130,12 @@ impl Hub {
         }
 
         // Davets say where a member currently sits.
+        // A birebir is nobody else's business: it never shows as "where".
+        let birebirs = self.birebirs.lock_or_recover().clone();
         for inv in self.invites.lock_or_recover().values() {
+            if birebirs.contains_key(&inv.room) {
+                continue;
+            }
             if let Some(e) = by_name.get_mut(&inv.name) {
                 if !e.locas.contains(&inv.room) {
                     e.locas.push(inv.room.clone());
@@ -142,10 +147,11 @@ impl Hub {
         // watchers are the building's own, not residents.
         let rooms = self.rooms.lock_or_recover();
         for (room, r) in rooms.iter() {
+            let private = birebirs.contains_key(room);
             for (name, _, _) in r.members.values() {
                 if let Some(e) = by_name.get_mut(name) {
                     e.online = true;
-                    if !e.locas.contains(room) {
+                    if !private && !e.locas.contains(room) {
                         e.locas.push(room.clone());
                     }
                 }

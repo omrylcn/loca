@@ -191,7 +191,13 @@ impl Hub {
     pub fn tick_care(&self) {
         let now = (self.now_ms)();
         let mut rooms = self.rooms.lock_or_recover();
-        let room_names: Vec<String> = rooms.keys().cloned().collect();
+        // A birebir raises no care: nothing it says may travel to İye.
+        let birebirs = self.birebirs.lock_or_recover().clone();
+        let room_names: Vec<String> = rooms
+            .keys()
+            .filter(|name| !birebirs.contains_key(*name))
+            .cloned()
+            .collect();
         let mut pending = Vec::new();
         for room_name in room_names {
             if rooms

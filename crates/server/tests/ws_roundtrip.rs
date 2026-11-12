@@ -1629,6 +1629,8 @@ async fn get_json(client: &reqwest::Client, url: String) -> Vec<Value> {
 mod access;
 #[path = "ws/attention.rs"]
 mod attention;
+#[path = "ws/birebir.rs"]
+mod birebir;
 #[path = "ws/content.rs"]
 mod content;
 #[path = "ws/delivery.rs"]
