@@ -98,6 +98,7 @@ const WEB_GETSTARTED: &str = include_str!("../../../web/assets/getstarted.js");
 const WEB_TOOLTIP: &str = include_str!("../../../web/assets/tooltip.js");
 const WEB_BIREBIR: &str = include_str!("../../../web/assets/birebir.js");
 const WEB_KEYS: &str = include_str!("../../../web/assets/keys.js");
+const WEB_EXTENSIONS: &str = include_str!("../../../web/assets/extensions.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
@@ -202,6 +203,9 @@ async fn main() {
         care_goal_secs: env_u32("CARE_GOAL_SECS", 0),
         care_task_secs: env_u32("CARE_TASK_SECS", 0),
         care_silence_secs: env_u32("CARE_SILENCE_SECS", 0),
+        // Absent = the legacy set: a loca auto-created by a first join keeps
+        // what every loca had before extensions could be chosen.
+        extensions: None,
     };
 
     // Boot epoch = process start time (seconds); changes every restart.
@@ -464,6 +468,15 @@ async fn main() {
                 .delete(revoke_loca_operator_route),
         )
         .route("/rooms/:id/settings", get(get_settings).put(set_settings))
+        .route("/extensions", get(extension_catalog))
+        .route(
+            "/rooms/:id/extensions",
+            get(get_extensions).put(put_extensions),
+        )
+        .route(
+            "/rooms/:id/extensions/:ext",
+            axum::routing::put(add_extension).delete(remove_extension),
+        )
         .route("/rooms/:id/moderate", get(get_mod).post(moderate))
         .route("/rooms/:id", axum::routing::delete(delete_room))
         .route("/rooms/:id/invites", get(list_invites).post(create_invite))
@@ -577,6 +590,12 @@ async fn main() {
             "/building/birebirs/:room/seal",
             axum::routing::post(birebir_seal_route),
         )
+        // Innermost: by the time it runs, the birebir fence has already
+        // answered for a birebir and the membership gate for a stranger.
+        .route_layer(axum::middleware::from_fn_with_state(
+            hub.clone(),
+            extension_fence,
+        ))
         .route_layer(axum::middleware::from_fn_with_state(
             hub.clone(),
             birebir_fence,
@@ -713,6 +732,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "tooltip.js" => Some(("text/javascript; charset=utf-8", WEB_TOOLTIP)),
         "birebir.js" => Some(("text/javascript; charset=utf-8", WEB_BIREBIR)),
         "keys.js" => Some(("text/javascript; charset=utf-8", WEB_KEYS)),
+        "extensions.js" => Some(("text/javascript; charset=utf-8", WEB_EXTENSIONS)),
         _ => None,
     };
     match asset {

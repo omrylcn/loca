@@ -1637,6 +1637,8 @@ mod content;
 mod delivery;
 #[path = "ws/downloads.rs"]
 mod downloads;
+#[path = "ws/extensions.rs"]
+mod extensions;
 #[path = "ws/keys.rs"]
 mod keys;
 #[path = "ws/membership.rs"]

@@ -215,6 +215,7 @@ async function saveWikiPageEdit() {
 }
 
 async function fetchWiki() {
+  if (!extensionOn("wiki")) return;
   const room = state.room, context = state.locaContext;
   const sequence = ++wikiFetchSequence;
   const current = () => room === state.room && context === state.locaContext && sequence === wikiFetchSequence;

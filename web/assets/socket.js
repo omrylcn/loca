@@ -187,14 +187,12 @@ function joinRoom(room) {
   $("memoryDecisionInput").value = "";
   $("notesDot").classList.remove("on");
   refreshRooms();
-  fetchNotes();
-  if (state.tab === "wiki") fetchWiki();
   fetchMemory();
   fetchMode();
-  fetchSettings();
+  // Settings first: they say which extensions exist here, and nothing is
+  // asked of an extension this loca has off.
+  fetchExtensionData();
   fetchMod();
-  fetchTasks();
-  fetchJournal();
   fetchSeated();
   fetchLobby();
   fetchProfile();

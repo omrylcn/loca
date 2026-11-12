@@ -22,6 +22,7 @@ test("Smaster browser login derives Building authority from its credential", asy
   expect(profile.loca.building_management).toBe(true);
   await page.locator("#newRoomName").fill("deputy-created-loca");
   await page.locator("#newRoomBtn").click();
+  await page.locator("#extCreateSubmit").click();
   await expect.poll(() => page.evaluate(() => state.room)).toBe("deputy-created-loca");
   await expect.poll(() => page.evaluate(() => state.profile?.loca?.operator_source)).toBe("appointed");
   const appointed = await (await request.get("/rooms/deputy-created-loca/operators", {

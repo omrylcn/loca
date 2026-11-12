@@ -117,6 +117,7 @@ function renderSettings() {
   $("msg").disabled = arch;
   $("msg").placeholder = arch ? "this loca is closed — read-only" : "say it to the table…  (Enter = send · Shift+Enter = new line)";
   renderDoor();
+  applyLocaExtensions();
 }
 
 // The door bar: a Building rank watching a loca sees that it is outside the
@@ -355,7 +356,7 @@ function renderOperatorControls() {
   const allowed = !!state.room && isLocaOperator();
   $("adminbar").classList.toggle("on", allowed);
   $("adminToggle").classList.toggle("hidden", !allowed);
-  $("liveToggle").classList.toggle("hidden", !allowed);
+  $("liveToggle").classList.toggle("hidden", !allowed || !extensionOn("live"));
   $("opsList").closest(".propertyfield").classList.toggle("hidden", !isAdmin());
   for (const id of ["closeLocaBtn", "reopenLocaBtn", "sealLocaBtn"]) {
     $(id).disabled = !isAdmin();

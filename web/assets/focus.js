@@ -1,7 +1,7 @@
 "use strict";
 // Journal, goals, tasks, waits, and bounded reminders.
 async function fetchJournal() {
-  if (!state.room) return;
+  if (!state.room || !extensionOn("journal")) return;
   try {
     const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(state.room)}/journal`, { headers: adminHeaders({}) });
     if (!r.ok) return;
@@ -14,9 +14,13 @@ async function fetchTasks() {
   const room = state.room;
   if (!room) return;
   try {
+    // Tasks and goals are the Focus extension; attentions and waits are care
+    // and stay on in every loca.
+    const focus = extensionOn("focus");
+    const none = { ok: true, json: async () => [] };
     const [r, g, a, w] = await Promise.all([
-      fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/tasks`, { headers: adminHeaders({}) }),
-      fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/goals`, { headers: adminHeaders({}) }),
+      focus ? fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/tasks`, { headers: adminHeaders({}) }) : none,
+      focus ? fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/goals`, { headers: adminHeaders({}) }) : none,
       fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/attentions`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/waits`, { headers: adminHeaders({}) }),
     ]);

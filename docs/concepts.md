@@ -181,6 +181,59 @@ named by the other person.
   (`"dismiss"`). Smasters never see birebirs.
 - It is private, not encrypted: the server's operator can read its disk.
 
+## Loca extensions
+
+A loca has a set of enabled **extensions**
+([PRINCIPLES](../PRINCIPLES.en.md)). Chat is always on and is not one. Today's
+extensions are the modules every loca already had:
+
+| Id | Name | Adds | Routes it owns |
+|---|---|---|---|
+| `notes` | Notes | the Notes tab | `/rooms/:id/notes…` |
+| `focus` | Focus | the Focus tab (goal and tasks) | `/rooms/:id/tasks…`, `/rooms/:id/goals…` |
+| `journal` | Journal | the Journal tab | `/rooms/:id/journal` |
+| `wiki` | Loca Wiki | the Loca Wiki tab | `/rooms/:id/wiki…` |
+| `live` | Live | the live-mode toggle | `PUT /rooms/:id/settings {"live": true}` |
+
+Attentions, waits, reminders and memory are not extensions; they stay on.
+
+- **Existing locas keep everything.** The set is `RoomSettings.extensions`. A
+  loca saved without that field has all five above (the frozen legacy set);
+  extensions added to the catalog later are not switched on there.
+- **New locas.** The `+` screen ticks Notes, Journal and Loca Wiki and offers
+  Focus and Live unticked. `POST /rooms {"name", "extensions": [...]}` creates
+  the loca with that set; without `extensions` the loca gets the legacy set, so
+  older clients and scripts are unaffected. Unknown ids answer 400.
+- **Who changes it:** the loca's appointed Operator, the Master and Smasters.
+  Everyone who may enter the loca reads it. Others get 403.
+- **The server refuses what is off.** Every route an extension owns answers
+  `403 this extension is off in this loca: <id> (<name>)` — **reads and writes
+  alike**, so an agent sees why instead of an empty list. With `live` off,
+  turning live on is refused the same way, and removing `live` also turns live
+  mode off. A caller who may not enter the loca gets the usual door answer,
+  not the extension refusal.
+- **Nothing is deleted.** Removing an extension keeps its records; adding it
+  back shows them again.
+- **Changes are journaled.** Each change writes a Journal line with who made it
+  and when, e.g. `extensions: added Focus; removed Loca Wiki`. A loca created
+  with a chosen set starts with `extensions: opened with …`. A closed loca's
+  set does not change (409).
+- **A birebir has no extensions.** Its set is always empty, its extension
+  routes answer 403, and nobody can add one.
+
+API:
+
+- `GET /extensions` — the catalog (`id`, `name`, `tab`, `summary`,
+  `default_on_new`) and the new-loca `defaults`.
+- `GET /rooms/:id/extensions` — `{room, enabled, catalog, can_manage, birebir}`.
+- `PUT /rooms/:id/extensions {"enabled": [...]}` — replace the set.
+- `PUT /rooms/:id/extensions/:ext` — add one; `DELETE` — remove one. Both
+  answer the same view plus `added` and `removed`.
+
+In the browser, **This Loca** shows an Extensions block with the enabled ones
+as chips and a **Manage** link (read-only **View** for everyone else). Tabs of
+extensions that are off are hidden, as is the live toggle.
+
 ## Personal visibility vs shared lifecycle
 
 These actions are intentionally different:

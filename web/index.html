@@ -427,6 +427,38 @@
     </div>
   </main>
 
+  <!-- Open a new loca: its name and the extensions it starts with. -->
+  <div class="extoverlay hidden" id="extCreate" role="dialog" aria-modal="true" aria-labelledby="extCreateTitle">
+    <button class="extbackdrop" id="extCreateBackdrop" type="button" aria-label="Cancel" tabindex="-1"></button>
+    <form class="extcard" id="extCreateForm" novalidate>
+      <h2 id="extCreateTitle">Open a new loca</h2>
+      <label class="extfield" for="extCreateName"><span>Name</span>
+        <input id="extCreateName" maxlength="128" autocomplete="off" placeholder="e.g. release-14" /></label>
+      <div class="extsection">
+        <div class="extsectionhead">Extensions</div>
+        <div class="extgroup"><div class="extgrouplabel">Default</div><div id="extCreateDefault"></div></div>
+        <div class="extgroup"><div class="extgrouplabel">Add</div><div id="extCreateAdd"></div></div>
+      </div>
+      <p class="exttabs" id="extCreateTabs" aria-live="polite"></p>
+      <div class="exterror" id="extCreateError" role="alert"></div>
+      <div class="extactions">
+        <button type="button" class="btn" id="extCreateCancel">Cancel</button>
+        <button type="submit" class="btn primary" id="extCreateSubmit">Create loca</button>
+      </div>
+    </form>
+  </div>
+  <!-- This Loca › Extensions: the same list, Added / Add for those who may change it. -->
+  <div class="extoverlay hidden" id="extManage" role="dialog" aria-modal="true" aria-labelledby="extManageTitle">
+    <button class="extbackdrop" id="extManageBackdrop" type="button" aria-label="Close" tabindex="-1"></button>
+    <div class="extcard">
+      <h2 id="extManageTitle">Extensions <small># <span id="extManageRoom"></span></small></h2>
+      <div class="extlist" id="extManageList"></div>
+      <p class="extnote" id="extManageNote"></p>
+      <div class="exterror" id="extManageError" role="alert"></div>
+      <div class="extactions"><button type="button" class="btn" id="extManageClose">Close</button></div>
+    </div>
+  </div>
+
   <!-- GETTING STARTED: first-open guide; reopen from the ? Help button (top-left). -->
   <div class="gsoverlay hidden" id="gsOverlay" role="dialog" aria-modal="true" aria-labelledby="gsTitle">
     <button class="gsbackdrop" id="gsBackdrop" aria-label="Close guide" tabindex="-1"></button>
@@ -532,6 +564,7 @@
 <script src="/assets/wiki.js"></script>
 <script src="/assets/profile.js"></script>
 <script src="/assets/sidebar.js"></script>
+<script src="/assets/extensions.js"></script>
 <script src="/assets/api.js"></script>
 <script src="/assets/app.js"></script>
 <script src="/assets/joinrequest.js"></script>

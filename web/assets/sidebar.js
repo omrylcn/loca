@@ -209,7 +209,8 @@ function renderLocaSidebar() {
       `<div><dt>Operator</dt><dd>${esc(operator)}${operatorSource ? `<small>${esc(operatorSource)}</small>` : ""}</dd></div>` +
       `<div><dt>Lead</dt><dd>${esc(lead)}</dd></div>` +
       `<div><dt>Your role</dt><dd>${esc(myRole)}</dd></div>` +
-    `</dl>`;
+    `</dl>` +
+    locaExtensionsBlock();
 }
 
 async function fetchLocaSidebar() {
@@ -220,6 +221,7 @@ async function fetchLocaSidebar() {
     renderLocaSidebar();
     return;
   }
+  fetchLocaExtensions();
   try {
     const response = await fetch(
       `${serverBase()}/rooms/${encodeURIComponent(room)}/operators`,

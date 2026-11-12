@@ -8,10 +8,12 @@
 
 mod attention;
 mod birebir;
+mod extensions;
 mod keys;
 mod work;
 
 pub use birebir::{BirebirError, BirebirView};
+pub use extensions::{normalize_extensions, ExtensionError};
 pub use keys::KeyRevokeError;
 pub use work::{GoalError, TaskError, WaitError};
 
@@ -3579,10 +3581,15 @@ impl Hub {
         self.store.loca_operator(room)
     }
 
+    /// Open a loca. `extensions` is the chosen set (already normalized by the
+    /// caller); `None` keeps the legacy set, so an older client that sends
+    /// only a name gets the loca it always got. A chosen set is written to the
+    /// new loca's Journal.
     pub fn create_loca(
         &self,
         room: &str,
         actor: &RequestAuthority,
+        extensions: Option<Vec<String>>,
     ) -> Result<Option<LocaOperatorAssignment>, OperatorAssignmentError> {
         if !actor.is_building_admin() {
             return Err(OperatorAssignmentError::AuthorityRequired);
@@ -3590,6 +3597,8 @@ impl Hub {
         if self.is_deleted(room) || room.starts_with(Self::BIREBIR_PREFIX) {
             return Err(OperatorAssignmentError::Conflict);
         }
+        let mut settings = self.default_settings.clone();
+        settings.extensions = extensions.clone();
         let mut rooms = self.rooms.lock_or_recover();
         if rooms.contains_key(room) {
             return Err(OperatorAssignmentError::Conflict);
@@ -3601,21 +3610,33 @@ impl Hub {
                 .ok_or(OperatorAssignmentError::AuthorityRequired)?;
             Some(
                 self.store
-                    .create_room_with_operator(room, &self.default_settings, founder, self.now())
+                    .create_room_with_operator(room, &settings, founder, self.now())
                     .map_err(map_loca_operator_error)?,
             )
         } else {
             // The deliberately open sandbox has no authenticated founder. It
             // may still use SQLite to preserve its room state across restarts.
             self.store
-                .save_room(room, &ChatMode::Free, &self.default_settings)
+                .save_room(room, &ChatMode::Free, &settings)
                 .map_err(|_| OperatorAssignmentError::Storage)?;
             None
         };
-        rooms.insert(
-            room.to_string(),
-            Room::with(ChatMode::Free, self.default_settings.clone(), 1),
-        );
+        rooms.insert(room.to_string(), Room::with(ChatMode::Free, settings, 1));
+        drop(rooms);
+        if let Some(chosen) = extensions {
+            let by = actor
+                .display_name
+                .clone()
+                .unwrap_or_else(|| "master".to_string());
+            let kind = actor.kind.unwrap_or(SenderType::User);
+            // The loca exists either way; a lost Journal line is logged, not
+            // turned into a failed create the caller would retry into 409.
+            if let Err(error) =
+                self.append_journal(room, by, kind, extensions::opened_line(&chosen))
+            {
+                tracing::error!(room, %error, "could not journal the opening extensions");
+            }
+        }
         Ok(assignment)
     }
 
