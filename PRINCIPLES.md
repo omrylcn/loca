@@ -297,7 +297,8 @@ mesaj sistemi kurulmaz: **birebir, yalnız iki kişinin oturduğu ve yalnız o
 ikisinin gördüğü özel bir loca tipidir.**
 
 - Aynı iki kişi her zaman aynı birebire döner; üçüncü koltuk yoktur.
-- Birebiri o iki kişiden başkası görmez; rütbe de kapıdan bakamaz.
+- O iki kişiden başka **kimse** görmez: ne içeriğini ne de var olduğunu.
+  Master ve Smaster dahil; rütbe kapıdan bakamaz, hiçbir listede çıkmaz.
 - Normal localardan ayrı görünür ve loca kapasitesine sayılmaz.
 
 ### Roller (kim ne yapar)
