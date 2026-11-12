@@ -122,12 +122,10 @@ test("This Loca › Extensions shows chips and Manage changes the tabs; a partic
   const reader = await browser.newPage();
   await reader.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
   await reader.goto("/");
-  await reader.evaluate(({ room, name, token }) => {
-    state.name = name; state.session = token; state.authStatus = "authenticated";
-    state.adminSession = false; state.roomToken = "";
-    document.body.classList.remove("locked");
-    joinRoom(room);
-  }, { room, name, token: session.session_token });
+  await reader.locator("#name").fill(name);
+  await reader.locator("#roomToken").fill(invite.token);
+  await reader.evaluate((room) => window.doConnect(room), room);
+  await expect(reader.locator("#curRoom")).toHaveText(room);
   await expect.poll(() => reader.evaluate(() => state.ws?.readyState)).toBe(1);
   await expect.poll(() => visibleTabs(reader)).toEqual(["Chat", "Journal", "Loca Wiki"]);
   await reader.locator("#sideLocaTab").click();
