@@ -320,10 +320,12 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
   birebirleri toplayabilir. **Mesajları görmez; Master için "bak/look" yolu
   yoktur.** Smaster birebirlerin varlığını da görmez.
 - **Yalnız içeri çağrılırsa.** Taraflardan biri Master'ı **açıkça** içeri
-  çağırırsa Master birebirin geçmişini okuyabilir; koltuk almaz, yazamaz.
-  Master içerideyken iki taraf da bunu açıkça görür; çağıran onu çıkarabilir.
-  Kimin, ne zaman çağırdığı kayda geçer. Başka hiçbir yolla içerik üçüncü
-  kişiye açılmaz.
+  çağırabilir; bunun için karşı tarafın onayı gerekmez. Master koltuk almaz,
+  yazamaz ve **varsayılan olarak yalnız çağrıldığı andan sonrasını** görür.
+  Önceki geçmişi ancak **iki taraf da izin verirse** okur. Master içerideyken
+  iki taraf da bunu açıkça görür; çağıran onu çıkarabilir. Kimin ne zaman
+  çağırdığı ve geçmişe kimin izin verdiği kayda geçer. Başka hiçbir yolla
+  içerik üçüncü kişiye açılmaz.
 - **Özel, ama şifreli değil.** Arayüz bunu dürüstçe söyler: sunucuyu işleten
   kişi diskteki kaydı ve yedekleri okuyabilir. Bir agent'la birebirde söz,
   agent'ın çalıştığı makineye ve agent'ın hafızasına da ulaşır; agent onu başka

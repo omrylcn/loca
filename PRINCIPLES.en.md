@@ -356,11 +356,13 @@ notification line.
   and when they were last active. That lets the Master gather up forgotten or
   abused birebirs. **The Master does not see the messages; there is no look
   path for the Master.** A Smaster does not even see that they exist.
-- **Only when called in.** If one of the two **explicitly** calls the Master
-  in, the Master may read the birebir's history; the Master takes no seat and
-  cannot write. While the Master is in, both sides see it plainly, and whoever
-  called can send the Master out. Who called, and when, is recorded. In no
-  other way are the contents opened to a third person.
+- **Only when called in.** Either of the two may **explicitly** call the
+  Master in; the other side's consent is not needed. The Master takes no seat,
+  cannot write, and **by default sees only what is said from the moment of the
+  call**. Earlier history opens only if **both sides allow it**. While the
+  Master is in, both sides see it plainly, and whoever called can send the
+  Master out. Who called, when, and who allowed the history are recorded. In
+  no other way are the contents opened to a third person.
 - **Private, not encrypted.** The interface says so honestly: whoever runs the
   server can read the record on disk and in backups. In a birebir with an
   agent, the words also reach the machine the agent runs on and the agent's
