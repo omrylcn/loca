@@ -41,6 +41,8 @@ pub enum NotificationError {
     ArchivedGroup,
     /// Nobody chosen.
     NoAudience,
+    /// The chosen audience holds nobody but the sender.
+    NoRecipients,
     /// Title or body out of bounds.
     InvalidTitle,
     InvalidBody,
@@ -61,6 +63,7 @@ impl NotificationError {
             Self::NoSuchGroup => "no such group",
             Self::ArchivedGroup => "this group is archived",
             Self::NoAudience => "choose who receives it: everyone or one or more groups",
+            Self::NoRecipients => "nobody but you is in that audience yet",
             Self::InvalidTitle => "a title is 1-120 characters of plain text on one line",
             Self::InvalidBody => "a body is at most 2000 characters of plain text",
             Self::NotFound => "no such notification",
@@ -194,11 +197,17 @@ impl Hub {
             };
         };
         let everyone = viewer.is_master();
+        let me = viewer.principal_id.as_deref();
         let groups: Vec<AudienceGroup> = self
             .addressable_groups(viewer)
             .into_iter()
             .map(|g| AudienceGroup {
-                members: g.members.len(),
+                // Who it would reach: the sender never notifies itself.
+                members: g
+                    .members
+                    .iter()
+                    .filter(|m| Some(m.principal_id.as_str()) != me)
+                    .count(),
                 id: g.id,
                 name: g.name,
             })
@@ -267,6 +276,9 @@ impl Hub {
             }
         };
         let recipients: Vec<String> = recipients.into_iter().filter(|p| p != &sender_id).collect();
+        if recipients.is_empty() {
+            return Err(NotificationError::NoRecipients);
+        }
         let created_at = self.now();
         let id = self
             .store

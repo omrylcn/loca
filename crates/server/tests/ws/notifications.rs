@@ -473,7 +473,23 @@ async fn a_smaster_notifies_only_its_own_groups_and_audiences_freeze() {
         .map(|g| g["name"].as_str().unwrap())
         .collect();
     assert_eq!(names, vec!["platform"]);
-    assert_eq!(opts["groups"][0]["members"], 3, "kaan, ali, bot");
+    assert_eq!(
+        opts["groups"][0]["members"], 2,
+        "ali, bot — never kaan itself"
+    );
+
+    // A group holding only its founder reaches nobody: refused, not stored.
+    let solo = found_group(&base, &kaan, "solo", &[]).await;
+    let (status, v) = notify(
+        &base,
+        Who::Session(&kaan),
+        "Nobody",
+        serde_json::json!({ "groups": [solo] }),
+    )
+    .await;
+    assert_eq!(status, 409, "{v}");
+    let (_, mine) = get(format!("{base}/notifications/sent"), Who::Session(&kaan)).await;
+    assert_eq!(mine, serde_json::json!([]));
 
     let (status, sent) = notify(
         &base,

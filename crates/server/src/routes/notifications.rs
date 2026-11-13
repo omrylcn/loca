@@ -15,7 +15,7 @@ fn notification_error(error: hub::NotificationError) -> axum::response::Response
         Unauthenticated => StatusCode::UNAUTHORIZED,
         RankRequired | NoGroup | MasterOnly => StatusCode::FORBIDDEN,
         NoSuchGroup | NotFound => StatusCode::NOT_FOUND,
-        ArchivedGroup => StatusCode::CONFLICT,
+        ArchivedGroup | NoRecipients => StatusCode::CONFLICT,
         NoAudience | InvalidTitle | InvalidBody => StatusCode::BAD_REQUEST,
         Unavailable | Storage => StatusCode::SERVICE_UNAVAILABLE,
     };

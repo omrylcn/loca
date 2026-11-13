@@ -134,6 +134,8 @@ function ensureNotifPanel() {
 async function openNotifPanel() {
   const n = state.notif;
   const panel = ensureNotifPanel();
+  // On a phone the panel is a sheet of its own: put the drawer away first.
+  if (window.matchMedia("(max-width: 760px)").matches) setMobileSidebar(false);
   n.open = true;
   panel.classList.remove("hidden");
   $("notifBell").setAttribute("aria-expanded", "true");
@@ -196,7 +198,7 @@ function notifItemHtml(x) {
 }
 
 function notifSentHtml(x) {
-  return `<li class="notifitem" data-notif-sent="${x.id}">` +
+  return `<li class="notifitem sent" data-notif-sent="${x.id}">` +
     `<div class="notifitemhead"><b class="notiftitle">${esc(x.title)}</b></div>` +
     `<div class="notifmeta"><span>to ${esc(notifAudienceLabel(x.audience))}</span><span aria-hidden="true">·</span>` +
       `<time datetime="${new Date(x.created_at).toISOString()}" title="${esc(fmtFull(x.created_at))}">${esc(notifWhen(x.created_at))}</time></div>` +
