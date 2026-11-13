@@ -578,6 +578,7 @@ async fn main() {
         )
         .route("/ws", get(ws_handler))
         .route("/birebirs", get(list_my_birebirs).post(open_birebir_route))
+        .route("/birebirs/candidates", get(birebir_candidates_route))
         .route(
             "/birebirs/:room/master",
             axum::routing::post(birebir_master_route),

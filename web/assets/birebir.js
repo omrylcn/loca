@@ -50,7 +50,7 @@ function renderBirebirList() {
     .filter(b => !hidden.has(b.room) || Number(state.unread[b.room] || 0) > 0)
     .sort((a, b) => Number(state.roomLatest[b.room] || 0) - Number(state.roomLatest[a.room] || 0));
   $("dmSection").classList.toggle("empty", !rows.length);
-  list.innerHTML = rows.length ? "" : `<div class="dmhint">Message someone from their row in a loca.</div>`;
+  list.innerHTML = rows.length ? "" : `<div class="dmhint">Press + to write to someone privately.</div>`;
   for (const b of rows) {
     const unread = Number(state.unread[b.room] || 0);
     const el = document.createElement("button");
@@ -230,3 +230,55 @@ $("birebirBar").addEventListener("click", (event) => {
   if (button) birebirMasterAction(button.dataset.bb);
 });
 $("birebirOverview").addEventListener("click", birebirOverviewClick);
+
+// "New message": pick a person and open (or return to) the pair's birebir,
+// without going through the Building view. The server decides who is
+// eligible: ranks reach anyone, members their tablemates.
+let dmCandidatesCache = [];
+async function openDmPicker(open) {
+  const picker = $("dmPicker");
+  const show = open ?? picker.classList.contains("hidden");
+  picker.classList.toggle("hidden", !show);
+  $("dmNew").setAttribute("aria-expanded", String(show));
+  if (!show) return;
+  $("dmSearch").value = "";
+  $("dmCandidates").innerHTML = `<div class="dmhint">loading…</div>`;
+  try {
+    const r = await fetch(`${serverBase()}/birebirs/candidates`, { headers: adminHeaders({}) });
+    dmCandidatesCache = r.ok ? await r.json() : [];
+  } catch (e) {
+    dmCandidatesCache = [];
+  }
+  renderDmCandidates();
+  $("dmSearch").focus();
+}
+
+function renderDmCandidates() {
+  const q = $("dmSearch").value.trim().toLowerCase();
+  const rows = dmCandidatesCache.filter(c => !q || c.name.toLowerCase().includes(q));
+  $("dmCandidates").innerHTML = rows.length
+    ? rows.map(c => {
+      const glyph = c.kind === "agent" ? "*" : ".";
+      const badge = c.role === "member" ? "" : rankBadge(c.role);
+      return `<button type="button" class="dmcand" role="option" data-dm-pick="${esc(c.name)}">` +
+        `<span class="glyph ${esc(c.kind)}">${glyph}</span><span class="dmcandname">${esc(c.name)}</span>${badge}</button>`;
+    }).join("")
+    : `<div class="dmhint">${dmCandidatesCache.length ? "nobody by that name" : "nobody to write to yet — sit at a loca with someone first"}</div>`;
+}
+
+$("dmNew").addEventListener("click", () => openDmPicker());
+$("dmSearch").addEventListener("input", () => renderDmCandidates());
+$("dmSearch").addEventListener("keydown", (event) => {
+  if (event.key === "Escape") { openDmPicker(false); $("dmNew").focus(); }
+  if (event.key === "Enter") {
+    const first = $("dmCandidates").querySelector("[data-dm-pick]");
+    if (first) first.click();
+  }
+});
+$("dmCandidates").addEventListener("click", (event) => {
+  const pick = event.target.closest("[data-dm-pick]");
+  if (!pick) return;
+  openDmPicker(false);
+  setMobileSidebar(false);
+  openBirebir(pick.dataset.dmPick);
+});

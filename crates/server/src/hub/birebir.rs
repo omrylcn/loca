@@ -67,6 +67,14 @@ pub struct BirebirOverview {
     pub history_open: bool,
 }
 
+/// Someone the caller may write to privately.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BirebirCandidate {
+    pub name: String,
+    pub kind: SenderType,
+    pub role: &'static str,
+}
+
 /// What a party sees about its own birebir.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct BirebirView {
@@ -128,6 +136,40 @@ impl Hub {
                 && names.contains(a)
                 && names.contains(b)
         })
+    }
+
+    /// Everyone the caller may open a birebir with, by the same rule as
+    /// `open_birebir`: a rank reaches anyone (ranks included), a member only
+    /// someone at a shared table; an agent opens none.
+    pub fn birebir_candidates(&self, opener: &SessionIdentity) -> Vec<BirebirCandidate> {
+        if opener.kind != SenderType::User {
+            return Vec::new();
+        }
+        let Some(me) = opener.principal_id.as_deref() else {
+            return Vec::new();
+        };
+        let rank = matches!(
+            opener.building_role,
+            crate::store::BuildingRole::Master | crate::store::BuildingRole::Smaster
+        );
+        let mut out: Vec<BirebirCandidate> = self
+            .store
+            .active_principals()
+            .into_iter()
+            .filter(|p| p.id != me)
+            .filter(|p| rank || self.shares_a_table(&opener.name, &p.display_name))
+            .map(|p| BirebirCandidate {
+                name: p.display_name,
+                kind: p.kind,
+                role: match p.role {
+                    crate::store::BuildingRole::Master => "master",
+                    crate::store::BuildingRole::Smaster => "smaster",
+                    crate::store::BuildingRole::Member => "member",
+                },
+            })
+            .collect();
+        out.sort_by(|a, b| (a.role == "member", &a.name).cmp(&(b.role == "member", &b.name)));
+        out
     }
 
     /// Open (or return) the birebir between the caller and `peer_name`.

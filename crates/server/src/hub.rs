@@ -12,7 +12,7 @@ mod extensions;
 mod keys;
 mod work;
 
-pub use birebir::{BirebirError, BirebirView};
+pub use birebir::{BirebirCandidate, BirebirError, BirebirView};
 pub use extensions::{normalize_extensions, ExtensionError};
 pub use keys::KeyRevokeError;
 pub use work::{GoalError, TaskError, WaitError};

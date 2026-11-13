@@ -520,3 +520,157 @@ async fn a_birebir_with_an_agent_reaches_it_by_davet_and_survives_a_restart() {
     assert_eq!(status, 200, "a party still reads after restart");
     assert!(texts(&read).contains(&"hello worker".to_string()));
 }
+
+#[tokio::test]
+async fn ranks_write_to_each_other_and_members_only_to_tablemates() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("birebir-candidates.db");
+    let (port, _guard) = spawn_server_env(
+        MASTER,
+        &[
+            ("DB_PATH", db.to_str().unwrap().into()),
+            ("REQUIRE_SESSIONS", "1".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let smaster = |name: &'static str| {
+        let base = base.clone();
+        async move {
+            let key: Value = reqwest::Client::new()
+                .post(format!("{base}/smasters"))
+                .header("x-admin-token", MASTER)
+                .json(&serde_json::json!({ "name": name }))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            session(
+                &base,
+                ("x-admin-token", key["token"].as_str().unwrap()),
+                name,
+                "user",
+            )
+            .await
+        }
+    };
+    let sa = smaster("rank-a").await;
+    let sb = smaster("rank-b").await;
+    let pairing: Value = reqwest::Client::new()
+        .post(format!("{base}/pairings?ttl_hours=1"))
+        .header("x-admin-token", MASTER)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let master = session(
+        &base,
+        ("x-pairing-code", pairing["pairing_code"].as_str().unwrap()),
+        "",
+        "user",
+    )
+    .await;
+    let ayse_key = member(&base, "cand-ayse", "user").await;
+    let mehmet_key = member(&base, "cand-mehmet", "user").await;
+    member(&base, "cand-lone", "user").await;
+    let bot_key = member(&base, "cand-bot", "agent").await;
+    create_test_room(port, MASTER, "cand-team").await;
+    seat(&base, "cand-team", "cand-ayse").await;
+    seat(&base, "cand-team", "cand-mehmet").await;
+    let ayse = session(&base, ("x-room-token", &ayse_key), "cand-ayse", "user").await;
+    let bot = session(&base, ("x-room-token", &bot_key), "cand-bot", "agent").await;
+    let _ = mehmet_key;
+
+    let names = |v: &Value| -> Vec<String> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    // A rank sees everyone, other ranks included; never itself.
+    let (status, list) = call(
+        reqwest::Method::GET,
+        format!("{base}/birebirs/candidates"),
+        &sa,
+        None,
+    )
+    .await;
+    assert_eq!(status, 200);
+    let l = names(&list);
+    assert!(l.contains(&"rank-b".to_string()) && l.contains(&"cand-lone".to_string()));
+    assert!(!l.contains(&"rank-a".to_string()));
+    // A member sees only tablemates; an agent sees nobody.
+    let (_, list) = call(
+        reqwest::Method::GET,
+        format!("{base}/birebirs/candidates"),
+        &ayse,
+        None,
+    )
+    .await;
+    assert_eq!(names(&list), vec!["cand-mehmet".to_string()]);
+    let (_, list) = call(
+        reqwest::Method::GET,
+        format!("{base}/birebirs/candidates"),
+        &bot,
+        None,
+    )
+    .await;
+    assert!(names(&list).is_empty());
+
+    // Smaster↔Smaster and Smaster↔Master open without a shared loca.
+    let open = |who: String, name: &'static str| {
+        let base = base.clone();
+        async move {
+            call(
+                reqwest::Method::POST,
+                format!("{base}/birebirs"),
+                &who,
+                Some(serde_json::json!({ "name": name })),
+            )
+            .await
+        }
+    };
+    assert_eq!(open(sa.clone(), "rank-b").await.0, 201);
+    let master_name = {
+        let (_, list) = call(
+            reqwest::Method::GET,
+            format!("{base}/birebirs/candidates"),
+            &sa,
+            None,
+        )
+        .await;
+        list.as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["role"] == "master")
+            .unwrap()["name"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let (status, _) = call(
+        reqwest::Method::POST,
+        format!("{base}/birebirs"),
+        &sb,
+        Some(serde_json::json!({ "name": master_name })),
+    )
+    .await;
+    assert_eq!(status, 201, "a Smaster writes to the Master");
+    let (_, mine) = call(
+        reqwest::Method::GET,
+        format!("{base}/birebirs"),
+        &master,
+        None,
+    )
+    .await;
+    assert_eq!(
+        mine.as_array().unwrap().len(),
+        1,
+        "the Master sees the birebir it is part of"
+    );
+}

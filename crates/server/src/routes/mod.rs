@@ -36,8 +36,9 @@ pub(crate) use attention::{
     resolve_attention,
 };
 pub(crate) use birebir::{
-    birebir_close_route, birebir_fence, birebir_master_route, birebir_overview_route,
-    birebir_seal_route, birebir_witness_route, list_my_birebirs, open_birebir_route,
+    birebir_candidates_route, birebir_close_route, birebir_fence, birebir_master_route,
+    birebir_overview_route, birebir_seal_route, birebir_witness_route, list_my_birebirs,
+    open_birebir_route,
 };
 pub(crate) use content::{
     append_long_memory, caretaker_memory, create_note, delete_note, get_journal, get_loca_memory,

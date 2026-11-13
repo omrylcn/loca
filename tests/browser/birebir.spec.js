@@ -95,3 +95,19 @@ test("a birebir is seen by its two only; the Master sees that it exists and read
   await expect(sb.locator("#birebirBar")).toContainText("Only you and bb-sa see this");
   for (const p of [sa, sb, other, master]) await p.close();
 });
+
+test("New message: a Smaster writes to another Smaster without sharing a loca", async ({ browser, request }) => {
+  const sa = await openAs(browser, await rankSession(request, "nm-sa"), "nm-sa");
+  await rankSession(request, "nm-sb");
+  await sa.locator("#dmNew").click();
+  await expect(sa.locator("#dmPicker")).toBeVisible();
+  await sa.locator("#dmSearch").fill("nm-s");
+  await expect(sa.locator("#dmCandidates")).toContainText("nm-sb");
+  await expect(sa.locator("#dmCandidates")).not.toContainText("nm-sa");
+  await sa.screenshot({ path: "/tmp/claude-1006/-home-oyalcin-loca/0d455432-5c92-4bce-86be-4b93055f84cc/scratchpad/dm-picker-1280.png" });
+  await sa.locator("#dmCandidates [data-dm-pick='nm-sb']").click();
+  await expect.poll(() => sa.evaluate(() => isBirebir(state.room))).toBe(true);
+  await expect(sa.locator("#curRoom")).toHaveText("nm-sb");
+  await expect(sa.locator("#dmPicker")).toBeHidden();
+  await sa.close();
+});

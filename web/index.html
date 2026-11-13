@@ -63,7 +63,11 @@
         <div id="roomList"></div>
       </div>
       <div class="rooms dmsection" id="dmSection">
-        <div class="rlabel">MESSAGES</div>
+        <div class="rlabel dmhead"><span>MESSAGES</span><button type="button" class="dmnew" id="dmNew" aria-expanded="false" aria-controls="dmPicker" aria-label="New private message" data-tip="New message" data-tip-detail="Write to one person privately."><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+        <div class="dmpicker hidden" id="dmPicker">
+          <input id="dmSearch" type="search" placeholder="who?" aria-label="Find a person" autocomplete="off" />
+          <div id="dmCandidates" role="listbox" aria-label="People you can write to"></div>
+        </div>
         <div id="dmList"></div>
       </div>
       <details class="hiddenlocas hidden" id="hiddenLocas">

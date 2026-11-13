@@ -56,6 +56,17 @@ pub(crate) async fn open_birebir_route(
     }
 }
 
+/// `GET /birebirs/candidates` — whom the caller may start a birebir with.
+pub(crate) async fn birebir_candidates_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    match hub.session_identity(session_of(&headers)) {
+        Some(me) => Json(hub.birebir_candidates(&me)).into_response(),
+        None => Json(Vec::<hub::BirebirCandidate>::new()).into_response(),
+    }
+}
+
 /// `GET /birebirs` — the caller's own birebirs, and nobody else's.
 pub(crate) async fn list_my_birebirs(
     State(hub): State<Hub>,

@@ -1373,3 +1373,19 @@
 }
 /* The sign-in card floats on a light page: a softer shadow keeps its edge. */
 :root[data-theme="light"] body.locked .side { box-shadow: 0 16px 48px rgba(16,24,40,.14); }
+
+  /* New private message (birebir.js): + beside MESSAGES and a person picker. */
+  .rlabel.dmhead { display: flex; align-items: center; justify-content: space-between; }
+  .dmnew { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0;
+    background: none; border: 1px solid transparent; border-radius: 6px; color: var(--muted); cursor: pointer; }
+  .dmnew:hover, .dmnew:focus-visible, .dmnew[aria-expanded="true"] { color: var(--accent); border-color: var(--line); }
+  .dmpicker { margin: 0 10px 8px; padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); }
+  .dmpicker.hidden { display: none; }
+  .dmpicker input { box-sizing: border-box; width: 100%; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 8px; color: var(--txt); font: 12px var(--mono); }
+  .dmpicker input:focus { outline: none; border-color: var(--accent); }
+  #dmCandidates { margin-top: 6px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+  .dmcand { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 8px; background: none; border: 0;
+    border-radius: 7px; color: var(--txt); font: 12px var(--mono); text-align: left; cursor: pointer; min-height: 32px; }
+  .dmcand:hover, .dmcand:focus-visible { background: var(--panel); outline: none; }
+  .dmcandname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
