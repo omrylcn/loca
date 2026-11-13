@@ -226,6 +226,12 @@ pub struct Hub {
     deleted: Arc<Mutex<std::collections::HashSet<String>>>,
     /// Birebirs by room id (PRINCIPLES "Birebir"): private two-person locas.
     birebirs: Arc<Mutex<HashMap<String, crate::store::Birebir>>>,
+    /// Each loca's active Loca Operator principal, mirrored from
+    /// `room_operator_assignments`. The door asks on every request (and
+    /// `GET /rooms` once per loca), so it must not cost a SQLite query.
+    /// A leaf lock: held across the store write that changes an assignment,
+    /// never while taking another hub lock.
+    operators: Arc<Mutex<HashMap<String, String>>>,
     next_id: Arc<AtomicU64>,
     /// Monotonic product-state generation. Wall clocks can repeat or move
     /// backwards; Attention identities must still advance after real progress.
@@ -569,6 +575,7 @@ impl Hub {
             rooms: Arc::new(Mutex::new(HashMap::new())),
             deleted: Arc::new(Mutex::new(std::collections::HashSet::new())),
             birebirs: Arc::new(Mutex::new(HashMap::new())),
+            operators: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicU64::new(1)),
             condition_generation: Arc::new(AtomicU64::new(0)),
             now_ms: default_now_ms,
@@ -927,6 +934,13 @@ impl Hub {
                 birebirs.insert(b.room.clone(), b);
             }
         }
+        // After the legacy operator migration above, so it sees its result.
+        *hub.operators.lock_or_recover() = hub
+            .store
+            .active_loca_operators()
+            .expect("persistent operator assignments are unreadable; refusing to start")
+            .into_iter()
+            .collect();
         hub
     }
 
@@ -1344,12 +1358,10 @@ impl Hub {
         let principal_at_door = session
             .and_then(|identity| identity.principal_id.as_deref())
             .or(credential_authority.principal_id.as_deref());
-        if let (Some(principal_id), Some(assignment)) =
-            (principal_at_door, self.store.loca_operator(room))
+        if principal_at_door
+            .is_some_and(|principal_id| self.is_operator_principal(room, principal_id))
         {
-            if assignment.principal_id == principal_id {
-                return EnterDecision::Allowed;
-            }
+            return EnterDecision::Allowed;
         }
 
         // A davet for THIS loca, or the building key (is_member) — may_enter
@@ -3421,6 +3433,25 @@ impl Hub {
         }
     }
 
+    /// Every loca's ban list in one read, for the Building view. The caller
+    /// filters by its own door: decide reach after this returns, never while
+    /// the rooms lock is held (`enter_decision` takes it too).
+    pub fn bans_by_room(&self) -> Vec<(String, Vec<String>)> {
+        let deleted = self.deleted.lock_or_recover().clone();
+        let rooms = self.rooms.lock_or_recover();
+        let mut out: Vec<(String, Vec<String>)> = rooms
+            .iter()
+            .filter(|(room, r)| !r.banned.is_empty() && !deleted.contains(*room))
+            .map(|(room, r)| {
+                let mut banned: Vec<String> = r.banned.iter().cloned().collect();
+                banned.sort();
+                (room.clone(), banned)
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
     /// Apply a moderation action. Returns the updated mod state. For kick/ban a
     /// `Kicked` frame is broadcast so the targeted client closes its socket.
     pub fn moderate(
@@ -3605,6 +3636,15 @@ impl Hub {
         self.store.loca_operator(room)
     }
 
+    /// Is `principal_id` this loca's appointed operator? Answered from the
+    /// in-memory mirror, never from SQLite.
+    pub fn is_operator_principal(&self, room: &str, principal_id: &str) -> bool {
+        self.operators
+            .lock_or_recover()
+            .get(room)
+            .is_some_and(|current| current == principal_id)
+    }
+
     /// Open a loca. `extensions` is the chosen set (already normalized by the
     /// caller); `None` keeps the legacy set, so an older client that sends
     /// only a name gets the loca it always got. A chosen set is written to the
@@ -3645,6 +3685,11 @@ impl Hub {
                 .map_err(|_| OperatorAssignmentError::Storage)?;
             None
         };
+        if let Some(assignment) = assignment.as_ref() {
+            self.operators
+                .lock_or_recover()
+                .insert(room.to_string(), assignment.principal_id.clone());
+        }
         rooms.insert(room.to_string(), Room::with(ChatMode::Free, settings, 1));
         drop(rooms);
         if let Some(chosen) = extensions {
@@ -3924,9 +3969,15 @@ impl Hub {
             .principal_id
             .as_deref()
             .ok_or(OperatorAssignmentError::AuthorityRequired)?;
-        self.store
+        // Held across the write so two appointments cannot leave the mirror
+        // naming the one the database replaced.
+        let mut operators = self.operators.lock_or_recover();
+        let assignment = self
+            .store
             .appoint_loca_operator(room, target_principal_id, actor_id, self.now())
-            .map_err(map_loca_operator_error)
+            .map_err(map_loca_operator_error)?;
+        operators.insert(room.to_string(), assignment.principal_id.clone());
+        Ok(assignment)
     }
 
     pub fn revoke_loca_operator(
@@ -3951,9 +4002,13 @@ impl Hub {
         {
             return Err(OperatorAssignmentError::MasterProtected);
         }
-        self.store
+        let mut operators = self.operators.lock_or_recover();
+        let revoked = self
+            .store
             .revoke_loca_operator(room, &current.principal_id, self.now())
-            .map_err(map_loca_operator_error)
+            .map_err(map_loca_operator_error)?;
+        operators.remove(room);
+        Ok(revoked)
     }
 
     /// Operator authority in one loca: Building authority everywhere, or the
@@ -3974,11 +4029,11 @@ impl Hub {
         if self.admin_token.is_empty() {
             return true; // dev-open, consistent with the other admin gates
         }
-        if let (Some(principal_id), Some(assignment)) = (
-            authority.principal_id.as_deref(),
-            self.store.loca_operator(room),
-        ) {
-            return assignment.principal_id == principal_id;
+        if let Some(principal_id) = authority.principal_id.as_deref() {
+            let current = self.operators.lock_or_recover().get(room).cloned();
+            if let Some(current) = current {
+                return current == principal_id;
+            }
         }
         if self.store.is_persistent() {
             return false;

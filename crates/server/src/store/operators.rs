@@ -53,6 +53,18 @@ impl Store {
         .flatten()
     }
 
+    /// Every room's active operator principal, for the hub's in-memory mirror.
+    pub fn active_loca_operators(&self) -> rusqlite::Result<Vec<(String, String)>> {
+        let Some(c) = self.conn() else {
+            return Ok(Vec::new());
+        };
+        let mut stmt = c.prepare(
+            "SELECT room, principal_id FROM room_operator_assignments WHERE revoked_at IS NULL",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect()
+    }
+
     /// Full assignment history for audit/review, oldest first.
     pub fn loca_operator_history(&self, room: &str) -> Vec<LocaOperatorAssignment> {
         let Some(c) = self.conn() else {

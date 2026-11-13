@@ -31,10 +31,7 @@ pub(crate) async fn profile_view(
     let mut loca_roles = Vec::new();
     let mut operator_source: Option<&str> = None;
     if let Some(room) = room {
-        if hub
-            .loca_operator(room)
-            .is_some_and(|assignment| assignment.principal_id == principal_id)
-        {
+        if hub.is_operator_principal(room, principal_id) {
             loca_roles.push("operator");
             operator_source = Some("appointed");
         }
