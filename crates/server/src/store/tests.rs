@@ -79,7 +79,7 @@ fn room_founder_creation_is_atomic_and_survives_restart() {
         .unwrap();
     }
     assert!(store
-        .create_room_with_operator("new-room", &RoomSettings::default(), &founder, 2)
+        .create_room_with_operator("new-room", &RoomSettings::default(), &founder, None, 2)
         .is_err());
     {
         let c = store.conn().unwrap();
@@ -94,7 +94,7 @@ fn room_founder_creation_is_atomic_and_survives_restart() {
         c.execute_batch("DROP TRIGGER reject_founder").unwrap();
     }
     let assigned = store
-        .create_room_with_operator("new-room", &RoomSettings::default(), &founder, 3)
+        .create_room_with_operator("new-room", &RoomSettings::default(), &founder, None, 3)
         .unwrap();
     assert_eq!(assigned.principal_id, founder);
     drop(store);
@@ -104,7 +104,7 @@ fn room_founder_creation_is_atomic_and_survives_restart() {
         founder
     );
     assert!(matches!(
-        store.create_room_with_operator("new-room", &RoomSettings::default(), &founder, 4),
+        store.create_room_with_operator("new-room", &RoomSettings::default(), &founder, None, 4),
         Err(super::LocaOperatorError::Conflict)
     ));
     assert_eq!(store.loca_operator_history("new-room").len(), 1);
@@ -120,7 +120,7 @@ fn operator_appointment_follows_identity_not_renamed_or_reused_labels() {
         .unwrap();
     let master = store.active_master_principal().unwrap().id;
     store
-        .create_room_with_operator("r", &RoomSettings::default(), &master, 2)
+        .create_room_with_operator("r", &RoomSettings::default(), &master, None, 2)
         .unwrap();
     let member = |token: &str| protocol::Membership {
         token: token.into(),

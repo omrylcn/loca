@@ -76,6 +76,11 @@ pub(crate) async fn call_into_loca(
         Err(hub::InviteError::Sealed) => {
             (StatusCode::CONFLICT, "this loca is permanently sealed").into_response()
         }
+        Err(hub::InviteError::NotInGroup) => (
+            StatusCode::FORBIDDEN,
+            "not a member of this loca's group — add them to the group first",
+        )
+            .into_response(),
     }
 }
 /// Leave one's own loca without being kicked or banned. Identity is derived

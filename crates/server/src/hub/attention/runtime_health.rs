@@ -105,6 +105,19 @@ impl Hub {
     /// server only knew who was *in a room*; a member with no seat was
     /// invisible, so the master had nobody to pick from and every invitation
     /// started from scratch — mint a token, hand it over, run setup.
+    /// `residents` as a viewer may read it: people are listed, but a group
+    /// loca the viewer cannot enter is never named as where someone sits.
+    pub fn residents_for(&self, viewer: &crate::hub::RequestAuthority) -> Vec<protocol::Resident> {
+        let hidden = self.group_locas_hidden_from(viewer);
+        let mut residents = self.residents();
+        if !hidden.is_empty() {
+            for resident in &mut residents {
+                resident.locas.retain(|room| !hidden.contains(room));
+            }
+        }
+        residents
+    }
+
     pub fn residents(&self) -> Vec<protocol::Resident> {
         use std::collections::BTreeMap;
         let mut by_name: BTreeMap<String, protocol::Resident> = BTreeMap::new();

@@ -175,6 +175,13 @@ pub struct RoomSummary {
     /// The building's private governance/caretaker loca.
     #[serde(default)]
     pub special: bool,
+    /// The group this loca belongs to, by name; absent for a default-group
+    /// loca. Only those who may enter the loca ever see this summary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// The group's id, alongside its name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
 }
 
 /// Body of `PUT /rooms/{id}/mode` (admin-only; requires the admin token).

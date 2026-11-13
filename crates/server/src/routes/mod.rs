@@ -10,6 +10,7 @@ mod birebir;
 mod content;
 mod downloads;
 mod extensions;
+mod groups;
 mod keys;
 mod lobby;
 mod membership;
@@ -50,18 +51,23 @@ pub(crate) use extensions::{
     add_extension, extension_catalog, extension_fence, extension_off, get_extensions,
     put_extensions, remove_extension,
 };
+pub(crate) use groups::{
+    add_group_member_route, create_group_route, delete_group_route, get_group, group_fence,
+    group_log_route, list_groups, remove_group_member_route, set_loca_group_route,
+    update_group_route,
+};
 pub(crate) use keys::{issue_key, list_keys, rename_smaster_route, revoke_key_route};
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};
 pub(crate) use membership::{
     ack_join_request_route, admit_member, approve_join_request_route, bootstrap_join_request_route,
-    caretaker_residents, claim_membership, create_admission_stock_route, create_join_request_route,
-    create_pairing_route, create_profile_credential_route, create_session_route, create_smaster,
-    delete_session_route, deny_join_request_route, get_admission_stock_route,
-    get_join_request_route, get_profile_preferences, list_building_ranks, list_join_requests_route,
-    list_members, list_profile_credentials, list_profiles, list_residents, list_smasters,
-    pairing_ttl_ms, profile_view, put_profile_preferences, rename_profile_route,
-    revoke_member_route, revoke_profile_credential_route, revoke_smaster_route,
-    set_member_suspension_route, whoami,
+    caretaker_residents, caretaker_viewer, claim_membership, create_admission_stock_route,
+    create_join_request_route, create_pairing_route, create_profile_credential_route,
+    create_session_route, create_smaster, delete_session_route, deny_join_request_route,
+    get_admission_stock_route, get_join_request_route, get_profile_preferences,
+    list_building_ranks, list_join_requests_route, list_members, list_profile_credentials,
+    list_profiles, list_residents, list_smasters, pairing_ttl_ms, profile_view,
+    put_profile_preferences, rename_profile_route, revoke_member_route,
+    revoke_profile_credential_route, revoke_smaster_route, set_member_suspension_route, whoami,
 };
 pub(crate) use rooms::{
     actor_of, appoint_loca_operator_route, create_invite, create_loca_route, delete_room,

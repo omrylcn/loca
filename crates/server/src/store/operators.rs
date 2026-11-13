@@ -10,6 +10,7 @@ impl Store {
         room: &str,
         settings: &protocol::RoomSettings,
         founder: &str,
+        group: Option<&str>,
         at: u64,
     ) -> Result<LocaOperatorAssignment, LocaOperatorError> {
         let Some(mut c) = self.conn() else {
@@ -34,6 +35,12 @@ impl Store {
             return Err(LocaOperatorError::Conflict);
         }
         Self::write_room_state(&tx, room, &protocol::ChatMode::Free, settings).map_err(storage)?;
+        // A group loca is born in its group: never on disk outside it, even
+        // for an instant a crash could freeze.
+        if group.is_some() {
+            super::groups::write_room_group(&tx, room, group, Some(founder), at)
+                .map_err(storage)?;
+        }
         insert_assignment(&tx, room, founder, founder, role, at)?;
         let assignment = query_active(&tx, room)?.ok_or(LocaOperatorError::Storage)?;
         tx.commit().map_err(storage)?;
