@@ -104,7 +104,7 @@ function groupCardHtml(g) {
       `</select><button type="button" class="btn primary" data-group-add="${esc(g.id)}"${candidates.length ? "" : " disabled"}>Add</button></div>`
     : "";
   return `<article class="grpcard${g.archived ? " archived" : ""}" data-group="${esc(g.id)}">` +
-    `<div class="grphead"><span class="grpname">${GROUP_ICON}<b>${esc(g.name)}</b>${archivedTag}</span>` +
+    `<div class="grphead"><span class="grpname">${GROUP_ICON}<b title="${esc(g.name)}">${esc(g.name)}</b>${archivedTag}</span>` +
       `<span class="pacts grpacts">${acts}</span>` +
       `<small class="grpowner">${groupOwnerLine(g)} · ${(g.members || []).length} ${(g.members || []).length === 1 ? "person" : "people"}</small></div>` +
     `<div class="grplocas"><span class="grplabel">Locas</span>${locas}</div>` +

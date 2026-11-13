@@ -90,9 +90,18 @@ async function openCallList() {
     if (!r.ok) { box.innerHTML = `<div class="callnone">could not fetch the list</div>`; return; }
     const all = await r.json();
     const here = new Set(state.members.map(m => m.name));
-    const free = all.filter(p => !p.suspended && !here.has(p.name) && !(p.locas || []).includes(state.room));
+    // A group loca seats only its group's people: offer nobody else.
+    const groupId = (state.rooms || []).find(rm => rm.room === state.room)?.group_id;
+    let inGroup = null;
+    if (groupId) {
+      await fetchGroups(false);
+      const group = (state.groups || []).find(g => g.id === groupId);
+      inGroup = new Set((group?.members || []).map(m => m.name));
+    }
+    const free = all.filter(p => !p.suspended && !here.has(p.name) && !(p.locas || []).includes(state.room)
+      && (!inGroup || inGroup.has(p.name)));
     if (!free.length) {
-      box.innerHTML = `<div class="callnone">nobody in the building to call</div>`;
+      box.innerHTML = `<div class="callnone">${inGroup ? "nobody else in this group to call — add them to the group first" : "nobody in the building to call"}</div>`;
       return;
     }
     box.innerHTML = free.map(p => {

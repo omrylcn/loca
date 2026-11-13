@@ -261,7 +261,7 @@
     color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
   .bcount { min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--panel2);
     border: 1px solid var(--line); color: var(--txt); font-size: 10px; text-align: center; letter-spacing: 0; }
-  .peoplehead, .prow { display: grid; grid-template-columns: minmax(0,1.3fr) 170px minmax(0,.8fr) minmax(0,1fr) 170px;
+  .peoplehead, .prow { display: grid; grid-template-columns: minmax(0,1.6fr) 160px minmax(0,.9fr) minmax(0,.9fr) 170px;
     align-items: center; column-gap: 16px; }
   .peoplehead { padding: 6px 10px; color: var(--dim); font-size: 9px; letter-spacing: .08em;
     text-transform: uppercase; border-bottom: 1px solid var(--line); }
@@ -1408,13 +1408,13 @@
   .grpremove { gap: 4px; }
   .grpadd { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .grpadd select { flex: 1 1 200px; min-width: 0; background: var(--panel); color: var(--txt); border: 1px solid var(--line);
-    border-radius: 7px; padding: 5px 8px; font: 12px var(--mono); color-scheme: dark; }
+    border-radius: 7px; padding: 5px 8px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
   .rgrouphead { display: flex; align-items: center; gap: 6px; padding: 10px 16px 4px; color: var(--muted);
     font-size: 10px; letter-spacing: .1em; text-transform: uppercase; border-top: 1px solid var(--line); }
   .rgroupname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rgroupcount { color: var(--dim); letter-spacing: 0; }
   .extfield select { box-sizing: border-box; width: 100%; background: var(--panel); border: 1px solid var(--line);
-    color: var(--txt); border-radius: 7px; padding: 7px 10px; font: 12px var(--mono); color-scheme: dark; }
+    color: var(--txt); border-radius: 7px; padding: 7px 10px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
   .extfield select:focus { outline: none; border-color: var(--accent); }
   .extgroupfield { margin-top: 12px; }
   .extgroupnote { color: var(--muted); font-size: 10px; }
@@ -1423,3 +1423,8 @@
   .profilegroups { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 7px 1px 0; }
   .profilegroups small { color: var(--dim); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
   .profilegroups .grpchips { justify-content: flex-end; }
+  .grpfilter .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 520px) {
+    .grpremove { padding: 0 8px; }
+    .grpremove span { display: none; }
+  }

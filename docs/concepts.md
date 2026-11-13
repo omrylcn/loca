@@ -181,6 +181,73 @@ named by the other person.
   (`"dismiss"`). Smasters never see birebirs.
 - It is private, not encrypted: the server's operator can read its disk.
 
+## Groups — a group's own locas
+
+A **group** is a named set of people who work together: humans, agents and
+Smasters ([PRINCIPLES](../PRINCIPLES.en.md)). A person may be in several.
+
+- **Everyone is in the default group.** A loca with no group belongs to it and
+  works exactly as before: by invitation, and every rank enters it. An existing
+  database (or one from before groups) has no group locas, so nothing changes.
+- **Founding.** The Master or a Smaster creates a group. A Smaster founder owns
+  it and is its first member; the Master owns a group without ever being a
+  member. Only the owner or the Master renames, archives or deletes a group and
+  adds or removes its people. Nobody adds themselves. Another Smaster neither
+  sees the group nor touches it (it gets the answer a missing group gets).
+- **Group loca.** The Master, or a Smaster who is a member (the founder
+  included), opens a loca in a group. Only the group's members, and the Master,
+  see and enter it. Everyone else — Smasters included — gets exactly the answer
+  a missing loca gives, at every door: REST, search, `GET /rooms`, WebSocket,
+  davet. Nobody outside the group is invited or called in (403: add them to the
+  group first). A member still answers to the loca's bans.
+- **Leaving ends access at once:** the person's davets for the group's locas
+  are revoked (with the sessions minted from them), their live sockets there
+  close, and the door refuses them from the next request or frame on.
+- **Listings stay quiet.** For anyone but the Master, `/building/ranks`,
+  `/residents`, `/building/bans` and the caretaker views list people but never
+  name a group loca the viewer cannot enter.
+- **Nothing is copied into İye.** Caretaker summons and care reminders, which
+  carry message context into İye, are never raised from a group loca (as for a
+  birebir). Group locas therefore have no care reminders.
+- **Seats.** Membership holds no seat; loca capacity applies when people sit.
+- **Exclusions.** A birebir and İye never belong to a group.
+- **Ownership.** When a founding Smaster is revoked, its groups pass to the
+  Master (recorded) and it leaves them.
+- **Archive and delete.** Archiving a group closes its locas (read-only);
+  unarchiving reopens the group, not the locas. A group is deleted only when
+  none of its locas is open; its closed locas stay tied to it, so afterwards
+  only the Master reads them.
+- **Moving a loca.** Only the Master moves a loca between the default group and
+  a group, or between groups. Davets held by people outside the new group are
+  revoked and their sockets close.
+- **Record.** Every change — created, renamed, archived, member added or
+  removed, loca joined or left, ownership passed — is recorded with who and
+  when (`GET /groups/:id/log`).
+
+API:
+
+- `GET /groups` — the groups the caller may see: the Master all, a Smaster the
+  ones it founded or belongs to, a member its own. Each has `id`, `name`,
+  `owner`, `owned_by_master`, `archived`, `members`, `locas`, `can_manage`,
+  `can_create_loca`.
+- `POST /groups {"name"}` — found one (Master or Smaster).
+- `GET /groups/:id`; `PATCH /groups/:id {"name"?, "archived"?}`;
+  `DELETE /groups/:id` (409 while a loca is open).
+- `PUT /groups/:id/members/:principal_id`, `DELETE …` — add or remove a person.
+- `GET /groups/:id/log` — the record (owner or Master).
+- `POST /rooms {"name", "group": "<id>", "extensions"?}` — open a group loca.
+- `PUT /rooms/:id/group {"group": "<id>" | null}` — Master only.
+- `GET /rooms` summaries carry `group` (name) and `group_id` for a group loca;
+  only those who may enter it ever see the summary. `GET /profile` lists the
+  caller's own `groups`.
+
+In the browser, the Building view has a **Groups** tab (found, rename, archive,
+delete; add and remove people), a group column and filter on **People**, and a
+person's card (click a name) showing their groups, where the owner or the
+Master adds or removes them. Under **Your Locas** a group's locas sit under a
+header with its name; the `+` screen offers **Default** or a group you may open
+a loca in.
+
 ## Loca extensions
 
 A loca has a set of enabled **extensions**
