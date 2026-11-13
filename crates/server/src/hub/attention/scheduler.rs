@@ -180,7 +180,10 @@ impl Hub {
                 .insert(attention.id.clone(), attention.clone());
             let _ = source.tx.send(ServerFrame::Attention { attention });
         }
-        if signal.owner.as_deref() == Some("loca-care") && source_room != self.home_room.as_str() {
+        if signal.owner.as_deref() == Some("loca-care")
+            && source_room != self.home_room.as_str()
+            && !self.is_group_loca(source_room)
+        {
             let home = Self::room_mut(rooms, self.home_room.as_str(), &self.default_settings);
             let _ = home.tx.send(frame);
         }
@@ -190,15 +193,16 @@ impl Hub {
     /// bounds wake storms while preserving counters across restarts.
     pub fn tick_care(&self) {
         let now = (self.now_ms)();
-        // A group loca raises no care either: care context is copied into
-        // İye, where every rank reads. Taken before `rooms` (lock order).
+        // A group loca keeps its in-room reminders, but none that would be
+        // relayed to İye (loca-care's home), where every rank reads and the
+        // group's words would leak. Taken before `rooms` (lock order).
         let group_locas = self.group_locas();
         let mut rooms = self.rooms.lock_or_recover();
         // A birebir raises no care: nothing it says may travel to İye.
         let birebirs = self.birebirs.lock_or_recover().clone();
         let room_names: Vec<String> = rooms
             .keys()
-            .filter(|name| !birebirs.contains_key(*name) && !group_locas.contains(*name))
+            .filter(|name| !birebirs.contains_key(*name))
             .cloned()
             .collect();
         let mut pending = Vec::new();
@@ -210,6 +214,9 @@ impl Hub {
                 continue;
             }
             let owner = self.care_owner(&rooms, &room_name);
+            if group_locas.contains(&room_name) && owner.as_deref() == Some("loca-care") {
+                continue;
+            }
             let is_everyone = rooms
                 .get(&room_name)
                 .is_some_and(|room| matches!(room.settings.care_recipient, ReminderRecipient::All));

@@ -3381,7 +3381,7 @@ fn an_agents_all_target_narrows_to_its_mentions_but_a_human_and_at_all_stay() {
 }
 
 #[test]
-fn a_group_loca_raises_no_care_that_could_reach_iye() {
+fn a_group_loca_keeps_its_in_room_care_but_none_reaches_iye() {
     let _clock = TEST_CLOCK_LOCK.lock().expect("clock test lock");
     let mut hub = Hub::build(
         HubConfig {
@@ -3427,6 +3427,22 @@ fn a_group_loca_raises_no_care_that_could_reach_iye() {
         },
     )
     .expect("caretaker health");
+    // The group's own lead is healthy, so the reminder is theirs, in the loca.
+    hub.report_runtime_health(
+        "lead",
+        RuntimeHealthUpdate {
+            wake: "IDLE".into(),
+            ack: "OK".into(),
+            delivery_id: None,
+            attention_id: None,
+            stored: false,
+            accepted: false,
+            first_response: false,
+            final_response: false,
+            turn_completed: false,
+        },
+    )
+    .expect("lead health");
     let (mut proj, _) = hub.subscribe("proj");
     let (mut iye, _) = hub.subscribe("iye");
     hub.create_goal(
@@ -3445,12 +3461,20 @@ fn a_group_loca_raises_no_care_that_could_reach_iye() {
     while iye.try_recv().is_ok() {}
     TEST_NOW.store(5_000, Ordering::Relaxed);
     hub.tick_care();
-    for events in [&mut proj, &mut iye] {
-        while let Ok(frame) = events.try_recv() {
-            assert!(
-                !matches!(frame, ServerFrame::Care { .. }),
-                "a group loca's care must not be raised (it would be copied into İye)"
-            );
+    let mut in_room = 0;
+    while let Ok(frame) = proj.try_recv() {
+        if matches!(frame, ServerFrame::Care { .. }) {
+            in_room += 1;
         }
+    }
+    assert!(
+        in_room > 0,
+        "the group's own lead is reminded inside the loca"
+    );
+    while let Ok(frame) = iye.try_recv() {
+        assert!(
+            !matches!(frame, ServerFrame::Care { .. }),
+            "a group loca's care never reaches İye, where every rank reads"
+        );
     }
 }
