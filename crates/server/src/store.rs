@@ -18,8 +18,10 @@ mod attention;
 mod birebir;
 pub(crate) use attachment_index::{AttachError, BlobServe};
 pub use birebir::Birebir;
+pub use groups::{GroupLogEntry, GroupRecord};
 pub use keys::KeyRecord;
 mod content;
+mod groups;
 mod identity;
 mod keys;
 mod memory;
@@ -667,6 +669,9 @@ impl Store {
                 ON attachment_refs(sha);
             "#,
         )?;
+        // Groups (PRINCIPLES "Groups"). An older database simply gains empty
+        // tables: no loca belongs to a group, so every loca stays default.
+        conn.execute_batch(groups::SCHEMA)?;
         // Older databases predate the bootstrap-ACK column. Adding it is a no-op
         // once present. It gates re-delivery: an approved request's mb_ stays
         // re-fetchable via /bootstrap until the client explicitly ACKs (after

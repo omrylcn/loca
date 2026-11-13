@@ -10,6 +10,7 @@ impl Store {
         room: &str,
         settings: &protocol::RoomSettings,
         founder: &str,
+        group: Option<&str>,
         at: u64,
     ) -> Result<LocaOperatorAssignment, LocaOperatorError> {
         let Some(mut c) = self.conn() else {
@@ -34,6 +35,12 @@ impl Store {
             return Err(LocaOperatorError::Conflict);
         }
         Self::write_room_state(&tx, room, &protocol::ChatMode::Free, settings).map_err(storage)?;
+        // A group loca is born in its group: never on disk outside it, even
+        // for an instant a crash could freeze.
+        if group.is_some() {
+            super::groups::write_room_group(&tx, room, group, Some(founder), at)
+                .map_err(storage)?;
+        }
         insert_assignment(&tx, room, founder, founder, role, at)?;
         let assignment = query_active(&tx, room)?.ok_or(LocaOperatorError::Storage)?;
         tx.commit().map_err(storage)?;
@@ -51,6 +58,18 @@ impl Store {
         .optional()
         .ok()
         .flatten()
+    }
+
+    /// Every room's active operator principal, for the hub's in-memory mirror.
+    pub fn active_loca_operators(&self) -> rusqlite::Result<Vec<(String, String)>> {
+        let Some(c) = self.conn() else {
+            return Ok(Vec::new());
+        };
+        let mut stmt = c.prepare(
+            "SELECT room, principal_id FROM room_operator_assignments WHERE revoked_at IS NULL",
+        )?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect()
     }
 
     /// Full assignment history for audit/review, oldest first.

@@ -9,11 +9,13 @@
 mod attention;
 mod birebir;
 mod extensions;
+mod groups;
 mod keys;
 mod work;
 
 pub use birebir::{BirebirCandidate, BirebirError, BirebirView};
 pub use extensions::{normalize_extensions, ExtensionError};
+pub use groups::{GroupError, GroupView};
 pub use keys::KeyRevokeError;
 pub use work::{GoalError, TaskError, WaitError};
 
@@ -226,6 +228,17 @@ pub struct Hub {
     deleted: Arc<Mutex<std::collections::HashSet<String>>>,
     /// Birebirs by room id (PRINCIPLES "Birebir"): private two-person locas.
     birebirs: Arc<Mutex<HashMap<String, crate::store::Birebir>>>,
+    /// Each loca's active Loca Operator principal, mirrored from
+    /// `room_operator_assignments`. The door asks on every request (and
+    /// `GET /rooms` once per loca), so it must not cost a SQLite query.
+    /// A leaf lock: held across the store write that changes an assignment,
+    /// never while taking another hub lock.
+    operators: Arc<Mutex<HashMap<String, String>>>,
+    /// Groups, their members and their locas (PRINCIPLES "Groups"). A leaf
+    /// lock; see `hub/groups.rs` for the order rules.
+    groups: Arc<Mutex<groups::GroupBook>>,
+    /// Membership (mb_) token -> principal id. The binding never changes.
+    member_principals: Arc<Mutex<HashMap<String, String>>>,
     next_id: Arc<AtomicU64>,
     /// Monotonic product-state generation. Wall clocks can repeat or move
     /// backwards; Attention identities must still advance after real progress.
@@ -369,6 +382,21 @@ pub enum InviteError {
     Reserved,
     /// Sealed rooms retain their records and cannot be reopened by a davet.
     Sealed,
+    /// A group loca seats only its group's members.
+    NotInGroup,
+}
+
+/// Why `Hub::create_loca_in` refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreateLocaError {
+    Operator(OperatorAssignmentError),
+    Group(GroupError),
+}
+
+impl From<OperatorAssignmentError> for CreateLocaError {
+    fn from(error: OperatorAssignmentError) -> Self {
+        Self::Operator(error)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -569,6 +597,9 @@ impl Hub {
             rooms: Arc::new(Mutex::new(HashMap::new())),
             deleted: Arc::new(Mutex::new(std::collections::HashSet::new())),
             birebirs: Arc::new(Mutex::new(HashMap::new())),
+            operators: Arc::new(Mutex::new(HashMap::new())),
+            groups: Arc::new(Mutex::new(groups::GroupBook::default())),
+            member_principals: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicU64::new(1)),
             condition_generation: Arc::new(AtomicU64::new(0)),
             now_ms: default_now_ms,
@@ -927,6 +958,14 @@ impl Hub {
                 birebirs.insert(b.room.clone(), b);
             }
         }
+        // After the legacy operator migration above, so it sees its result.
+        *hub.operators.lock_or_recover() = hub
+            .store
+            .active_loca_operators()
+            .expect("persistent operator assignments are unreadable; refusing to start")
+            .into_iter()
+            .collect();
+        hub.load_groups();
         hub
     }
 
@@ -1157,6 +1196,8 @@ impl Hub {
         }
         self.store.revoke_smaster(token, (self.now_ms)())?;
         self.smasters.lock_or_recover().remove(token);
+        // A group whose founder this was now belongs to the Master.
+        self.pass_groups_to_master(&crate::store::hashed_id("pr_", &format!("smaster:{token}")));
         Ok(true)
     }
 
@@ -1226,9 +1267,7 @@ impl Hub {
     /// Everyone Care must work for both credential forms.
     pub fn principal_id_for_invite(&self, room: &str, token: Option<&str>) -> Option<String> {
         let invite = self.invite_for(room, token)?;
-        (!invite.member.is_empty())
-            .then(|| self.store.principal_id_for_member_record(&invite.member))
-            .flatten()
+        self.member_principal(&invite.member)
     }
 
     /// May this room credential enter `room`? An active per-device credential
@@ -1316,6 +1355,19 @@ impl Hub {
         if room.starts_with(Self::BIREBIR_PREFIX) {
             return EnterDecision::Denied;
         }
+        // A group loca belongs to its group. This also comes BEFORE the rank
+        // bypass: a Smaster outside the group is an outsider here, and only
+        // the Master reaches it by rank (PRINCIPLES "Groups").
+        if self.is_group_loca(room) {
+            return self.group_door(
+                room,
+                &credential_authority,
+                admin_tok,
+                davet_tok,
+                session,
+                name_hint,
+            );
+        }
         if credential_authority.is_building_admin() && admin_tok.is_some() {
             return EnterDecision::Allowed;
         }
@@ -1323,18 +1375,7 @@ impl Hub {
             return EnterDecision::Allowed;
         }
 
-        // Whose name is at this door? A session names itself; otherwise a davet
-        // carries a name; otherwise the caller's ?name= hint. This is the name a
-        // ban is checked against.
-        let ban_name = session
-            .map(|s| s.name.clone())
-            .or_else(|| {
-                davet_tok
-                    .and_then(|t| self.invite_by_token(t))
-                    .map(|i| i.name)
-            })
-            .or_else(|| credential_authority.display_name.clone())
-            .or_else(|| name_hint.map(str::to_string));
+        let ban_name = self.door_name(davet_tok, session, &credential_authority, name_hint);
         if let Some(n) = &ban_name {
             if self.is_banned(room, n) {
                 return EnterDecision::Banned;
@@ -1344,12 +1385,10 @@ impl Hub {
         let principal_at_door = session
             .and_then(|identity| identity.principal_id.as_deref())
             .or(credential_authority.principal_id.as_deref());
-        if let (Some(principal_id), Some(assignment)) =
-            (principal_at_door, self.store.loca_operator(room))
+        if principal_at_door
+            .is_some_and(|principal_id| self.is_operator_principal(room, principal_id))
         {
-            if assignment.principal_id == principal_id {
-                return EnterDecision::Allowed;
-            }
+            return EnterDecision::Allowed;
         }
 
         // A davet for THIS loca, or the building key (is_member) — may_enter
@@ -1380,6 +1419,68 @@ impl Hub {
         }
 
         EnterDecision::Denied
+    }
+
+    /// Whose name is at this door? A session names itself; otherwise a davet
+    /// carries a name; otherwise the caller's ?name= hint. This is the name a
+    /// ban is checked against.
+    fn door_name(
+        &self,
+        davet_tok: Option<&str>,
+        session: Option<&SessionIdentity>,
+        credential_authority: &RequestAuthority,
+        name_hint: Option<&str>,
+    ) -> Option<String> {
+        session
+            .map(|s| s.name.clone())
+            .or_else(|| {
+                davet_tok
+                    .and_then(|t| self.invite_by_token(t))
+                    .map(|i| i.name)
+            })
+            .or_else(|| credential_authority.display_name.clone())
+            .or_else(|| name_hint.map(str::to_string))
+    }
+
+    /// The door of a group loca. The Master enters by rank; anyone else only
+    /// as a member of the loca's group — by the principal of their session or
+    /// credential, or, for an agent, of the davet it holds for this loca. A
+    /// member still answers to the loca's bans.
+    fn group_door(
+        &self,
+        room: &str,
+        credential_authority: &RequestAuthority,
+        admin_tok: Option<&str>,
+        davet_tok: Option<&str>,
+        session: Option<&SessionIdentity>,
+        name_hint: Option<&str>,
+    ) -> EnterDecision {
+        let master = (credential_authority.is_master()
+            && (admin_tok.is_some() || self.admin_open()))
+            || (!self.admin_token.is_empty() && davet_tok == Some(self.admin_token.as_str()))
+            || session.is_some_and(|s| s.admin && s.building_role == BuildingRole::Master);
+        if master {
+            return EnterDecision::Allowed;
+        }
+        let mut principals: Vec<String> = Vec::new();
+        if let Some(s) = session {
+            // A davet session stays confined to the loca its davet opened.
+            if s.loca.as_deref().is_none_or(|l| l == room) {
+                principals.extend(s.principal_id.clone());
+            }
+        }
+        principals.extend(credential_authority.principal_id.clone());
+        principals.extend(self.principal_id_for_invite(room, davet_tok));
+        let candidates: Vec<&str> = principals.iter().map(String::as_str).collect();
+        if self.group_gate(room, &candidates) != Some(true) {
+            return EnterDecision::Denied;
+        }
+        if let Some(n) = self.door_name(davet_tok, session, credential_authority, name_hint) {
+            if self.is_banned(room, &n) {
+                return EnterDecision::Banned;
+            }
+        }
+        EnterDecision::Allowed
     }
 
     /// The seat key for a connection — one key = one seat. Derived from the
@@ -1721,6 +1822,15 @@ impl Hub {
         };
         if room == self.reserved_room.as_str() && !self.caretakers.contains(&member.name) {
             return Err(InviteError::Reserved);
+        }
+        // Nobody outside a group is invited or called into its loca: add them
+        // to the group first (PRINCIPLES "Groups").
+        if self.is_group_loca(room) {
+            let principal = self.member_principal(&member.token);
+            let candidates: Vec<&str> = principal.as_deref().into_iter().collect();
+            if self.group_gate(room, &candidates) != Some(true) {
+                return Err(InviteError::NotInGroup);
+            }
         }
         if self.has_active_invite(room, member_token) {
             return Err(InviteError::AlreadyInvited);
@@ -2803,10 +2913,12 @@ impl Hub {
             reply_to_sender,
             ts: self.next_condition_generation(now, r.last_msg_ms),
         };
-        // Nothing leaves a birebir: a caretaker summons would copy its words
-        // into İye, where every rank reads (PRINCIPLES "Birebir").
+        // Nothing leaves a birebir or a group loca: a caretaker summons would
+        // copy its words into İye, where every rank reads (PRINCIPLES
+        // "Birebir", "Groups").
         let caretaker_summons: Vec<CareSignal> =
-            if room == self.home_room.as_str() || self.is_birebir(room) {
+            if room == self.home_room.as_str() || self.is_birebir(room) || self.is_group_loca(room)
+            {
                 Vec::new()
             } else {
                 self.addressed_caretakers(&msg)
@@ -3421,6 +3533,25 @@ impl Hub {
         }
     }
 
+    /// Every loca's ban list in one read, for the Building view. The caller
+    /// filters by its own door: decide reach after this returns, never while
+    /// the rooms lock is held (`enter_decision` takes it too).
+    pub fn bans_by_room(&self) -> Vec<(String, Vec<String>)> {
+        let deleted = self.deleted.lock_or_recover().clone();
+        let rooms = self.rooms.lock_or_recover();
+        let mut out: Vec<(String, Vec<String>)> = rooms
+            .iter()
+            .filter(|(room, r)| !r.banned.is_empty() && !deleted.contains(*room))
+            .map(|(room, r)| {
+                let mut banned: Vec<String> = r.banned.iter().cloned().collect();
+                banned.sort();
+                (room.clone(), banned)
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
     /// Apply a moderation action. Returns the updated mod state. For kick/ban a
     /// `Kicked` frame is broadcast so the targeted client closes its socket.
     pub fn moderate(
@@ -3605,27 +3736,61 @@ impl Hub {
         self.store.loca_operator(room)
     }
 
+    /// Is `principal_id` this loca's appointed operator? Answered from the
+    /// in-memory mirror, never from SQLite.
+    pub fn is_operator_principal(&self, room: &str, principal_id: &str) -> bool {
+        self.operators
+            .lock_or_recover()
+            .get(room)
+            .is_some_and(|current| current == principal_id)
+    }
+
     /// Open a loca. `extensions` is the chosen set (already normalized by the
     /// caller); `None` keeps the legacy set, so an older client that sends
     /// only a name gets the loca it always got. A chosen set is written to the
     /// new loca's Journal.
+    #[cfg(test)]
     pub fn create_loca(
         &self,
         room: &str,
         actor: &RequestAuthority,
         extensions: Option<Vec<String>>,
     ) -> Result<Option<LocaOperatorAssignment>, OperatorAssignmentError> {
+        self.create_loca_in(room, actor, extensions, None)
+            .map_err(|error| match error {
+                CreateLocaError::Operator(error) => error,
+                CreateLocaError::Group(_) => OperatorAssignmentError::AuthorityRequired,
+            })
+    }
+
+    /// Open a loca, in a group when `group` is given. Only the Master or a
+    /// Smaster who is a member of that group opens a group loca, and the
+    /// loca is tied to its group in the same commit that creates it.
+    pub fn create_loca_in(
+        &self,
+        room: &str,
+        actor: &RequestAuthority,
+        extensions: Option<Vec<String>>,
+        group: Option<&str>,
+    ) -> Result<Option<LocaOperatorAssignment>, CreateLocaError> {
         if !actor.is_building_admin() {
-            return Err(OperatorAssignmentError::AuthorityRequired);
+            return Err(OperatorAssignmentError::AuthorityRequired.into());
         }
         if self.is_deleted(room) || room.starts_with(Self::BIREBIR_PREFIX) {
-            return Err(OperatorAssignmentError::Conflict);
+            return Err(OperatorAssignmentError::Conflict.into());
+        }
+        if let Some(group) = group {
+            if self.is_reserved_room(room) || room == self.home_room() {
+                return Err(CreateLocaError::Group(GroupError::Excluded));
+            }
+            self.may_create_in_group(group, actor)
+                .map_err(CreateLocaError::Group)?;
         }
         let mut settings = self.default_settings.clone();
         settings.extensions = extensions.clone();
         let mut rooms = self.rooms.lock_or_recover();
         if rooms.contains_key(room) {
-            return Err(OperatorAssignmentError::Conflict);
+            return Err(OperatorAssignmentError::Conflict.into());
         }
         let assignment = if self.store.is_persistent() && !self.admin_open() {
             let founder = actor
@@ -3634,7 +3799,7 @@ impl Hub {
                 .ok_or(OperatorAssignmentError::AuthorityRequired)?;
             Some(
                 self.store
-                    .create_room_with_operator(room, &settings, founder, self.now())
+                    .create_room_with_operator(room, &settings, founder, group, self.now())
                     .map_err(map_loca_operator_error)?,
             )
         } else {
@@ -3643,8 +3808,22 @@ impl Hub {
             self.store
                 .save_room(room, &ChatMode::Free, &settings)
                 .map_err(|_| OperatorAssignmentError::Storage)?;
+            if group.is_some() {
+                self.store
+                    .set_room_group(room, group, actor.principal_id.as_deref(), self.now())
+                    .map_err(|_| OperatorAssignmentError::Storage)?;
+            }
             None
         };
+        // Tied to its group before anyone can see the room exists.
+        if let Some(group) = group {
+            self.bind_new_group_loca(room, group);
+        }
+        if let Some(assignment) = assignment.as_ref() {
+            self.operators
+                .lock_or_recover()
+                .insert(room.to_string(), assignment.principal_id.clone());
+        }
         rooms.insert(room.to_string(), Room::with(ChatMode::Free, settings, 1));
         drop(rooms);
         if let Some(chosen) = extensions {
@@ -3737,6 +3916,19 @@ impl Hub {
             }
         }
         ranks.sort_by(|a, b| (a.role != "master", &a.name).cmp(&(b.role != "master", &b.name)));
+        ranks
+    }
+
+    /// `building_ranks` as a viewer may read it: the Master sees every seat;
+    /// anyone else never sees a group loca it cannot enter named as "where".
+    pub fn building_ranks_for(&self, viewer: &RequestAuthority) -> Vec<RankPresence> {
+        let hidden = self.group_locas_hidden_from(viewer);
+        let mut ranks = self.building_ranks();
+        if !hidden.is_empty() {
+            for rank in &mut ranks {
+                rank.locas.retain(|room| !hidden.contains(room));
+            }
+        }
         ranks
     }
 
@@ -3924,9 +4116,15 @@ impl Hub {
             .principal_id
             .as_deref()
             .ok_or(OperatorAssignmentError::AuthorityRequired)?;
-        self.store
+        // Held across the write so two appointments cannot leave the mirror
+        // naming the one the database replaced.
+        let mut operators = self.operators.lock_or_recover();
+        let assignment = self
+            .store
             .appoint_loca_operator(room, target_principal_id, actor_id, self.now())
-            .map_err(map_loca_operator_error)
+            .map_err(map_loca_operator_error)?;
+        operators.insert(room.to_string(), assignment.principal_id.clone());
+        Ok(assignment)
     }
 
     pub fn revoke_loca_operator(
@@ -3951,9 +4149,13 @@ impl Hub {
         {
             return Err(OperatorAssignmentError::MasterProtected);
         }
-        self.store
+        let mut operators = self.operators.lock_or_recover();
+        let revoked = self
+            .store
             .revoke_loca_operator(room, &current.principal_id, self.now())
-            .map_err(map_loca_operator_error)
+            .map_err(map_loca_operator_error)?;
+        operators.remove(room);
+        Ok(revoked)
     }
 
     /// Operator authority in one loca: Building authority everywhere, or the
@@ -3974,11 +4176,11 @@ impl Hub {
         if self.admin_token.is_empty() {
             return true; // dev-open, consistent with the other admin gates
         }
-        if let (Some(principal_id), Some(assignment)) = (
-            authority.principal_id.as_deref(),
-            self.store.loca_operator(room),
-        ) {
-            return assignment.principal_id == principal_id;
+        if let Some(principal_id) = authority.principal_id.as_deref() {
+            let current = self.operators.lock_or_recover().get(room).cloned();
+            if let Some(current) = current {
+                return current == principal_id;
+            }
         }
         if self.store.is_persistent() {
             return false;
@@ -4550,6 +4752,7 @@ impl Hub {
         };
         let visible: std::collections::HashSet<String> =
             names.into_iter().filter(|n| reach(n)).collect();
+        let groups = self.group_names_by_room();
 
         let rooms = self.rooms.lock_or_recover();
         let mut list: Vec<RoomSummary> = rooms
@@ -4579,6 +4782,8 @@ impl Hub {
                     }),
                     last_id: r.history.last().map(|m| m.id).unwrap_or(0),
                     special: self.is_reserved_room(name),
+                    group: groups.get(name).map(|(_, group)| group.clone()),
+                    group_id: groups.get(name).map(|(id, _)| id.clone()),
                 }
             })
             .collect();

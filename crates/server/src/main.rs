@@ -100,6 +100,7 @@ const WEB_TOOLTIP: &str = include_str!("../../../web/assets/tooltip.js");
 const WEB_BIREBIR: &str = include_str!("../../../web/assets/birebir.js");
 const WEB_KEYS: &str = include_str!("../../../web/assets/keys.js");
 const WEB_EXTENSIONS: &str = include_str!("../../../web/assets/extensions.js");
+const WEB_GROUPS: &str = include_str!("../../../web/assets/groups.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
@@ -404,6 +405,20 @@ async fn main() {
         .route("/whoami", get(whoami))
         .route("/profile", get(profile_view).put(rename_profile_route))
         .route("/building/ranks", get(list_building_ranks))
+        .route("/building/bans", get(list_building_bans))
+        .route("/groups", get(list_groups).post(create_group_route))
+        .route(
+            "/groups/:id",
+            get(get_group)
+                .patch(update_group_route)
+                .delete(delete_group_route),
+        )
+        .route("/groups/:id/log", get(group_log_route))
+        .route(
+            "/groups/:id/members/:principal_id",
+            axum::routing::put(add_group_member_route).delete(remove_group_member_route),
+        )
+        .route("/rooms/:id/group", axum::routing::put(set_loca_group_route))
         .route(
             "/profile/preferences",
             get(get_profile_preferences).put(put_profile_preferences),
@@ -606,6 +621,11 @@ async fn main() {
             hub.clone(),
             birebir_fence,
         ))
+        // A group loca is invisible to everyone outside its group.
+        .route_layer(axum::middleware::from_fn_with_state(
+            hub.clone(),
+            group_fence,
+        ))
         .route_layer(axum::middleware::from_fn_with_state(
             hub.clone(),
             require_membership,
@@ -740,6 +760,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "birebir.js" => Some(("text/javascript; charset=utf-8", WEB_BIREBIR)),
         "keys.js" => Some(("text/javascript; charset=utf-8", WEB_KEYS)),
         "extensions.js" => Some(("text/javascript; charset=utf-8", WEB_EXTENSIONS)),
+        "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
         _ => None,
     };
     match asset {
@@ -899,6 +920,11 @@ async fn admin_console_invite(
         Err(hub::InviteError::Sealed) => {
             (StatusCode::CONFLICT, "this loca is permanently sealed").into_response()
         }
+        Err(hub::InviteError::NotInGroup) => (
+            StatusCode::FORBIDDEN,
+            "not a member of this loca's group — add them to the group first",
+        )
+            .into_response(),
     }
 }
 

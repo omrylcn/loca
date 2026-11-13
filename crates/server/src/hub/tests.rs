@@ -3379,3 +3379,78 @@ fn an_agents_all_target_narrows_to_its_mentions_but_a_human_and_at_all_stay() {
         "a person's chosen @all target is theirs to keep"
     );
 }
+
+#[test]
+fn a_group_loca_raises_no_care_that_could_reach_iye() {
+    let _clock = TEST_CLOCK_LOCK.lock().expect("clock test lock");
+    let mut hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::from(["loca-care".into()]),
+        },
+        Arc::new(Store::open(None).expect("memory store")),
+        RoomSettings {
+            care_goal_secs: 1,
+            care_cooldown_secs: 1,
+            ..RoomSettings::default()
+        },
+        1,
+    );
+    hub.now_ms = test_now_ms;
+    TEST_NOW.store(1_000, Ordering::Relaxed);
+    let master = hub.resolve_authority(Some("MASTER"), None);
+    let group = hub.create_group("quiet", &master).expect("group");
+    hub.create_loca_in("proj", &master, None, Some(&group.id))
+        .expect("group loca");
+    assert!(hub.is_group_loca("proj"));
+    assert!(hub.join("proj", "member:lead", "lead", SenderType::Agent, 1));
+    assert!(hub.join("iye", "member:loca-care", "loca-care", SenderType::Agent, 1));
+    hub.set_lead("proj", Some("lead".into()), "operator")
+        .expect("lead");
+    hub.report_runtime_health(
+        "loca-care",
+        RuntimeHealthUpdate {
+            wake: "IDLE".into(),
+            ack: "OK".into(),
+            delivery_id: None,
+            attention_id: None,
+            stored: false,
+            accepted: false,
+            first_response: false,
+            final_response: false,
+            turn_completed: false,
+        },
+    )
+    .expect("caretaker health");
+    let (mut proj, _) = hub.subscribe("proj");
+    let (mut iye, _) = hub.subscribe("iye");
+    hub.create_goal(
+        "proj",
+        CreateGoal {
+            outcome: "nothing leaves".into(),
+            checkpoint: None,
+            stale_after_secs: None,
+            completion: GoalCompletion::Manual,
+            task_ids: Vec::new(),
+            by: "operator".into(),
+        },
+    )
+    .expect("goal");
+    while proj.try_recv().is_ok() {}
+    while iye.try_recv().is_ok() {}
+    TEST_NOW.store(5_000, Ordering::Relaxed);
+    hub.tick_care();
+    for events in [&mut proj, &mut iye] {
+        while let Ok(frame) = events.try_recv() {
+            assert!(
+                !matches!(frame, ServerFrame::Care { .. }),
+                "a group loca's care must not be raised (it would be copied into İye)"
+            );
+        }
+    }
+}

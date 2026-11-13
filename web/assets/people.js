@@ -90,9 +90,18 @@ async function openCallList() {
     if (!r.ok) { box.innerHTML = `<div class="callnone">could not fetch the list</div>`; return; }
     const all = await r.json();
     const here = new Set(state.members.map(m => m.name));
-    const free = all.filter(p => !p.suspended && !here.has(p.name) && !(p.locas || []).includes(state.room));
+    // A group loca seats only its group's people: offer nobody else.
+    const groupId = (state.rooms || []).find(rm => rm.room === state.room)?.group_id;
+    let inGroup = null;
+    if (groupId) {
+      await fetchGroups(false);
+      const group = (state.groups || []).find(g => g.id === groupId);
+      inGroup = new Set((group?.members || []).map(m => m.name));
+    }
+    const free = all.filter(p => !p.suspended && !here.has(p.name) && !(p.locas || []).includes(state.room)
+      && (!inGroup || inGroup.has(p.name)));
     if (!free.length) {
-      box.innerHTML = `<div class="callnone">nobody in the building to call</div>`;
+      box.innerHTML = `<div class="callnone">${inGroup ? "nobody else in this group to call — add them to the group first" : "nobody in the building to call"}</div>`;
       return;
     }
     box.innerHTML = free.map(p => {
@@ -318,16 +327,14 @@ async function fetchPeople() {
   const scope = residentReadScope();
   const box = $("peopleList");
   try {
-    const [resRooms, resPeople, resJoin, resStock, resRanks] = await Promise.all([
-      fetch(`${serverBase()}/rooms`, { headers: adminHeaders({}) }),
+    const [resBans, resPeople, resJoin, resStock, resRanks] = await Promise.all([
+      fetch(`${serverBase()}/building/bans`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/join-requests`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/building/ranks`, { headers: adminHeaders({}) }),
     ]);
     if (!resPeople.ok) { if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">liste alınamadı</div>`; return; }
-    // A rank's own birebirs are not Building locas; they never show here.
-    const rooms = (resRooms.ok ? await resRooms.json() : []).filter(r => !isBirebir(r.room));
     const people = await resPeople.json();
     if (!residentReadCurrent(scope)) return;
     // Durable source of truth for admissions: reloaded from the server on every
@@ -344,15 +351,17 @@ async function fetchPeople() {
     if (resStock.ok) state.admissionStock = await resStock.json();
     if (resRanks.ok) state.ranks = await resRanks.json();
 
-    // Ask each loca who it has barred; a ban lives in the room, not on the person.
+    // A ban lives in the room, not on the person: one request returns every
+    // loca's bans that this viewer may see, regrouped here by person.
     const bans = {};
-    await Promise.all(rooms.map(async (r) => {
-      try {
-        const m = await fetch(`${serverBase()}/rooms/${encodeURIComponent(r.room)}/moderate`, { headers: adminHeaders({}) });
-        if (m.ok) { const st = await m.json(); (st.banned || []).forEach(n => { (bans[n] ||= []).push(r.room); }); }
-      } catch (e) { /* one loca failing must not blank the whole page */ }
-    }));
+    const banRows = resBans.ok ? await resBans.json().catch(() => []) : [];
+    for (const row of Array.isArray(banRows) ? banRows : []) {
+      if (isBirebir(row.room)) continue;
+      (row.banned || []).forEach(n => { (bans[n] ||= []).push(row.room); });
+    }
 
+    // Groups give the People tab its group column and filter.
+    await fetchGroups(false);
     if (!applyResidentSnapshot(people, { people: true, scope })) return;
     state.bans = bans;
     renderPeople();
@@ -431,8 +440,8 @@ function renderPeople() {
   // them. They are still part of the Building: show them first, by name.
   const ranksHtml = ranks.length
     ? `<section class="bblock"><div class="bsection">Ranks <span class="bcount">${ranks.length}</span></div>` +
-      `<div class="peoplehead"><span>name</span><span>seat</span><span>location</span><span></span></div>` +
-      ranks.map(r => {
+      `<div class="peoplehead"><span>name</span><span>seat</span><span>groups</span><span>location</span><span></span></div>` +
+      ranks.filter(r => r.role === "master" || personInGroupFilter(r.name)).map(r => {
         const seated = (r.locas || []).length;
         // Location already says where; the status only marks a live seat.
         // An issued but never-used Smaster code is a code, not a person.
@@ -447,17 +456,20 @@ function renderPeople() {
         const rename = state.profile?.building_role === "master" && r.role === "smaster"
           ? `<button type="button" class="btn" data-rename-smaster="${esc(r.name)}" title="Set this Smaster's real name">Rename</button>`
           : "";
-        return `<div class="prow rankrow${r.unused ? " unusedcode" : ""}"><span class="pname">${kindMark("human")}<span class="pnametext">${esc(r.name)}</span>${rankBadge(r.role)}</span>` +
-          `<span class="pstatuses">${status}</span><span class="pwhere">${where}</span><span class="pacts">${rename}</span></div>`;
+        const groups = r.role === "master"
+          ? `<span class="pnowhere">sees every group</span>` : groupChipsHtml(r.name);
+        return `<div class="prow rankrow${r.unused ? " unusedcode" : ""}"><span class="pname">${kindMark("human")}${personNameHtml(r.name)}${rankBadge(r.role)}</span>` +
+          `<span class="pstatuses">${status}</span><span class="pgroups">${groups}</span><span class="pwhere">${where}</span><span class="pacts">${rename}</span></div>`;
       }).join("") + `</section>`
     : "";
   if (!names.size) {
-    box.innerHTML = jrHtml + ranksHtml +
+    box.innerHTML = jrHtml + groupFilterHtml() + ranksHtml +
       `<section class="bblock"><div class="bsection">Members</div><div class="callnone">no members in the building yet</div></section>`;
     return;
   }
   const isMaster = state.profile?.building_role === "master";
-  const membersHtml = [...names].sort((a, b) => a.localeCompare(b)).map(name => {
+  const shown = [...names].filter(personInGroupFilter);
+  const membersHtml = shown.sort((a, b) => a.localeCompare(b)).map(name => {
     const p = people.find(x => x.name === name);
     const kind = p?.kind === "agent" ? "agent" : "human";
     const locas = p?.locas || [];
@@ -482,15 +494,21 @@ function renderPeople() {
       ? `<button type="button" class="btn" data-suspend-member="${esc(p.membership_id)}" data-suspended="${p.suspended ? "0" : "1"}" data-member-name="${esc(name)}">${p.suspended ? "Resume" : "Suspend"}</button>` +
         `<button type="button" class="btn danger" title="Revoke membership" data-revoke-member="${esc(p.membership_id)}" data-member-name="${esc(name)}">Revoke</button>` : "";
     return `<div class="prow${p?.suspended ? " suspended" : ""}">` +
-      `<span class="pname">${kindMark(kind)}<span class="pnametext">${esc(name)}</span><span class="pkind">${kind}</span>${stage}</span>` +
+      `<span class="pname">${kindMark(kind)}${personNameHtml(name)}<span class="pkind">${kind}</span>${stage}</span>` +
       `<span class="pstatuses">${residentStatusBadges(p)}</span>` +
+      `<span class="pgroups">${groupChipsHtml(name)}</span>` +
       `<span class="pwhere">${suspended}${whereHtml(locas, fallback)}${banTxt}</span>` +
       `<span class="pacts">${name !== state.name ? `<button type="button" class="btn" data-dm="${esc(name)}" title="Open a birebir with ${esc(name)}">Message</button>` : ""}${unban}${manage}</span></div>`;
   }).join("");
-  box.innerHTML = jrHtml + ranksHtml +
-    `<section class="bblock"><div class="bsection">Members <span class="bcount">${names.size}</span></div>` +
-    `<div class="peoplehead"><span>name</span><span>connection · wake</span><span>location</span><span></span></div>` +
-    membersHtml + `</section>`;
+  box.innerHTML = jrHtml + groupFilterHtml() + ranksHtml +
+    `<section class="bblock"><div class="bsection">Members <span class="bcount">${shown.length}</span></div>` +
+    `<div class="peoplehead"><span>name</span><span>connection · wake</span><span>groups</span><span>location</span><span></span></div>` +
+    (membersHtml || `<div class="callnone">nobody in this group</div>`) + `</section>`;
+}
+
+// A name opens that person's card (who they are, and their groups).
+function personNameHtml(name) {
+  return `<button type="button" class="pnametext pnamebtn" data-person-card="${esc(name)}" title="Open ${esc(name)}'s card">${esc(name)}</button>`;
 }
 
 // The Building header counts what the directory actually shows.

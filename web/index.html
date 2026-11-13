@@ -242,15 +242,18 @@
 
     <!-- PEOPLE (the building, from above: who belongs, where they sit, who is barred) -->
     <div class="notes hidden" id="peoplePanel">
-      <!-- The Building, from above, in three places. Keys and Private
-           messages are the Master's alone: the server refuses everyone
-           else, and the tabs are not drawn for them. -->
+      <!-- The Building, from above. Groups is for the ranks (the server
+           shows each only the groups it may see); Keys and Private messages
+           are the Master's alone: the server refuses everyone else, and the
+           tabs are not drawn for them. -->
       <div class="buildingtabs" role="tablist" aria-label="Building views">
         <button type="button" class="btab active" role="tab" id="btabPeople" data-btab="people" aria-selected="true" aria-controls="peopleList">People</button>
+        <button type="button" class="btab hidden" role="tab" id="btabGroups" data-btab="groups" aria-selected="false" aria-controls="groupsPane">Groups</button>
         <button type="button" class="btab hidden" role="tab" id="btabKeys" data-btab="keys" aria-selected="false" aria-controls="keyLedger">Keys</button>
         <button type="button" class="btab hidden" role="tab" id="btabPrivate" data-btab="private" aria-selected="false" aria-controls="birebirOverview">Private messages</button>
       </div>
       <div id="peopleList" role="tabpanel" aria-labelledby="btabPeople"></div>
+      <section class="buildingpane groupspane hidden" id="groupsPane" role="tabpanel" aria-labelledby="btabGroups"></section>
       <section class="buildingpane keyledger hidden" id="keyLedger" role="tabpanel" aria-labelledby="btabKeys"></section>
       <section class="buildingpane hidden" id="birebirOverview" role="tabpanel" aria-labelledby="btabPrivate"></section>
     </div>
@@ -447,6 +450,9 @@
       <h2 id="extCreateTitle">Open a new loca</h2>
       <label class="extfield" for="extCreateName"><span>Name</span>
         <input id="extCreateName" maxlength="128" autocomplete="off" placeholder="e.g. release-14" /></label>
+      <label class="extfield extgroupfield hidden" for="extCreateGroup" id="extCreateGroupField"><span>Group</span>
+        <select id="extCreateGroup"><option value="">Default — by invitation</option></select>
+        <small class="extgroupnote" id="extCreateGroupNote">Only the group's members will see and enter it.</small></label>
       <div class="extsection">
         <div class="extsectionhead">Extensions</div>
         <div class="extgroup"><div class="extgrouplabel">Default</div><div id="extCreateDefault"></div></div>
@@ -469,6 +475,18 @@
       <p class="extnote" id="extManageNote"></p>
       <div class="exterror" id="extManageError" role="alert"></div>
       <div class="extactions"><button type="button" class="btn" id="extManageClose">Close</button></div>
+    </div>
+  </div>
+
+  <!-- A person's card: who they are and the groups they are in. The founder
+       of a group (or the Master) adds and removes them here. -->
+  <div class="extoverlay hidden" id="personCard" role="dialog" aria-modal="true" aria-labelledby="personCardTitle">
+    <button class="extbackdrop" id="personCardBackdrop" type="button" aria-label="Close" tabindex="-1"></button>
+    <div class="extcard personcard">
+      <h2 id="personCardTitle"></h2>
+      <div id="personCardBody"></div>
+      <div class="exterror" id="personCardError" role="alert"></div>
+      <div class="extactions"><button type="button" class="btn" id="personCardClose">Close</button></div>
     </div>
   </div>
 
@@ -583,5 +601,6 @@
 <script src="/assets/joinrequest.js"></script>
 <script src="/assets/getstarted.js"></script>
 <script src="/assets/keys.js"></script>
+<script src="/assets/groups.js"></script>
 </body>
 </html>

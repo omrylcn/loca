@@ -261,7 +261,7 @@
     color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
   .bcount { min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--panel2);
     border: 1px solid var(--line); color: var(--txt); font-size: 10px; text-align: center; letter-spacing: 0; }
-  .peoplehead, .prow { display: grid; grid-template-columns: minmax(0,1.4fr) 190px minmax(0,1fr) 170px;
+  .peoplehead, .prow { display: grid; grid-template-columns: minmax(0,1.6fr) 160px minmax(0,.9fr) minmax(0,.9fr) 170px;
     align-items: center; column-gap: 16px; }
   .peoplehead { padding: 6px 10px; color: var(--dim); font-size: 9px; letter-spacing: .08em;
     text-transform: uppercase; border-bottom: 1px solid var(--line); }
@@ -1030,9 +1030,10 @@
   /* Building directory on a phone: each row becomes a small card. */
   @media (max-width: 760px) {
     .peoplehead { display: none; }
-    .prow { grid-template-columns: 1fr auto; grid-template-areas: "name acts" "status status" "where where";
+    .prow { grid-template-columns: 1fr auto; grid-template-areas: "name acts" "status status" "groups groups" "where where";
       row-gap: 6px; padding: 12px 8px; }
     .prow .pname { grid-area: name; }
+    .prow .pgroups { grid-area: groups; }
     .prow .pstatuses { grid-area: status; }
     .prow .pwhere { grid-area: where; }
     .prow .pacts { grid-area: acts; flex-wrap: wrap; }
@@ -1399,3 +1400,57 @@
     background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .optag::before { content: "▲"; font-size: 7px; }
   .roletags .leadtag { margin-left: 0; }
+
+  /* Groups (groups.js): the Groups tab, the People group column and filter,
+     the sidebar group headers, the create choice and a person's card. */
+  .pgroups, .grpchips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+  .grpchip { display: inline-block; max-width: 100%; padding: 1px 7px; border-radius: 6px; border: 1px solid
+      color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--txt); font-size: 10px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pnamebtn { min-width: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--txt);
+    font-weight: 600; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pnamebtn:hover, .pnamebtn:focus-visible { color: var(--accent2); text-decoration: underline; outline: none; }
+  .grpfilter { margin: 0 0 14px; }
+  .grpform input { flex: 1 1 220px; }
+  .grpnotice { color: var(--muted); font-size: 11px; min-height: 0; margin: 0 0 8px; overflow-wrap: anywhere; }
+  .grpnotice:empty { display: none; }
+  .grplist { display: grid; gap: 10px; }
+  .grpcard { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel2); min-width: 0; }
+  .grpcard.archived { opacity: .8; border-style: dashed; }
+  .grphead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .grpname { display: inline-flex; align-items: center; gap: 7px; min-width: 0; flex: 1 1 160px; }
+  .grpname b { color: var(--txt); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grpicon { flex: 0 0 auto; color: var(--accent2); }
+  .grpacts { flex-wrap: wrap; justify-content: flex-end; }
+  .grpowner { flex-basis: 100%; color: var(--muted); font-size: 11px; }
+  .grplocas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+  .grplabel { color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; margin-right: 4px; }
+  .grpmembers { margin-top: 10px; }
+  .grpmembers > .grplabel { display: block; margin-bottom: 2px; }
+  .grpmember { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0;
+    border-top: 1px solid var(--line); min-width: 0; }
+  .grpmember .pname { flex: 1 1 auto; }
+  .grpmember .pname b { color: var(--txt); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grpremove { gap: 4px; }
+  .grpadd { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .grpadd select { flex: 1 1 200px; min-width: 0; background: var(--panel); color: var(--txt); border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 8px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
+  .rgrouphead { display: flex; align-items: center; gap: 6px; padding: 10px 16px 4px; color: var(--muted);
+    font-size: 10px; letter-spacing: .1em; text-transform: uppercase; border-top: 1px solid var(--line); }
+  .rgroupname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rgroupcount { color: var(--dim); letter-spacing: 0; }
+  .extfield select { box-sizing: border-box; width: 100%; background: var(--panel); border: 1px solid var(--line);
+    color: var(--txt); border-radius: 7px; padding: 7px 10px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
+  .extfield select:focus { outline: none; border-color: var(--accent); }
+  .extgroupfield { margin-top: 12px; }
+  .extgroupnote { color: var(--muted); font-size: 10px; }
+  .personcard h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .personcard .grpmember .pname { gap: 7px; }
+  .profilegroups { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 7px 1px 0; }
+  .profilegroups small { color: var(--dim); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+  .profilegroups .grpchips { justify-content: flex-end; }
+  .grpfilter .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 520px) {
+    .grpremove { padding: 0 8px; }
+    .grpremove span { display: none; }
+  }

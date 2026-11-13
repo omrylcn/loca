@@ -252,39 +252,59 @@ async function refreshRooms() {
 function renderRooms() {
   const list = $("roomList");
   list.innerHTML = "";
-  for (const rm of orderedSidebarRooms(state.rooms)) {
-      const unread = Number(state.unread[rm.room] || 0);
-      const el = document.createElement("button");
-      el.type = "button";
-      el.className = "room" + (rm.special ? " special" : "") +
-        (rm.archived ? " archived" : "") +
-        (unread ? " has-unread" : "") +
-        (rm.room === state.room ? " active" : "");
-      el.title = rm.archived ? "closed · read-only" : "";
-      el.setAttribute("aria-current", rm.room === state.room ? "page" : "false");
-      const people = Number(rm.humans || 0);
-      const agents = Number(rm.agents || 0);
-      const presenceLabel = [
-        people ? `${people} ${people === 1 ? "person" : "people"}` : "",
-        agents ? `${agents} ${agents === 1 ? "agent" : "agents"}` : "",
-      ].filter(Boolean).join(" · ");
-      const pres = (people || agents)
-        ? `<span class="pres" title="${esc(presenceLabel)}">${esc(presenceLabel)}</span>`
-        : `<span class="pres" style="color:var(--dim)">empty</span>`;
-      const badge = unread
-        ? `<span class="unreadbadge" title="${unread} unread message${unread === 1 ? "" : "s"}">${unread > 99 ? "99+" : unread}</span>`
-        : "";
-      el.innerHTML = `<div class="rrow"><span class="rname" title="${esc(rm.room)}">${esc(rm.room)}</span>${pres}</div>` +
-        (rm.last || badge ? `<div class="rlastrow"><div class="rlast">${esc(rm.last || "")}</div>${badge}</div>` : "");
-      // The room list is only visible after identity resolution. Moving
-      // between locas is navigation, not a new login: re-reading an autofilled
-      // or already-spent credential here could replace a healthy session with
-      // the login door until refresh.
-      el.onclick = () => { setMobileSidebar(false); joinRoom(rm.room); };
-      const item = document.createElement("div");
-      item.className = "roomitem";
-      item.append(el, renderRoomPreferenceActions(rm.room));
-      list.appendChild(item);
+  // Default-group locas first, exactly as before; each group's locas follow
+  // under a header with the group's name.
+  const ordered = orderedSidebarRooms(state.rooms);
+  const sections = new Map();
+  for (const rm of ordered) {
+    if (!rm.group) continue;
+    const key = rm.group_id || rm.group;
+    if (!sections.has(key)) sections.set(key, { name: rm.group, rooms: [] });
+    sections.get(key).rooms.push(rm);
+  }
+  const appendRoom = (rm) => {
+    const unread = Number(state.unread[rm.room] || 0);
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "room" + (rm.special ? " special" : "") +
+      (rm.archived ? " archived" : "") +
+      (unread ? " has-unread" : "") +
+      (rm.room === state.room ? " active" : "");
+    el.title = rm.archived ? "closed · read-only" : "";
+    el.setAttribute("aria-current", rm.room === state.room ? "page" : "false");
+    const people = Number(rm.humans || 0);
+    const agents = Number(rm.agents || 0);
+    const presenceLabel = [
+      people ? `${people} ${people === 1 ? "person" : "people"}` : "",
+      agents ? `${agents} ${agents === 1 ? "agent" : "agents"}` : "",
+    ].filter(Boolean).join(" · ");
+    const pres = (people || agents)
+      ? `<span class="pres" title="${esc(presenceLabel)}">${esc(presenceLabel)}</span>`
+      : `<span class="pres" style="color:var(--dim)">empty</span>`;
+    const badge = unread
+      ? `<span class="unreadbadge" title="${unread} unread message${unread === 1 ? "" : "s"}">${unread > 99 ? "99+" : unread}</span>`
+      : "";
+    el.innerHTML = `<div class="rrow"><span class="rname" title="${esc(rm.room)}">${esc(rm.room)}</span>${pres}</div>` +
+      (rm.last || badge ? `<div class="rlastrow"><div class="rlast">${esc(rm.last || "")}</div>${badge}</div>` : "");
+    // The room list is only visible after identity resolution. Moving
+    // between locas is navigation, not a new login: re-reading an autofilled
+    // or already-spent credential here could replace a healthy session with
+    // the login door until refresh.
+    el.onclick = () => { setMobileSidebar(false); joinRoom(rm.room); };
+    const item = document.createElement("div");
+    item.className = "roomitem";
+    item.append(el, renderRoomPreferenceActions(rm.room));
+    list.appendChild(item);
+  };
+  ordered.filter(rm => !rm.group).forEach(appendRoom);
+  const groups = [...sections.values()].sort((a, b) => a.name.localeCompare(b.name));
+  for (const section of groups) {
+    const head = document.createElement("div");
+    head.className = "rgrouphead";
+    head.innerHTML = `${typeof GROUP_ICON === "string" ? GROUP_ICON : ""}<span class="rgroupname" title="${esc(section.name)}">${esc(section.name)}</span>` +
+      `<span class="rgroupcount" aria-label="${section.rooms.length} locas">${section.rooms.length}</span>`;
+    list.appendChild(head);
+    section.rooms.forEach(appendRoom);
   }
   renderHiddenRooms();
   renderBirebirList();

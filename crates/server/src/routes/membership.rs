@@ -31,10 +31,7 @@ pub(crate) async fn profile_view(
     let mut loca_roles = Vec::new();
     let mut operator_source: Option<&str> = None;
     if let Some(room) = room {
-        if hub
-            .loca_operator(room)
-            .is_some_and(|assignment| assignment.principal_id == principal_id)
-        {
+        if hub.is_operator_principal(room, principal_id) {
             loca_roles.push("operator");
             operator_source = Some("appointed");
         } else if authority.is_master() && !hub.is_birebir(room) {
@@ -59,6 +56,7 @@ pub(crate) async fn profile_view(
             "kind": authority.kind,
         },
         "building_role": authority.building_role,
+        "groups": hub.groups_of_principal(principal_id),
         "loca": room.map(|room| serde_json::json!({
             "room": room,
             "roles": loca_roles,
@@ -335,7 +333,10 @@ pub(crate) async fn list_residents(
     if !is_admin_req(&hub, &headers) {
         return (StatusCode::UNAUTHORIZED, "master only").into_response();
     }
-    Json(hub.residents()).into_response()
+    // A Smaster sees every person, but never a group loca it cannot enter
+    // named as where someone sits.
+    let viewer = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    Json(hub.residents_for(&viewer)).into_response()
 }
 /// The caretaker's least-privilege Building presence view.
 ///
@@ -364,7 +365,17 @@ pub(crate) async fn caretaker_residents(
     if !hub.is_caretaker(&actor) {
         return (StatusCode::FORBIDDEN, "configured caretaker only").into_response();
     }
-    Json(hub.residents()).into_response()
+    Json(hub.residents_for(&caretaker_viewer(&hub, &headers))).into_response()
+}
+/// Whose view a caretaker request reads with: its session's principal, or
+/// its membership credential's. A davet proves no principal, so it sees no
+/// group loca at all.
+pub(crate) fn caretaker_viewer(hub: &Hub, headers: &HeaderMap) -> hub::RequestAuthority {
+    let by_session = hub.resolve_authority(None, session_of(headers));
+    if by_session.principal_id.is_some() {
+        return by_session;
+    }
+    hub.resolve_authority(member_token_of(headers), None)
 }
 /// Who can act as a second master. Master-only: seeing the list means seeing
 /// who holds authority.
@@ -402,7 +413,8 @@ pub(crate) async fn list_building_ranks(
     if !is_admin_req(&hub, &headers) {
         return (StatusCode::FORBIDDEN, "Building authority required").into_response();
     }
-    Json(hub.building_ranks()).into_response()
+    let viewer = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    Json(hub.building_ranks_for(&viewer)).into_response()
 }
 
 /// `PUT /profile {"display_name": …}` — a Master or Smaster renames itself.
