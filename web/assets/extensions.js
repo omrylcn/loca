@@ -147,11 +147,34 @@ function renderCreateTabsLine() {
   $("extCreateTabs").innerHTML = `Tabs in this loca: <b>${tabs.map(esc).join(" · ")}</b>${esc(live)}`;
 }
 
-async function openCreateLoca(name = "") {
+/// The Group choice: Default, or a group this person may open a loca in
+/// (the Master, or a Smaster who is a member). Hidden when there is none.
+async function renderCreateGroupChoice(preferred = "") {
+  const field = $("extCreateGroupField");
+  const select = $("extCreateGroup");
+  if (isAdmin() && typeof fetchGroups === "function") await fetchGroups(false);
+  const open = (state.groups || []).filter(g => g.can_create_loca);
+  select.innerHTML = `<option value="">Default — by invitation</option>` +
+    open.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("");
+  if (open.some(g => g.id === preferred)) select.value = preferred;
+  field.classList.toggle("hidden", !open.length);
+  syncCreateGroupNote();
+}
+
+function syncCreateGroupNote() {
+  const id = $("extCreateGroup").value;
+  const g = (state.groups || []).find(group => group.id === id);
+  $("extCreateGroupNote").textContent = g
+    ? `Only ${g.name}'s people and the Master will see and enter it.`
+    : "Anyone you invite or call in can enter it.";
+}
+
+async function openCreateLoca(name = "", group = "") {
   $("extCreateName").value = name;
   $("extCreateError").textContent = "";
   $("extCreateSubmit").disabled = false;
   openExtDialog("extCreate", name ? "extCreateSubmit" : "extCreateName");
+  renderCreateGroupChoice(group);
   try {
     const { catalog, defaults } = await extensionCatalog();
     $("extCreateDefault").innerHTML =
@@ -172,12 +195,14 @@ async function submitCreateLoca(event) {
   if (!name) { $("extCreateError").textContent = "A loca needs a name."; $("extCreateName").focus(); return; }
   const extensions = [...document.querySelectorAll("#extCreateDefault input:checked:not(:disabled), #extCreateAdd input:checked")]
     .map(input => input.value);
+  const group = $("extCreateGroupField").classList.contains("hidden") ? "" : $("extCreateGroup").value;
   $("extCreateSubmit").disabled = true;
   $("extCreateError").textContent = "";
   try {
+    const body = group ? { name, extensions, group } : { name, extensions };
     const response = await fetch(`${serverBase()}/rooms`, {
       method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify({ name, extensions }),
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
       $("extCreateError").textContent = `Could not create loca: ${await response.text()}`;
@@ -251,7 +276,10 @@ async function changeExtension(id, add) {
 $("extCreateForm").onsubmit = (e) => submitCreateLoca(e);
 $("extCreateCancel").onclick = () => closeExtDialog("extCreate");
 $("extCreateBackdrop").onclick = () => closeExtDialog("extCreate");
-$("extCreate").addEventListener("change", (e) => { if (e.target.matches("input[type=checkbox]")) renderCreateTabsLine(); });
+$("extCreate").addEventListener("change", (e) => {
+  if (e.target.matches("input[type=checkbox]")) renderCreateTabsLine();
+  if (e.target.id === "extCreateGroup") syncCreateGroupNote();
+});
 $("extManageClose").onclick = () => closeExtDialog("extManage");
 $("extManageBackdrop").onclick = () => closeExtDialog("extManage");
 $("extManageList").onclick = (e) => {

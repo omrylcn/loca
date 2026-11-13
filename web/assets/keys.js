@@ -179,17 +179,21 @@ $("peopleList").addEventListener("click", (event) => {
   if (rename) renameSmaster(rename.dataset.renameSmaster);
 });
 
-// ---- Building sub-tabs: People · Keys · Private messages ----------------
-// Keys and Private messages are the Master's alone (the server answers 403 to
-// anyone else); for everyone else those tabs are not drawn at all.
+// ---- Building sub-tabs: People · Groups · Keys · Private messages --------
+// Groups is for the ranks (each sees only the groups it may see). Keys and
+// Private messages are the Master's alone (the server answers 403 to anyone
+// else); for everyone else those tabs are not drawn at all.
 state.buildingTab = "people";
 
 function syncBuildingTabs() {
   const master = state.profile?.building_role === "master";
+  const rank = master || state.profile?.building_role === "smaster";
+  $("btabGroups").classList.toggle("hidden", !rank);
   $("btabKeys").classList.toggle("hidden", !master);
   $("btabPrivate").classList.toggle("hidden", !master);
-  if (!master && state.buildingTab !== "people") state.buildingTab = "people";
-  const panes = { people: "peopleList", keys: "keyLedger", private: "birebirOverview" };
+  if (!master && (state.buildingTab === "keys" || state.buildingTab === "private")) state.buildingTab = "people";
+  if (!rank && state.buildingTab === "groups") state.buildingTab = "people";
+  const panes = { people: "peopleList", groups: "groupsPane", keys: "keyLedger", private: "birebirOverview" };
   for (const [tab, pane] of Object.entries(panes)) {
     const on = state.buildingTab === tab;
     $(pane).classList.toggle("hidden", !on);
@@ -204,6 +208,8 @@ function setBuildingTab(tab) {
   state.buildingTab = tab;
   syncBuildingTabs();
   if (tab === "keys") fetchKeyLedger();
+  if (tab === "groups") fetchGroups();
+  if (tab === "people") renderPeople();
   if (tab === "private") fetchBirebirOverview();
 }
 

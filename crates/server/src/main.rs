@@ -100,6 +100,7 @@ const WEB_TOOLTIP: &str = include_str!("../../../web/assets/tooltip.js");
 const WEB_BIREBIR: &str = include_str!("../../../web/assets/birebir.js");
 const WEB_KEYS: &str = include_str!("../../../web/assets/keys.js");
 const WEB_EXTENSIONS: &str = include_str!("../../../web/assets/extensions.js");
+const WEB_GROUPS: &str = include_str!("../../../web/assets/groups.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
@@ -758,6 +759,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "birebir.js" => Some(("text/javascript; charset=utf-8", WEB_BIREBIR)),
         "keys.js" => Some(("text/javascript; charset=utf-8", WEB_KEYS)),
         "extensions.js" => Some(("text/javascript; charset=utf-8", WEB_EXTENSIONS)),
+        "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
         _ => None,
     };
     match asset {

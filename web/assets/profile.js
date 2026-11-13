@@ -149,6 +149,7 @@ function renderProfile() {
       `<span><small>Building</small><b class="role building-${esc(profile.building_role)}">${profileRoleLabel(profile.building_role)}</b></span>` +
       `<span><small>This Loca</small><b class="role loca-role">${esc(locaText)}</b>${source ? `<em>${source}</em>` : ""}${management ? `<em>${management}</em>` : ""}</span>` +
     `</div>` +
+    profileGroupsHtml(profile) +
     `<div class="profilesession"><small>Session</small><span>${profile.session ? "Bounded session" : "Direct credential"} · ${esc(expiry)}</span></div>` +
     profileAppearanceHtml() +
     `<details class="profileaccess"><summary>Your access <span>${state.credentials.filter(c => !c.revoked_at).length}</span></summary>` +
@@ -159,6 +160,95 @@ function renderProfile() {
     `</details></div></details>`;
   box.classList.add("on");
 }
+
+// The groups I belong to. Everyone is in the default group; a group adds
+// the locas only its people see.
+function profileGroupsHtml(profile) {
+  const groups = Array.isArray(profile.groups) ? profile.groups : [];
+  const chips = groups.length
+    ? groups.map(g => `<span class="grpchip">${esc(g.name)}</span>`).join("")
+    : `<span class="pnowhere">default group only</span>`;
+  return `<div class="profilegroups"><small>Groups</small><span class="grpchips">${chips}</span></div>`;
+}
+
+// ---- A person's card: who they are and their groups ----------------------
+// Opened from a name in the Building view. The founder of a group (or the
+// Master) adds and removes the person here; everyone else only reads. Built
+// from the groups the viewer may see, so a card never reveals a hidden one.
+let personCardName = null;
+let personCardReturnFocus = null;
+
+function personCardProfile(name) {
+  return (state.profilesList || []).find(p => p.display_name === name) || null;
+}
+
+function renderPersonCard() {
+  const name = personCardName;
+  if (!name) return;
+  const person = personCardProfile(name);
+  const resident = (state.people || []).find(p => p.name === name);
+  const kind = person?.kind === "agent" || resident?.kind === "agent" ? "agent" : "human";
+  const role = person?.role || "member";
+  $("personCardTitle").innerHTML = `${esc(name)}${rankBadge(role)}<small>${kind === "agent" ? "Agent" : "Human"}</small>`;
+  const theirs = groupsOfPerson(name);
+  const chips = theirs.length ? theirs.map(g => {
+    const founder = !g.owned_by_master && person && g.owner_id === person.id;
+    const remove = g.can_manage && !founder && person
+      ? `<button type="button" class="btn danger grpremove" data-card-remove="${esc(g.id)}" aria-label="Remove ${esc(name)} from ${esc(g.name)}" title="Remove from ${esc(g.name)}">${GROUP_REMOVE_ICON}<span>Remove</span></button>`
+      : "";
+    return `<div class="grpmember"><span class="pname">${GROUP_ICON}<b>${esc(g.name)}</b>${founder ? `<span class="pkind">founder</span>` : ""}</span><span class="pacts">${remove}</span></div>`;
+  }).join("") : `<div class="bbempty">Default group only.</div>`;
+  let add = "";
+  if (role === "master") {
+    add = `<p class="extnote">The Master sees every group and is never a member.</p>`;
+  } else if (person && person.id !== state.principalId) {
+    const open = (state.groups || []).filter(g =>
+      g.can_manage && !g.archived && !(g.members || []).some(m => m.principal_id === person.id));
+    if (open.length) {
+      add = `<div class="grpadd"><select id="personCardGroup" aria-label="Group to add ${esc(name)} to">` +
+        open.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("") +
+        `</select><button type="button" class="btn primary" id="personCardAdd">Add to group</button></div>`;
+    }
+  }
+  $("personCardBody").innerHTML =
+    `<div class="extsectionhead">Groups</div><div class="grpmembers">${chips}</div>${add}`;
+}
+
+async function openPersonCard(name) {
+  personCardName = name;
+  personCardReturnFocus = document.activeElement;
+  $("personCardError").textContent = "";
+  if (!state.groupsLoaded || !state.profilesList) await fetchGroups(false);
+  renderPersonCard();
+  $("personCard").classList.remove("hidden");
+  setTimeout(() => $("personCardClose")?.focus(), 0);
+}
+
+function closePersonCard() {
+  $("personCard").classList.add("hidden");
+  personCardName = null;
+  if (personCardReturnFocus && document.contains(personCardReturnFocus)) personCardReturnFocus.focus();
+  personCardReturnFocus = null;
+}
+
+async function personCardClick(event) {
+  const person = personCardProfile(personCardName);
+  const add = event.target.closest("#personCardAdd");
+  const remove = event.target.closest("[data-card-remove]");
+  if (!person || (!add && !remove)) return;
+  const error = add
+    ? await addToGroup($("personCardGroup").value, person.id)
+    : await removeFromGroup(remove.dataset.cardRemove, person.id);
+  $("personCardError").textContent = error;
+  renderPersonCard();
+}
+
+$("personCardBody").addEventListener("click", (event) => personCardClick(event));
+$("personCardClose").onclick = () => closePersonCard();
+$("personCardBackdrop").onclick = () => closePersonCard();
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("personCard").classList.contains("hidden")) closePersonCard();
+});
 
 // Titles are not names. A Master or Smaster sets its own display name here;
 // the server keeps identity, keys and rank, and refuses titles and names
