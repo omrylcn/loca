@@ -43,6 +43,8 @@ async function pollHealth() {
       }
     }
     if (!document.body.classList.contains("locked")) refreshRooms();
+    // Notifications ride the same tick (notifications.js, loaded later).
+    if (typeof pollNotifications === "function") pollNotifications();
   } catch (e) { /* server down; WS onclose already retries */ }
 }
 
