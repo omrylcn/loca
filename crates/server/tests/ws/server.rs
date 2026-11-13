@@ -148,7 +148,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "text/javascript",
             "function applyLocaExtensions(",
         ),
-        ("groups.js", "text/javascript", "async function fetchGroups("),
+        (
+            "groups.js",
+            "text/javascript",
+            "async function fetchGroups(",
+        ),
     ];
     for (name, content_type, marker) in assets {
         assert!(
