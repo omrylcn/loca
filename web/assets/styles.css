@@ -1454,3 +1454,8 @@
     .grpremove { padding: 0 8px; }
     .grpremove span { display: none; }
   }
+
+  /* MESSAGES sits at the bottom of the sidebar: its row menu opens upward,
+     or it would fall behind the new-loca bar and never be seen. */
+  #dmList .roomprefmenu { top: auto; bottom: calc(100% + 4px); }
+  .roomprefmenu .roompref.danger { color: var(--bad); }

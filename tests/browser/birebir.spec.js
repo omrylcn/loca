@@ -111,3 +111,37 @@ test("New message: a Smaster writes to another Smaster without sharing a loca", 
   await expect(sa.locator("#dmPicker")).toBeHidden();
   await sa.close();
 });
+
+test("a Messages row menu is visible and Close asks yes/no, then removes it from my list", async ({ browser, request }) => {
+  const sa = await openAs(browser, await rankSession(request, "cl-sa"), "cl-sa");
+  await rankSession(request, "cl-sb");
+  await sa.evaluate(() => openBirebir("cl-sb"));
+  await expect(sa.locator("#dmList")).toContainText("cl-sb");
+  const openMenu = async () => {
+    const trigger = sa.locator("#dmList .roompreftrigger").first();
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    await expect(sa.locator("#dmList [data-dm-delete]")).toBeVisible();
+  };
+  await openMenu();
+  const close = sa.locator("#dmList [data-dm-delete]");
+  await expect(close).toHaveText("Close");
+  // The menu is really on screen: the point under its center is the menu.
+  const visible = await sa.evaluate(() => {
+    const m = document.querySelector("#dmList .roomprefs[open] .roomprefmenu");
+    const r = m.getBoundingClientRect();
+    return m.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+  });
+  expect(visible).toBe(true);
+  // "No" keeps it.
+  sa.once("dialog", d => d.dismiss());
+  await close.click();
+  await expect(sa.locator("#dmList")).toContainText("cl-sb");
+  // "Yes" closes it from my Messages and leaves the conversation.
+  await openMenu();
+  sa.once("dialog", d => d.accept());
+  await sa.locator("#dmList [data-dm-delete]").click();
+  await expect(sa.locator("#dmList")).not.toContainText("cl-sb");
+  await expect.poll(() => sa.evaluate(() => isBirebir(state.room))).toBe(false);
+  await sa.close();
+});

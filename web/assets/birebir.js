@@ -72,7 +72,15 @@ function renderBirebirList() {
     const menu = document.createElement("div");
     menu.className = "roomprefmenu";
     menu.setAttribute("role", "menu");
-    menu.append(roomPreferenceButton("hide", b.room, `Hide ${b.peer}`, "Hide"));
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "roompref danger";
+    del.setAttribute("role", "menuitem");
+    del.dataset.dmDelete = b.room;
+    del.dataset.dmPeer = b.peer;
+    del.setAttribute("aria-label", `Close the conversation with ${b.peer}`);
+    del.textContent = "Close";
+    menu.append(del);
     actions.append(menu);
     item.append(el, actions);
     list.appendChild(item);
@@ -223,8 +231,25 @@ async function birebirOverviewClick(event) {
   }
 }
 
+// Close removes the conversation from one's own Messages (yes/no first).
+// The other side keeps theirs; a new word from them brings it back.
+function deleteBirebir(room, peer) {
+  if (!confirm(`Close your conversation with ${peer}?\n\nIt leaves your Messages. ${peer} keeps theirs; if they write again, it comes back.`)) return;
+  updateRoomPreference("hide", room);
+  if (state.room === room) joinRoom(state.homeRoom);
+  renderBirebirList();
+}
+
 // Wired with late-bound calls: sidebar.js loads after this file.
-$("dmList").onclick = (event) => roomPreferenceClick(event);
+$("dmList").onclick = (event) => {
+  const del = event.target.closest("[data-dm-delete]");
+  if (del) {
+    del.closest("details")?.removeAttribute("open");
+    deleteBirebir(del.dataset.dmDelete, del.dataset.dmPeer);
+    return;
+  }
+  roomPreferenceClick(event);
+};
 $("birebirBar").addEventListener("click", (event) => {
   const button = event.target.closest("[data-bb]");
   if (button) birebirMasterAction(button.dataset.bb);
