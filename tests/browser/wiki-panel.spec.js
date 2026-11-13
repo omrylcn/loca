@@ -7,7 +7,9 @@ test.beforeEach(async ({ page }) => {
     document.body.classList.remove("locked");
     document.querySelector(".main").classList.remove("global");
     document.querySelector(".main").style.setProperty("display", "flex", "important");
-    state.room = "wiki-a"; state.locaContext = "context-a";
+    state.room = "wiki-a"; state.locaContext = { room: "wiki-a", settingsReady: true };
+    // A real join loads settings first; they say the Wiki extension is on.
+    state.settings = {};
   });
 });
 
@@ -157,7 +159,7 @@ test("an old-room page offer never posts a Chat receipt after navigation", async
   await page.locator("#wikiShareTarget").selectOption("reader");
   const requested=page.waitForRequest("**/rooms/wiki-a/wiki/context/offer");
   await page.locator("#wikiShareSend").click(); await requested;
-  await page.evaluate(()=>{state.room="wiki-b";state.locaContext="context-b";resetWikiForRoom();});
+  await page.evaluate(()=>{state.room = "wiki-b"; state.locaContext = { room: "wiki-b", settingsReady: true };resetWikiForRoom();});
   const responded=page.waitForResponse("**/rooms/wiki-a/wiki/context/offer");
   release(); await responded;
   await expect(page.locator("#wikiShareStatus")).toBeEmpty();
@@ -208,10 +210,10 @@ test("failed and conflicting edits preserve drafts and are never retried automat
   await expect(page.locator("#wikiEditStatus")).toContainText("Wiki changed");
   await expect(page.locator("#wikiPageBody")).toHaveValue("My draft");
   expect(writes).toBe(2);
-  await page.evaluate(() => { state.room = "wiki-b"; state.locaContext = "context-b"; resetWikiForRoom(); });
+  await page.evaluate(() => { state.room = "wiki-b"; state.locaContext = { room: "wiki-b", settingsReady: true }; resetWikiForRoom(); });
   await expect(page.locator("#wikiPageEdit")).toBeHidden();
   await expect(page.locator("#wikiPageBody")).toHaveValue("");
-  await page.evaluate(() => { state.room = "wiki-a"; state.locaContext = "context-a2"; });
+  await page.evaluate(() => { state.room = "wiki-a"; state.locaContext = { room: "wiki-a", settingsReady: true }; });
   await page.evaluate(() => fetchWiki());
   await page.locator("#wikiEditPage").click();
   await expect(page.locator("#wikiPageBody")).toHaveValue("My draft");
@@ -298,7 +300,7 @@ test("an old room fetch never renders private pages in the new room", async ({ p
   const requested = page.waitForRequest("**/rooms/wiki-a/wiki");
   await page.evaluate(() => { switchTab("wiki"); });
   await requested;
-  await page.evaluate(() => { state.room = "wiki-b"; state.locaContext = "context-b"; });
+  await page.evaluate(() => { state.room = "wiki-b"; state.locaContext = { room: "wiki-b", settingsReady: true }; });
   const responded = page.waitForResponse("**/rooms/wiki-a/wiki");
   release();
   await responded;
@@ -318,9 +320,14 @@ test("sidebar room navigation refreshes an already open Wiki and clears old page
   await page.evaluate(() => {
     // Keep unrelated transports out of this navigation regression; joinRoom
     // and the actual sidebar click handler still run unchanged.
-    for (const fn of ["refreshRooms", "fetchNotes", "fetchMemory", "fetchMode", "fetchSettings", "fetchMod",
+    for (const fn of ["refreshRooms", "fetchNotes", "fetchMemory", "fetchMode", "fetchMod",
       "fetchTasks", "fetchJournal", "fetchSeated", "fetchLobby", "fetchProfile", "fetchLocaSidebar", "openWs"])
       window[fn] = () => {};
+    // Settings arrive as on a real join: they say which extensions are on,
+    // and the open Wiki tab then loads.
+    window.fetchSettings = async () => {
+      state.settings = {}; markLocaContextReady("settings"); applyLocaExtensions();
+    };
     state.rooms = [{ room: "wiki-a" }, { room: "wiki-b" }];
     renderRooms();
     switchTab("wiki");

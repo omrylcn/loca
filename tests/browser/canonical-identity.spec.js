@@ -1083,8 +1083,10 @@ test("the loca sidebar never composes delayed facts from the previous room", asy
     const room = url.searchParams.get("room") || url.pathname.split("/")[2];
     const shouldDelay = room === "sidebar-a" ? delayA : delayB;
     if (shouldDelay) {
-      if (room === "sidebar-a" && ++aStartedCount === 5) resolveAStarted();
-      if (room === "sidebar-b" && ++bStartedCount === 5) resolveBStarted();
+      // settings, operators, invites and profile start together; goals waits
+      // for settings, which say whether the Focus extension is on here.
+      if (room === "sidebar-a" && ++aStartedCount === 4) resolveAStarted();
+      if (room === "sidebar-b" && ++bStartedCount === 4) resolveBStarted();
       await (room === "sidebar-a" ? aGate : bGate);
     }
     await route.fulfill(roomPayload(room, url.pathname));

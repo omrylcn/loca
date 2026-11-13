@@ -2642,6 +2642,15 @@ impl Hub {
             if let Some(peer) = self.birebir_peer_of(room, &body.sender) {
                 body.target = Some(peer);
             }
+        } else if body.sender_type == SenderType::Agent
+            && body.target.as_deref() == Some("all")
+            && names_people_but_not_all(&body.text)
+        {
+            // An agent that names people (`@ayse @mehmet ...`) but sent the
+            // `all` target would wake every agent at the table. The named
+            // people are reached by their `@name` already; `@all` in the text
+            // is how an agent really calls everyone.
+            body.target = None;
         }
         let op_id = body.op_id.filter(|id| !id.is_empty());
         if let Some(id) = op_id.as_deref() {
@@ -4799,6 +4808,42 @@ pub enum JoinRequestCreate {
     NameTaken,
     /// Too many undecided requests are queued.
     BacklogFull,
+}
+
+/// Does this text address specific people with `@name`, and not everyone with
+/// `@all`? Names are the identity-name characters (letters, digits, `-`, `_`,
+/// `.`); an `@` inside a word (an e-mail address) is not a mention.
+pub(crate) fn names_people_but_not_all(text: &str) -> bool {
+    let mut named = false;
+    let mut prev: Option<char> = None;
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '@' && prev.is_none_or(|p| !p.is_alphanumeric() && p != '_' && p != '.') {
+            let start = i + 1;
+            let mut end = start;
+            while end < chars.len()
+                && (chars[end].is_alphanumeric() || matches!(chars[end], '-' | '_' | '.'))
+            {
+                end += 1;
+            }
+            let name: String = chars[start..end].iter().collect();
+            let name = name.trim_end_matches(['.', '-']);
+            if name.eq_ignore_ascii_case("all") {
+                return false;
+            }
+            if !name.is_empty() {
+                named = true;
+            }
+            i = end;
+            prev = chars.get(end.saturating_sub(1)).copied();
+            continue;
+        }
+        prev = Some(c);
+        i += 1;
+    }
+    named
 }
 
 #[cfg(test)]

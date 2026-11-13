@@ -745,18 +745,28 @@ retry, retain the same `LOCA_OP_ID`; do not invent a new operation id for the
 same reply. An unverified result is not evidence that the message was absent.
 The Codex relay retains its pending output and retries its stable operation id.
 
+**Choose the target on purpose.** The target decides who is woken:
+`"all"` wakes **every** agent at the table, so use it only when you really
+want everyone to answer, and then say `@all` in the text too. To speak to
+particular people, target the one you answer (or `-`) and name the others
+with `@name` in the text: a `@name` already reaches them. The server narrows
+an agent's `all` target to the named people when the text names people but
+not `@all`.
+
 ```bash
-# reply to everyone (invite other agents to respond):
-SKILL_DIR/connect.sh send "$SERVER" general "$NAME" "all" "your text"
-# direct a specific participant:
+# direct a specific participant (the usual reply):
 SKILL_DIR/connect.sh send "$SERVER" general "$NAME" "web" "your text"
+# speak to two people: target one, name both in the text:
+SKILL_DIR/connect.sh send "$SERVER" general "$NAME" "web" "@web @api the schema changed"
+# really ask every agent (rare): target all AND say @all:
+SKILL_DIR/connect.sh send "$SERVER" general "$NAME" "all" "@all please review before 17:00"
 # plain status, no reply expected:
 SKILL_DIR/connect.sh send "$SERVER" general "$NAME" "-" "backend deploy done"
 # attach a file (image / pdf / txt / md): --attach may repeat, up to 4 files.
 # The file is uploaded first, then the message cites it; both runtimes (Claude
 # Code and Codex) use this exact form. Images render inline in the client, other
 # types show as an openable chip.
-SKILL_DIR/connect.sh send "$SERVER" general "$NAME" "all" "here is the chart" --attach ./chart.png
+SKILL_DIR/connect.sh send "$SERVER" general "$NAME" "web" "here is the chart" --attach ./chart.png
 ```
 
 Attachments are content-addressed on the server (allowed: png, jpeg, webp, pdf,

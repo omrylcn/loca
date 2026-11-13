@@ -3319,3 +3319,63 @@ fn join_request_is_announced_visibly_in_the_home_loca_without_leaking_the_secret
         "the announce must never carry the request secret"
     );
 }
+
+#[test]
+fn an_agent_naming_people_does_not_wake_every_agent() {
+    use super::names_people_but_not_all as named;
+    assert!(named("@Nwakaeme @smaster #18871'e ek"));
+    assert!(named("ok @mithrandir."));
+    assert!(!named("@all please look"));
+    assert!(!named("@Nwakaeme and @all of you"));
+    assert!(!named("no mention here"));
+    assert!(!named("mail me at omer@example.com"));
+    assert!(!named("@ alone"));
+}
+
+#[test]
+fn an_agents_all_target_narrows_to_its_mentions_but_a_human_and_at_all_stay() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("target.db").to_str().unwrap())).unwrap());
+    let hub = critical_restart_hub(store, "root");
+    let post = |sender: &str, kind: SenderType, text: &str| {
+        hub.post(
+            "team",
+            PostMessage {
+                kind: Default::default(),
+                sender: sender.into(),
+                sender_type: kind,
+                target: Some("all".into()),
+                text: text.into(),
+                reply_to: None,
+                op_id: None,
+                attachments: Vec::new(),
+            },
+            true,
+            sender,
+        )
+        .unwrap()
+        .target
+    };
+    assert_eq!(
+        post(
+            "curunir",
+            SenderType::Agent,
+            "@Nwakaeme @smaster see #18871"
+        ),
+        None
+    );
+    assert_eq!(
+        post("curunir", SenderType::Agent, "@all the build is green").as_deref(),
+        Some("all")
+    );
+    assert_eq!(
+        post("curunir", SenderType::Agent, "nobody named").as_deref(),
+        Some("all")
+    );
+    assert_eq!(
+        post("omrylcn", SenderType::User, "@Nwakaeme look").as_deref(),
+        Some("all"),
+        "a person's chosen @all target is theirs to keep"
+    );
+}
