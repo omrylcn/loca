@@ -20,12 +20,14 @@ pub(crate) use attachment_index::{AttachError, BlobServe};
 pub use birebir::Birebir;
 pub use groups::{GroupLogEntry, GroupRecord};
 pub use keys::KeyRecord;
+pub use notifications::{NotificationPage, NotificationRow};
 mod content;
 mod groups;
 mod identity;
 mod keys;
 mod memory;
 mod messages;
+mod notifications;
 mod operators;
 mod preferences;
 mod rooms;
@@ -672,6 +674,8 @@ impl Store {
         // Groups (PRINCIPLES "Groups"). An older database simply gains empty
         // tables: no loca belongs to a group, so every loca stays default.
         conn.execute_batch(groups::SCHEMA)?;
+        // Notifications (docs/concepts.md "Notifications"): new tables only.
+        conn.execute_batch(notifications::SCHEMA)?;
         // Older databases predate the bootstrap-ACK column. Adding it is a no-op
         // once present. It gates re-delivery: an approved request's mb_ stays
         // re-fetchable via /bootstrap until the client explicitly ACKs (after

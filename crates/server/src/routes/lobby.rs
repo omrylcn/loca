@@ -159,6 +159,9 @@ pub(crate) async fn lobby_ws_session(socket: WebSocket, hub: Hub, member: protoc
     use futures_util::{SinkExt, StreamExt};
 
     let mut calls = hub.subscribe_lobby();
+    // Notifications are addressed by principal; the binding behind a
+    // membership never changes, so look it up once.
+    let principal = hub.member_principal(&member.token);
     let (mut sink, mut stream) = socket.split();
     hub.lobby_join(&member.token);
     tracing::info!(name = %member.name, "lobby join");
@@ -200,7 +203,16 @@ pub(crate) async fn lobby_ws_session(socket: WebSocket, hub: Hub, member: protoc
     loop {
         tokio::select! {
             event = calls.recv() => match event {
-                Ok(event) if event.member() != member.token => {}
+                Ok(LobbyEvent::Notification { recipients, frame }) => {
+                    // Older kits ignore an unknown `t`; the persisted list
+                    // (`GET /notifications`) stays the authority after lag.
+                    if principal.as_deref().is_some_and(|p| recipients.contains(p))
+                        && sink.send(WsMessage::Text(frame.as_ref().clone())).await.is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(event) if event.member() != Some(member.token.as_str()) => {}
                 Ok(LobbyEvent::Called { room, token, .. }) => {
                     let frame = serde_json::json!({
                         "t": "called",

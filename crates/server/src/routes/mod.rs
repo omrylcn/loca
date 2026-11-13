@@ -14,6 +14,7 @@ mod groups;
 mod keys;
 mod lobby;
 mod membership;
+mod notifications;
 mod rooms;
 mod wiki;
 mod work;
@@ -69,6 +70,10 @@ pub(crate) use membership::{
     list_profiles, list_residents, list_smasters, pairing_ttl_ms, profile_view,
     put_profile_preferences, rename_profile_route, revoke_member_route,
     revoke_profile_credential_route, revoke_smaster_route, set_member_suspension_route, whoami,
+};
+pub(crate) use notifications::{
+    list_notifications, notification_audiences_route, read_all_notifications_route,
+    read_notification_route, send_notification_route, sent_notifications_route,
 };
 pub(crate) use rooms::{
     actor_of, appoint_loca_operator_route, create_invite, create_loca_route, delete_room,
