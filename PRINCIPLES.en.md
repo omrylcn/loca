@@ -384,10 +384,10 @@ may be in more than one group.
   members see** and enter it; people in other groups **cannot be taken in**,
   Smasters included. To bring someone in, add them to the group first.
   Leaving the group ends their access to its locas at once.
-- **The Master** sees in the Building view **that** groups and group locas
-  exist (to manage them); to see inside, the Master adds themself to the
-  group, which is recorded. It is the same line as a birebir: existence, not
-  contents.
+- **The Master sees everything:** every group, every group loca and what is
+  inside it, without being a member. The group boundary is for Smasters and
+  members. (A birebir is the exception: there the Master sees only that it
+  exists.)
 - **One door for access:** entering a loca = invitation **or** group
   membership; for a group loca, group membership only. The rule is the same at
   every door (sidebar, REST, WS, search); outsiders do not learn that a group

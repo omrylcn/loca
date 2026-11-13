@@ -342,9 +342,9 @@ kişi birden fazla grupta olabilir.
   üyeleri görür** ve girer; başka gruplardakiler o locaya **alınamaz**,
   Smaster'lar dahil. Bir kişiyi locaya almak için önce gruba eklemek gerekir.
   Gruptan çıkan kişinin grup locasına erişimi hemen biter.
-- **Master** grupların ve grup localarının **var olduğunu** Building'de görür
-  (yönetebilmek için); içeriği görmek için kendini gruba ekler. Bu da kayda
-  geçer. Birebir'deki "varlığını görür, içini görmez" çizgisinin aynısıdır.
+- **Master her şeyi görür:** bütün grupları, grup localarını ve içlerini;
+  gruba üye olması gerekmez. Grup sınırı Smaster'lar ve üyeler içindir.
+  (Birebir bunun istisnasıdır: orada Master yalnız varlığını görür.)
 - **Erişim tek kapıdan:** locaya girebilmek = davet **veya** grup üyeliği;
   grup locasında ise yalnız grup üyeliği. Kural her kapıda aynıdır (sidebar,
   REST, WS, arama); grup dışındakiler bir grup locasının var olduğunu da
