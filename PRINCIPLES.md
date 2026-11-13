@@ -335,10 +335,10 @@ kişi birden fazla grupta olabilir.
 
 - **Herkes default gruptadır.** Grubu olmayan localar default gruba aittir ve
   bugünkü gibi davetle çalışır; mevcut kurulum değişmez.
-- **Grubu bir Smaster kurar ve grup onundur:** kuran Smaster diğer kişileri
+- **Grubu Master veya bir Smaster kurar ve grup kuranındır:** kuran diğer kişileri
   (insan, agent, başka Smaster) Building'den veya profil kartından ekler ve
   çıkarır. Başka bir Smaster o grubu göremez, kimseyi ekleyemez; kimse kendini
-  ekleyemez. Master'ın eklenmesine gerek yoktur. Değişiklik kimin, ne zaman
+  ekleyemez. Master her grubu yönetebilir ve eklenmesine gerek yoktur. Değişiklik kimin, ne zaman
   yaptığı ile kayda geçer.
 - **Grup locası:** Smaster bir grup için loca kurar. O locayı **yalnız grubun
   üyeleri görür** ve girer; başka gruplardakiler o locaya **alınamaz**,

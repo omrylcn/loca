@@ -376,11 +376,11 @@ may be in more than one group.
 - **Everyone is in the default group.** Locas without a group belong to the
   default group and work by invitation as today; an existing deployment does
   not change.
-- **A Smaster creates a group, and the group is theirs:** the founding
-  Smaster adds and removes the other people (humans, agents, other Smasters)
+- **The Master or a Smaster creates a group, and the group is its
+  founder's:** the founder adds and removes the other people (humans, agents, other Smasters)
   from the Building view or their profile card. Another Smaster cannot see
-  the group or add anyone to it; nobody adds themselves. The Master never
-  needs to be added. Every change is recorded with who made it, and when.
+  the group or add anyone to it; nobody adds themselves. The Master can manage
+  every group and never needs to be added. Every change is recorded with who made it, and when.
 - **Group loca:** a Smaster creates a loca for a group. **Only the group's
   members see** and enter it; people in other groups **cannot be taken in**,
   Smasters included. To bring someone in, add them to the group first.
