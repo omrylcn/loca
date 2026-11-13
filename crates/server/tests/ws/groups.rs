@@ -1048,11 +1048,11 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
             assert_eq!(listed, w, "{stage}: {label} listed");
         }
     };
-    // Davet-only building: humans who are not ranks reach a default loca by
-    // davet, not by a bare membership session — exactly as before groups.
+    // Davet-only building: a person reaches a default loca by davet, also
+    // when signed in with their own key (the davet is their seat).
     expect(
         snapshot("default").await,
-        [true, true, true, false, false, false, true, true],
+        [true, true, true, true, true, false, true, true],
         "default",
     );
 
@@ -1200,8 +1200,9 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
     );
     // Back in the default group: ranks by rank, the agent by its kept davet.
     expect(
+        // h-new was carried over by davet and now reaches it with its own key.
         snapshot("back to default").await,
-        [true, true, true, false, false, false, true, false],
+        [true, true, true, true, false, true, true, false],
         "back to default",
     );
 
@@ -1241,4 +1242,124 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
         .0,
         409
     );
+}
+
+#[tokio::test]
+async fn a_person_signed_in_with_their_own_key_enters_where_they_hold_a_davet() {
+    let dir = tempfile::tempdir().unwrap();
+    let (port, _guard) = closed_building(&dir.path().join("member-session.db")).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let master = master_session(&base).await;
+    let key = member(&base, "ms-ayse", "user").await;
+    let other_key = member(&base, "ms-mehmet", "user").await;
+    for room in ["ms-a", "ms-b"] {
+        assert!(
+            post(
+                format!("{base}/rooms"),
+                &master,
+                serde_json::json!({ "name": room })
+            )
+            .await
+            .0 < 300
+        );
+    }
+    let (_, inv) = post(
+        format!("{base}/rooms/ms-a/invites"),
+        &master,
+        serde_json::json!({ "name": "ms-ayse" }),
+    )
+    .await;
+    let ayse = session(&base, ("x-room-token", &key), "ms-ayse", "user").await;
+    let mehmet = session(&base, ("x-room-token", &other_key), "ms-mehmet", "user").await;
+    // Her davet is her seat: in ms-a, not in ms-b.
+    assert_eq!(
+        get(format!("{base}/rooms/ms-a/messages"), &ayse).await.0,
+        200
+    );
+    assert_ne!(
+        get(format!("{base}/rooms/ms-b/messages"), &ayse).await.0,
+        200
+    );
+    let (_, rooms) = get(format!("{base}/rooms"), &ayse).await;
+    assert!(names_room(&rooms, "ms-a") && !names_room(&rooms, "ms-b"));
+    // Someone without a davet stays out.
+    assert_ne!(
+        get(format!("{base}/rooms/ms-a/messages"), &mehmet).await.0,
+        200
+    );
+    // A session does not carry a revoked davet.
+    let token = inv["token"].as_str().unwrap();
+    assert!(
+        delete(format!("{base}/rooms/ms-a/invites/{token}"), &master)
+            .await
+            .0
+            < 300
+    );
+    assert_ne!(
+        get(format!("{base}/rooms/ms-a/messages"), &ayse).await.0,
+        200
+    );
+}
+
+#[tokio::test]
+async fn leaving_a_group_ends_the_titles_held_in_its_locas() {
+    let dir = tempfile::tempdir().unwrap();
+    let (port, _guard) = closed_building(&dir.path().join("titles.db")).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let master = master_session(&base).await;
+    let (_, founder) = smaster(&base, "tt-founder").await;
+    let (_, deputy) = smaster(&base, "tt-deputy").await;
+    let (_, g) = post(
+        format!("{base}/groups"),
+        &founder,
+        serde_json::json!({ "name": "tt-group" }),
+    )
+    .await;
+    let g = g["id"].as_str().unwrap().to_string();
+    let deputy_id = principal_of(&base, "tt-deputy").await;
+    assert!(
+        put(
+            format!("{base}/groups/{g}/members/{deputy_id}"),
+            &founder,
+            None
+        )
+        .await
+        .0 < 300
+    );
+    // The deputy opens a loca in the group: it is that loca's operator; it leads.
+    let (status, v) = post(
+        format!("{base}/rooms"),
+        &deputy,
+        serde_json::json!({ "name": "tt-room", "group": g }),
+    )
+    .await;
+    assert!(status < 300, "{status} {v}");
+    assert!(
+        post(
+            format!("{base}/rooms/tt-room/lead"),
+            &master,
+            serde_json::json!({ "lead": "tt-deputy" })
+        )
+        .await
+        .0 < 300
+    );
+    let (_, ops) = get(format!("{base}/rooms/tt-room/operators"), &master).await;
+    assert_eq!(ops["appointed"]["principal_id"], deputy_id.as_str());
+    // Removed from the group: out of the loca, and its titles end with it.
+    assert!(
+        delete(format!("{base}/groups/{g}/members/{deputy_id}"), &founder)
+            .await
+            .0
+            < 300
+    );
+    assert_ne!(
+        get(format!("{base}/rooms/tt-room/messages"), &deputy)
+            .await
+            .0,
+        200
+    );
+    let (_, ops) = get(format!("{base}/rooms/tt-room/operators"), &master).await;
+    assert!(ops["appointed"].is_null(), "appointment ended: {ops}");
+    let (_, settings) = get(format!("{base}/rooms/tt-room/settings"), &master).await;
+    assert!(settings["lead"].is_null(), "lead ended: {settings}");
 }

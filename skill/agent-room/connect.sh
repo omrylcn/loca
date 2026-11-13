@@ -73,6 +73,12 @@ _credential_key_allowed() {
   [[ "$1" =~ ^DAVET_[A-Za-z0-9_]+$ ]]
 }
 
+# A loca name may hold spaces and any letter ("DOB İLE ALAKALI İŞ :D"); it
+# is always percent-encoded before it goes into a URL path.
+_room_path() {
+  python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$1"
+}
+
 _credential_unquote() {
   local value="$1" first last
   if [ "${#value}" -ge 2 ]; then
@@ -373,11 +379,11 @@ _upload_attachment() {
   mime=$(_mime_for "$file")
   if [ -n "$mime" ]; then hdr+=(-H "content-type: $mime"); else hdr+=(-H "content-type:"); fi
   resp=$(curl -sS -m 30 "${tok_args[@]}" "${hdr[@]}" -w $'\n%{http_code}' \
-    --data-binary @"$file" -X POST "$server/rooms/$room/attachments") || { echo >&2 "attach: upload request failed for $file"; return 1; }
+    --data-binary @"$file" -X POST "$server/rooms/$(_room_path "$room")/attachments") || { echo >&2 "attach: upload request failed for $file"; return 1; }
   code=$(printf '%s' "$resp" | tail -n1)
   if [ "$code" = "401" ] && _renew_session "$room" "$who"; then
     resp=$(curl -sS -m 30 "${tok_args[@]}" "${hdr[@]}" -w $'\n%{http_code}' \
-      --data-binary @"$file" -X POST "$server/rooms/$room/attachments") || return 1
+      --data-binary @"$file" -X POST "$server/rooms/$(_room_path "$room")/attachments") || return 1
     code=$(printf '%s' "$resp" | tail -n1)
   fi
   if [[ "$code" =~ ^2[0-9][0-9]$ ]]; then
@@ -507,20 +513,20 @@ case "$cmd" in
   members)
     server="$1"; room="$2"
     use_loca "$room"
-    curl_get "$server/rooms/$room/members"
+    curl_get "$server/rooms/$(_room_path "$room")/members"
     ;;
 
   since)
     server="$1"; room="$2"; since="${3:-0}"
     use_loca "$room"
-    curl_get "$server/rooms/$room/messages?since=$since"
+    curl_get "$server/rooms/$(_room_path "$room")/messages?since=$since"
     ;;
 
   # ---- Loca Wiki ----
   wiki)
     server="$1"; room="$2"; name="$3"
     use_loca "$room"
-    _wiki_request "$server/rooms/$room/wiki"
+    _wiki_request "$server/rooms/$(_room_path "$room")/wiki"
     ;;
 
   wiki-review)
@@ -529,7 +535,7 @@ case "$cmd" in
     # Review content is data, not a shell expression. A local file avoids a
     # large quoted payload on argv and leaves credentials in their boundary.
     payload=$(jq -ce 'select(type == "object" and (.pages | type == "array"))' "$review_file") || exit 2
-    _wiki_request -X POST "$server/rooms/$room/wiki/review" -d "$payload"
+    _wiki_request -X POST "$server/rooms/$(_room_path "$room")/wiki/review" -d "$payload"
     ;;
 
   wiki-remove)
@@ -539,7 +545,7 @@ case "$cmd" in
       echo "Invalid Wiki page slug" >&2; exit 2
     fi
     payload=$(jq -ce 'select(type == "object" and (.expected_revision | type == "number") and (.reason | type == "string"))' "$removal_file") || exit 2
-    _wiki_request -X DELETE "$server/rooms/$room/wiki/pages/$slug" -d "$payload"
+    _wiki_request -X DELETE "$server/rooms/$(_room_path "$room")/wiki/pages/$slug" -d "$payload"
     ;;
 
   wiki-page)
@@ -548,7 +554,7 @@ case "$cmd" in
     if [[ ! "$slug" =~ ^[a-z0-9-]{1,80}$ ]]; then
       echo "Invalid Wiki page slug" >&2; exit 2
     fi
-    snapshot=$(_wiki_request "$server/rooms/$room/wiki/pages/$slug") || exit $?
+    snapshot=$(_wiki_request "$server/rooms/$(_room_path "$room")/wiki/pages/$slug") || exit $?
     printf '%s' "$snapshot" | jq -ce --arg room "$room" --arg slug "$slug" '
       select(.room == $room and .page.slug == $slug)' || {
         echo "Wiki page unavailable; no context was supplied" >&2; exit 2;
@@ -558,33 +564,33 @@ case "$cmd" in
   wiki-claim)
     server="$1"; room="$2"; name="$3"
     use_loca "$room"
-    _wiki_request -X POST "$server/rooms/$room/wiki/maintenance/claim" -d '{}'
+    _wiki_request -X POST "$server/rooms/$(_room_path "$room")/wiki/maintenance/claim" -d '{}'
     ;;
 
   wiki-finish)
     server="$1"; room="$2"; name="$3"; review_file="$4"
     use_loca "$room"
     payload=$(jq -ce 'select(type == "object" and (.lease | type == "object") and (.review.pages | type == "array"))' "$review_file") || exit 2
-    _wiki_request -X POST "$server/rooms/$room/wiki/maintenance/finish" -d "$payload"
+    _wiki_request -X POST "$server/rooms/$(_room_path "$room")/wiki/maintenance/finish" -d "$payload"
     ;;
 
   wiki-renew)
     server="$1"; room="$2"; name="$3"; lease_file="$4"
     use_loca "$room"
     payload=$(jq -ce 'select(type == "object" and (.batch_id | type == "number") and (.epoch | type == "number"))' "$lease_file") || exit 2
-    _wiki_request -X POST "$server/rooms/$room/wiki/maintenance/renew" -d "$payload"
+    _wiki_request -X POST "$server/rooms/$(_room_path "$room")/wiki/maintenance/renew" -d "$payload"
     ;;
 
   wiki-context)
     server="$1"; room="$2"; name="$3"
     use_loca "$room"
-    _wiki_request "$server/rooms/$room/wiki/context"
+    _wiki_request "$server/rooms/$(_room_path "$room")/wiki/context"
     ;;
 
   wiki-requests)
     server="$1"; room="$2"; name="$3"
     use_loca "$room"
-    _wiki_request "$server/rooms/$room/wiki/context/requests"
+    _wiki_request "$server/rooms/$(_room_path "$room")/wiki/context/requests"
     ;;
 
   wiki-ready|wiki-request|wiki-accept|wiki-offer)
@@ -597,13 +603,13 @@ case "$cmd" in
       wiki-accept) wiki_path=context/accept ;;
       wiki-offer) wiki_path=context/offer ;;
     esac
-    _wiki_request -X POST "$server/rooms/$room/wiki/$wiki_path" -d "$payload"
+    _wiki_request -X POST "$server/rooms/$(_room_path "$room")/wiki/$wiki_path" -d "$payload"
     ;;
 
   memory)
     server="$1"; room="$2"
     use_loca "$room"
-    curl_get "$server/rooms/$room/memory"
+    curl_get "$server/rooms/$(_room_path "$room")/memory"
     ;;
 
   memory-short)
@@ -611,7 +617,7 @@ case "$cmd" in
     use_loca "$room"
     text="$*"
     payload=$(jq -n --arg t "$text" '{text:$t}')
-    curl_json -X PUT "$server/rooms/$room/memory/short" -d "$payload"
+    curl_json -X PUT "$server/rooms/$(_room_path "$room")/memory/short" -d "$payload"
     ;;
 
   memory-append)
@@ -619,26 +625,26 @@ case "$cmd" in
     use_loca "$room"
     text="$*"
     payload=$(jq -n --arg t "$text" '{text:$t}')
-    curl_json -X POST "$server/rooms/$room/memory/entries" -d "$payload"
+    curl_json -X POST "$server/rooms/$(_room_path "$room")/memory/entries" -d "$payload"
     ;;
 
   memory-entries)
     server="$1"; room="$2"; after_id="${3:-0}"; limit="${4:-50}"
     use_loca "$room"
-    curl_get "$server/rooms/$room/memory/entries?after_id=$after_id&limit=$limit"
+    curl_get "$server/rooms/$(_room_path "$room")/memory/entries?after_id=$after_id&limit=$limit"
     ;;
 
   # ---- living notes (keyed project state) ----
   notes)
     server="$1"; room="$2"
     use_loca "$room"
-    curl_get "$server/rooms/$room/notes"
+    curl_get "$server/rooms/$(_room_path "$room")/notes"
     ;;
 
   note-get)
     server="$1"; room="$2"; key="$3"
     use_loca "$room"
-    curl_get "$server/rooms/$room/notes/$key"
+    curl_get "$server/rooms/$(_room_path "$room")/notes/$key"
     ;;
 
   note-create)
@@ -648,7 +654,7 @@ case "$cmd" in
     body="$*"
     payload=$(jq -n --arg k "$key" --arg t "$title" --arg b "$body" --arg by "$name" \
       '{key:$k, title:$t, body:$b, by:$by, by_type:"agent"}')
-    curl_json -X POST "$server/rooms/$room/notes" -d "$payload"
+    curl_json -X POST "$server/rooms/$(_room_path "$room")/notes" -d "$payload"
     ;;
 
   note-update)
@@ -657,7 +663,7 @@ case "$cmd" in
     use_loca "$room"
     body="$*"
     payload=$(jq -n --arg b "$body" --arg by "$name" '{body:$b, by:$by, by_type:"agent"}')
-    curl_json -X PUT "$server/rooms/$room/notes/$key" -d "$payload"
+    curl_json -X PUT "$server/rooms/$(_room_path "$room")/notes/$key" -d "$payload"
     ;;
 
   journal)
@@ -666,19 +672,19 @@ case "$cmd" in
     server="$1"; room="$2"; name="${3:-}"; shift 2 || true
     use_loca "$room"
     if [ -z "$name" ]; then
-      curl_get "$server/rooms/$room/journal"
+      curl_get "$server/rooms/$(_room_path "$room")/journal"
     else
       shift || true
       text="$*"
       payload=$(jq -n --arg t "$text" --arg b "$name" '{text:$t, by:$b, by_type:"agent"}')
-      curl_json -X POST "$server/rooms/$room/journal" -d "$payload"
+      curl_json -X POST "$server/rooms/$(_room_path "$room")/journal" -d "$payload"
     fi
     ;;
 
   goals)
     server="$1"; room="$2"
     use_loca "$room"
-    curl_get "$server/rooms/$room/goals"
+    curl_get "$server/rooms/$(_room_path "$room")/goals"
     ;;
 
   attentions)
@@ -688,7 +694,7 @@ case "$cmd" in
     fi
     server="$1"; room="$2"
     use_loca "$room"
-    curl_get "$server/rooms/$room/attentions"
+    curl_get "$server/rooms/$(_room_path "$room")/attentions"
     ;;
 
   attention-claim)
@@ -700,7 +706,7 @@ case "$cmd" in
     use_loca "$room"
     payload=$(jq -n --arg by "$name" '{by:$by}')
     encoded_id=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$attention_id")
-    curl_json -X POST "$server/rooms/$room/attentions/$encoded_id/claim" -d "$payload"
+    curl_json -X POST "$server/rooms/$(_room_path "$room")/attentions/$encoded_id/claim" -d "$payload"
     ;;
 
   attention-resolve)
@@ -708,13 +714,13 @@ case "$cmd" in
     use_loca "$room"
     payload=$(jq -n --arg by "$name" '{by:$by}')
     encoded_id=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$attention_id")
-    curl_json -X POST "$server/rooms/$room/attentions/$encoded_id/resolve" -d "$payload"
+    curl_json -X POST "$server/rooms/$(_room_path "$room")/attentions/$encoded_id/resolve" -d "$payload"
     ;;
 
   waits)
     server="$1"; room="$2"
     use_loca "$room"
-    curl_get "$server/rooms/$room/waits"
+    curl_get "$server/rooms/$(_room_path "$room")/waits"
     ;;
 
   wait)
@@ -724,14 +730,14 @@ case "$cmd" in
     use_loca "$room"
     payload=$(jq -n --arg by "$name" --arg who "$waiting_for" --arg why "$reason" \
       '{by:$by, waiting_for:$who, reason:$why}')
-    curl_json -X POST "$server/rooms/$room/waits" -d "$payload"
+    curl_json -X POST "$server/rooms/$(_room_path "$room")/waits" -d "$payload"
     ;;
 
   wait-clear)
     server="$1"; room="$2"; name="$3"
     use_loca "$room"
     payload=$(jq -n --arg by "$name" '{by:$by}')
-    curl_json -X DELETE "$server/rooms/$room/waits/$name" -d "$payload"
+    curl_json -X DELETE "$server/rooms/$(_room_path "$room")/waits/$name" -d "$payload"
     ;;
 
   announce)
@@ -742,21 +748,21 @@ case "$cmd" in
     op_id="${LOCA_OP_ID:-announce-$name-$(date +%s%N)-$$-$RANDOM}"
     payload=$(jq -n --arg s "$name" --arg t "$text" --arg o "$op_id" \
       '{sender:$s, sender_type:"agent", target:"all", text:$t, kind:"announce", op_id:$o}')
-    curl_json -X POST "$server/rooms/$room/messages" -d "$payload"
+    curl_json -X POST "$server/rooms/$(_room_path "$room")/messages" -d "$payload"
     ;;
 
   mode)
     # mode <server> <room>   -> current chat mode (who may talk right now)
     server="$1"; room="$2"
     use_loca "$room"
-    curl_get "$server/rooms/$room/mode"
+    curl_get "$server/rooms/$(_room_path "$room")/mode"
     ;;
 
   settings)
     # settings <server> <room>   -> rate limit etc. (how fast you may post)
     server="$1"; room="$2"
     use_loca "$room"
-    curl_get "$server/rooms/$room/settings"
+    curl_get "$server/rooms/$(_room_path "$room")/settings"
     ;;
 
   send)
@@ -832,7 +838,7 @@ case "$cmd" in
     fi
     # Append the HTTP status so the caller sees a 403 (mode-gated) rejection.
     resp=$(curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" -w $'\n%{http_code}' \
-      -X POST "$server/rooms/$room/messages" -d "$body")
+      -X POST "$server/rooms/$(_room_path "$room")/messages" -d "$body")
     code=$(printf '%s' "$resp" | tail -n1)
     # Sessions live in the server's memory: a restart invalidates them. A lobby
     # call also delivers a fresh DAVET but deliberately no session. In both
@@ -867,7 +873,7 @@ case "$cmd" in
         echo >&2 "session renewed (server had restarted)"
         tok_args=(-H "x-room-token: $renew_key" -H "x-session-token: $new")
         resp=$(curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" -w $'\n%{http_code}' \
-          -X POST "$server/rooms/$room/messages" -d "$body")
+          -X POST "$server/rooms/$(_room_path "$room")/messages" -d "$body")
         code=$(printf '%s' "$resp" | tail -n1)
       fi
     fi
@@ -914,7 +920,7 @@ case "$cmd" in
     use_loca "$room"
     code=$(curl -sS -o /dev/null -w '%{http_code}' -m 10 \
       -H 'content-type: application/json' "${tok_args[@]}" \
-      -X POST "$server/rooms/$room/release")
+      -X POST "$server/rooms/$(_room_path "$room")/release")
     if [ "$code" != "204" ]; then
       echo "release failed (HTTP $code): your own davet/session for '$room' is required" >&2
       exit 7

@@ -686,8 +686,35 @@ impl Hub {
         };
         if removed {
             self.cut_group_access(id, principal);
+            self.end_titles_outside_group(id, principal);
         }
         self.group_view(id, viewer)
+    }
+
+    /// A person left a group: a title they held in its locas (operator,
+    /// lead) must not hang on someone those locas no longer admit.
+    fn end_titles_outside_group(&self, group: &str, principal: &str) {
+        let rooms = self.groups.lock_or_recover().rooms_of(group);
+        let name = self
+            .store
+            .active_principal(principal)
+            .map(|p| p.display_name);
+        for room in rooms {
+            if self.group_gate(&room, &[principal]) == Some(true) {
+                continue;
+            }
+            if self
+                .loca_operator(&room)
+                .is_some_and(|op| op.principal_id == principal)
+            {
+                if let Err(error) = self.end_loca_operator_by_rule(&room) {
+                    tracing::warn!(room, ?error, "could not end a removed member's appointment");
+                }
+            }
+            if name.is_some() && self.settings(&room).lead == name {
+                let _ = self.set_lead(&room, None, "group-removal");
+            }
+        }
     }
 
     /// Someone left a group (or the group went away): end what they held in

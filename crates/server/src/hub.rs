@@ -1410,6 +1410,14 @@ impl Hub {
             return EnterDecision::Allowed;
         }
 
+        // A person signed in with their own key holds a live davet for this
+        // loca: the davet is their seat, whichever credential they came with.
+        if let Some(principal) = session.and_then(|s| s.principal_id.as_deref()) {
+            if self.principal_holds_davet(room, principal) {
+                return EnterDecision::Allowed;
+            }
+        }
+
         // A session opens the loca it was minted for.
         if let Some(s) = session {
             match &s.loca {
@@ -1756,6 +1764,20 @@ impl Hub {
     }
 
     /// Does this member already hold a live davet for this loca?
+    /// Does this principal hold a live davet for `room`?
+    pub fn principal_holds_davet(&self, room: &str, principal: &str) -> bool {
+        let members: Vec<String> = self
+            .invites
+            .lock_or_recover()
+            .values()
+            .filter(|i| i.room == room)
+            .map(|i| i.member.clone())
+            .collect();
+        members
+            .iter()
+            .any(|m| self.member_principal(m).as_deref() == Some(principal))
+    }
+
     pub fn has_active_invite(&self, room: &str, member: &str) -> bool {
         self.invites
             .lock_or_recover()
@@ -4169,6 +4191,24 @@ impl Hub {
             .map_err(map_loca_operator_error)?;
         operators.remove(room);
         Ok(revoked)
+    }
+
+    /// End an appointment because a rule requires it (the operator left the
+    /// loca's group), not by anyone's choice: no actor's appointment rights
+    /// are involved. The record keeps the revocation.
+    pub(crate) fn end_loca_operator_by_rule(
+        &self,
+        room: &str,
+    ) -> Result<(), OperatorAssignmentError> {
+        let Some(current) = self.store.loca_operator(room) else {
+            return Ok(());
+        };
+        let mut operators = self.operators.lock_or_recover();
+        self.store
+            .revoke_loca_operator(room, &current.principal_id, self.now())
+            .map_err(map_loca_operator_error)?;
+        operators.remove(room);
+        Ok(())
     }
 
     /// Operator authority in one loca: Building authority everywhere, or the

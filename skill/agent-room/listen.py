@@ -843,7 +843,7 @@ def backfill_pages(url, last_id, skip_own, is_lead=False):
     rest_cursor = int(last_id)
     while True:
         params = urlencode({"since": rest_cursor, "limit": BACKFILL_PAGE_SIZE})
-        req = urllib.request.Request(f"{rest}/rooms/{room}/messages?{params}")
+        req = urllib.request.Request(f"{rest}/rooms/{quote(room, safe='')}/messages?{params}")
         if token:
             req.add_header("x-room-token", token)
         if os.environ.get("LOCA_SESSION"):
@@ -903,7 +903,7 @@ def fetch_room_settings(url):
     token = token_for_room(room)
     scheme = "https" if u.scheme == "wss" else "http"
     rest = f"{scheme}://{u.hostname}:{u.port or (443 if u.scheme == 'wss' else 80)}"
-    req = urllib.request.Request(f"{rest}/rooms/{room}/settings")
+    req = urllib.request.Request(f"{rest}/rooms/{quote(room, safe='')}/settings")
     if token:
         req.add_header("x-room-token", token)
     if os.environ.get("LOCA_SESSION"):
