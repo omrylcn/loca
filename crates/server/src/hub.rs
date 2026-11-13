@@ -11,12 +11,14 @@ mod birebir;
 mod extensions;
 mod groups;
 mod keys;
+mod notifications;
 mod work;
 
 pub use birebir::{BirebirCandidate, BirebirError, BirebirView};
 pub use extensions::{normalize_extensions, ExtensionError};
 pub use groups::{GroupError, GroupView};
 pub use keys::KeyRevokeError;
+pub use notifications::{NotificationAudience, NotificationError};
 pub use work::{GoalError, TaskError, WaitError};
 
 use std::collections::HashMap;
@@ -336,14 +338,25 @@ pub enum LobbyEvent {
     MembershipSuspended {
         member: String,
     },
+    /// A Building notification (docs/concepts.md "Notifications"), addressed
+    /// by principal id: one event reaches every recipient's Lobby socket.
+    /// `frame` is the ready `{"t":"notification",…}` text; it carries no
+    /// credential.
+    Notification {
+        recipients: Arc<std::collections::HashSet<String>>,
+        frame: Arc<String>,
+    },
 }
 
 impl LobbyEvent {
-    pub fn member(&self) -> &str {
+    /// The membership token a per-member event is for; `None` for an event
+    /// addressed by principal (a notification).
+    pub fn member(&self) -> Option<&str> {
         match self {
             Self::Called { member, .. }
             | Self::MembershipRevoked { member }
-            | Self::MembershipSuspended { member } => member,
+            | Self::MembershipSuspended { member } => Some(member),
+            Self::Notification { .. } => None,
         }
     }
 }

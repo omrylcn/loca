@@ -1645,6 +1645,8 @@ mod groups;
 mod keys;
 #[path = "ws/membership.rs"]
 mod membership;
+#[path = "ws/notifications.rs"]
+mod notifications;
 #[path = "ws/rooms.rs"]
 mod rooms;
 #[path = "ws/server.rs"]

@@ -101,6 +101,7 @@ const WEB_BIREBIR: &str = include_str!("../../../web/assets/birebir.js");
 const WEB_KEYS: &str = include_str!("../../../web/assets/keys.js");
 const WEB_EXTENSIONS: &str = include_str!("../../../web/assets/extensions.js");
 const WEB_GROUPS: &str = include_str!("../../../web/assets/groups.js");
+const WEB_NOTIFICATIONS: &str = include_str!("../../../web/assets/notifications.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
@@ -420,6 +421,23 @@ async fn main() {
         )
         .route("/rooms/:id/group", axum::routing::put(set_loca_group_route))
         .route("/rooms/:id/group/preview", get(preview_loca_group_route))
+        .route(
+            "/notifications",
+            get(list_notifications).post(send_notification_route),
+        )
+        .route("/notifications/sent", get(sent_notifications_route))
+        .route(
+            "/notifications/audiences",
+            get(notification_audiences_route),
+        )
+        .route(
+            "/notifications/read-all",
+            axum::routing::post(read_all_notifications_route),
+        )
+        .route(
+            "/notifications/:id/read",
+            axum::routing::post(read_notification_route),
+        )
         .route(
             "/profile/preferences",
             get(get_profile_preferences).put(put_profile_preferences),
@@ -762,6 +780,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "keys.js" => Some(("text/javascript; charset=utf-8", WEB_KEYS)),
         "extensions.js" => Some(("text/javascript; charset=utf-8", WEB_EXTENSIONS)),
         "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
+        "notifications.js" => Some(("text/javascript; charset=utf-8", WEB_NOTIFICATIONS)),
         _ => None,
     };
     match asset {

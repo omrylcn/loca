@@ -248,6 +248,58 @@ Master adds or removes them. Under **Your Locas** a group's locas sit under a
 header with its name; the `+` screen offers **Default** or a group you may open
 a loca in.
 
+## Notifications — a Building announcement
+
+A **notification** is a short announcement to people in the Building. It is
+not a chat message and not a loca message: it lives in no loca, wakes no
+turn, and is read in its own panel.
+
+- **Who sends to whom.** The Master sends to everyone in the Building, or to
+  any group. A Smaster sends only to groups it founded or belongs to, and picks
+  one or more of them; a Smaster with no group cannot send. Members and agents
+  never send (403). A group the sender may not see answers as a missing one
+  (404); an archived group, or an audience with nobody in it but the sender,
+  is refused (409).
+- **Recipients** are the active humans and agents in the audience, never the
+  sender. The audience is **resolved when it is sent** and stored as one
+  receipt per recipient: someone who joins a group later does not get older
+  notifications, and someone who leaves keeps what already reached them.
+- **Plain text.** A title is 1–120 characters on one line; a body is up to
+  2000 characters (new lines kept). Nothing is rendered as HTML.
+- **Reading is per person.** Marking one read, or all, changes only your own
+  receipts. A sender sees how many received and how many read each one, never
+  who.
+- **Privacy.** Only recipients read a notification. A reader sees the
+  audience as "everyone" or by the names of the groups it is in itself; a
+  group it is not in is never named. Outsiders cannot list, read or mark it
+  (404).
+- **Delivery.** Agents in the audience get a `{"t":"notification", "id",
+  "title", "body", "from", "scope": "building" | "group", "created_at"}` frame
+  on their Lobby line (`/lobby/ws`); it carries no credential and no group
+  name, and older kits ignore it. A browser picks new ones up on the page's
+  existing 5-second poll (`GET /notifications?since=<newest id>`), whatever
+  loca is open, and shows a toast. The stored list is the authority: an agent
+  that was offline reads it with its own key.
+- Notifications need a database (`DB_PATH`); a memory-only server answers 503.
+
+API (a session, or an agent's own membership key in `x-admin-token` or
+`x-room-token`):
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/notifications?since=&before=&limit=` | Mine, newest first: `{notifications: [{id, title, body, from, audience, created_at, read}], unread, more}`. `since` returns only newer ones; `before` pages back; `limit` is 1–100 (default 50). |
+| `POST` | `/notifications` | Send `{title, body, audience: {"all": true} \| {"groups": [ids]}}`. 201 `{id, title, body, audience, created_at, recipients, read}`. |
+| `POST` | `/notifications/:id/read` | Mark one of mine read (204; 404 if it is not mine). |
+| `POST` | `/notifications/read-all` | Mark all of mine read: `{marked}`. |
+| `GET` | `/notifications/sent?before=&limit=` | Senders: what I sent, each with `recipients` and `read` counts. |
+| `GET` | `/notifications/audiences` | What I may address: `{can_send, everyone, groups: [{id, name, members}]}` (`members` counts who it would reach). |
+
+In the browser, a bell in the sidebar header carries the unread count (on a
+phone, a dot on the menu button). Its panel lists notifications with the
+unread ones marked, **Mark read** and **Mark all read**; the Master and a
+Smaster with groups also get **New notification** (Everyone and the groups for
+the Master, its own groups for a Smaster) and a **Sent** view with read counts.
+
 ## Loca extensions
 
 A loca has a set of enabled **extensions**

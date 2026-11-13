@@ -153,6 +153,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "text/javascript",
             "async function fetchGroups(",
         ),
+        (
+            "notifications.js",
+            "text/javascript",
+            "async function pollNotifications(",
+        ),
     ];
     for (name, content_type, marker) in assets {
         assert!(
