@@ -1403,7 +1403,7 @@ fn everyone_hub_from_store(store: Arc<Store>) -> Hub {
 
 fn everyone_hub(db: &std::path::Path, room: &str, names: &[&str]) -> Hub {
     let hub = everyone_hub_from_store(Arc::new(Store::open(db.to_str()).expect("sqlite store")));
-    hub.create_loca(room, &hub.resolve_authority(Some("MASTER"), None))
+    hub.create_loca(room, &hub.resolve_authority(Some("MASTER"), None), None)
         .expect("explicit reminder fixture loca");
     for name in names {
         let member = hub.admit_member(name, "agent", "operator").expect("admit");
@@ -1730,7 +1730,7 @@ fn everyone_treats_two_same_named_principals_as_distinct_recipients() {
     let dir = tempfile::tempdir().expect("temp store");
     let db = dir.path().join("same-name.sqlite");
     let hub = everyone_hub_from_store(Arc::new(Store::open(db.to_str()).expect("store")));
-    hub.create_loca("proj", &hub.resolve_authority(Some("MASTER"), None))
+    hub.create_loca("proj", &hub.resolve_authority(Some("MASTER"), None), None)
         .expect("explicit same-name fixture loca");
     // Two distinct members with distinct canonical principals, both davetted into
     // the same room.

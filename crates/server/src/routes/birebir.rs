@@ -239,6 +239,7 @@ pub(crate) async fn birebir_fence(
             | "wiki"
             | "attentions"
             | "waits"
+            | "extensions"
     );
     let conversation = matches!(first, "messages" | "attachments");
     let allowed = if method == axum::http::Method::GET || method == axum::http::Method::HEAD {

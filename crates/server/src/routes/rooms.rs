@@ -3,6 +3,12 @@ use crate::*;
 #[derive(serde::Deserialize)]
 pub(crate) struct CreateLoca {
     name: String,
+    /// The extensions the new loca starts with. Absent keeps the legacy set
+    /// (every extension that existed before they could be chosen), so an
+    /// older client or script that sends only a name is unaffected. The web
+    /// create screen always sends its ticked list.
+    #[serde(default)]
+    extensions: Option<Vec<String>>,
 }
 
 pub(crate) async fn create_loca_route(
@@ -14,8 +20,13 @@ pub(crate) async fn create_loca_route(
     if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
         return (StatusCode::BAD_REQUEST, "invalid loca name").into_response();
     }
+    let extensions = match body.extensions.as_deref().map(hub::normalize_extensions) {
+        None => None,
+        Some(Ok(list)) => Some(list),
+        Some(Err(error)) => return (StatusCode::BAD_REQUEST, error.message()).into_response(),
+    };
     let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
-    match hub.create_loca(name, &actor) {
+    match hub.create_loca(name, &actor, extensions) {
         Ok(assignment) => (
             StatusCode::CREATED,
             Json(serde_json::json!({"room":name,"operator":assignment})),
@@ -274,6 +285,11 @@ pub(crate) async fn set_settings(
     }
     if hub.is_deleted(&id) {
         return (StatusCode::CONFLICT, "this loca is permanently sealed").into_response();
+    }
+    // Live mode is an extension: with it off, nobody turns live on. Turning
+    // it off stays allowed (removing the extension already does that).
+    if body.live == Some(true) && !hub.extension_enabled(&id, "live") {
+        return extension_off("live");
     }
     if let Some(protocol::ReminderRecipient::Person { name }) = &body.care_recipient {
         if !valid_identity_name(name) {

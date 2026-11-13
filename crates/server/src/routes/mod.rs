@@ -9,6 +9,7 @@ mod attention;
 mod birebir;
 mod content;
 mod downloads;
+mod extensions;
 mod keys;
 mod lobby;
 mod membership;
@@ -45,6 +46,10 @@ pub(crate) use content::{
     update_note, write_short_memory,
 };
 pub(crate) use downloads::{download_skill_bundle, skill_bundle_manifest, skill_bundles_index};
+pub(crate) use extensions::{
+    add_extension, extension_catalog, extension_fence, extension_off, get_extensions,
+    put_extensions, remove_extension,
+};
 pub(crate) use keys::{issue_key, list_keys, rename_smaster_route, revoke_key_route};
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};
 pub(crate) use membership::{

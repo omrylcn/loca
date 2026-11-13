@@ -22,6 +22,7 @@ test("Master pairing asks for neither a name nor a member type", async ({ page, 
   expect(profile.principal.id).toBeTruthy();
   await page.locator("#newRoomName").fill("browser-created-loca");
   await page.locator("#newRoomBtn").click();
+  await page.locator("#extCreateSubmit").click();
   await expect.poll(() => page.evaluate(() => state.room)).toBe("browser-created-loca");
   await expect.poll(() => page.evaluate(() => state.ws?.readyState)).toBe(1);
   const assignment = await (await request.get("/rooms/browser-created-loca/operators", {

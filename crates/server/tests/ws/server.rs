@@ -142,6 +142,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "text/javascript",
             "async function fetchKeyLedger(",
         ),
+        (
+            "extensions.js",
+            "text/javascript",
+            "function applyLocaExtensions(",
+        ),
     ];
     for (name, content_type, marker) in assets {
         assert!(

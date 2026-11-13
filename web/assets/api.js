@@ -19,7 +19,7 @@ async function pollHealth() {
       if (!h.needs_token) setLocked(false);   // open house (dev): no door
       $("adminbar").classList.toggle("on", isAdmin());
       $("adminToggle").classList.toggle("hidden", !isAdmin());
-      $("liveToggle").classList.toggle("hidden", !isAdmin());
+      $("liveToggle").classList.toggle("hidden", !isAdmin() || !extensionOn("live"));
       $("stopBtn").classList.toggle("hidden", !isAdmin());
       $("tabPeople").classList.toggle("hidden", !isAdmin());
       fetchSeated();   // admin just appeared: seats we could not see before
@@ -105,21 +105,10 @@ function gotoMsg(id) {
 }
 
 /* ---- rooms create ---- */
-async function createRoom() {
-  const name = $("newRoomName").value.trim();
-  if (!name) return;
-  try {
-    const response = await fetch(`${serverBase()}/rooms`, {
-      method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify({ name }),
-    });
-    if (!response.ok) { addSys(`could not create loca: ${await response.text()}`); return; }
-  } catch (error) {
-    addSys("Loca creation could not be confirmed. Refresh Your Locas before retrying.");
-    return;
-  }
-  $("newRoomName").value = "";
-  joinRoom(name);
+// `+` opens the create screen (extensions.js): the name typed here carries
+// over, and the loca is created there with the extensions ticked.
+function createRoom() {
+  openCreateLoca($("newRoomName").value.trim());
 }
 
 let sendInFlight = false;
@@ -431,7 +420,7 @@ async function doConnect(room) {
   startHealthPoll();
   $("adminbar").classList.toggle("on", isAdmin());
   $("adminToggle").classList.toggle("hidden", !isAdmin());
-  $("liveToggle").classList.toggle("hidden", !isAdmin());
+  $("liveToggle").classList.toggle("hidden", !isAdmin() || !extensionOn("live"));
   $("tabPeople").classList.toggle("hidden", !isAdmin());
   $("adminNote").textContent = isAdmin() ? "Admin access · changes apply only to this loca." : "";
   refreshRooms();

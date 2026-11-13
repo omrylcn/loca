@@ -188,6 +188,10 @@ impl Hub {
         settings.live = false;
         settings.lead = None;
         settings.operators = Vec::new();
+        // A birebir is conversation: it has no extensions (PRINCIPLES "Loca
+        // extensions"). `Hub::extension_enabled` also refuses by room kind, so
+        // a birebir saved before this field existed has none either.
+        settings.extensions = Some(Vec::new());
         let fresh = Birebir {
             room: room.clone(),
             a,
