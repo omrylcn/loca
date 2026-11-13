@@ -87,11 +87,11 @@ pub(crate) async fn send_notification_route(
     };
     let Some(audience) = audience else {
         // Rank first: a member must not learn the request shape it may not use.
-        let refused = hub
-            .notification_audiences(&who)
-            .can_send
-            .then_some(hub::NotificationError::NoAudience)
-            .unwrap_or(hub::NotificationError::RankRequired);
+        let refused = if hub.notification_audiences(&who).can_send {
+            hub::NotificationError::NoAudience
+        } else {
+            hub::NotificationError::RankRequired
+        };
         return notification_error(refused);
     };
     match hub.send_notification(&who, title, text, audience) {

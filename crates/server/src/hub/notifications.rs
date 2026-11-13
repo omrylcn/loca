@@ -150,14 +150,20 @@ fn sender_of(viewer: &RequestAuthority) -> Result<(String, String), Notification
                 .principal_id
                 .clone()
                 .unwrap_or_else(|| "master".into()),
-            viewer.display_name.clone().unwrap_or_else(|| "Master".into()),
+            viewer
+                .display_name
+                .clone()
+                .unwrap_or_else(|| "Master".into()),
         )),
         Some(BuildingRole::Smaster) => {
             let id = viewer
                 .principal_id
                 .clone()
                 .ok_or(NotificationError::RankRequired)?;
-            let name = viewer.display_name.clone().unwrap_or_else(|| "Smaster".into());
+            let name = viewer
+                .display_name
+                .clone()
+                .unwrap_or_else(|| "Smaster".into());
             Ok((id, name))
         }
         _ => Err(NotificationError::RankRequired),
@@ -218,8 +224,7 @@ impl Hub {
         if !self.store.is_persistent() {
             return Err(NotificationError::Unavailable);
         }
-        let (recipients, stored_audience): (BTreeSet<String>, serde_json::Value) = match audience
-        {
+        let (recipients, stored_audience): (BTreeSet<String>, serde_json::Value) = match audience {
             NotificationAudience::All => {
                 if !viewer.is_master() {
                     return Err(NotificationError::MasterOnly);
@@ -261,10 +266,7 @@ impl Hub {
                 (people, serde_json::json!({ "groups": named }))
             }
         };
-        let recipients: Vec<String> = recipients
-            .into_iter()
-            .filter(|p| p != &sender_id)
-            .collect();
+        let recipients: Vec<String> = recipients.into_iter().filter(|p| p != &sender_id).collect();
         let created_at = self.now();
         let id = self
             .store
@@ -367,11 +369,7 @@ impl Hub {
             )
             .map_err(|_| NotificationError::Storage)?;
         let more = rows.len() > limit as usize;
-        let visible: HashSet<String> = self
-            .groups_for(viewer)
-            .into_iter()
-            .map(|g| g.id)
-            .collect();
+        let visible: HashSet<String> = self.groups_for(viewer).into_iter().map(|g| g.id).collect();
         let list = rows
             .into_iter()
             .take(limit as usize)
@@ -401,7 +399,10 @@ impl Hub {
         }
     }
 
-    pub fn read_all_notifications(&self, viewer: &RequestAuthority) -> Result<u64, NotificationError> {
+    pub fn read_all_notifications(
+        &self,
+        viewer: &RequestAuthority,
+    ) -> Result<u64, NotificationError> {
         let me = Self::reader_of(viewer)?;
         self.store
             .mark_all_notifications_read(&me, self.now())
