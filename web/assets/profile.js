@@ -16,6 +16,93 @@ function profileTime(value) {
   });
 }
 
+const APPEARANCE_LABELS = {
+  theme: { dark: "Dark", light: "Light" },
+  accent: { teal: "Teal", blue: "Blue", violet: "Violet", amber: "Amber", rose: "Rose" },
+  density: { comfortable: "Comfortable", compact: "Compact" },
+  font_size: { normal: "Normal", large: "Large" },
+};
+const APPEARANCE_ROWS = [["theme", "Theme"], ["accent", "Accent"], ["density", "Density"], ["font_size", "Text"]];
+
+function currentAppearance() {
+  return state.appearance || cachedAppearance();
+}
+
+// Personal look: real radio groups, applied instantly, saved per principal.
+function profileAppearanceHtml() {
+  const prefs = currentAppearance();
+  const rows = APPEARANCE_ROWS.map(([key, title]) => {
+    const labelId = `appearanceLabel-${key}`;
+    const options = APPEARANCE_CHOICES[key].map(value => {
+      const name = APPEARANCE_LABELS[key][value];
+      const checked = prefs[key] === value ? " checked" : "";
+      const face = key === "accent"
+        ? `<span class="swatch ${value}" title="${name}" aria-hidden="true"></span><span class="visuallyhidden">${name}</span>`
+        : `<span>${name}</span>`;
+      return `<label class="appearanceopt"><input type="radio" name="appearance-${key}"` +
+        ` data-appearance="${key}" value="${value}"${checked} />${face}</label>`;
+    }).join("");
+    return `<div class="appearancerow" role="radiogroup" aria-labelledby="${labelId}">` +
+      `<span id="${labelId}">${title}</span><div class="appearanceopts">${options}</div></div>`;
+  }).join("");
+  return `<div class="profileappearance" id="profileAppearance"><small>Appearance</small>${rows}` +
+    `<div class="appearancestatus" id="appearanceStatus" role="status"></div></div>`;
+}
+
+function syncAppearanceInputs() {
+  const prefs = currentAppearance();
+  document.querySelectorAll("input[data-appearance]").forEach(input => {
+    input.checked = prefs[input.dataset.appearance] === input.value;
+  });
+}
+
+function setAppearanceStatus(text) {
+  const status = $("appearanceStatus");
+  if (status) status.textContent = text;
+}
+
+// Server copy wins over the local cache unless the person changed something
+// while the read was in flight: their newer click is already being saved.
+let appearanceEdits = 0;
+async function fetchAppearance() {
+  const principal = state.principalId;
+  if (!principal) return;
+  const editsAtStart = appearanceEdits;
+  try {
+    const response = await fetch(`${serverBase()}/profile/preferences`, { headers: adminHeaders({}) });
+    if (!response.ok) return;
+    const prefs = await response.json();
+    if (editsAtStart !== appearanceEdits || principal !== state.principalId) return;
+    state.appearance = applyAppearance(prefs);
+    state.appearancePrincipal = principal;
+    cacheAppearance(state.appearance);
+    syncAppearanceInputs();
+  } catch (error) {}
+}
+
+let appearanceSaveSequence = 0;
+async function saveAppearance(key, value) {
+  appearanceEdits++;
+  state.appearance = applyAppearance({ ...currentAppearance(), [key]: value });
+  cacheAppearance(state.appearance);
+  const sequence = ++appearanceSaveSequence;
+  try {
+    const response = await fetch(`${serverBase()}/profile/preferences`, {
+      method: "PUT",
+      headers: adminHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ [key]: value }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const saved = await response.json();
+    if (sequence !== appearanceSaveSequence) return;
+    state.appearance = applyAppearance(saved);
+    cacheAppearance(state.appearance);
+    setAppearanceStatus("");
+  } catch (error) {
+    if (sequence === appearanceSaveSequence) setAppearanceStatus("Not saved to your profile; kept on this device.");
+  }
+}
+
 function renderProfile() {
   const box = $("whoami");
   const profile = state.profile;
@@ -63,6 +150,7 @@ function renderProfile() {
       `<span><small>This Loca</small><b class="role loca-role">${esc(locaText)}</b>${source ? `<em>${source}</em>` : ""}${management ? `<em>${management}</em>` : ""}</span>` +
     `</div>` +
     `<div class="profilesession"><small>Session</small><span>${profile.session ? "Bounded session" : "Direct credential"} · ${esc(expiry)}</span></div>` +
+    profileAppearanceHtml() +
     `<details class="profileaccess"><summary>Your access <span>${state.credentials.filter(c => !c.revoked_at).length}</span></summary>` +
       `<div class="credentiallist">${credentials || '<div class="credentialnone">No access keys listed.</div>'}</div>` +
       `<div class="credentialcreate"><input id="credentialLabel" maxlength="64" placeholder="New key label, e.g. MacBook" />` +
@@ -175,6 +263,9 @@ async function fetchProfile() {
       state.name = state.profile.principal.display_name;
       $("name").value = state.name;
     }
+    if (state.principalId && state.principalId !== state.appearancePrincipal) {
+      fetchAppearance();
+    }
     markLocaContextReady("profile", room);
     loadRoomPreferences();
     renderRooms();
@@ -265,6 +356,11 @@ $("whoami").addEventListener("click", event => {
     revoke.dataset.revokeCredential,
     revoke.dataset.current === "1",
   );
+});
+
+$("whoami").addEventListener("change", event => {
+  const input = event.target.closest("input[data-appearance]");
+  if (input?.checked) saveAppearance(input.dataset.appearance, input.value);
 });
 
 document.addEventListener("click", event => {

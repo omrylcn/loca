@@ -1062,6 +1062,21 @@ impl Hub {
         self.store.list_credentials(principal_id)
     }
 
+    /// The principal's own appearance preferences (defaults when unsaved).
+    pub fn preferences_for(&self, principal_id: &str) -> crate::store::Preferences {
+        self.store.principal_preferences(principal_id)
+    }
+
+    /// Validate and save a partial preference update for this principal.
+    pub fn update_preferences(
+        &self,
+        principal_id: &str,
+        patch: &serde_json::Value,
+    ) -> Result<crate::store::Preferences, crate::store::PreferenceError> {
+        self.store
+            .merge_principal_preferences(principal_id, patch, self.now())
+    }
+
     pub fn credential_id_for_request(
         &self,
         credential: Option<&str>,

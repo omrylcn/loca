@@ -25,11 +25,13 @@ mod keys;
 mod memory;
 mod messages;
 mod operators;
+mod preferences;
 mod rooms;
 mod wiki;
 mod wiki_context;
 mod wiki_maintenance;
 mod work;
+pub use preferences::{PreferenceError, Preferences};
 pub use wiki::{
     WikiCommit, WikiError, WikiPageEdit, WikiPageRemoval, WikiPageSnapshot, WikiSnapshot,
 };
@@ -516,6 +518,14 @@ impl Store {
             );
             CREATE INDEX IF NOT EXISTS principal_sessions_principal
                 ON principal_sessions(principal_id, revoked_at, expires_at);
+            -- Personal appearance preferences (theme, accent, density, font
+            -- size). One validated JSON document per principal, so the look
+            -- follows the person to every device instead of one browser.
+            CREATE TABLE IF NOT EXISTS principal_preferences (
+                principal_id TEXT PRIMARY KEY REFERENCES principals(id),
+                json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
             -- A Loca Operator is an explicit, principal-bound room authority.
             -- Rows are never overwritten: replacement/revocation closes the
             -- prior row, preserving who appointed whom and when.
