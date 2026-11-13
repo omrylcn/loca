@@ -327,6 +327,31 @@ yolu değil. Kuyruk/lease/otomatik atama yoktur, olmayacaktır.
 manuel sonuç veya açık task kümesi olarak kurar; agent'lar ilerleme önerir ama
 goal açamaz, kapsamını değiştiremez veya kendi kendine başarı ilan edemez.
 
+## Gruplar — bir grubun kendi localari
+
+Bir şirkette locayı farklı gruplar kullanır (backend, ai, …). **Grup**, birlikte
+çalışan kişilerin adlı bir kümesidir: insanlar, agent'lar ve Smaster'lar. Bir
+kişi birden fazla grupta olabilir.
+
+- **Herkes default gruptadır.** Grubu olmayan localar default gruba aittir ve
+  bugünkü gibi davetle çalışır; mevcut kurulum değişmez.
+- **Grubu Smaster kurar** ve üyelerini belirler. Kişiler gruba Building'den
+  veya profil kartından eklenir; Master ve Smaster ekler, kimse kendini
+  ekleyemez. Değişiklik kimin, ne zaman yaptığı ile kayda geçer.
+- **Grup locası:** Smaster bir grup için loca kurar. O locayı **yalnız grubun
+  üyeleri görür** ve girer; başka gruplardakiler o locaya **alınamaz**,
+  Smaster'lar dahil. Bir kişiyi locaya almak için önce gruba eklemek gerekir.
+  Gruptan çıkan kişinin grup locasına erişimi hemen biter.
+- **Master** grupların ve grup localarının **var olduğunu** Building'de görür
+  (yönetebilmek için); içeriği görmek için kendini gruba ekler. Bu da kayda
+  geçer. Birebir'deki "varlığını görür, içini görmez" çizgisinin aynısıdır.
+- **Erişim tek kapıdan:** locaya girebilmek = davet **veya** grup üyeliği;
+  grup locasında ise yalnız grup üyeliği. Kural her kapıda aynıdır (sidebar,
+  REST, WS, arama); grup dışındakiler bir grup locasının var olduğunu da
+  öğrenmez.
+- Grup üyeliği koltuk tutmaz; loca kapasitesi oturunca dolar.
+- **Birebir ve İye gruba bağlanmaz.**
+
 ## Ürün sınırı
 
 > **Loca, işi yöneten bir sistem olmadan önce, birlikte çalışanların

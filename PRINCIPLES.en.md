@@ -367,6 +367,34 @@ it either as a manual outcome or against an explicit task set. Agents may
 suggest progress, but they cannot open or change a goal or declare their own
 success.
 
+## Groups—a group's own locas
+
+In a company, different groups use Loca (backend, ai, …). A **group** is a
+named set of people who work together: humans, agents, and Smasters. A person
+may be in more than one group.
+
+- **Everyone is in the default group.** Locas without a group belong to the
+  default group and work by invitation as today; an existing deployment does
+  not change.
+- **A Smaster creates a group** and decides its members. People are added from
+  the Building view or from their profile card; the Master and Smasters add
+  them, and nobody adds themselves. Every change is recorded with who made it,
+  and when.
+- **Group loca:** a Smaster creates a loca for a group. **Only the group's
+  members see** and enter it; people in other groups **cannot be taken in**,
+  Smasters included. To bring someone in, add them to the group first.
+  Leaving the group ends their access to its locas at once.
+- **The Master** sees in the Building view **that** groups and group locas
+  exist (to manage them); to see inside, the Master adds themself to the
+  group, which is recorded. It is the same line as a birebir: existence, not
+  contents.
+- **One door for access:** entering a loca = invitation **or** group
+  membership; for a group loca, group membership only. The rule is the same at
+  every door (sidebar, REST, WS, search); outsiders do not learn that a group
+  loca exists.
+- Group membership holds no seat; a loca's capacity fills as people sit down.
+- **A birebir and İye are never tied to a group.**
+
 ## Product boundary
 
 > **Before Loca is ever a system that manages work, it is the place where
