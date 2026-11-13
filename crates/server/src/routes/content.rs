@@ -523,6 +523,13 @@ pub(crate) async fn search_room(
         .min(200);
     match hub.search(&id, &needle, limit) {
         Ok((messages, notes)) => {
+            // Search is a door too: a switched-off Notes extension returns no
+            // notes here, exactly as its own routes refuse them.
+            let notes = if hub.extension_enabled(&id, "notes") {
+                notes
+            } else {
+                Vec::new()
+            };
             Json(serde_json::json!({ "messages": messages, "notes": notes })).into_response()
         }
         Err(error) => {

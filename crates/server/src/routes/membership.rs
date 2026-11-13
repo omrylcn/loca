@@ -37,6 +37,12 @@ pub(crate) async fn profile_view(
         {
             loca_roles.push("operator");
             operator_source = Some("appointed");
+        } else if authority.is_master() && !hub.is_birebir(room) {
+            // The Master stands at the top of the hierarchy: in every loca it
+            // holds the operator's authority by rank, without an appointment.
+            // (A birebir has no operator; there the Master is one of the two.)
+            loca_roles.push("operator");
+            operator_source = Some("master");
         }
         if hub.is_lead(room, display_name) {
             loca_roles.push("lead");

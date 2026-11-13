@@ -2031,3 +2031,125 @@ async fn durable_backfill_pages_the_complete_archive_after_restart() {
         .windows(2)
         .all(|pair| pair[0]["id"].as_u64() < pair[1]["id"].as_u64()));
 }
+
+#[tokio::test]
+async fn the_master_is_operator_by_rank_in_every_loca_but_not_in_a_birebir() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("master-operator.db");
+    let (port, _guard) = spawn_server_env(
+        "mo-master",
+        &[
+            ("DB_PATH", db.to_str().unwrap().into()),
+            ("REQUIRE_SESSIONS", "1".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let pairing: Value = client
+        .post(format!("{base}/pairings?ttl_hours=1"))
+        .header("x-admin-token", "mo-master")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let session: Value = client
+        .post(format!("{base}/sessions"))
+        .header("x-pairing-code", pairing["pairing_code"].as_str().unwrap())
+        .json(&serde_json::json!({ "name": "", "kind": "user" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let master = session["session_token"].as_str().unwrap().to_string();
+    // A loca someone else founded: a Smaster opens it, so the appointment is theirs.
+    let sm: Value = client
+        .post(format!("{base}/smasters"))
+        .header("x-admin-token", "mo-master")
+        .json(&serde_json::json!({ "name": "mo-founder" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let created = client
+        .post(format!("{base}/rooms"))
+        .header("x-admin-token", sm["token"].as_str().unwrap())
+        .json(&serde_json::json!({ "name": "mo-room" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(created.status().is_success(), "{}", created.status());
+    let profile: Value = client
+        .get(format!("{base}/profile?room=mo-room"))
+        .header("x-session-token", &master)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let roles: Vec<&str> = profile["loca"]["roles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r.as_str().unwrap())
+        .collect();
+    assert!(roles.contains(&"operator"), "{profile}");
+    assert_eq!(profile["loca"]["operator_source"], "master");
+    // The founder keeps its own appointment.
+    let founder_session: Value = client
+        .post(format!("{base}/sessions"))
+        .header("x-admin-token", sm["token"].as_str().unwrap())
+        .json(&serde_json::json!({ "name": "mo-founder", "kind": "user" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let founder: Value = client
+        .get(format!("{base}/profile?room=mo-room"))
+        .header(
+            "x-session-token",
+            founder_session["session_token"].as_str().unwrap(),
+        )
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(founder["loca"]["operator_source"], "appointed");
+    // In a birebir there is no operator, not even by rank.
+    let opened: Value = client
+        .post(format!("{base}/birebirs"))
+        .header("x-session-token", &master)
+        .json(&serde_json::json!({ "name": "mo-founder" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let room = opened["birebir"]["room"].as_str().unwrap();
+    let inside: Value = client
+        .get(format!("{base}/profile?room={room}"))
+        .header("x-session-token", &master)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!inside["loca"]["roles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == "operator"));
+}

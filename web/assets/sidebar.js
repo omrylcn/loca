@@ -200,6 +200,7 @@ function renderLocaSidebar() {
   const roles = isLocaContextReady("profile") ? state.profile?.loca?.roles || [] : [];
   const myRole = !isLocaContextReady("profile") ? "Loading…" : roles.length
     ? roles.filter(role => role !== "participant" || roles.length === 1).map(profileRoleLabel).join(" · ")
+      + (state.profile?.loca?.operator_source === "master" ? " · MASTER" : "")
     : "PARTICIPANT";
   const lifecycle = sidebarLifecycle();
   $("locaSummary").innerHTML =
@@ -230,6 +231,7 @@ async function fetchLocaSidebar() {
     const operator = response.ok ? await response.json() : null;
     if (sequence !== locaSidebarFetchSequence || room !== state.room) return;
     state.locaOperator = operator;
+    refreshSenderTags();
   } catch (error) {
     if (sequence !== locaSidebarFetchSequence || room !== state.room) return;
     state.locaOperator = null;

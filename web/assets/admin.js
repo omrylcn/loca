@@ -81,6 +81,8 @@ async function fetchSettings() {
   renderSettings();
 }
 function renderSettings() {
+  // The lead may have changed: relabel lines already in the feed.
+  if (typeof refreshSenderTags === "function") refreshSenderTags();
   const s = state.settings || {};
   renderOperatorControls();
   if (isLocaOperator()) {

@@ -291,7 +291,6 @@ function addMsg(m) {
     if (state.msgs.length > 400) state.msgs.shift();
   }
   const mine = m.sender === state.name;
-  const senderIsLead = state.settings?.lead === m.sender;
   const mentionsMe = new RegExp(`(^|\\s)@(${regexEsc(state.name)}|all)\\b`, "i").test(m.text) || m.target === state.name || m.target === "all";
   const row = document.createElement("div");
   row.className = "row" + (mine ? " mine" : "") + (mentionsMe && !mine ? " mentioned" : "")
@@ -327,7 +326,7 @@ function addMsg(m) {
     <div class="bubble${mentionsMe && !mine ? " mentioned" : ""}">
       <div class="line">
         <span class="glyph ${m.sender_type}">${glyph}</span>
-        <span class="sender ${m.sender_type}">${esc(m.sender)}</span>${senderIsLead ? `<span class="leadtag">lead</span>` : ""}
+        <span class="sender ${m.sender_type}">${esc(m.sender)}</span><span class="roletags" data-sender="${esc(m.sender)}">${roleTagsFor(m.sender)}</span>
         <span class="time" title="${esc(fmtFull(m.ts))}">${time}</span>
       </div>${quote}
       <div class="body markdown chatmarkdown">${txt}</div>
@@ -479,6 +478,25 @@ function scrollFeed(force) {
   requestAnimationFrame(toBottom);
   if (force) { setTimeout(toBottom, 60); setTimeout(toBottom, 250); }
 }
+// The titles a sender wears at this table, shown on every line they write:
+// operator (appointed, or the Master by rank) and lead. A birebir has none.
+function roleTagsFor(name) {
+  if (!name || isBirebir(state.room)) return "";
+  const op = state.locaOperator;
+  const isOperator = name === op?.appointed?.display_name || name === op?.building_master?.display_name;
+  const isLead = state.settings?.lead === name;
+  return (isOperator ? `<span class="optag" title="loca operator">operator</span>` : "")
+    + (isLead ? `<span class="leadtag" title="loca lead">lead</span>` : "");
+}
+
+// Titles change after lines were drawn (the operator or the lead loads, or
+// changes): relabel what is already in the feed.
+function refreshSenderTags() {
+  for (const el of document.querySelectorAll("#feed .roletags[data-sender]")) {
+    el.innerHTML = roleTagsFor(el.dataset.sender);
+  }
+}
+
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
 /* ---- chat mode ---- */

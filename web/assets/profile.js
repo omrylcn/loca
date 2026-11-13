@@ -121,7 +121,8 @@ function renderProfile() {
   const locaLabels = roles
     .filter(role => role !== "participant" || roles.length === 1)
     .map(profileRoleLabel);
-  const source = loca?.operator_source === "appointed" ? "appointed" : "";
+  const source = loca?.operator_source === "appointed" ? "appointed"
+    : loca?.operator_source === "master" ? "by rank (Master)" : "";
   const management = loca?.building_management ? "Building management access" : "";
   const locaText = locaLabels.length ? locaLabels.join(" · ") : "PARTICIPANT";
   const expiry = profile.session?.expires_at

@@ -652,3 +652,48 @@ async fn a_birebir_has_no_extensions() {
     }
     let _ = mehmet_key;
 }
+
+#[tokio::test]
+async fn search_returns_no_notes_while_the_notes_extension_is_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("ext-search.db");
+    let (port, _guard) =
+        spawn_server_env(MASTER, &[("DB_PATH", db.to_str().unwrap().into())]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let admin = ("x-admin-token", MASTER);
+    // Notes on: a note is written and found.
+    assert!(create(&base, "ext-search", Some(&["notes"])).await.0 < 300);
+    let (status, _) = call(
+        reqwest::Method::POST,
+        format!("{base}/rooms/ext-search/notes"),
+        admin,
+        Some(serde_json::json!({ "key": "plan", "body": "the secret plan", "by": "operator" })),
+    )
+    .await;
+    assert!(status < 300, "note write: {status}");
+    let (_, found) = call(
+        reqwest::Method::GET,
+        format!("{base}/rooms/ext-search/search?q=secret"),
+        admin,
+        None,
+    )
+    .await;
+    assert_eq!(found["notes"].as_array().unwrap().len(), 1, "{found}");
+    // Notes off: search no longer reaches them (records are kept).
+    let (status, _) = call(
+        reqwest::Method::PUT,
+        format!("{base}/rooms/ext-search/extensions"),
+        admin,
+        Some(serde_json::json!({ "enabled": [] })),
+    )
+    .await;
+    assert!(status < 300);
+    let (_, found) = call(
+        reqwest::Method::GET,
+        format!("{base}/rooms/ext-search/search?q=secret"),
+        admin,
+        None,
+    )
+    .await;
+    assert!(found["notes"].as_array().unwrap().is_empty(), "{found}");
+}

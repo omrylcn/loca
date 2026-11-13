@@ -1389,3 +1389,13 @@
     border-radius: 7px; color: var(--txt); font: 12px var(--mono); text-align: left; cursor: pointer; min-height: 32px; }
   .dmcand:hover, .dmcand:focus-visible { background: var(--panel); outline: none; }
   .dmcandname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* The operator wears its title on every line, like the lead. */
+  .roletags { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: middle; }
+  .roletags:empty { display: none; }
+  .optag { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: 9px;
+    font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--accent2); border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .optag::before { content: "▲"; font-size: 7px; }
+  .roletags .leadtag { margin-left: 0; }

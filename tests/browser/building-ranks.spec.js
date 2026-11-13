@@ -211,3 +211,27 @@ test("a name typed at Smaster sign-in becomes the display name; a refused one is
   await expect.poll(() => fresh.evaluate(() => state.name)).toBe("ui-placeholder-two");
   await fresh.close();
 });
+
+test("the operator wears its title on every line it writes, like the lead", async ({ page, request }) => {
+  const { provisionRooms } = require("./support/building");
+  await provisionRooms(request, ["optag-room"]);
+  const info = await adminSession(request, "MASTER", "operator");
+  await page.addInitScript(({ token, expiresAt }) => {
+    localStorage.setItem("loca-gs-seen", "1");
+    localStorage.setItem("loca-admin-session", JSON.stringify({ token, expiresAt, name: "Master" }));
+    localStorage.setItem("loca-seated-rooms", JSON.stringify(["optag-room"]));
+  }, { token: info.session_token, expiresAt: info.expires_at });
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
+  await page.evaluate(() => joinRoom("optag-room"));
+  await expect.poll(() => page.evaluate(() => state.ws && state.ws.readyState)).toBe(1);
+  await page.fill("#msg", "operator line");
+  await page.keyboard.press("Enter");
+  const row = page.locator("#feed .row", { hasText: "operator line" });
+  await expect(row.locator(".optag")).toHaveText("operator");
+  await page.evaluate(() => setSidebarView("loca"));
+  // This loca was founded by the Master, so the role is the appointed one
+  // (the by-rank case is covered in tests/ws/rooms.rs).
+  await expect(page.locator("#locaSummary")).toContainText("OPERATOR");
+  await expect(page.locator("#locaSummary")).not.toContainText("PARTICIPANT");
+});
