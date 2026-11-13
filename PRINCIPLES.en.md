@@ -376,6 +376,17 @@ loca the list lives under **This Loca › Extensions**; the operator, the
 Master, and Smasters change it. Each added extension becomes a tab in the
 loca. Chat is always on.
 
+**A loca's identity.** When a loca is created it gets not only a name but
+**what it is for** (a description). The description is the loca's identity;
+the Goal is the current target; the two stay separate.
+
+**Vault.** A loca's rules for agents and people live in one place, the loca's
+**Vault**: **AGENT.md**, loca rules, **skills**, and **hooks**. Everyone who
+enters, and every agent called in, first receives a **loca card**: name,
+description, rules, and what the Vault holds. An agent receives the card on
+connecting and the current version when the Vault changes; a person sees it on
+first entry and always finds it under This Loca.
+
 Example extensions:
 
 - **Task management**—a board (To do · Doing · Review · Done), Jira key, due

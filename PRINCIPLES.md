@@ -336,6 +336,17 @@ eklenir. Açılmış bir locada liste **This Loca › Extensions** altındadır;
 operatör, Master ve Smaster değiştirir. Eklenen her extension locada kendi
 sekmesi olur. Chat her zaman açıktır.
 
+**Locanın kimliği.** Loca açılırken yalnız ad değil, **ne için var olduğu**
+(açıklama) da yazılır. Açıklama locanın kimliğidir; Goal o anki hedeftir,
+ikisi ayrı kalır.
+
+**Vault.** Bir locanın agent'lara ve insanlara dair kuralları tek yerde,
+locanın **Vault**'unda durur: **AGENT.md**, loca kuralları, **skill**'ler ve
+**hook**'lar. Locaya giren herkese, çağrılan her agent'a en başta bir **loca
+kartı** verilir: ad, açıklama, kurallar ve Vault'ta neler olduğu. Agent kartı
+bağlanırken alır, Vault değişince günceli gelir; insan ilk girişte görür,
+This Loca altında her zaman bulur.
+
 Örnek extension'lar:
 
 - **Task management** — pano (Yapılacak · Yapılıyor · İncelemede · Bitti),
