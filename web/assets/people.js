@@ -318,16 +318,14 @@ async function fetchPeople() {
   const scope = residentReadScope();
   const box = $("peopleList");
   try {
-    const [resRooms, resPeople, resJoin, resStock, resRanks] = await Promise.all([
-      fetch(`${serverBase()}/rooms`, { headers: adminHeaders({}) }),
+    const [resBans, resPeople, resJoin, resStock, resRanks] = await Promise.all([
+      fetch(`${serverBase()}/building/bans`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/join-requests`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/building/ranks`, { headers: adminHeaders({}) }),
     ]);
     if (!resPeople.ok) { if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">liste alınamadı</div>`; return; }
-    // A rank's own birebirs are not Building locas; they never show here.
-    const rooms = (resRooms.ok ? await resRooms.json() : []).filter(r => !isBirebir(r.room));
     const people = await resPeople.json();
     if (!residentReadCurrent(scope)) return;
     // Durable source of truth for admissions: reloaded from the server on every
@@ -344,14 +342,14 @@ async function fetchPeople() {
     if (resStock.ok) state.admissionStock = await resStock.json();
     if (resRanks.ok) state.ranks = await resRanks.json();
 
-    // Ask each loca who it has barred; a ban lives in the room, not on the person.
+    // A ban lives in the room, not on the person: one request returns every
+    // loca's bans that this viewer may see, regrouped here by person.
     const bans = {};
-    await Promise.all(rooms.map(async (r) => {
-      try {
-        const m = await fetch(`${serverBase()}/rooms/${encodeURIComponent(r.room)}/moderate`, { headers: adminHeaders({}) });
-        if (m.ok) { const st = await m.json(); (st.banned || []).forEach(n => { (bans[n] ||= []).push(r.room); }); }
-      } catch (e) { /* one loca failing must not blank the whole page */ }
-    }));
+    const banRows = resBans.ok ? await resBans.json().catch(() => []) : [];
+    for (const row of Array.isArray(banRows) ? banRows : []) {
+      if (isBirebir(row.room)) continue;
+      (row.banned || []).forEach(n => { (bans[n] ||= []).push(row.room); });
+    }
 
     if (!applyResidentSnapshot(people, { people: true, scope })) return;
     state.bans = bans;

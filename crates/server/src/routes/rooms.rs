@@ -160,6 +160,26 @@ pub(crate) async fn list_rooms(State(hub): State<Hub>, headers: HeaderMap) -> im
         .is_allowed()
     }))
 }
+/// `GET /building/bans` — who is barred from which loca, for every loca the
+/// caller may enter, in one request (the Building view used to ask each loca
+/// in turn). Birebirs are conversation only and never listed.
+pub(crate) async fn list_building_bans(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !is_admin_req(&hub, &headers) {
+        return (StatusCode::FORBIDDEN, "Building authority required").into_response();
+    }
+    let rows: Vec<_> = hub
+        .bans_by_room()
+        .into_iter()
+        .filter(|(room, _)| {
+            !hub.is_birebir(room) && room_decision_of(&hub, room, &headers).is_allowed()
+        })
+        .map(|(room, banned)| serde_json::json!({ "room": room, "banned": banned }))
+        .collect();
+    Json(rows).into_response()
+}
 pub(crate) async fn get_members(State(hub): State<Hub>, access: RoomAccess) -> impl IntoResponse {
     Json(hub.members(&access.room)).into_response()
 }

@@ -404,6 +404,7 @@ async fn main() {
         .route("/whoami", get(whoami))
         .route("/profile", get(profile_view).put(rename_profile_route))
         .route("/building/ranks", get(list_building_ranks))
+        .route("/building/bans", get(list_building_bans))
         .route(
             "/profile/preferences",
             get(get_profile_preferences).put(put_profile_preferences),
