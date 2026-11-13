@@ -1457,6 +1457,7 @@ impl Hub {
     ) -> EnterDecision {
         let master = (credential_authority.is_master()
             && (admin_tok.is_some() || self.admin_open()))
+            || (!self.admin_token.is_empty() && davet_tok == Some(self.admin_token.as_str()))
             || session.is_some_and(|s| s.admin && s.building_role == BuildingRole::Master);
         if master {
             return EnterDecision::Allowed;
