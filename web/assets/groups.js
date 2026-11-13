@@ -231,3 +231,95 @@ $("peopleList").addEventListener("click", (event) => {
   const card = event.target.closest("[data-person-card]");
   if (card) openPersonCard(card.dataset.personCard);
 });
+
+
+// ---- A loca's group, under This Loca -----------------------------------
+// The Master moves a loca between the default group and a group (or between
+// groups). Before anything changes, the server says who would lose access,
+// who is carried over by davet, and which titles end; the Master confirms.
+state.groupMove = null;   // { room, target, preview, error, busy }
+
+function currentLocaGroup() {
+  const rm = (state.rooms || []).find(r => r.room === state.room);
+  return rm ? { id: rm.group_id || "", name: rm.group || "" } : { id: "", name: "" };
+}
+
+function locaGroupFact() {
+  if (!state.room || isBirebir(state.room) || state.room === state.homeRoom) return "";
+  const g = currentLocaGroup();
+  const master = state.profile?.building_role === "master";
+  const change = master && !state.groupMove
+    ? `<button type="button" class="extlink" data-loca-group-change>Change</button>` : "";
+  return `<div><dt>Group</dt><dd>${esc(g.name || "Default")}${change}</dd></div>`;
+}
+
+function locaGroupMoveHtml() {
+  const m = state.groupMove;
+  if (!m || m.room !== state.room) return "";
+  const current = currentLocaGroup().id;
+  const options = [`<option value="">Default</option>`]
+    .concat((state.groups || []).filter(g => !g.archived)
+      .map(g => `<option value="${esc(g.id)}"${m.target === g.id ? " selected" : ""}>${esc(g.name)}</option>`));
+  let body = "";
+  if (m.error) body = `<div class="gmerror">${esc(m.error)}</div>`;
+  else if (m.preview) {
+    const p = m.preview;
+    const list = (title, names, cls) => names.length
+      ? `<div class="gmline ${cls}"><b>${title}</b> ${names.map(esc).join(", ")}</div>` : "";
+    body = list(`${p.losing.length} will lose access:`, p.losing, "bad") +
+      list("Kept by davet:", p.carried_by_davet, "") +
+      (p.lead_ends ? `<div class="gmline bad"><b>Lead ends:</b> ${esc(p.lead_ends)}</div>` : "") +
+      (p.operator_ends ? `<div class="gmline bad"><b>Operator appointment ends:</b> ${esc(p.operator_ends)}</div>` : "") +
+      (!p.losing.length && !p.lead_ends && !p.operator_ends ? `<div class="gmline">Nobody loses access.</div>` : "");
+  } else if (m.target !== current) body = `<div class="gmline">checking…</div>`;
+  const same = m.target === current;
+  return `<div class="groupmove" role="group" aria-label="Move this loca to a group">` +
+    `<label class="gmfield"><span>Move to</span><select data-loca-group-target>${options.join("")}</select></label>` +
+    (same ? `<div class="gmline">Choose another group.</div>` : body) +
+    `<div class="gmacts"><button type="button" class="btn" data-loca-group-cancel>Cancel</button>` +
+    `<button type="button" class="btn primary" data-loca-group-confirm${same || !m.preview || m.busy ? " disabled" : ""}>Move</button></div></div>`;
+}
+
+async function loadGroupMovePreview() {
+  const m = state.groupMove;
+  if (!m) return;
+  m.preview = null; m.error = "";
+  renderLocaSidebar();
+  if (m.target === currentLocaGroup().id) return;
+  try {
+    const q = m.target ? `?group=${encodeURIComponent(m.target)}` : "";
+    const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(m.room)}/group/preview${q}`, { headers: adminHeaders({}) });
+    if (state.groupMove !== m) return;
+    if (r.ok) m.preview = await r.json(); else m.error = await r.text();
+  } catch (e) {
+    m.error = "could not reach the server";
+  }
+  renderLocaSidebar();
+}
+
+async function locaGroupClick(event) {
+  if (event.target.closest("[data-loca-group-change]")) {
+    if (!state.groupsLoaded) await fetchGroups(false);
+    state.groupMove = { room: state.room, target: currentLocaGroup().id, preview: null, error: "", busy: false };
+    renderLocaSidebar();
+    return;
+  }
+  if (event.target.closest("[data-loca-group-cancel]")) { state.groupMove = null; renderLocaSidebar(); return; }
+  if (event.target.closest("[data-loca-group-confirm]")) {
+    const m = state.groupMove;
+    if (!m || !m.preview) return;
+    m.busy = true; renderLocaSidebar();
+    const err = await groupWrite("PUT", `/rooms/${encodeURIComponent(m.room)}/group`, { group: m.target || null });
+    if (err) { m.busy = false; m.error = err; renderLocaSidebar(); return; }
+    state.groupMove = null;
+    renderLocaSidebar();
+  }
+}
+
+$("locaSummary").addEventListener("click", (event) => locaGroupClick(event));
+$("locaSummary").addEventListener("change", (event) => {
+  const sel = event.target.closest("[data-loca-group-target]");
+  if (!sel || !state.groupMove) return;
+  state.groupMove.target = sel.value;
+  loadGroupMovePreview();
+});

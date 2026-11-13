@@ -421,7 +421,13 @@ function kindMark(kind) {
 // Where someone is, as loca chips; nothing is a quiet dash-free sentence.
 function whereHtml(locas, fallback) {
   if (locas && locas.length) {
-    return locas.map(l => `<span class="locachip" title="seated in ${esc(l)}">#${esc(l)}</span>`).join("");
+    // A busy agent sits in many locas: show three, then "+N" with the rest
+    // in its tooltip, so the column never spills into the next one.
+    const shown = locas.slice(0, 3).map(l =>
+      `<span class="locachip" title="seated in ${esc(l)}">#${esc(l)}</span>`).join("");
+    const rest = locas.slice(3);
+    return shown + (rest.length
+      ? `<span class="locachip more" title="${esc(rest.map(l => "#" + l).join("\n"))}">+${rest.length}</span>` : "");
   }
   return `<span class="pnowhere">${esc(fallback)}</span>`;
 }

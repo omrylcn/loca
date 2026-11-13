@@ -882,3 +882,363 @@ async fn a_database_from_before_groups_keeps_every_loca_default() {
     .await;
     assert_eq!(status, 201, "groups work on an upgraded database");
 }
+
+/// One actor at the door: how it presents itself, and its name.
+struct Actor {
+    label: &'static str,
+    headers: Vec<(&'static str, String)>,
+}
+
+async fn can_read(base: &str, room: &str, actor: &Actor) -> bool {
+    let headers: Vec<(&str, &str)> = actor
+        .headers
+        .iter()
+        .map(|(k, v)| (*k, v.as_str()))
+        .collect();
+    let (status, _) = send(
+        reqwest::Method::GET,
+        format!("{base}/rooms/{room}/messages"),
+        &headers,
+        None,
+    )
+    .await;
+    status == 200
+}
+
+async fn lists(base: &str, room: &str, actor: &Actor) -> bool {
+    let headers: Vec<(&str, &str)> = actor
+        .headers
+        .iter()
+        .map(|(k, v)| (*k, v.as_str()))
+        .collect();
+    let (_, rooms) = send(
+        reqwest::Method::GET,
+        format!("{base}/rooms"),
+        &headers,
+        None,
+    )
+    .await;
+    names_room(&rooms, room)
+}
+
+#[tokio::test]
+async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
+    let dir = tempfile::tempdir().unwrap();
+    let (port, _guard) = closed_building(&dir.path().join("move-matrix.db")).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let master = master_session(&base).await;
+    let (_, s_in) = smaster(&base, "mv-s-in").await;
+    let (_, s_out) = smaster(&base, "mv-s-out").await;
+    let h_in_key = member(&base, "mv-h-in", "user").await;
+    let h_out_key = member(&base, "mv-h-out", "user").await;
+    let h_new_key = member(&base, "mv-h-new", "user").await;
+    let a_in_key = member(&base, "mv-a-in", "agent").await;
+    let a_out_key = member(&base, "mv-a-out", "agent").await;
+
+    // A default loca, founded by the Master; four people invited.
+    let (status, _) = post(
+        format!("{base}/rooms"),
+        &master,
+        serde_json::json!({ "name": "mv" }),
+    )
+    .await;
+    assert!(status < 300);
+    let mut davets = std::collections::HashMap::new();
+    for name in ["mv-h-in", "mv-h-out", "mv-a-in", "mv-a-out"] {
+        let (status, v) = post(
+            format!("{base}/rooms/mv/invites"),
+            &master,
+            serde_json::json!({ "name": name }),
+        )
+        .await;
+        assert!(status < 300, "invite {name}: {status} {v}");
+        davets.insert(name, v["token"].as_str().unwrap().to_string());
+    }
+    let (status, _) = post(
+        format!("{base}/rooms/mv/lead"),
+        &master,
+        serde_json::json!({ "lead": "mv-h-out" }),
+    )
+    .await;
+    assert!(status < 300, "lead");
+
+    // Two groups: backend (s-in founds it; h-in, h-new, a-in join) and ops (empty).
+    let (_, backend) = post(
+        format!("{base}/groups"),
+        &s_in,
+        serde_json::json!({ "name": "backend" }),
+    )
+    .await;
+    let backend = backend["id"].as_str().unwrap().to_string();
+    for name in ["mv-h-in", "mv-h-new", "mv-a-in"] {
+        let p = principal_of(&base, name).await;
+        let (status, v) = put(format!("{base}/groups/{backend}/members/{p}"), &s_in, None).await;
+        assert!(status < 300, "add {name}: {status} {v}");
+    }
+    let (_, ops) = post(
+        format!("{base}/groups"),
+        &master,
+        serde_json::json!({ "name": "ops" }),
+    )
+    .await;
+    let ops = ops["id"].as_str().unwrap().to_string();
+
+    // How each kind of person presents itself: ranks and humans by session,
+    // agents by their davet (or their membership key once it is gone).
+    let h_in = session(&base, ("x-room-token", &h_in_key), "mv-h-in", "user").await;
+    let h_out = session(&base, ("x-room-token", &h_out_key), "mv-h-out", "user").await;
+    let h_new = session(&base, ("x-room-token", &h_new_key), "mv-h-new", "user").await;
+    let actors = |davets: &std::collections::HashMap<&str, String>| {
+        vec![
+            Actor {
+                label: "Master",
+                headers: vec![("x-session-token", master.clone())],
+            },
+            Actor {
+                label: "Smaster in backend",
+                headers: vec![("x-session-token", s_in.clone())],
+            },
+            Actor {
+                label: "Smaster in no group",
+                headers: vec![("x-session-token", s_out.clone())],
+            },
+            Actor {
+                label: "human in backend, invited",
+                headers: vec![("x-session-token", h_in.clone())],
+            },
+            Actor {
+                label: "human in no group, invited",
+                headers: vec![("x-session-token", h_out.clone())],
+            },
+            Actor {
+                label: "human in backend, never invited",
+                headers: vec![("x-session-token", h_new.clone())],
+            },
+            Actor {
+                label: "agent in backend, davet",
+                headers: vec![("x-room-token", davets["mv-a-in"].clone())],
+            },
+            Actor {
+                label: "agent in no group, davet",
+                headers: vec![("x-room-token", davets["mv-a-out"].clone())],
+            },
+        ]
+    };
+    let _ = (&a_in_key, &a_out_key);
+    let snapshot = |stage: &'static str| {
+        let base = base.clone();
+        let davets = davets.clone();
+        async move {
+            let mut row = Vec::new();
+            for actor in actors(&davets) {
+                row.push((
+                    actor.label,
+                    can_read(&base, "mv", &actor).await,
+                    lists(&base, "mv", &actor).await,
+                ));
+            }
+            println!("MATRIX {stage}: {row:?}");
+            row
+        }
+    };
+    // (read, listed) per actor, in the order of `actors`.
+    let expect = |row: Vec<(&str, bool, bool)>, want: [bool; 8], stage: &str| {
+        for ((label, read, listed), w) in row.into_iter().zip(want) {
+            assert_eq!(read, w, "{stage}: {label} read");
+            assert_eq!(listed, w, "{stage}: {label} listed");
+        }
+    };
+    // Davet-only building: humans who are not ranks reach a default loca by
+    // davet, not by a bare membership session — exactly as before groups.
+    expect(
+        snapshot("default").await,
+        [true, true, true, false, false, false, true, true],
+        "default",
+    );
+
+    // Only the Master previews or moves; İye/unknown are refused.
+    assert_eq!(
+        get(
+            format!("{base}/rooms/mv/group/preview?group={backend}"),
+            &s_in
+        )
+        .await
+        .0,
+        403
+    );
+    assert_eq!(
+        put(
+            format!("{base}/rooms/mv/group"),
+            &s_in,
+            Some(serde_json::json!({ "group": backend }))
+        )
+        .await
+        .0,
+        403
+    );
+    assert_eq!(
+        put(
+            format!("{base}/rooms/mv/group"),
+            &s_out,
+            Some(serde_json::json!({ "group": backend }))
+        )
+        .await
+        .0,
+        403
+    );
+    assert!(
+        put(
+            format!("{base}/rooms/iye/group"),
+            &master,
+            Some(serde_json::json!({ "group": backend }))
+        )
+        .await
+        .0 >= 400
+    );
+    assert_eq!(
+        put(
+            format!("{base}/rooms/mv/group"),
+            &master,
+            Some(serde_json::json!({ "group": "grp_nope" }))
+        )
+        .await
+        .0,
+        404
+    );
+
+    // Preview to the empty ops group: every non-Master loses access.
+    let (_, empty) = get(
+        format!("{base}/rooms/mv/group/preview?group={ops}"),
+        &master,
+    )
+    .await;
+    assert_eq!(
+        empty["losing"],
+        serde_json::json!(["mv-a-in", "mv-a-out", "mv-h-in", "mv-h-out"])
+    );
+    assert_eq!(empty["lead_ends"], "mv-h-out");
+    // Preview to backend: exactly the outsiders lose; the lead (outside) ends.
+    let (_, pv) = get(
+        format!("{base}/rooms/mv/group/preview?group={backend}"),
+        &master,
+    )
+    .await;
+    assert_eq!(pv["losing"], serde_json::json!(["mv-a-out", "mv-h-out"]));
+    assert_eq!(pv["keeping"], serde_json::json!(["mv-a-in", "mv-h-in"]));
+    assert_eq!(pv["lead_ends"], "mv-h-out");
+    assert_eq!(
+        pv["operator_ends"],
+        Value::Null,
+        "the Master's own appointment never ends"
+    );
+
+    // default → backend: members (any credential) in, every outsider out.
+    assert_eq!(
+        put(
+            format!("{base}/rooms/mv/group"),
+            &master,
+            Some(serde_json::json!({ "group": backend }))
+        )
+        .await
+        .0,
+        200
+    );
+    expect(
+        snapshot("backend").await,
+        [true, true, false, true, false, true, true, false],
+        "backend",
+    );
+    let (_, settings) = get(format!("{base}/rooms/mv/settings"), &master).await;
+    assert_eq!(
+        settings["lead"],
+        Value::Null,
+        "an outside lead's title ends"
+    );
+    let (_, journal) = get(format!("{base}/rooms/mv/journal"), &master).await;
+    assert!(journal.to_string().contains("moved this loca to backend"));
+    let (_, ops_owner) = get(format!("{base}/rooms/mv/operators"), &master).await;
+    assert!(
+        !ops_owner["appointed"].is_null(),
+        "the Master stays operator"
+    );
+    // The outsiders' davets are gone, not only blocked.
+    assert!(!ws_can(port, "mv", &format!("token={}", davets["mv-a-out"])).await);
+
+    // Preview backend → default: the members are carried over by davet.
+    let (_, back) = get(format!("{base}/rooms/mv/group/preview"), &master).await;
+    assert_eq!(back["losing"], serde_json::json!([]));
+    assert_eq!(
+        back["carried_by_davet"],
+        serde_json::json!(["mv-a-in", "mv-h-in", "mv-h-new"])
+    );
+    assert_eq!(
+        put(
+            format!("{base}/rooms/mv/group"),
+            &master,
+            Some(serde_json::json!({ "group": null }))
+        )
+        .await
+        .0,
+        200
+    );
+    let (_, invites) = get(format!("{base}/rooms/mv/invites"), &master).await;
+    let invited: Vec<&str> = invites
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|i| i["name"].as_str())
+        .collect();
+    for name in ["mv-a-in", "mv-h-in", "mv-h-new"] {
+        assert!(
+            invited.contains(&name),
+            "{name} keeps a seat by davet: {invites}"
+        );
+    }
+    assert!(
+        !invited.contains(&"mv-h-out") && !invited.contains(&"mv-a-out"),
+        "outsiders do not come back"
+    );
+    // Back in the default group: ranks by rank, the agent by its kept davet.
+    expect(
+        snapshot("back to default").await,
+        [true, true, true, false, false, false, true, false],
+        "back to default",
+    );
+
+    // default → the empty ops group: only the Master remains.
+    assert_eq!(
+        put(
+            format!("{base}/rooms/mv/group"),
+            &master,
+            Some(serde_json::json!({ "group": ops }))
+        )
+        .await
+        .0,
+        200
+    );
+    expect(
+        snapshot("ops").await,
+        [true, false, false, false, false, false, false, false],
+        "ops",
+    );
+
+    // An archived group takes no loca.
+    let (status, _) = send(
+        reqwest::Method::PATCH,
+        format!("{base}/groups/{backend}"),
+        &[("x-session-token", master.as_str())],
+        Some(serde_json::json!({ "archived": true })),
+    )
+    .await;
+    assert!(status < 300);
+    assert_eq!(
+        put(
+            format!("{base}/rooms/mv/group"),
+            &master,
+            Some(serde_json::json!({ "group": backend }))
+        )
+        .await
+        .0,
+        409
+    );
+}

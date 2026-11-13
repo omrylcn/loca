@@ -54,8 +54,8 @@ pub(crate) use extensions::{
 };
 pub(crate) use groups::{
     add_group_member_route, create_group_route, delete_group_route, get_group, group_fence,
-    group_log_route, list_groups, remove_group_member_route, set_loca_group_route,
-    update_group_route,
+    group_log_route, list_groups, preview_loca_group_route, remove_group_member_route,
+    set_loca_group_route, update_group_route,
 };
 pub(crate) use keys::{issue_key, list_keys, rename_smaster_route, revoke_key_route};
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};

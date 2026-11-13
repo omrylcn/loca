@@ -123,6 +123,16 @@ impl GroupError {
     }
 }
 
+/// What a group move would do (see `loca_group_move_preview`).
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct GroupMovePreview {
+    pub losing: Vec<String>,
+    pub keeping: Vec<String>,
+    pub carried_by_davet: Vec<String>,
+    pub lead_ends: Option<String>,
+    pub operator_ends: Option<String>,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct GroupMemberView {
     pub principal_id: String,
@@ -775,7 +785,21 @@ impl Hub {
         if !self.room_exists(room) || self.is_deleted(room) {
             return Err(GroupError::NoSuchLoca);
         }
-        {
+        // Who reached the loca through the group it is leaving: moving to the
+        // default group, they keep a seat by davet instead (nobody is cut
+        // off silently; the Master may remove them afterwards).
+        let previous = self.group_of(room);
+        let carried: Vec<String> = match (&previous, group) {
+            (Some(old), None) => self
+                .groups
+                .lock_or_recover()
+                .members
+                .get(old)
+                .map(|m| m.iter().cloned().collect())
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        let target_name = {
             let mut book = self.groups.lock_or_recover();
             if let Some(group) = group {
                 let g = book.live(group).ok_or(GroupError::NotFound)?;
@@ -783,6 +807,9 @@ impl Hub {
                     return Err(GroupError::Archived);
                 }
             }
+            let target_name = group
+                .and_then(|g| book.groups.get(g))
+                .map(|g| g.name.clone());
             if book.rooms.get(room).map(String::as_str) != group {
                 self.store
                     .set_room_group(room, group, viewer.principal_id.as_deref(), self.now())
@@ -796,11 +823,201 @@ impl Hub {
                     }
                 }
             }
+            target_name
+        };
+        if previous.as_deref() == group {
+            return Ok(group.map(str::to_string));
+        }
+        for principal in &carried {
+            if let Some(token) = self.member_token_of_principal(principal) {
+                if !self.has_active_invite(room, &token) {
+                    if let Err(error) = self.invite_member_to_room(&token, room, "group-move") {
+                        tracing::warn!(
+                            room,
+                            ?error,
+                            "a group member could not keep a seat by davet"
+                        );
+                    }
+                }
+            }
         }
         // Whoever no longer belongs at this table leaves it now.
         self.revoke_davets_outside_group(room);
         self.close_non_member_seats(room);
+        // A title must not hang on someone the loca no longer admits.
+        if group.is_some() {
+            let lead = self.settings(room).lead;
+            if let Some(lead) = lead {
+                let admitted = self
+                    .principal_named(&lead)
+                    .is_some_and(|p| self.group_gate(room, &[p.as_str()]) == Some(true));
+                if !admitted {
+                    let _ = self.set_lead(room, None, "group-move");
+                }
+            }
+            if let Some(op) = self.loca_operator(room) {
+                let master = self
+                    .store
+                    .active_principal(&op.principal_id)
+                    .is_some_and(|p| p.role == BuildingRole::Master);
+                if !master && self.group_gate(room, &[op.principal_id.as_str()]) != Some(true) {
+                    if let Err(error) = self.revoke_loca_operator(room, viewer) {
+                        tracing::warn!(
+                            room,
+                            ?error,
+                            "could not end an outside operator's appointment"
+                        );
+                    }
+                }
+            }
+        }
+        let where_to = target_name.unwrap_or_else(|| "the default group".into());
+        let _ = self.append_journal(
+            room,
+            "Master".into(),
+            SenderType::User,
+            format!("moved this loca to {where_to}"),
+        );
         Ok(group.map(str::to_string))
+    }
+
+    /// What moving `room` to `group` would do, without doing it: who loses
+    /// access, who keeps it, who is carried over by davet, and which titles
+    /// end. The UI shows this before the Master confirms.
+    pub fn loca_group_move_preview(
+        &self,
+        room: &str,
+        group: Option<&str>,
+        viewer: &RequestAuthority,
+    ) -> Result<GroupMovePreview, GroupError> {
+        if !viewer.is_master() {
+            return Err(GroupError::MasterOnly);
+        }
+        if self.is_birebir(room)
+            || room.starts_with(Self::BIREBIR_PREFIX)
+            || self.is_reserved_room(room)
+            || room == self.home_room()
+        {
+            return Err(GroupError::Excluded);
+        }
+        if !self.room_exists(room) || self.is_deleted(room) {
+            return Err(GroupError::NoSuchLoca);
+        }
+        let (previous, target_members, previous_members) = {
+            let book = self.groups.lock_or_recover();
+            if let Some(g) = group {
+                let rec = book.live(g).ok_or(GroupError::NotFound)?;
+                if rec.archived_at.is_some() {
+                    return Err(GroupError::Archived);
+                }
+            }
+            let previous = book.rooms.get(room).cloned();
+            let set = |g: Option<&str>| -> HashSet<String> {
+                g.and_then(|g| book.members.get(g))
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            (previous.clone(), set(group), set(previous.as_deref()))
+        };
+        // Everyone who reaches the loca now: davet holders, live seats, and
+        // the members of its current group. The Master is never in question.
+        let mut people: HashMap<String, Option<String>> = HashMap::new();
+        for invite in self.invites_of(room) {
+            people.insert(invite.name.clone(), self.member_principal(&invite.member));
+        }
+        let seated: Vec<String> = self
+            .rooms
+            .lock_or_recover()
+            .get(room)
+            .map(|r| {
+                r.members
+                    .iter()
+                    .filter(|(identity, _)| identity.as_str() != "@master")
+                    .map(|(_, (label, _, _))| label.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for name in seated {
+            let principal = self.principal_named(&name);
+            people.entry(name).or_insert(principal);
+        }
+        for principal in &previous_members {
+            if let Some(p) = self.store.active_principal(principal) {
+                people
+                    .entry(p.display_name)
+                    .or_insert(Some(principal.clone()));
+            }
+        }
+        let mut preview = GroupMovePreview::default();
+        for (name, principal) in people {
+            let principal = principal.as_deref();
+            let is_master = principal.is_some_and(|p| {
+                self.store
+                    .active_principal(p)
+                    .is_some_and(|x| x.role == BuildingRole::Master)
+            });
+            if is_master {
+                continue;
+            }
+            let keeps = match group {
+                Some(_) => principal.is_some_and(|p| target_members.contains(p)),
+                None => {
+                    // Only Building members get a davet; ranks reach a default
+                    // loca by rank and are not "carried".
+                    let carried = principal.is_some_and(|p| {
+                        previous_members.contains(p) && self.member_token_of_principal(p).is_some()
+                    });
+                    if carried && previous.is_some() {
+                        preview.carried_by_davet.push(name.clone());
+                    }
+                    true
+                }
+            };
+            if keeps {
+                preview.keeping.push(name);
+            } else {
+                preview.losing.push(name);
+            }
+        }
+        if group.is_some() {
+            if let Some(lead) = self.settings(room).lead {
+                let ok = self
+                    .principal_named(&lead)
+                    .is_some_and(|p| target_members.contains(&p));
+                if !ok {
+                    preview.lead_ends = Some(lead);
+                }
+            }
+            if let Some(op) = self.loca_operator(room) {
+                let master = self
+                    .store
+                    .active_principal(&op.principal_id)
+                    .is_some_and(|p| p.role == BuildingRole::Master);
+                if !master && !target_members.contains(&op.principal_id) {
+                    preview.operator_ends = Some(op.display_name);
+                }
+            }
+        }
+        preview.losing.sort();
+        preview.keeping.sort();
+        preview.carried_by_davet.sort();
+        Ok(preview)
+    }
+
+    /// The single active principal wearing this display name, if any.
+    fn principal_named(&self, name: &str) -> Option<String> {
+        match self.store.active_principals_named(name) {
+            Ok(list) if list.len() == 1 => Some(list[0].id.clone()),
+            _ => None,
+        }
+    }
+
+    /// The membership (mb_) token behind a principal, when it is a member.
+    fn member_token_of_principal(&self, principal: &str) -> Option<String> {
+        let tokens: Vec<String> = self.members.lock_or_recover().keys().cloned().collect();
+        tokens
+            .into_iter()
+            .find(|t| self.member_principal(t).as_deref() == Some(principal))
     }
 
     /// May `viewer` open a loca in this group? The Master, or a Smaster who

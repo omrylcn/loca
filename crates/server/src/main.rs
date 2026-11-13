@@ -419,6 +419,7 @@ async fn main() {
             axum::routing::put(add_group_member_route).delete(remove_group_member_route),
         )
         .route("/rooms/:id/group", axum::routing::put(set_loca_group_route))
+        .route("/rooms/:id/group/preview", get(preview_loca_group_route))
         .route(
             "/profile/preferences",
             get(get_profile_preferences).put(put_profile_preferences),

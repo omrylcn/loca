@@ -148,6 +148,25 @@ pub(crate) async fn set_loca_group_route(
     }
 }
 
+/// `GET /rooms/:id/group/preview?group=<id>` (no `group` = default) — what
+/// a move would do: who loses access, who keeps it, who is carried over by
+/// davet, and which titles end. Master only; nothing changes.
+pub(crate) async fn preview_loca_group_route(
+    State(hub): State<Hub>,
+    Path(room): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let group = query
+        .get("group")
+        .map(String::as_str)
+        .filter(|g| !g.is_empty());
+    match hub.loca_group_move_preview(&room, group, &viewer(&hub, &headers)) {
+        Ok(preview) => Json(preview).into_response(),
+        Err(error) => group_error(error),
+    }
+}
+
 /// The group fence. Every `/rooms/:id/...` request for a group loca passes
 /// here first, whatever the handler's own gate: anyone the door would not
 /// admit — a Smaster outside the group included — gets exactly the answer a

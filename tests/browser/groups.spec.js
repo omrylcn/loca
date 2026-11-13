@@ -155,3 +155,44 @@ test("the Groups tab manages members, and the People tab shows and filters by gr
   await founder.context().close();
   await temp.context().close();
 });
+
+test("the Master moves a default loca into a group from This Loca, after seeing who loses access", async ({ browser, request }) => {
+  const MASTER = { "x-admin-token": "MASTER" };
+  const { provisionRooms } = require("./support/building");
+  await provisionRooms(request, ["gm-room"]);
+  await request.post("/members", { headers: MASTER, data: { name: "gm-outsider", kind: "agent" } });
+  await request.post("/rooms/gm-room/invites", { headers: MASTER, data: { name: "gm-outsider" } });
+  const { pairing_code } = await (await request.post("/pairings?ttl_hours=1", { headers: MASTER })).json();
+  const m = await (await request.post("/sessions", { headers: { "x-pairing-code": pairing_code }, data: { name: "", kind: "user" } })).json();
+  const group = await (await request.post("/groups", { headers: { "x-session-token": m.session_token }, data: { name: "gm-backend" } })).json();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+  await page.addInitScript(({ t, e }) => {
+    localStorage.setItem("loca-gs-seen", "1");
+    localStorage.setItem("loca-admin-session", JSON.stringify({ token: t, expiresAt: e, name: "Master" }));
+  }, { t: m.session_token, e: m.expires_at });
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
+  await page.evaluate(() => joinRoom("gm-room"));
+  await page.evaluate(() => setSidebarView("loca"));
+  const summary = page.locator("#locaSummary");
+  await expect(summary).toContainText("Default");
+  await summary.locator("[data-loca-group-change]").click();
+  await summary.locator("[data-loca-group-target]").selectOption(group.id);
+  await expect(summary.locator(".groupmove")).toContainText("1 will lose access:");
+  await expect(summary.locator(".groupmove")).toContainText("gm-outsider");
+  await page.screenshot({ path: "/tmp/claude-1006/-home-oyalcin-loca/0d455432-5c92-4bce-86be-4b93055f84cc/scratchpad/group-move-1280.png" });
+  // Cancel changes nothing.
+  await summary.locator("[data-loca-group-cancel]").click();
+  await expect(summary).toContainText("Default");
+  // Move for real.
+  await summary.locator("[data-loca-group-change]").click();
+  await summary.locator("[data-loca-group-target]").selectOption(group.id);
+  await expect(summary.locator("[data-loca-group-confirm]")).toBeEnabled();
+  await summary.locator("[data-loca-group-confirm]").click();
+  await expect(summary).toContainText("gm-backend");
+  await page.evaluate(() => setSidebarView("building"));
+  await expect(page.locator("#roomList")).toContainText("gm-backend");
+  const outsider = await (await request.get("/rooms/gm-room/invites", { headers: MASTER })).json();
+  expect(outsider.map(i => i.name)).not.toContain("gm-outsider");
+  await page.close();
+});

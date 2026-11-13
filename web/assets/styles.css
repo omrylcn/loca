@@ -1459,3 +1459,22 @@
      or it would fall behind the new-loca bar and never be seen. */
   #dmList .roomprefmenu { top: auto; bottom: calc(100% + 4px); }
   .roomprefmenu .roompref.danger { color: var(--bad); }
+
+  /* This Loca › Group: the Master moves a loca after seeing what changes. */
+  .groupmove { margin-top: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--panel2); display: grid; gap: 7px; font-size: 11px; }
+  .gmfield { display: flex; flex-direction: column; gap: 4px; }
+  .gmfield > span { color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+  .gmfield select { background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 7px;
+    padding: 6px 8px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
+  .gmline { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
+  .gmline b { color: var(--txt); font-weight: 600; }
+  .gmline.bad b { color: var(--bad); }
+  .gmerror { color: var(--bad); }
+  .gmacts { display: flex; justify-content: flex-end; gap: 6px; }
+
+  /* Location chips never spill out of their column: a long loca name is cut
+     with an ellipsis (full name on hover), extra locas fold into "+N". */
+  .pwhere, .pgroups { overflow: hidden; }
+  .locachip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
+  .locachip.more { flex: 0 0 auto; color: var(--muted); }
