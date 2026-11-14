@@ -7,8 +7,18 @@
 //! runtimes remain single-writer and replace a stale predecessor on reconnect.
 
 mod attention;
+mod birebir;
+mod extensions;
+mod groups;
+mod keys;
+mod notifications;
 mod work;
 
+pub use birebir::{BirebirCandidate, BirebirError, BirebirView};
+pub use extensions::{normalize_extensions, ExtensionEdit, ExtensionError};
+pub use groups::{GroupError, GroupView};
+pub use keys::KeyRevokeError;
+pub use notifications::{NotificationAudience, NotificationError};
 pub use work::{GoalError, TaskError, WaitError};
 
 use std::collections::HashMap;
@@ -51,6 +61,7 @@ const HISTORY_LIMIT: usize = 200;
 /// Broadcast backlog; slow clients that lag past this get a `Lagged` and
 /// resync from history on their next reconnect.
 const BROADCAST_CAP: usize = 256;
+type ModerationRanks = HashMap<(String, String, String), u8>;
 /// Most attachments one message may cite (RFC limits & security).
 const MAX_ATTACHMENTS_PER_MESSAGE: usize = 4;
 // Attachment limits: compile-time defaults, each overridable by an env var so
@@ -183,14 +194,28 @@ impl Room {
     fn member_list(&self) -> Vec<Member> {
         let mut list: Vec<Member> = self
             .members
-            .values()
-            .map(|(name, kind, _)| Member {
+            .iter()
+            .map(|(identity, (name, kind, _))| Member {
                 name: name.clone(),
                 kind: *kind,
+                role: seat_rank(identity).map(str::to_string),
             })
             .collect();
         list.sort_by(|a, b| a.name.cmp(&b.name));
         list
+    }
+}
+
+/// The Building rank a seat key proves. Seat keys are minted only by
+/// `Hub::seat_identity` from server-side credentials, so the prefix is
+/// authoritative: `@master` is the Master, every Smaster seat starts `sm:`.
+pub(crate) fn seat_rank(identity: &str) -> Option<&'static str> {
+    if identity == "@master" {
+        Some("master")
+    } else if identity.starts_with("sm:") {
+        Some("smaster")
+    } else {
+        None
     }
 }
 
@@ -204,6 +229,19 @@ pub struct Hub {
     /// name is deleted, do not resurrect it"; it is cleared when the master
     /// explicitly opens the loca again.
     deleted: Arc<Mutex<std::collections::HashSet<String>>>,
+    /// Birebirs by room id (PRINCIPLES "Birebir"): private two-person locas.
+    birebirs: Arc<Mutex<HashMap<String, crate::store::Birebir>>>,
+    /// Each loca's active Loca Operator principal, mirrored from
+    /// `room_operator_assignments`. The door asks on every request (and
+    /// `GET /rooms` once per loca), so it must not cost a SQLite query.
+    /// A leaf lock: held across the store write that changes an assignment,
+    /// never while taking another hub lock.
+    operators: Arc<Mutex<HashMap<String, String>>>,
+    /// Groups, their members and their locas (PRINCIPLES "Groups"). A leaf
+    /// lock; see `hub/groups.rs` for the order rules.
+    groups: Arc<Mutex<groups::GroupBook>>,
+    /// Membership (mb_) token -> principal id. The binding never changes.
+    member_principals: Arc<Mutex<HashMap<String, String>>>,
     next_id: Arc<AtomicU64>,
     /// Monotonic product-state generation. Wall clocks can repeat or move
     /// backwards; Attention identities must still advance after real progress.
@@ -243,6 +281,9 @@ pub struct Hub {
     /// When true, posting requires a valid session token: `sender` can no
     /// longer be spoofed via the request body (PRODUCTION.md Aşama 0).
     require_sessions: bool,
+    /// Seats per loca (`LOCA_CAPACITY`, default [`Hub::LOCA_KAPASITE`]).
+    /// Shared across clones so one configured value governs every handler.
+    loca_capacity: Arc<std::sync::atomic::AtomicUsize>,
     /// When true, an empty room_token means 'davet-only', not 'open house'.
     /// This is how the building key is retired: no key, but the door still
     /// demands a davet for every loca.
@@ -255,6 +296,9 @@ pub struct Hub {
     lobby_tx: broadcast::Sender<LobbyEvent>,
     /// Serialize membership access cutoffs with davet persistence/cache writes.
     member_lifecycle: Arc<Mutex<()>>,
+    /// Serialize restriction checks and writes; keep provenance in memory-only
+    /// mode too. Persistent decisions restore this mirror before serving.
+    moderation_ranks: Arc<Mutex<ModerationRanks>>,
     /// Live lobby sockets per membership token. A count (rather than a set)
     /// keeps presence correct while one identity is reconnecting.
     lobby_online: Arc<Mutex<HashMap<String, usize>>>,
@@ -277,6 +321,9 @@ struct AdminPairing {
     code: String,
     session_ttl_ms: u64,
     expires_at_ms: u64,
+    /// The ledger row of a code that was handed out; `None` for the internal
+    /// placeholder rotated in after a use or an expiry (never handed out).
+    log_id: Option<String>,
 }
 
 /// A private signal delivered only to the lobby socket carrying `member`.
@@ -295,14 +342,25 @@ pub enum LobbyEvent {
     MembershipSuspended {
         member: String,
     },
+    /// A Building notification (docs/concepts.md "Notifications"), addressed
+    /// by principal id: one event reaches every recipient's Lobby socket.
+    /// `frame` is the ready `{"t":"notification",…}` text; it carries no
+    /// credential.
+    Notification {
+        recipients: Arc<std::collections::HashSet<String>>,
+        frame: Arc<String>,
+    },
 }
 
 impl LobbyEvent {
-    pub fn member(&self) -> &str {
+    /// The membership token a per-member event is for; `None` for an event
+    /// addressed by principal (a notification).
+    pub fn member(&self) -> Option<&str> {
         match self {
             Self::Called { member, .. }
             | Self::MembershipRevoked { member }
-            | Self::MembershipSuspended { member } => member,
+            | Self::MembershipSuspended { member } => Some(member),
+            Self::Notification { .. } => None,
         }
     }
 }
@@ -333,7 +391,7 @@ pub enum InviteError {
     MemberNotFound,
     /// This member already holds a live davet for this loca.
     AlreadyInvited,
-    /// The loca is full — LOCA_KAPASITE seats are already handed out.
+    /// The loca is full — every configured seat is already handed out.
     Full,
     /// The davet could not be persisted.
     Storage,
@@ -341,6 +399,23 @@ pub enum InviteError {
     Reserved,
     /// Sealed rooms retain their records and cannot be reopened by a davet.
     Sealed,
+    /// A group loca seats only its group's members.
+    NotInGroup,
+    /// Birebir admission is internal and bound to its two principals.
+    PrivatePair,
+}
+
+/// Why `Hub::create_loca_in` refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CreateLocaError {
+    Operator(OperatorAssignmentError),
+    Group(GroupError),
+}
+
+impl From<OperatorAssignmentError> for CreateLocaError {
+    fn from(error: OperatorAssignmentError) -> Self {
+        Self::Operator(error)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,6 +475,66 @@ pub struct SessionIdentity {
     pub expires_at: u64,
 }
 
+/// Words that name a rank, a title or an addressing keyword. A person's name
+/// is only a label, so it must never read as a title: "smaster" on the roster
+/// says nothing about who is sitting there, and `@all` is not a person.
+const RESERVED_NAMES: &[&str] = &[
+    "master", "smaster", "operator", "lead", "admin", "root", "all", "everyone", "here", "goal",
+];
+
+/// Why a display name is refused (see `validate_display_name`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameError {
+    /// Empty, too long, or containing characters a `@mention` cannot carry.
+    Invalid,
+    /// A rank, title or addressing keyword (`RESERVED_NAMES`).
+    Reserved,
+}
+
+/// A person's display name: 1–64 ASCII letters, digits, `-`, `_` or `.`
+/// (the join-request rule, so it survives `@mention`), and never a rank or
+/// title word.
+pub fn validate_display_name(name: &str) -> Result<&str, NameError> {
+    let name = name.trim();
+    if name.is_empty()
+        || name.len() > 64
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(NameError::Invalid);
+    }
+    let folded = crate::store::search_fold(name);
+    if RESERVED_NAMES.contains(&folded.as_str()) {
+        return Err(NameError::Reserved);
+    }
+    Ok(name)
+}
+
+/// Why `Hub::rename_profile` refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileRenameError {
+    /// Only a verified Master or Smaster principal renames itself here.
+    AuthorityRequired,
+    Name(NameError),
+    /// Another active person already wears this name.
+    NameTaken,
+    /// Labels still key legacy moderation; renaming may not evade a restriction.
+    RestrictionActive,
+    Failed,
+}
+
+/// One Building rank and where it currently sits (see `Hub::building_ranks`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct RankPresence {
+    pub name: String,
+    pub role: &'static str,
+    pub locas: Vec<String>,
+    /// A Smaster code that was issued but never used: a code, not a person.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unused: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestAuthority {
     pub principal_id: Option<String>,
@@ -409,6 +544,29 @@ pub struct RequestAuthority {
 }
 
 impl RequestAuthority {
+    fn moderation_rank(&self) -> u8 {
+        match self.building_role {
+            Some(BuildingRole::Master) => 3,
+            Some(BuildingRole::Smaster) => 2,
+            _ => 1,
+        }
+    }
+
+    pub fn invitation_issuer(&self) -> String {
+        if self.is_master() {
+            "master".into()
+        } else if self.building_role == Some(BuildingRole::Smaster) {
+            format!(
+                "smaster:{}",
+                self.display_name.as_deref().unwrap_or("unknown")
+            )
+        } else {
+            format!(
+                "operator:{}",
+                self.principal_id.as_deref().unwrap_or("unknown")
+            )
+        }
+    }
     pub fn is_building_admin(&self) -> bool {
         matches!(
             self.building_role,
@@ -418,6 +576,19 @@ impl RequestAuthority {
 
     pub fn is_master(&self) -> bool {
         self.building_role == Some(BuildingRole::Master)
+    }
+}
+
+#[derive(Debug)]
+pub enum ModerationError {
+    Forbidden,
+    Storage,
+}
+
+impl From<rusqlite::Error> for ModerationError {
+    fn from(error: rusqlite::Error) -> Self {
+        tracing::error!(%error, "moderation persistence failed");
+        Self::Storage
     }
 }
 
@@ -482,6 +653,10 @@ impl Hub {
         let hub = Hub {
             rooms: Arc::new(Mutex::new(HashMap::new())),
             deleted: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            birebirs: Arc::new(Mutex::new(HashMap::new())),
+            operators: Arc::new(Mutex::new(HashMap::new())),
+            groups: Arc::new(Mutex::new(groups::GroupBook::default())),
+            member_principals: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicU64::new(1)),
             condition_generation: Arc::new(AtomicU64::new(0)),
             now_ms: default_now_ms,
@@ -497,13 +672,16 @@ impl Hub {
                 code: Self::secure_token("pair_", 16),
                 session_ttl_ms: Self::ADMIN_SESSION_TTL_MS,
                 expires_at_ms: pairing_now.saturating_add(Self::ADMIN_PAIRING_TTL_MS),
+                log_id: None,
             })),
             join_create_times: Arc::new(Mutex::new(std::collections::HashMap::new())),
             require_sessions,
+            loca_capacity: Arc::new(std::sync::atomic::AtomicUsize::new(Self::LOCA_KAPASITE)),
             require_invite,
             invites: Arc::new(Mutex::new(HashMap::new())),
             lobby_tx,
             member_lifecycle: Arc::new(Mutex::new(())),
+            moderation_ranks: Arc::new(Mutex::new(HashMap::new())),
             lobby_online: Arc::new(Mutex::new(HashMap::new())),
             runtime_health: Arc::new(Mutex::new(HashMap::new())),
             care_deliveries: Arc::new(Mutex::new(HashMap::new())),
@@ -801,7 +979,20 @@ impl Hub {
         // back in.
         {
             let mut rooms = hub.rooms.lock_or_recover();
-            for (room, name, kind) in hub.store.load_bans() {
+            for record in hub
+                .store
+                .load_bans()
+                .expect("moderation state is unreadable; refusing to start")
+            {
+                let crate::store::ModerationRecord {
+                    room,
+                    name,
+                    kind,
+                    authority_rank,
+                } = record;
+                hub.moderation_ranks
+                    .lock_or_recover()
+                    .insert((room.clone(), name.clone(), kind.clone()), authority_rank);
                 let r = Self::room_mut(&mut rooms, &room, &hub.default_settings);
                 match kind.as_str() {
                     "ban" => {
@@ -828,6 +1019,24 @@ impl Hub {
                 deleted.insert(room);
             }
         }
+        {
+            let mut birebirs = hub.birebirs.lock_or_recover();
+            for b in hub
+                .store
+                .load_birebirs()
+                .expect("persistent birebirs are unreadable; refusing to start")
+            {
+                birebirs.insert(b.room.clone(), b);
+            }
+        }
+        // After the legacy operator migration above, so it sees its result.
+        *hub.operators.lock_or_recover() = hub
+            .store
+            .active_loca_operators()
+            .expect("persistent operator assignments are unreadable; refusing to start")
+            .into_iter()
+            .collect();
+        hub.load_groups();
         hub
     }
 
@@ -861,6 +1070,16 @@ impl Hub {
         session_token: Option<&str>,
     ) -> RequestAuthority {
         if let Some(session) = self.session_identity(session_token) {
+            // A davet proves identity only inside one room. Never turn that
+            // proof into Building/profile authority (including key issuance).
+            if session.loca.is_some() {
+                return RequestAuthority {
+                    principal_id: None,
+                    display_name: Some(session.name),
+                    kind: Some(session.kind),
+                    building_role: Some(BuildingRole::Member),
+                };
+            }
             if let Some(principal_id) = session.principal_id.as_deref() {
                 return authority_from_principal(self.store.active_principal(principal_id))
                     .unwrap_or(RequestAuthority {
@@ -963,6 +1182,21 @@ impl Hub {
         self.store.list_credentials(principal_id)
     }
 
+    /// The principal's own appearance preferences (defaults when unsaved).
+    pub fn preferences_for(&self, principal_id: &str) -> crate::store::Preferences {
+        self.store.principal_preferences(principal_id)
+    }
+
+    /// Validate and save a partial preference update for this principal.
+    pub fn update_preferences(
+        &self,
+        principal_id: &str,
+        patch: &serde_json::Value,
+    ) -> Result<crate::store::Preferences, crate::store::PreferenceError> {
+        self.store
+            .merge_principal_preferences(principal_id, patch, self.now())
+    }
+
     pub fn credential_id_for_request(
         &self,
         credential: Option<&str>,
@@ -1043,6 +1277,8 @@ impl Hub {
         }
         self.store.revoke_smaster(token, (self.now_ms)())?;
         self.smasters.lock_or_recover().remove(token);
+        // A group whose founder this was now belongs to the Master.
+        self.pass_groups_to_master(&crate::store::hashed_id("pr_", &format!("smaster:{token}")));
         Ok(true)
     }
 
@@ -1112,9 +1348,7 @@ impl Hub {
     /// Everyone Care must work for both credential forms.
     pub fn principal_id_for_invite(&self, room: &str, token: Option<&str>) -> Option<String> {
         let invite = self.invite_for(room, token)?;
-        (!invite.member.is_empty())
-            .then(|| self.store.principal_id_for_member_record(&invite.member))
-            .flatten()
+        self.member_principal(&invite.member)
     }
 
     /// May this room credential enter `room`? An active per-device credential
@@ -1171,6 +1405,48 @@ impl Hub {
         // away in davet mode: the admin session's loca is None, so it matched no
         // loca and every room read/WS handshake 401'd.
         let credential_authority = self.resolve_authority(admin_tok, None);
+        if session.is_some_and(|s| s.loca.as_deref().is_some_and(|scope| scope != room)) {
+            return EnterDecision::Denied;
+        }
+        // A birebir belongs to its two people. This comes BEFORE the rank
+        // bypass below: no Master or Smaster reaches one by rank, and nobody
+        // else learns it exists (PRINCIPLES "Birebir").
+        if let Some(b) = self.birebir(room) {
+            let principal = session
+                .and_then(|s| s.principal_id.as_deref())
+                .or(credential_authority.principal_id.as_deref());
+            if principal.is_some_and(|p| b.has(p)) {
+                return EnterDecision::Allowed;
+            }
+            // The other side may be an agent holding the davet the opener's
+            // call minted for this room, or a session taken with it.
+            if self.invite_for(room, davet_tok).is_some_and(|invite| {
+                self.member_principal(&invite.member)
+                    .is_some_and(|p| b.has(&p))
+            }) {
+                return EnterDecision::Allowed;
+            }
+            return EnterDecision::Denied;
+        }
+        // The birebir id space is reserved: nobody reaches (and so nobody
+        // creates by joining or posting) an ordinary loca there, so a pair's
+        // room can never be squatted with someone else's davets in it.
+        if room.starts_with(Self::BIREBIR_PREFIX) {
+            return EnterDecision::Denied;
+        }
+        // A group loca belongs to its group. This also comes BEFORE the rank
+        // bypass: a Smaster outside the group is an outsider here, and only
+        // the Master reaches it by rank (PRINCIPLES "Groups").
+        if self.is_group_loca(room) {
+            return self.group_door(
+                room,
+                &credential_authority,
+                admin_tok,
+                davet_tok,
+                session,
+                name_hint,
+            );
+        }
         if credential_authority.is_building_admin() && admin_tok.is_some() {
             return EnterDecision::Allowed;
         }
@@ -1178,18 +1454,7 @@ impl Hub {
             return EnterDecision::Allowed;
         }
 
-        // Whose name is at this door? A session names itself; otherwise a davet
-        // carries a name; otherwise the caller's ?name= hint. This is the name a
-        // ban is checked against.
-        let ban_name = session
-            .map(|s| s.name.clone())
-            .or_else(|| {
-                davet_tok
-                    .and_then(|t| self.invite_by_token(t))
-                    .map(|i| i.name)
-            })
-            .or_else(|| credential_authority.display_name.clone())
-            .or_else(|| name_hint.map(str::to_string));
+        let ban_name = self.door_name(davet_tok, session, &credential_authority, name_hint);
         if let Some(n) = &ban_name {
             if self.is_banned(room, n) {
                 return EnterDecision::Banned;
@@ -1199,18 +1464,24 @@ impl Hub {
         let principal_at_door = session
             .and_then(|identity| identity.principal_id.as_deref())
             .or(credential_authority.principal_id.as_deref());
-        if let (Some(principal_id), Some(assignment)) =
-            (principal_at_door, self.store.loca_operator(room))
+        if principal_at_door
+            .is_some_and(|principal_id| self.is_operator_principal(room, principal_id))
         {
-            if assignment.principal_id == principal_id {
-                return EnterDecision::Allowed;
-            }
+            return EnterDecision::Allowed;
         }
 
         // A davet for THIS loca, or the building key (is_member) — may_enter
         // already folds both. A davet for another loca opens nothing.
         if self.may_enter(room, davet_tok) {
             return EnterDecision::Allowed;
+        }
+
+        // A person signed in with their own key holds a live davet for this
+        // loca: the davet is their seat, whichever credential they came with.
+        if let Some(principal) = session.and_then(|s| s.principal_id.as_deref()) {
+            if self.principal_holds_davet(room, principal) {
+                return EnterDecision::Allowed;
+            }
         }
 
         // A session opens the loca it was minted for.
@@ -1237,6 +1508,68 @@ impl Hub {
         EnterDecision::Denied
     }
 
+    /// Whose name is at this door? A session names itself; otherwise a davet
+    /// carries a name; otherwise the caller's ?name= hint. This is the name a
+    /// ban is checked against.
+    fn door_name(
+        &self,
+        davet_tok: Option<&str>,
+        session: Option<&SessionIdentity>,
+        credential_authority: &RequestAuthority,
+        name_hint: Option<&str>,
+    ) -> Option<String> {
+        session
+            .map(|s| s.name.clone())
+            .or_else(|| {
+                davet_tok
+                    .and_then(|t| self.invite_by_token(t))
+                    .map(|i| i.name)
+            })
+            .or_else(|| credential_authority.display_name.clone())
+            .or_else(|| name_hint.map(str::to_string))
+    }
+
+    /// The door of a group loca. The Master enters by rank; anyone else only
+    /// as a member of the loca's group — by the principal of their session or
+    /// credential, or, for an agent, of the davet it holds for this loca. A
+    /// member still answers to the loca's bans.
+    fn group_door(
+        &self,
+        room: &str,
+        credential_authority: &RequestAuthority,
+        admin_tok: Option<&str>,
+        davet_tok: Option<&str>,
+        session: Option<&SessionIdentity>,
+        name_hint: Option<&str>,
+    ) -> EnterDecision {
+        let master = (credential_authority.is_master()
+            && (admin_tok.is_some() || self.admin_open()))
+            || (!self.admin_token.is_empty() && davet_tok == Some(self.admin_token.as_str()))
+            || session.is_some_and(|s| s.admin && s.building_role == BuildingRole::Master);
+        if master {
+            return EnterDecision::Allowed;
+        }
+        let mut principals: Vec<String> = Vec::new();
+        if let Some(s) = session {
+            // A davet session stays confined to the loca its davet opened.
+            if s.loca.as_deref().is_none_or(|l| l == room) {
+                principals.extend(s.principal_id.clone());
+            }
+        }
+        principals.extend(credential_authority.principal_id.clone());
+        principals.extend(self.principal_id_for_invite(room, davet_tok));
+        let candidates: Vec<&str> = principals.iter().map(String::as_str).collect();
+        if self.group_gate(room, &candidates) != Some(true) {
+            return EnterDecision::Denied;
+        }
+        if let Some(n) = self.door_name(davet_tok, session, credential_authority, name_hint) {
+            if self.is_banned(room, &n) {
+                return EnterDecision::Banned;
+            }
+        }
+        EnterDecision::Allowed
+    }
+
     /// The seat key for a connection — one key = one seat. Derived from the
     /// strongest credential at the door, so the same key entering under two
     /// display names lands on ONE seat (the name is just the label).
@@ -1258,7 +1591,8 @@ impl Hub {
     ) -> String {
         if let Some(t) = admin_tok {
             if let Some(_smaster) = self.smaster_name(Some(t)) {
-                return format!("sm:{t}");
+                let principal = crate::store::hashed_id("pr_", &format!("smaster:{t}"));
+                return format!("sm:pr:{principal}");
             }
             if !self.admin_token.is_empty() && t == self.admin_token.as_str() {
                 // ONE fixed key for the master: whatever name they type, the
@@ -1279,6 +1613,19 @@ impl Hub {
         }
         if let Some(s) = session {
             if s.admin {
+                // `admin` is true for every Building administrator, Smaster
+                // included. A Smaster is a different person: give it the seat
+                // of its own principal, or it would share (and keep evicting)
+                // the Master's seat in every loca. Every Smaster seat starts
+                // `sm:` so the roster can show the rank (`seat_rank`).
+                if s.building_role == BuildingRole::Smaster {
+                    if let Some(principal) = &s.principal_id {
+                        return format!("sm:pr:{principal}");
+                    }
+                    if let Some(t) = session_tok {
+                        return format!("sm:st:{t}");
+                    }
+                }
                 // Every session minted for the one Master principal occupies the
                 // same per-loca seat, regardless of the display name used
                 // while taking the session.
@@ -1484,6 +1831,20 @@ impl Hub {
     }
 
     /// Does this member already hold a live davet for this loca?
+    /// Does this principal hold a live davet for `room`?
+    pub fn principal_holds_davet(&self, room: &str, principal: &str) -> bool {
+        let members: Vec<String> = self
+            .invites
+            .lock_or_recover()
+            .values()
+            .filter(|i| i.room == room)
+            .map(|i| i.member.clone())
+            .collect();
+        members
+            .iter()
+            .any(|m| self.member_principal(m).as_deref() == Some(principal))
+    }
+
     pub fn has_active_invite(&self, room: &str, member: &str) -> bool {
         self.invites
             .lock_or_recover()
@@ -1552,6 +1913,30 @@ impl Hub {
         room: &str,
         issued_by: &str,
     ) -> Result<Invite, InviteError> {
+        self.invite_member_to_room_inner(member_token, room, issued_by, false)
+    }
+
+    // The only private-pair exception is the internal human-to-agent call.
+    // Public HTTP, Lobby call and the SSH console all use the non-exception path.
+    fn invite_member_to_room_inner(
+        &self,
+        member_token: &str,
+        room: &str,
+        issued_by: &str,
+        private_agent_call: bool,
+    ) -> Result<Invite, InviteError> {
+        if let Some(pair) = self.birebir(room) {
+            let allowed = private_agent_call
+                && self
+                    .member_of(Some(member_token))
+                    .is_some_and(|m| m.kind == "agent")
+                && self
+                    .member_principal(member_token)
+                    .is_some_and(|p| pair.has(&p));
+            if !allowed {
+                return Err(InviteError::PrivatePair);
+            }
+        }
         if self.is_deleted(room) {
             return Err(InviteError::Sealed);
         }
@@ -1564,11 +1949,25 @@ impl Hub {
         if room == self.reserved_room.as_str() && !self.caretakers.contains(&member.name) {
             return Err(InviteError::Reserved);
         }
+        // The group check, one davet per person, no more davets than seats,
+        // and the write below share the davet lock: two concurrent calls (or
+        // a call racing a group move) cannot each pass a check and then both
+        // mint.
+        let lifecycle = self.member_lifecycle.lock_or_recover();
+        // Nobody outside a group is invited or called into its loca: add them
+        // to the group first (PRINCIPLES "Groups").
+        if self.is_group_loca(room) {
+            let principal = self.member_principal(&member.token);
+            let candidates: Vec<&str> = principal.as_deref().into_iter().collect();
+            if self.group_gate(room, &candidates) != Some(true) {
+                return Err(InviteError::NotInGroup);
+            }
+        }
         if self.has_active_invite(room, member_token) {
             return Err(InviteError::AlreadyInvited);
         }
         // Model A: the seat IS the davet (PRINCIPLES: "davetli — bir locada
-        // koltuğu vardır"). A loca seats at most LOCA_KAPASITE, so no more than
+        // koltuğu vardır"). A loca seats at most `loca_capacity()`, so no more than
         // that many live davets may exist for it — the cap is checked here at
         // mint, not only when someone connects. (The join-time guard stays as
         // defence in depth.)
@@ -1578,7 +1977,7 @@ impl Hub {
             .values()
             .filter(|i| i.room == room)
             .count();
-        if active >= Self::LOCA_KAPASITE {
+        if active >= self.loca_capacity() {
             return Err(InviteError::Full);
         }
         let inv = Invite {
@@ -1591,8 +1990,9 @@ impl Hub {
             issued_at: self.now(),
             issued_by: issued_by.to_string(),
         };
-        self.add_invite(inv.clone())
+        self.add_invite_locked(inv.clone())
             .map_err(|_| InviteError::Storage)?;
+        drop(lifecycle);
         // Wake an already-running agent in the building lobby. Failure only
         // means nobody is listening at this instant; the persisted invite is
         // replayed when their lobby socket reconnects.
@@ -1654,8 +2054,15 @@ impl Hub {
     }
 
     /// Record a davet. The master issues; we only persist and index it.
+    #[cfg(test)]
     pub fn add_invite(&self, inv: Invite) -> rusqlite::Result<()> {
         let _lifecycle = self.member_lifecycle.lock_or_recover();
+        self.add_invite_locked(inv)
+    }
+
+    /// `add_invite` for a caller that already holds the davet lock
+    /// (`member_lifecycle`), which is not re-entrant.
+    fn add_invite_locked(&self, inv: Invite) -> rusqlite::Result<()> {
         if !inv.member.is_empty() && self.member_of(Some(&inv.member)).is_none() {
             return Err(rusqlite::Error::InvalidQuery);
         }
@@ -1753,6 +2160,12 @@ impl Hub {
     /// name's token would open the door right back (PRINCIPLES: kick stops the
     /// davet; release takes back the seat). The membership is untouched.
     pub fn revoke_invites_for(&self, room: &str, name: &str) -> rusqlite::Result<()> {
+        self.store.revoke_invites_for(room, name, (self.now_ms)())?;
+        self.revoke_invites_cache_for(room, name);
+        Ok(())
+    }
+
+    fn revoke_invites_cache_for(&self, room: &str, name: &str) {
         let matches: Vec<Invite> = self
             .invites
             .lock_or_recover()
@@ -1761,9 +2174,8 @@ impl Hub {
             .cloned()
             .collect();
         if matches.is_empty() {
-            return Ok(());
+            return;
         }
-        self.store.revoke_invites_for(room, name, (self.now_ms)())?;
         {
             let mut invites = self.invites.lock_or_recover();
             for inv in &matches {
@@ -1774,7 +2186,6 @@ impl Hub {
             self.revoke_sessions_for_davet(&inv.room, &inv.member);
             self.close_connections(&inv.room, &inv.name);
         }
-        Ok(())
     }
 
     /// Every live davet held by one member, across all locas — for "who am I"
@@ -1858,8 +2269,15 @@ impl Hub {
         if self.admin_token.is_empty() {
             return None;
         }
-        let expires_at_ms = (self.now_ms)().saturating_add(Self::ADMIN_PAIRING_TTL_MS);
+        let now = (self.now_ms)();
+        let expires_at_ms = now.saturating_add(Self::ADMIN_PAIRING_TTL_MS);
         let mut current = self.admin_pairing.lock_or_recover();
+        // Only one Master code works at a time: an unused earlier one is
+        // superseded, and the ledger says so.
+        if let Some(previous) = current.log_id.take() {
+            let _ = self.store.mark_pairing_superseded(&previous, now);
+        }
+        let log_id = Self::secure_token("pl_", 12);
         *current = AdminPairing {
             code: Self::secure_token("pair_", 16),
             session_ttl_ms: session_ttl_ms.clamp(
@@ -1867,7 +2285,17 @@ impl Hub {
                 Self::MAX_ADMIN_SESSION_TTL_MS,
             ),
             expires_at_ms,
+            log_id: Some(log_id.clone()),
         };
+        if let Err(error) = self.store.log_pairing(
+            &log_id,
+            &current.code,
+            now,
+            expires_at_ms,
+            current.session_ttl_ms,
+        ) {
+            tracing::error!(%error, "could not record the Master code in the key ledger");
+        }
         Some((current.code.clone(), current.expires_at_ms))
     }
 
@@ -1885,6 +2313,7 @@ impl Hub {
                 code: Self::secure_token("pair_", 16),
                 session_ttl_ms: Self::ADMIN_SESSION_TTL_MS,
                 expires_at_ms: now.saturating_add(Self::ADMIN_PAIRING_TTL_MS),
+                log_id: None,
             };
             return None;
         }
@@ -1900,10 +2329,14 @@ impl Hub {
             return None;
         }
         let session_ttl_ms = current.session_ttl_ms;
+        if let Some(id) = current.log_id.as_deref() {
+            let _ = self.store.mark_pairing_used(id, now);
+        }
         *current = AdminPairing {
             code: Self::secure_token("pair_", 16),
             session_ttl_ms: Self::ADMIN_SESSION_TTL_MS,
             expires_at_ms: now.saturating_add(Self::ADMIN_PAIRING_TTL_MS),
+            log_id: None,
         };
         tracing::info!("master browser paired; next one-use pairing code is ready");
         Some(session_ttl_ms)
@@ -2321,6 +2754,26 @@ impl Hub {
     /// a different kind of place (DESIGN §5g). Watchers do not take a seat, so
     /// they are not counted here (they never call `join`).
     pub const LOCA_KAPASITE: usize = 7;
+    /// The bounds a configured capacity is held to: a loca stays a small,
+    /// private table — at least a pair, never a hall.
+    pub const LOCA_CAPACITY_MIN: usize = 2;
+    pub const LOCA_CAPACITY_MAX: usize = 32;
+
+    /// Seats per loca. Every person — human or agent — takes one; watchers
+    /// take none.
+    pub fn loca_capacity(&self) -> usize {
+        self.loca_capacity
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Configure seats per loca, clamped to the bounds above. Seats already
+    /// taken are never revoked by lowering it; only new seats are refused.
+    pub fn set_loca_capacity(&self, seats: usize) -> usize {
+        let seats = seats.clamp(Self::LOCA_CAPACITY_MIN, Self::LOCA_CAPACITY_MAX);
+        self.loca_capacity
+            .store(seats, std::sync::atomic::Ordering::Relaxed);
+        seats
+    }
 
     /// Seat a member. Returns false when the loca is full — the caller must
     /// refuse the connection.
@@ -2349,7 +2802,7 @@ impl Hub {
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
         // Capacity counts identities, not names: an identity rejoining under
         // any name evicts itself, never overflows.
-        if !r.members.contains_key(identity) && r.members.len() >= Self::LOCA_KAPASITE {
+        if !r.members.contains_key(identity) && r.members.len() >= self.loca_capacity() {
             return false;
         }
         let additional_human_reader =
@@ -2429,6 +2882,28 @@ impl Hub {
         // inviting or posting; create a different loca for new work.
         if self.is_deleted(room) {
             return Err(PostReject::Deleted);
+        }
+        let mut body = body;
+        if let Some(b) = self.birebir(room) {
+            // A side that left the building leaves the birebir read-only.
+            if self.birebir_read_only(&b) {
+                return Err(PostReject::Archived);
+            }
+            // Every word in a birebir is said to the other person: it wakes
+            // an agent listening for mentions without an `@`, and an `@all`
+            // left over from another loca cannot widen it.
+            if let Some(peer) = self.birebir_peer_of(room, &body.sender) {
+                body.target = Some(peer);
+            }
+        } else if body.sender_type == SenderType::Agent
+            && body.target.as_deref() == Some("all")
+            && names_people_but_not_all(&body.text)
+        {
+            // An agent that names people (`@ayse @mehmet ...`) but sent the
+            // `all` target would wake every agent at the table. The named
+            // people are reached by their `@name` already; `@all` in the text
+            // is how an agent really calls everyone.
+            body.target = None;
         }
         let op_id = body.op_id.filter(|id| !id.is_empty());
         if let Some(id) = op_id.as_deref() {
@@ -2581,39 +3056,44 @@ impl Hub {
             reply_to_sender,
             ts: self.next_condition_generation(now, r.last_msg_ms),
         };
-        let caretaker_summons: Vec<CareSignal> = if room == self.home_room.as_str() {
-            Vec::new()
-        } else {
-            self.addressed_caretakers(&msg)
-                .into_iter()
-                .map(|owner| CareSignal {
-                    id: format!("summon:{room}:{}:{owner}", msg.id),
-                    attention_id: format!("attention:{room}:summon:{}:{owner}", msg.id),
-                    // Re-home the envelope onto the caretaker's home loca (where
-                    // it is delivered) so signal.room matches the receiving
-                    // socket. The true origin travels in source_room; the
-                    // attention_id and the ledger stay keyed to the source loca.
-                    room: self.home_room.as_ref().clone(),
-                    source_room: room.to_string(),
-                    reason: CareReason::DirectSummon,
-                    audience: AttentionAudience::Person {
-                        name: owner.clone(),
-                    },
-                    owner: Some(owner.clone()),
-                    owner_principal_id: None,
-                    group: None,
-                    target: Some(owner.clone()),
-                    participants: vec![msg.sender.clone(), owner],
-                    subject: format!("{} directly summoned a caretaker", msg.sender),
-                    created_by: msg.sender.clone(),
-                    context: vec![msg.clone()],
-                    attempt: 1,
-                    at: now,
-                    escalated: false,
-                    state: protocol::ReminderState::Running,
-                })
-                .collect()
-        };
+        // Nothing leaves a birebir or a group loca: a caretaker summons would
+        // copy its words into İye, where every rank reads (PRINCIPLES
+        // "Birebir", "Groups").
+        let caretaker_summons: Vec<CareSignal> =
+            if room == self.home_room.as_str() || self.is_birebir(room) || self.is_group_loca(room)
+            {
+                Vec::new()
+            } else {
+                self.addressed_caretakers(&msg)
+                    .into_iter()
+                    .map(|owner| CareSignal {
+                        id: format!("summon:{room}:{}:{owner}", msg.id),
+                        attention_id: format!("attention:{room}:summon:{}:{owner}", msg.id),
+                        // Re-home the envelope onto the caretaker's home loca (where
+                        // it is delivered) so signal.room matches the receiving
+                        // socket. The true origin travels in source_room; the
+                        // attention_id and the ledger stay keyed to the source loca.
+                        room: self.home_room.as_ref().clone(),
+                        source_room: room.to_string(),
+                        reason: CareReason::DirectSummon,
+                        audience: AttentionAudience::Person {
+                            name: owner.clone(),
+                        },
+                        owner: Some(owner.clone()),
+                        owner_principal_id: None,
+                        group: None,
+                        target: Some(owner.clone()),
+                        participants: vec![msg.sender.clone(), owner],
+                        subject: format!("{} directly summoned a caretaker", msg.sender),
+                        created_by: msg.sender.clone(),
+                        context: vec![msg.clone()],
+                        attempt: 1,
+                        at: now,
+                        escalated: false,
+                        state: protocol::ReminderState::Running,
+                    })
+                    .collect()
+            };
 
         // P0#1: an explicit direct reply re-wakes exactly the waiter it
         // answers. The trigger is deliberately strict and structured — no
@@ -3196,6 +3676,25 @@ impl Hub {
         }
     }
 
+    /// Every loca's ban list in one read, for the Building view. The caller
+    /// filters by its own door: decide reach after this returns, never while
+    /// the rooms lock is held (`enter_decision` takes it too).
+    pub fn bans_by_room(&self) -> Vec<(String, Vec<String>)> {
+        let deleted = self.deleted.lock_or_recover().clone();
+        let rooms = self.rooms.lock_or_recover();
+        let mut out: Vec<(String, Vec<String>)> = rooms
+            .iter()
+            .filter(|(room, r)| !r.banned.is_empty() && !deleted.contains(*room))
+            .map(|(room, r)| {
+                let mut banned: Vec<String> = r.banned.iter().cloned().collect();
+                banned.sort();
+                (room.clone(), banned)
+            })
+            .collect();
+        out.sort();
+        out
+    }
+
     /// Apply a moderation action. Returns the updated mod state. For kick/ban a
     /// `Kicked` frame is broadcast so the targeted client closes its socket.
     pub fn moderate(
@@ -3203,21 +3702,58 @@ impl Hub {
         room: &str,
         action: protocol::ModAction,
         name: &str,
-    ) -> rusqlite::Result<protocol::ModState> {
+        actor: &RequestAuthority,
+    ) -> Result<protocol::ModState, ModerationError> {
         use protocol::ModAction::*;
+        // Admission and moderation cannot race a lower-rank removal of a
+        // newly issued superior davet. Checks are repeated under both locks.
+        let _lifecycle = self.member_lifecycle.lock_or_recover();
+        let mut ranks = self.moderation_ranks.lock_or_recover();
+        if !self.may_moderate_with_ranks(room, actor, action, name, &ranks) {
+            return Err(ModerationError::Forbidden);
+        }
         // A sealed loca is not reopened by a moderation action.
         if self.is_deleted(room) {
             return Ok(self.mod_state(room));
         }
         match action {
-            Mute => self.store.set_ban(room, name, "mute", (self.now_ms)())?,
+            Mute => self.store.set_ban(
+                room,
+                name,
+                "mute",
+                (self.now_ms)(),
+                actor.moderation_rank(),
+                actor.principal_id.as_deref(),
+            )?,
             Unmute => self.store.clear_ban(room, name, "mute")?,
             Ban => {
-                self.store.set_ban(room, name, "ban", (self.now_ms)())?;
-                self.revoke_invites_for(room, name)?;
+                self.store.set_ban(
+                    room,
+                    name,
+                    "ban",
+                    (self.now_ms)(),
+                    actor.moderation_rank(),
+                    actor.principal_id.as_deref(),
+                )?;
+                // set_ban persisted the restriction and davet cut-off in one
+                // transaction; nothing fallible remains before the mirrors.
+                self.revoke_invites_cache_for(room, name);
             }
             Unban => self.store.clear_ban(room, name, "ban")?,
             Kick | Release => self.revoke_invites_for(room, name)?,
+        }
+        let restriction = match action {
+            Mute | Unmute => Some("mute"),
+            Ban | Unban => Some("ban"),
+            _ => None,
+        };
+        if let Some(kind) = restriction {
+            let key = (room.to_string(), name.to_string(), kind.to_string());
+            if matches!(action, Mute | Ban) {
+                ranks.insert(key, actor.moderation_rank());
+            } else {
+                ranks.remove(&key);
+            }
         }
         let mut rooms = self.rooms.lock_or_recover();
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
@@ -3380,20 +3916,64 @@ impl Hub {
         self.store.loca_operator(room)
     }
 
+    /// Is `principal_id` this loca's appointed operator? Answered from the
+    /// in-memory mirror, never from SQLite.
+    pub fn is_operator_principal(&self, room: &str, principal_id: &str) -> bool {
+        self.operators
+            .lock_or_recover()
+            .get(room)
+            .is_some_and(|current| current == principal_id)
+    }
+
+    /// Open a loca. `extensions` is the chosen set (already normalized by the
+    /// caller); `None` keeps the legacy set, so an older client that sends
+    /// only a name gets the loca it always got. A chosen set is written to the
+    /// new loca's Journal.
+    #[cfg(test)]
     pub fn create_loca(
         &self,
         room: &str,
         actor: &RequestAuthority,
+        extensions: Option<Vec<String>>,
     ) -> Result<Option<LocaOperatorAssignment>, OperatorAssignmentError> {
+        self.create_loca_in(room, actor, extensions, None)
+            .map_err(|error| match error {
+                CreateLocaError::Operator(error) => error,
+                CreateLocaError::Group(_) => OperatorAssignmentError::AuthorityRequired,
+            })
+    }
+
+    /// Open a loca, in a group when `group` is given. Only the Master or a
+    /// Smaster who is a member of that group opens a group loca, and the
+    /// loca is tied to its group in the same commit that creates it.
+    pub fn create_loca_in(
+        &self,
+        room: &str,
+        actor: &RequestAuthority,
+        extensions: Option<Vec<String>>,
+        group: Option<&str>,
+    ) -> Result<Option<LocaOperatorAssignment>, CreateLocaError> {
         if !actor.is_building_admin() {
-            return Err(OperatorAssignmentError::AuthorityRequired);
+            return Err(OperatorAssignmentError::AuthorityRequired.into());
         }
-        if self.is_deleted(room) {
-            return Err(OperatorAssignmentError::Conflict);
+        if self.is_deleted(room) || room.starts_with(Self::BIREBIR_PREFIX) {
+            return Err(OperatorAssignmentError::Conflict.into());
         }
+        // Founding a loca in a group takes turns with archiving or deleting
+        // that group: the check below must still hold when the loca is bound.
+        let group_turn = group.map(|_| self.member_lifecycle.lock_or_recover());
+        if let Some(group) = group {
+            if self.is_reserved_room(room) || room == self.home_room() {
+                return Err(CreateLocaError::Group(GroupError::Excluded));
+            }
+            self.may_create_in_group(group, actor)
+                .map_err(CreateLocaError::Group)?;
+        }
+        let mut settings = self.default_settings.clone();
+        settings.extensions = extensions.clone();
         let mut rooms = self.rooms.lock_or_recover();
         if rooms.contains_key(room) {
-            return Err(OperatorAssignmentError::Conflict);
+            return Err(OperatorAssignmentError::Conflict.into());
         }
         let assignment = if self.store.is_persistent() && !self.admin_open() {
             let founder = actor
@@ -3402,21 +3982,48 @@ impl Hub {
                 .ok_or(OperatorAssignmentError::AuthorityRequired)?;
             Some(
                 self.store
-                    .create_room_with_operator(room, &self.default_settings, founder, self.now())
+                    .create_room_with_operator(room, &settings, founder, group, self.now())
                     .map_err(map_loca_operator_error)?,
             )
         } else {
             // The deliberately open sandbox has no authenticated founder. It
             // may still use SQLite to preserve its room state across restarts.
             self.store
-                .save_room(room, &ChatMode::Free, &self.default_settings)
+                .save_room(room, &ChatMode::Free, &settings)
                 .map_err(|_| OperatorAssignmentError::Storage)?;
+            if group.is_some() {
+                self.store
+                    .set_room_group(room, group, actor.principal_id.as_deref(), self.now())
+                    .map_err(|_| OperatorAssignmentError::Storage)?;
+            }
             None
         };
-        rooms.insert(
-            room.to_string(),
-            Room::with(ChatMode::Free, self.default_settings.clone(), 1),
-        );
+        // Tied to its group before anyone can see the room exists.
+        if let Some(group) = group {
+            self.bind_new_group_loca(room, group);
+        }
+        if let Some(assignment) = assignment.as_ref() {
+            self.operators
+                .lock_or_recover()
+                .insert(room.to_string(), assignment.principal_id.clone());
+        }
+        rooms.insert(room.to_string(), Room::with(ChatMode::Free, settings, 1));
+        drop(rooms);
+        drop(group_turn);
+        if let Some(chosen) = extensions {
+            let by = actor
+                .display_name
+                .clone()
+                .unwrap_or_else(|| "master".to_string());
+            let kind = actor.kind.unwrap_or(SenderType::User);
+            // The loca exists either way; a lost Journal line is logged, not
+            // turned into a failed create the caller would retry into 409.
+            if let Err(error) =
+                self.append_journal(room, by, kind, extensions::opened_line(&chosen))
+            {
+                tracing::error!(room, %error, "could not journal the opening extensions");
+            }
+        }
         Ok(assignment)
     }
 
@@ -3432,6 +4039,307 @@ impl Hub {
         self.store.active_principals()
     }
 
+    /// The Building's ranks — the Master and every Smaster — with the locas
+    /// each one is seated in right now. Ranks hold no Lobby membership, so the
+    /// resident directory never lists them; this is how the Building view
+    /// shows everyone who is part of the Building.
+    pub fn building_ranks(&self) -> Vec<RankPresence> {
+        let mut ranks: Vec<RankPresence> = Vec::new();
+        let mut add = |name: String, role: &'static str, unused: bool| {
+            if !ranks.iter().any(|r| r.name == name && r.role == role) {
+                ranks.push(RankPresence {
+                    name,
+                    role,
+                    locas: Vec::new(),
+                    unused,
+                });
+            }
+        };
+        for profile in self.profiles() {
+            match profile.role {
+                BuildingRole::Master => add(profile.display_name, "master", false),
+                BuildingRole::Smaster => {
+                    let unused = !self.principal_ever_used(&profile.id);
+                    add(profile.display_name, "smaster", unused)
+                }
+                BuildingRole::Member => {}
+            }
+        }
+        // Memory-only mode persists no profiles; the live registry still knows
+        // every Smaster.
+        for name in self.smasters.lock_or_recover().values() {
+            add(name.clone(), "smaster", false);
+        }
+        let deleted = self.deleted.lock_or_recover().clone();
+        let rooms = self.rooms.lock_or_recover();
+        let birebirs = self.birebirs.lock_or_recover().clone();
+        let mut names: Vec<&String> = rooms
+            .keys()
+            .filter(|r| !deleted.contains(*r) && !birebirs.contains_key(*r))
+            .collect();
+        names.sort();
+        for room in names {
+            for (identity, (label, _, _)) in &rooms[room].members {
+                let Some(role) = seat_rank(identity) else {
+                    continue;
+                };
+                // There is one Master, so its seat is its whatever the label;
+                // a Smaster seat is matched by the label its session wears.
+                let found = ranks
+                    .iter_mut()
+                    .find(|r| r.role == role && (role == "master" || r.name == *label));
+                match found {
+                    Some(rank) => rank.locas.push(room.clone()),
+                    None => ranks.push(RankPresence {
+                        name: label.clone(),
+                        role,
+                        locas: vec![room.clone()],
+                        unused: false,
+                    }),
+                }
+            }
+        }
+        ranks.sort_by(|a, b| (a.role != "master", &a.name).cmp(&(b.role != "master", &b.name)));
+        ranks
+    }
+
+    /// `building_ranks` as a viewer may read it: the Master sees every seat;
+    /// anyone else never sees a group loca it cannot enter named as "where".
+    pub fn building_ranks_for(&self, viewer: &RequestAuthority) -> Vec<RankPresence> {
+        let hidden = self.group_locas_hidden_from(viewer);
+        let mut ranks = self.building_ranks();
+        if !hidden.is_empty() {
+            for rank in &mut ranks {
+                rank.locas.retain(|room| !hidden.contains(room));
+            }
+        }
+        ranks
+    }
+
+    /// A Master or Smaster renames its own profile. Identity, credentials,
+    /// sessions and rank stay; only the label changes, everywhere it is worn
+    /// live: the Smaster registry, open sessions and every loca seat. Past
+    /// messages follow the person: what it said under the old name now reads
+    /// the new one, in every loca, and open feeds are told to relabel.
+    pub fn rename_profile(
+        &self,
+        actor: &RequestAuthority,
+        requested: &str,
+    ) -> Result<PrincipalIdentity, ProfileRenameError> {
+        if !actor.is_building_admin() {
+            return Err(ProfileRenameError::AuthorityRequired);
+        }
+        let Some(principal_id) = actor.principal_id.clone() else {
+            return Err(ProfileRenameError::AuthorityRequired);
+        };
+        let name = validate_display_name(requested).map_err(ProfileRenameError::Name)?;
+        let current = actor.display_name.clone().unwrap_or_default();
+        let _lifecycle = self.member_lifecycle.lock_or_recover();
+        let ranks = self.moderation_ranks.lock_or_recover();
+        if ranks
+            .iter()
+            .any(|((_, restricted_name, _), _)| restricted_name == &current)
+        {
+            return Err(ProfileRenameError::RestrictionActive);
+        }
+        let folded = crate::store::search_fold(name);
+        let worn_by_other =
+            |other: &str| other != current && crate::store::search_fold(other) == folded;
+        let smaster_token = self
+            .smasters
+            .lock_or_recover()
+            .keys()
+            .find(|token| {
+                crate::store::hashed_id("pr_", &format!("smaster:{token}")) == principal_id
+            })
+            .cloned();
+        if self
+            .members
+            .lock_or_recover()
+            .values()
+            .any(|m| worn_by_other(&m.name))
+            || self
+                .smasters
+                .lock_or_recover()
+                .iter()
+                .any(|(token, n)| Some(token) != smaster_token.as_ref() && worn_by_other(n))
+        {
+            return Err(ProfileRenameError::NameTaken);
+        }
+        match self.store.rename_principal(
+            &principal_id,
+            name,
+            smaster_token.as_deref(),
+            Some(current.as_str()).filter(|old| !old.is_empty() && *old != name),
+        ) {
+            Ok(true) => {}
+            Ok(false) => return Err(ProfileRenameError::NameTaken),
+            Err(_) => return Err(ProfileRenameError::Failed),
+        }
+        if let Some(token) = &smaster_token {
+            self.smasters
+                .lock_or_recover()
+                .insert(token.clone(), name.to_string());
+        }
+        for session in self.sessions.lock_or_recover().values_mut() {
+            if session.principal_id.as_deref() == Some(principal_id.as_str()) {
+                session.name = name.to_string();
+            }
+        }
+        let mut seat_keys = vec![format!("sm:pr:{principal_id}")];
+        if actor.is_master() {
+            seat_keys.push("@master".into());
+        }
+        if let Some(token) = &smaster_token {
+            seat_keys.push(format!("sm:{token}"));
+        }
+        let relabel = !current.is_empty() && current != name;
+        let mut rooms = self.rooms.lock_or_recover();
+        for room in rooms.values_mut() {
+            if relabel {
+                let mut said_here = false;
+                for message in room.history.iter_mut() {
+                    if message.sender_type == SenderType::User && message.sender == current {
+                        message.sender = name.to_string();
+                        said_here = true;
+                    }
+                    if message.reply_to_sender.as_deref() == Some(current.as_str()) {
+                        message.reply_to_sender = Some(name.to_string());
+                    }
+                }
+                if said_here {
+                    let _ = room.tx.send(ServerFrame::Renamed {
+                        from: current.clone(),
+                        to: name.to_string(),
+                    });
+                }
+            }
+            let mut touched = false;
+            for key in &seat_keys {
+                if let Some(seat) = room.members.get_mut(key) {
+                    seat.0 = name.to_string();
+                    touched = true;
+                }
+            }
+            if touched {
+                let members = room.member_list();
+                let _ = room.tx.send(ServerFrame::Members { members });
+            }
+        }
+        drop(rooms);
+        Ok(self
+            .store
+            .active_principal(&principal_id)
+            .unwrap_or(PrincipalIdentity {
+                id: principal_id,
+                display_name: name.to_string(),
+                kind: SenderType::User,
+                role: actor.building_role.unwrap_or(BuildingRole::Member),
+            }))
+    }
+
+    /// May `actor` apply `action` to the participant labelled `target`?
+    ///
+    /// PRINCIPLES: the upper layer covers the lower one and the lower one
+    /// cannot undo the upper one's decision. Loca moderation is for the
+    /// table's participants, not for Building ranks: nobody mutes, kicks or
+    /// bans the Master, and only the Master does so to a Smaster. Restriction
+    /// provenance and davet issuer rank also constrain the action.
+    pub fn may_moderate(
+        &self,
+        room: &str,
+        actor: &RequestAuthority,
+        action: protocol::ModAction,
+        target: &str,
+    ) -> bool {
+        self.may_moderate_with_ranks(
+            room,
+            actor,
+            action,
+            target,
+            &self.moderation_ranks.lock_or_recover(),
+        )
+    }
+
+    pub fn may_end_invite(&self, actor: &RequestAuthority, invite: &Invite) -> bool {
+        let issuer_rank = if invite.issued_by.starts_with("smaster:") {
+            2
+        } else if invite.issued_by == "operator" || invite.issued_by.starts_with("operator:") {
+            1
+        } else {
+            3
+        }; // Master, internal and unknown legacy issuers fail closed.
+        actor.moderation_rank() >= issuer_rank
+    }
+
+    fn may_moderate_with_ranks(
+        &self,
+        room: &str,
+        actor: &RequestAuthority,
+        action: protocol::ModAction,
+        target: &str,
+        ranks: &ModerationRanks,
+    ) -> bool {
+        use protocol::ModAction::*;
+        let kind = match action {
+            Mute | Unmute => Some("mute"),
+            Ban | Unban => Some("ban"),
+            _ => None,
+        };
+        if kind
+            .and_then(|kind| ranks.get(&(room.to_string(), target.to_string(), kind.into())))
+            .is_some_and(|rank| *rank > actor.moderation_rank())
+        {
+            return false;
+        }
+        if matches!(action, Kick | Ban | Release)
+            && self.invites.lock_or_recover().values().any(|invite| {
+                invite.room == room && invite.name == target && !self.may_end_invite(actor, invite)
+            })
+        {
+            return false;
+        }
+        if matches!(action, Unmute | Unban) {
+            return true;
+        }
+        match self.building_rank_of(room, target) {
+            Some(BuildingRole::Master) => false,
+            Some(BuildingRole::Smaster) => actor.is_master(),
+            _ => true,
+        }
+    }
+
+    /// The Building rank wearing the label `name`, as far as the server can
+    /// prove it: a persisted profile first, then the live Smaster registry,
+    /// then the seat key of whoever sits in `room` under that label (which
+    /// also covers memory-only mode, where no profiles are persisted).
+    fn building_rank_of(&self, room: &str, name: &str) -> Option<BuildingRole> {
+        if let Some(profile) = self
+            .profiles()
+            .into_iter()
+            .find(|profile| profile.display_name == name)
+        {
+            return Some(profile.role);
+        }
+        if self.smasters.lock_or_recover().values().any(|n| n == name) {
+            return Some(BuildingRole::Smaster);
+        }
+        let rooms = self.rooms.lock_or_recover();
+        let seat = rooms.get(room).and_then(|r| {
+            r.members
+                .iter()
+                .find(|(_, (label, _, _))| label == name)
+                .map(|(identity, _)| identity.clone())
+        })?;
+        if seat == "@master" {
+            Some(BuildingRole::Master)
+        } else if seat.starts_with("sm:") {
+            Some(BuildingRole::Smaster)
+        } else {
+            None
+        }
+    }
+
     pub fn appoint_loca_operator(
         &self,
         room: &str,
@@ -3445,9 +4353,15 @@ impl Hub {
             .principal_id
             .as_deref()
             .ok_or(OperatorAssignmentError::AuthorityRequired)?;
-        self.store
+        // Held across the write so two appointments cannot leave the mirror
+        // naming the one the database replaced.
+        let mut operators = self.operators.lock_or_recover();
+        let assignment = self
+            .store
             .appoint_loca_operator(room, target_principal_id, actor_id, self.now())
-            .map_err(map_loca_operator_error)
+            .map_err(map_loca_operator_error)?;
+        operators.insert(room.to_string(), assignment.principal_id.clone());
+        Ok(assignment)
     }
 
     pub fn revoke_loca_operator(
@@ -3472,9 +4386,31 @@ impl Hub {
         {
             return Err(OperatorAssignmentError::MasterProtected);
         }
+        let mut operators = self.operators.lock_or_recover();
+        let revoked = self
+            .store
+            .revoke_loca_operator(room, &current.principal_id, self.now())
+            .map_err(map_loca_operator_error)?;
+        operators.remove(room);
+        Ok(revoked)
+    }
+
+    /// End an appointment because a rule requires it (the operator left the
+    /// loca's group), not by anyone's choice: no actor's appointment rights
+    /// are involved. The record keeps the revocation.
+    pub(crate) fn end_loca_operator_by_rule(
+        &self,
+        room: &str,
+    ) -> Result<(), OperatorAssignmentError> {
+        let Some(current) = self.store.loca_operator(room) else {
+            return Ok(());
+        };
+        let mut operators = self.operators.lock_or_recover();
         self.store
             .revoke_loca_operator(room, &current.principal_id, self.now())
-            .map_err(map_loca_operator_error)
+            .map_err(map_loca_operator_error)?;
+        operators.remove(room);
+        Ok(())
     }
 
     /// Operator authority in one loca: Building authority everywhere, or the
@@ -3495,11 +4431,18 @@ impl Hub {
         if self.admin_token.is_empty() {
             return true; // dev-open, consistent with the other admin gates
         }
-        if let (Some(principal_id), Some(assignment)) = (
-            authority.principal_id.as_deref(),
-            self.store.loca_operator(room),
-        ) {
-            return assignment.principal_id == principal_id;
+        let scoped = self
+            .session_identity(session_token)
+            .filter(|s| s.loca.as_deref() == Some(room));
+        let principal = scoped
+            .as_ref()
+            .and_then(|s| s.principal_id.as_deref())
+            .or(authority.principal_id.as_deref());
+        if let Some(principal_id) = principal {
+            let current = self.operators.lock_or_recover().get(room).cloned();
+            if let Some(current) = current {
+                return current == principal_id;
+            }
         }
         if self.store.is_persistent() {
             return false;
@@ -4034,7 +4977,23 @@ impl Hub {
         since: u64,
         limit: usize,
     ) -> rusqlite::Result<Vec<Message>> {
-        if let Some(messages) = self.store.messages_after(room, since, limit)? {
+        self.messages_after_within(room, since, 0, u64::MAX, limit)
+    }
+
+    /// [`Hub::messages_after`], leaving out everything said before `from_ts`
+    /// and everything with an id above `through_id`.
+    fn messages_after_within(
+        &self,
+        room: &str,
+        since: u64,
+        from_ts: u64,
+        through_id: u64,
+        limit: usize,
+    ) -> rusqlite::Result<Vec<Message>> {
+        if let Some(messages) = self
+            .store
+            .messages_after(room, since, from_ts, through_id, limit)?
+        {
             return Ok(messages);
         }
         let rooms = self.rooms.lock_or_recover();
@@ -4043,7 +5002,7 @@ impl Hub {
             .map(|r| {
                 r.history
                     .iter()
-                    .filter(|m| m.id > since)
+                    .filter(|m| m.id > since && m.ts >= from_ts && m.id <= through_id)
                     .take(limit)
                     .cloned()
                     .collect()
@@ -4071,6 +5030,7 @@ impl Hub {
         };
         let visible: std::collections::HashSet<String> =
             names.into_iter().filter(|n| reach(n)).collect();
+        let groups = self.group_names_by_room();
 
         let rooms = self.rooms.lock_or_recover();
         let mut list: Vec<RoomSummary> = rooms
@@ -4100,6 +5060,8 @@ impl Hub {
                     }),
                     last_id: r.history.last().map(|m| m.id).unwrap_or(0),
                     special: self.is_reserved_room(name),
+                    group: groups.get(name).map(|(_, group)| group.clone()),
+                    group_id: groups.get(name).map(|(id, _)| id.clone()),
                 }
             })
             .collect();
@@ -4329,6 +5291,42 @@ pub enum JoinRequestCreate {
     NameTaken,
     /// Too many undecided requests are queued.
     BacklogFull,
+}
+
+/// Does this text address specific people with `@name`, and not everyone with
+/// `@all`? Names are the identity-name characters (letters, digits, `-`, `_`,
+/// `.`); an `@` inside a word (an e-mail address) is not a mention.
+pub(crate) fn names_people_but_not_all(text: &str) -> bool {
+    let mut named = false;
+    let mut prev: Option<char> = None;
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '@' && prev.is_none_or(|p| !p.is_alphanumeric() && p != '_' && p != '.') {
+            let start = i + 1;
+            let mut end = start;
+            while end < chars.len()
+                && (chars[end].is_alphanumeric() || matches!(chars[end], '-' | '_' | '.'))
+            {
+                end += 1;
+            }
+            let name: String = chars[start..end].iter().collect();
+            let name = name.trim_end_matches(['.', '-']);
+            if name.eq_ignore_ascii_case("all") {
+                return false;
+            }
+            if !name.is_empty() {
+                named = true;
+            }
+            i = end;
+            prev = chars.get(end.saturating_sub(1)).copied();
+            continue;
+        }
+        prev = Some(c);
+        i += 1;
+    }
+    named
 }
 
 #[cfg(test)]

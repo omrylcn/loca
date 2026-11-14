@@ -1,5 +1,21 @@
 use crate::*;
 
+/// Middleware and handlers must authorize the same decoded room id. Return
+/// malformed path parameters as an error rather than silently skipping a fence.
+pub(super) async fn decoded_room_request(
+    hub: &Hub,
+    req: axum::extract::Request,
+) -> Result<(axum::extract::Request, Option<String>), Box<axum::response::Response>> {
+    let (mut parts, body) = req.into_parts();
+    let Path(params) = <Path<HashMap<String, String>> as axum::extract::FromRequestParts<Hub>>::from_request_parts(
+        &mut parts, hub,
+    ).await.map_err(|error| Box::new(error.into_response()))?;
+    Ok((
+        axum::extract::Request::from_parts(parts, body),
+        params.get("id").cloned(),
+    ))
+}
+
 pub(crate) fn valid_identity_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     !bytes.is_empty()

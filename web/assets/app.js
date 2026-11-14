@@ -9,9 +9,9 @@ function setEntryPath(path) {
   $("masterEntryButton").textContent = master ? "Back to Human / Smaster sign-in" : "Master sign-in";
   $("masterEntryButton").setAttribute("aria-expanded", String(master));
   $("connectBtn").textContent = master ? "sign in as Master" : path === "smaster" ? "sign in as Smaster" : "sign in as Human";
-  $("name").placeholder = path === "smaster" ? "optional — your key verifies your identity" : "name for a new human membership";
+  $("name").placeholder = path === "smaster" ? "your display name — leave empty to keep it" : "name for a new human membership";
   $("entryHint").textContent = path === "smaster"
-    ? "Use the personal credential issued by Master. Selecting Smaster does not grant authority."
+    ? "Use the personal credential issued by Master; it proves who you are. A name typed here becomes your display name."
     : "Existing credentials verify your recorded identity; a typed name cannot replace it.";
   if (master) { $("roomToken").value = ""; state.roomToken = ""; }
   else { $("pairingCode").value = ""; state.pairing = ""; }
@@ -24,6 +24,34 @@ function setConnOpen(open) {
   $("connGear").textContent = open ? "✕" : "⚙";
 }
 $("connGear").onclick = () => setConnOpen($("connBox").style.display === "none");
+// Signing out does not reload the page, so whatever the Building panes fetched
+// would stay readable by the next person at this tab. Drop it: the state, and
+// the panes back to the empty markup they load with. That takes #keyIssued (a
+// just-issued key in clear text, carried across re-renders in keys.js) and
+// #bbWitness (a birebir the Master read as a called-in witness) with them.
+// The generation moves on here too: whatever was asked for before this point
+// is answered into nothing. This is the one way out of a session: sign-out,
+// a session the server ended (401), a revoked own key, and a new identity or
+// server typed in over a live one all come through here.
+function clearBuildingData() {
+  moveBuildingOn();
+  state.keyLedger = [];
+  state.people = []; state.ranks = []; state.bans = {};
+  state.joinRequests = null; state.joinRequestsError = false; state.admissionStock = null;
+  state.birebirOverview = []; state.birebirs = []; state.lobby = [];
+  state.groups = []; state.groupsLoaded = false; state.profilesList = null; state.groupMove = null;
+  state.buildingTab = "people";
+  for (const pane of ["peopleList", "groupsPane", "keyLedger", "birebirOverview"]) $(pane).innerHTML = "";
+  syncBuildingTabs();
+  renderLobby();
+  renderBirebirList();
+  renderLocaSidebar();   // no loca now: This Loca and its group-move dialog empty
+  notifReset();
+  state.notif.inflight = false;   // a poll still out belongs to the last person
+  hideNotifToast();
+  for (const id of ["notifPanel", "notifToast"]) { if ($(id)) $(id).innerHTML = ""; }
+  renderNotifBell();
+}
 // Leaving the whole Building is materially different from releasing one loca.
 // Ask explicitly; an accidental click must not revoke the browser session.
 $("leaveBtn").onclick = () => $("leaveConfirm").classList.remove("hidden");
@@ -36,15 +64,9 @@ $("leaveYes").onclick = async () => {
     sessionStorage.removeItem("loca-admin-session");
   } catch (e) {}
   if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
+  // Leave locally first, then tell the server: nothing asked for while the
+  // DELETE is out still rides the old session.
   const session = state.session;
-  if (session) {
-    try {
-      await fetch(serverBase() + "/sessions", {
-        method: "DELETE",
-        headers: { "x-session-token": session },
-      });
-    } catch (e) { /* local logout still completes if the server is unavailable */ }
-  }
   state.session = null; state.roomToken = ""; state.pairing = ""; state.adminSession = false; state.sessionExpires = null; state.room = null;
   state.authStatus = "unauthenticated";
   resetRoomPreferenceIdentity();
@@ -53,16 +75,25 @@ $("leaveYes").onclick = async () => {
   $("leaveBtn").classList.add("hidden");
   setLocked(true);
   $("doorline").innerHTML = "you left loca.<br>the key opens it again.";
+  clearBuildingData();
+  if (session) {
+    try {
+      await fetch(serverBase() + "/sessions", {
+        method: "DELETE",
+        headers: { "x-session-token": session },
+      });
+    } catch (e) { /* local logout still completes if the server is unavailable */ }
+  }
 };
 $("applyMode").onclick = applyMode;
 function closeProperties() {
   $("adminbar").classList.remove("open");
-  $("adminToggle").textContent = "properties ▾";
+  $("adminToggle").classList.remove("on");
   $("adminToggle").setAttribute("aria-expanded", "false");
 }
 $("adminToggle").onclick = () => {
   const open = $("adminbar").classList.toggle("open");
-  $("adminToggle").textContent = open ? "properties ▴" : "properties ▾";
+  $("adminToggle").classList.toggle("on", open);
   $("adminToggle").setAttribute("aria-expanded", String(open));
 };
 document.addEventListener("pointerdown", (event) => {
@@ -91,11 +122,14 @@ $("sealLocaBtn").onclick = () => deleteRoom(state.room);
 $("applySettings").onclick = applySettings;
 $("liveToggle").onclick = toggleLive;
 $("peopleList").onclick = async (e) => {
+  const dm = e.target.closest("[data-dm]");
+  if (dm) { openBirebir(dm.dataset.dm); return; }
   const jrNote = (t) => { const n = $("jrNotice"); if (n) n.textContent = t; };
   // One admission action, transport-safe: a network failure surfaces a notice
   // and re-enables the button instead of an unhandled rejection + stuck button.
   const jrAction = async (btn, url, opts, failMsg, okMsg) => {
     btn.disabled = true;
+    const gen = state.buildingGen;
     let note = null, ok = false;
     try {
       const r = await fetch(url, opts);
@@ -104,6 +138,7 @@ $("peopleList").onclick = async (e) => {
     } catch (_) {
       note = `${failMsg} — network error, try again`;
     }
+    if (buildingStale(gen)) return;   // signed out meanwhile: not the next person's note
     // Re-enable the ORIGINAL button on ANY failure BEFORE the reload, so a
     // server error stays retryable even when the list refresh below ALSO fails
     // (server-error + list-refresh-error must never leave a stuck button). On
@@ -114,7 +149,7 @@ $("peopleList").onclick = async (e) => {
     // nothing (the operator pressed approve/mint and saw no confirmation). Guard
     // the reload so the note is still shown if the refresh throws.
     try { await fetchPeople(); } catch (_) {}
-    if (note) jrNote(note);
+    if (note && !buildingStale(gen)) jrNote(note);
   };
   // Join-request admissions, handled right here in the main app (not the desk).
   const approve = e.target.closest("[data-jr-approve]");
@@ -354,6 +389,8 @@ $("feed").addEventListener("click", (e) => {
   }
 });
 $("onlineList").addEventListener("click", (e) => {
+  const dm = e.target.closest("[data-dm]");
+  if (dm) { openBirebir(dm.dataset.dm); return; }
   const b = e.target.closest("[data-mod]");
   if (b) moderate(b.dataset.mod, b.dataset.n);
   const lead = e.target.closest("[data-lead]");
@@ -442,6 +479,15 @@ $("pinnedContent").onclick = () => {
 $("pinJumpBtn").onclick = () => {
   if (state.pinned?.id) { switchTab("chat"); gotoMsg(state.pinned.id); }
 };
+$("seatToggle").onclick = () => setSeat(isWatchingDoor());
+// Another tab of this browser sat down or stepped out of the shown loca:
+// follow it, so this tab neither speaks from the door nor stays seated alone.
+window.addEventListener("storage", (e) => {
+  if (![SEATED_ROOMS_KEY, DOOR_ROOMS_KEY].includes(e.key) || !state.room || state.adminSession !== true) return;
+  const wasWatching = state.ws && /[?&]watch=1/.test(state.ws.url || "");
+  if (wasWatching !== isWatchingDoor()) openWs(); else renderDoor();
+});
+$("doorTakeSeat").onclick = () => setSeat(true);
 $("stopBtn").onclick = () => { if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify({ t: "control", cmd: "stop" })); };
 $("clearBtn").onclick = () => { revokeInlineAttachmentUrls(); $("feed").innerHTML = ""; };
 
@@ -532,13 +578,18 @@ async function bootstrapIdentity() {
     await doConnect(seat.room || state.homeRoom);
     return;
   }
-  await takeSession();
+  if (!(await takeSession())) return;   // overtaken: someone signed in meanwhile
   if (state.authStatus === "unknown") {
     showAuthUnavailable();
     return;
   }
   document.body.classList.remove("auth-pending");
   if (state.authStatus !== "authenticated") setConnOpen(true);
+  // A restored session knows its name, not yet its principal, and what is
+  // personal (the hidden and pinned sidebar, one's own appearance) is kept by
+  // principal. Learn it now: otherwise everything one has hidden is listed,
+  // in the default look, until a loca is entered.
+  else await fetchProfile();
   await refreshRooms();
 }
 bootstrapIdentity();

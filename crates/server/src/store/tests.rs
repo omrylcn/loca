@@ -79,7 +79,7 @@ fn room_founder_creation_is_atomic_and_survives_restart() {
         .unwrap();
     }
     assert!(store
-        .create_room_with_operator("new-room", &RoomSettings::default(), &founder, 2)
+        .create_room_with_operator("new-room", &RoomSettings::default(), &founder, None, 2)
         .is_err());
     {
         let c = store.conn().unwrap();
@@ -94,7 +94,7 @@ fn room_founder_creation_is_atomic_and_survives_restart() {
         c.execute_batch("DROP TRIGGER reject_founder").unwrap();
     }
     let assigned = store
-        .create_room_with_operator("new-room", &RoomSettings::default(), &founder, 3)
+        .create_room_with_operator("new-room", &RoomSettings::default(), &founder, None, 3)
         .unwrap();
     assert_eq!(assigned.principal_id, founder);
     drop(store);
@@ -104,7 +104,7 @@ fn room_founder_creation_is_atomic_and_survives_restart() {
         founder
     );
     assert!(matches!(
-        store.create_room_with_operator("new-room", &RoomSettings::default(), &founder, 4),
+        store.create_room_with_operator("new-room", &RoomSettings::default(), &founder, None, 4),
         Err(super::LocaOperatorError::Conflict)
     ));
     assert_eq!(store.loca_operator_history("new-room").len(), 1);
@@ -120,7 +120,7 @@ fn operator_appointment_follows_identity_not_renamed_or_reused_labels() {
         .unwrap();
     let master = store.active_master_principal().unwrap().id;
     store
-        .create_room_with_operator("r", &RoomSettings::default(), &master, 2)
+        .create_room_with_operator("r", &RoomSettings::default(), &master, None, 2)
         .unwrap();
     let member = |token: &str| protocol::Membership {
         token: token.into(),
@@ -940,7 +940,7 @@ fn join_request_bootstrap_ack_survives_restart_and_reopen_migration() {
     } // drop → the connection closes, simulating a server restart.
 
     // Reopen the SAME file: the additive `ALTER TABLE ... ADD COLUMN` re-runs
-    // harmlessly (duplicate-column error is swallowed), the ACK persisted, the
+    // harmlessly (an existing column is not an error), the ACK persisted, the
     // window stays closed, the credential copy stays scrubbed, and a repeat ACK
     // is still idempotent across the restart.
     let store2 = Store::open(Some(p)).expect("reopen");
@@ -1036,5 +1036,470 @@ fn approve_records_the_deciding_authority_for_audit() {
     assert_eq!(
         decided_by, "smaster:deputy",
         "the approving authority is recorded for audit"
+    );
+}
+
+/// (table, column, declared type) for every column of every table.
+fn schema_columns(conn: &Connection) -> Vec<(String, String, String)> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT m.name, p.name, p.type FROM sqlite_master m
+             JOIN pragma_table_info(m.name) p
+             WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%'
+             ORDER BY m.name, p.cid",
+        )
+        .expect("schema");
+    let rows = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .expect("columns");
+    rows.map(|row| row.expect("column")).collect()
+}
+
+/// Every table the schema keys by a loca name, in a `room` column.
+fn tables_with_a_room_column(columns: &[(String, String, String)]) -> Vec<String> {
+    let mut tables: Vec<String> = columns
+        .iter()
+        .filter(|(_, column, _)| column == "room")
+        .map(|(table, _, _)| table.clone())
+        .collect();
+    tables.dedup();
+    tables
+}
+
+/// The guard for "a loca's records follow its name": every table with a
+/// `room` column is either moved by `rename_room` or listed as a deliberate
+/// exception, and every other column that names a loca is one the rename
+/// handles by hand. Adding a loca table without deciding fails here.
+#[test]
+fn every_table_keyed_by_a_loca_name_is_classified_for_rename() {
+    use std::collections::BTreeSet;
+    let directory = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(directory.path().join("schema.db").to_str()).expect("store");
+    let conn = store.conn().expect("connection");
+    let columns = schema_columns(&conn);
+
+    let with_room: BTreeSet<String> = tables_with_a_room_column(&columns).into_iter().collect();
+    let classified: BTreeSet<String> = super::rooms::ROOM_KEYED_TABLES
+        .iter()
+        .chain(super::rooms::ROOM_TABLES_NEVER_RENAMED)
+        .map(|table| table.to_string())
+        .collect();
+    assert_eq!(
+        with_room, classified,
+        "a table with a `room` column must be added to ROOM_KEYED_TABLES (rename_room moves it) \
+         or to ROOM_TABLES_NEVER_RENAMED with the reason"
+    );
+
+    // Loca references under another column name. `care_outbox.delivery_room`
+    // is rewritten by rename_room together with the signal JSON beside it.
+    let other: BTreeSet<(&str, &str)> = columns
+        .iter()
+        .filter(|(_, column, _)| {
+            column != "room" && (column.contains("room") || column.contains("loca"))
+        })
+        .map(|(table, column, _)| (table.as_str(), column.as_str()))
+        .collect();
+    assert_eq!(
+        other,
+        BTreeSet::from([("care_outbox", "delivery_room")]),
+        "a new column naming a loca must be handled in rename_room and listed here"
+    );
+}
+
+/// One row per loca table under the old name; after the rename none is left
+/// behind and each is found under the new name. The tables are read from the
+/// schema, not from the rename's own list, so a table the rename forgets
+/// fails here.
+#[test]
+fn a_rename_leaves_no_row_behind_in_any_loca_table() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(directory.path().join("rename-all.db").to_str()).expect("store");
+    // The attention row carries JSON the rename parses: use the real writer.
+    let signal = care_signal("delivery-all", "attention:old:goal:1:1000", "old");
+    store.enqueue_care("old", &signal).expect("enqueue");
+    let tables: Vec<String> = {
+        let conn = store.conn().expect("connection");
+        // Fixture rows stand alone: no principals, groups or messages exist.
+        conn.execute_batch("PRAGMA foreign_keys = OFF").unwrap();
+        let columns = schema_columns(&conn);
+        let tables: Vec<String> = tables_with_a_room_column(&columns)
+            .into_iter()
+            .filter(|table| !super::rooms::ROOM_TABLES_NEVER_RENAMED.contains(&table.as_str()))
+            .collect();
+        for table in &tables {
+            if table == "attentions" {
+                continue;
+            }
+            let own: Vec<&(String, String, String)> =
+                columns.iter().filter(|(t, _, _)| t == table).collect();
+            let names: Vec<&str> = own.iter().map(|(_, c, _)| c.as_str()).collect();
+            let values: Vec<String> = own
+                .iter()
+                .map(|(_, column, kind)| match column.as_str() {
+                    "room" => "'old'".to_string(),
+                    "appointed_by_role" => "'master'".to_string(),
+                    _ if kind.to_ascii_uppercase().contains("INT") => "1".to_string(),
+                    _ => "'x'".to_string(),
+                })
+                .collect();
+            let sql = format!(
+                "INSERT INTO {table} ({}) VALUES ({})",
+                names.join(", "),
+                values.join(", ")
+            );
+            conn.execute(&sql, [])
+                .unwrap_or_else(|error| panic!("fixture row for {table}: {error}"));
+        }
+        conn.execute_batch("PRAGMA foreign_keys = ON").unwrap();
+        tables
+    };
+    assert!(tables.len() >= 27, "the schema lists its loca tables");
+
+    assert!(store.rename_room("old", "new").expect("rename"));
+
+    let conn = store.conn().expect("connection");
+    let mut left_behind = Vec::new();
+    for table in &tables {
+        let count = |room: &str| -> i64 {
+            conn.query_row(
+                &format!("SELECT COUNT(*) FROM {table} WHERE room = ?1"),
+                [room],
+                |r| r.get(0),
+            )
+            .expect("count")
+        };
+        if count("old") != 0 || count("new") != 1 {
+            left_behind.push(table.as_str());
+        }
+    }
+    assert!(
+        left_behind.is_empty(),
+        "these tables did not follow the loca to its new name: {left_behind:?}"
+    );
+}
+
+/// A birebir is never renamed, and no loca is renamed into the birebir id
+/// space: the refusal changes nothing.
+#[test]
+fn a_rename_never_touches_a_birebir_or_its_id_space() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let store = Store::open(directory.path().join("rename-birebir.db").to_str()).expect("store");
+    store
+        .save_room("plain", &ChatMode::Free, &RoomSettings::default())
+        .expect("room");
+    {
+        let conn = store.conn().expect("connection");
+        conn.execute(
+            "INSERT INTO birebirs (room, a, b, opened_by, opened_at) VALUES ('bb-pair', 'a', 'b', 'a', 1)",
+            [],
+        )
+        .expect("birebir");
+        conn.execute(
+            "INSERT INTO journal (id, room, by, by_type, text, at) VALUES (1, 'bb-pair', 'a', 'user', 'x', 1)",
+            [],
+        )
+        .expect("journal");
+    }
+    assert!(store.rename_room("bb-pair", "open-room").is_err());
+    assert!(store.rename_room("plain", "bb-pair").is_err());
+    assert!(store.rename_room("plain", "bb-anything").is_err());
+    let conn = store.conn().expect("connection");
+    let rooms: Vec<String> = conn
+        .prepare("SELECT room FROM rooms ORDER BY room")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .flatten()
+        .collect();
+    assert_eq!(rooms, ["plain"], "a refused rename changes nothing");
+    let pair: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM birebirs WHERE room = 'bb-pair'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(pair, 1);
+}
+
+/// The care signal the ledger holds for `id`, read from its JSON.
+fn ledger_signal(store: &Store, id: &str) -> Option<CareSignal> {
+    let conn = store.conn().expect("connection");
+    let json: Option<String> = conn
+        .query_row("SELECT signal FROM attentions WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .ok();
+    json.map(|json| serde_json::from_str(&json).expect("ledger signal"))
+}
+
+/// A relay delivered in İye about another loca (`room = iye`,
+/// `source_room = old`). Renaming the SOURCE loca moves the ledger row, its
+/// id, the JSON source and the outbox reference together; the delivery id
+/// stays, so a late ACK still lands, and a resolved signal is not delivered
+/// again. The same holds after the database is reopened.
+#[test]
+fn renaming_the_source_loca_keeps_a_rehomed_care_signal_whole() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("rename-care-source.db");
+    let store = Store::open(path.to_str()).expect("store");
+    let signal = care_signal_from("delivery-src", "attention:old:goal:1:1000", "iye", "old");
+    store.enqueue_care("iye", &signal).expect("enqueue");
+
+    assert!(store.rename_room("old", "new").expect("rename"));
+
+    let check = |store: &Store, stage: &str| {
+        assert!(
+            store.attention("attention:old:goal:1:1000").is_none(),
+            "{stage}: the old attention id is gone"
+        );
+        let attention = store
+            .attention("attention:new:goal:1:1000")
+            .unwrap_or_else(|| panic!("{stage}: the attention follows its loca"));
+        assert_eq!(attention.room, "new", "{stage}: filed under the new origin");
+        let ledger = ledger_signal(store, "attention:new:goal:1:1000").expect("ledger JSON");
+        assert_eq!(
+            (
+                ledger.room.as_str(),
+                ledger.origin_room(),
+                ledger.attention_id.as_str()
+            ),
+            ("iye", "new", "attention:new:goal:1:1000"),
+            "{stage}: ledger JSON keeps the delivery room and names the new origin"
+        );
+        assert!(
+            store.attentions("old").is_empty(),
+            "{stage}: nothing is listed under the old loca"
+        );
+    };
+    check(&store, "after rename");
+    let pending = store.pending_care("iye", "loca-care");
+    assert_eq!(pending.len(), 1, "still one delivery waiting in İye");
+    assert_eq!(
+        (
+            pending[0].id.as_str(),
+            pending[0].attention_id.as_str(),
+            pending[0].room.as_str(),
+            pending[0].origin_room()
+        ),
+        ("delivery-src", "attention:new:goal:1:1000", "iye", "new"),
+        "the outbox row points at the ledger row it belongs to"
+    );
+
+    drop(store);
+    let store = Store::open(path.to_str()).expect("reopen");
+    check(&store, "after reopen");
+    assert_eq!(store.pending_care("iye", "loca-care").len(), 1);
+    assert!(
+        store
+            .ack_care_scoped("delivery-src", "loca-care", None, 2_000)
+            .expect("late ACK"),
+        "the delivery id is unchanged, so a late ACK lands"
+    );
+    assert!(
+        store
+            .resolve_attention("attention:new:goal:1:1000", 3_000)
+            .expect("resolve"),
+        "the attention resolves under its new id"
+    );
+    drop(store);
+    let store = Store::open(path.to_str()).expect("reopen again");
+    assert!(
+        store.pending_care("iye", "loca-care").is_empty(),
+        "a resolved signal is not delivered again"
+    );
+    assert!(store
+        .attention("attention:new:goal:1:1000")
+        .expect("attention")
+        .resolved_at
+        .is_some());
+}
+
+/// The other direction: the loca where the relay is DELIVERED is renamed
+/// (`room = hall`, `source_room = proj`). The attention keeps its id and its
+/// origin; ledger JSON and outbox both name the new delivery room.
+#[test]
+fn renaming_the_delivery_loca_keeps_a_rehomed_care_signal_whole() {
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("rename-care-delivery.db");
+    let store = Store::open(path.to_str()).expect("store");
+    store
+        .save_room("hall", &ChatMode::Free, &RoomSettings::default())
+        .expect("delivery loca");
+    let signal = care_signal_from("delivery-dst", "attention:proj:goal:1:1000", "hall", "proj");
+    store.enqueue_care("hall", &signal).expect("enqueue");
+
+    assert!(store.rename_room("hall", "desk").expect("rename"));
+
+    let check = |store: &Store, stage: &str| {
+        let attention = store
+            .attention("attention:proj:goal:1:1000")
+            .unwrap_or_else(|| panic!("{stage}: the attention keeps its id"));
+        assert_eq!(
+            attention.room, "proj",
+            "{stage}: still filed under its origin"
+        );
+        let ledger = ledger_signal(store, "attention:proj:goal:1:1000").expect("ledger JSON");
+        assert_eq!(
+            (
+                ledger.room.as_str(),
+                ledger.origin_room(),
+                ledger.attention_id.as_str()
+            ),
+            ("desk", "proj", "attention:proj:goal:1:1000"),
+            "{stage}: ledger JSON names the new delivery room"
+        );
+        assert!(
+            store.pending_care("hall", "loca-care").is_empty(),
+            "{stage}: nothing waits under the old delivery room"
+        );
+    };
+    check(&store, "after rename");
+    let pending = store.pending_care("desk", "loca-care");
+    assert_eq!(pending.len(), 1, "the delivery waits in the renamed loca");
+    assert_eq!(
+        (
+            pending[0].id.as_str(),
+            pending[0].attention_id.as_str(),
+            pending[0].room.as_str(),
+            pending[0].origin_room()
+        ),
+        ("delivery-dst", "attention:proj:goal:1:1000", "desk", "proj")
+    );
+
+    drop(store);
+    let store = Store::open(path.to_str()).expect("reopen");
+    check(&store, "after reopen");
+    assert!(store
+        .ack_care_scoped("delivery-dst", "loca-care", None, 2_000)
+        .expect("late ACK"));
+    assert!(store
+        .resolve_attention("attention:proj:goal:1:1000", 3_000)
+        .expect("resolve"));
+    assert!(
+        store.pending_care("desk", "loca-care").is_empty(),
+        "a resolved signal is not delivered again"
+    );
+}
+
+fn schema_dump(path: &str) -> Vec<(String, String, Option<String>)> {
+    let conn = Connection::open(path).expect("inspect");
+    let mut stmt = conn
+        .prepare("SELECT type, name, sql FROM sqlite_master ORDER BY type, name")
+        .expect("prepare");
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .expect("query");
+    rows.collect::<rusqlite::Result<Vec<_>>>().expect("rows")
+}
+
+#[test]
+fn reopening_an_upgraded_database_is_a_schema_no_op() {
+    // Every column the upgrade adds already exists on the second open, so each
+    // ALTER answers "duplicate column name". That answer, and only that one,
+    // is success: the store opens and the schema is byte-for-byte unchanged.
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("reopen.db");
+    let p = path.to_str().expect("path");
+    drop(Store::open(Some(p)).expect("first open"));
+    let first = schema_dump(p);
+    assert!(
+        first.iter().any(|(_, name, sql)| name == "rooms"
+            && sql.as_deref().is_some_and(|sql| sql.contains("sealed_at"))),
+        "the first open added the upgrade columns"
+    );
+    drop(Store::open(Some(p)).expect("second open"));
+    assert_eq!(first, schema_dump(p));
+}
+
+#[test]
+fn a_failed_column_upgrade_fails_open_instead_of_starting_half_upgraded() {
+    // `rooms` exists as a VIEW, so `CREATE TABLE IF NOT EXISTS rooms` is a
+    // no-op and adding `sealed_at` fails for a reason that is NOT "duplicate
+    // column". The store must refuse to open with SQLite's own error rather
+    // than start without the column.
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("half-upgraded.db");
+    let p = path.to_str().expect("path");
+    Connection::open(p)
+        .expect("create")
+        .execute_batch("CREATE VIEW rooms AS SELECT 'r' AS room, '{}' AS mode, '{}' AS settings;")
+        .expect("view");
+    let error = match Store::open(Some(p)) {
+        Ok(_) => panic!("open must fail when a column cannot be added"),
+        Err(error) => error.to_string(),
+    };
+    assert!(
+        error.contains("Cannot add a column to a view"),
+        "the operator sees the real cause, got: {error}"
+    );
+}
+
+/// Sending answers with who it went to. Those counts are taken in the
+/// transaction that stores the notification, so there is nothing left to fail
+/// once it is committed, and a failure before that leaves nothing stored.
+#[test]
+fn sending_a_notification_counts_its_recipients_in_the_same_transaction() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("notification-counts.db");
+    let store = Store::open(path.to_str()).unwrap();
+    let mut ids = Vec::new();
+    for (name, kind) in [("ali", "user"), ("bot", "agent"), ("scribe", "agent")] {
+        let member = protocol::Membership {
+            token: format!("{name}-fixture"),
+            name: name.into(),
+            kind: kind.into(),
+            joined_at: 1,
+            admitted_by: "master".into(),
+        };
+        store.add_member(&member).unwrap();
+        ids.push(store.principal_for_credential(&member.token).unwrap().id);
+    }
+
+    let created = store
+        .create_notification(
+            "pr_sender",
+            "Master",
+            r#"{"all":true}"#,
+            "Kept",
+            "",
+            10,
+            &ids,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!((created.recipients, created.agents), (3, 2));
+    // The Sent list reads the same numbers later.
+    let sent = store.sent_notifications("pr_sender", None, 10).unwrap();
+    assert_eq!(
+        (sent[0].id, sent[0].recipients, sent[0].agents, sent[0].read),
+        (created.id, 3, 2, 0)
+    );
+
+    // A receipt that cannot be written: the send fails and stores nothing.
+    store
+        .conn()
+        .unwrap()
+        .execute_batch(
+            "CREATE TEMP TRIGGER reject_receipt BEFORE INSERT ON notification_receipts
+             BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;",
+        )
+        .unwrap();
+    assert!(store
+        .create_notification(
+            "pr_sender",
+            "Master",
+            r#"{"all":true}"#,
+            "Lost",
+            "",
+            11,
+            &ids
+        )
+        .is_err());
+    let sent = store.sent_notifications("pr_sender", None, 10).unwrap();
+    assert_eq!(
+        sent.iter().map(|n| n.title.as_str()).collect::<Vec<_>>(),
+        vec!["Kept"],
+        "a failed send leaves no notification behind"
     );
 }

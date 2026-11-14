@@ -6,12 +6,14 @@
 <title>loca</title>
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
 <link rel="stylesheet" href="/assets/styles.css" />
+<script src="/assets/theme.js"></script>
 </head>
 <body>
   <aside class="side" id="sidebar" aria-label="Loca navigation">
     <h1><a class="brandlink" href="https://github.com/omrylcn/loca" target="_blank" rel="noopener noreferrer"
         title="Open the Loca GitHub repository" aria-label="Loca — GitHub repository"><span class="mark"></span>loca</a>
       <button class="hidden" id="tabPeople" title="all building members and global status">BUILDING</button>
+      <button class="notifbell hidden" id="notifBell" type="button" aria-label="Notifications" aria-haspopup="dialog" aria-expanded="false" data-tip="Notifications" data-tip-detail="Announcements from the Master and your groups' Smasters."><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="notifbadge hidden" id="notifBadge" aria-hidden="true"></span></button>
       <button id="connGear" title="connection settings">⚙</button>
       <button id="helpBtn" title="Getting Started guide" aria-label="Open the Getting Started guide">?</button>
     </h1>
@@ -61,6 +63,14 @@
         <div class="rlabel">YOUR LOCAS</div>
         <div id="roomList"></div>
       </div>
+      <div class="rooms dmsection" id="dmSection">
+        <div class="rlabel dmhead"><span>MESSAGES</span><button type="button" class="dmnew" id="dmNew" aria-expanded="false" aria-controls="dmPicker" aria-label="New private message" data-tip="New message" data-tip-detail="Write to one person privately."><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+        <div class="dmpicker hidden" id="dmPicker">
+          <input id="dmSearch" type="search" placeholder="who?" aria-label="Find a person" autocomplete="off" />
+          <div id="dmCandidates" role="listbox" aria-label="People you can write to"></div>
+        </div>
+        <div id="dmList"></div>
+      </div>
       <details class="hiddenlocas hidden" id="hiddenLocas">
         <summary>Hidden locas <span id="hiddenLocaCount">0</span></summary>
         <div id="hiddenRoomList"></div>
@@ -101,10 +111,10 @@
         <div class="roomline">
           <div class="rname" id="curRoom">—</div>
           <div class="roomprops">
-            <span class="pill free" id="modePill">free</span>
+            <span class="pill free" id="modePill" tabindex="0" data-tip="Speaking mode: free" data-tip-detail="Anyone at the table can talk.">free</span>
             <span class="detail" id="modeDetail">anyone can talk</span>
-            <span class="livebadge hidden" id="liveBadge">● live</span>
-            <span class="archbadge hidden" id="archBadge">closed · read-only</span>
+            <span class="livebadge hidden" id="liveBadge" tabindex="0" data-tip="Live mode is on" data-tip-detail="Every message reaches everyone at the table, no @ needed.">● live</span>
+            <span class="archbadge hidden" id="archBadge" tabindex="0" data-tip="This loca is closed" data-tip-detail="History stays readable; nobody can post until it is reopened.">closed · read-only</span>
           </div>
         </div>
         <div class="substatus" id="subStatus" role="status" aria-live="polite">not connected</div>
@@ -118,14 +128,15 @@
       </div>
       <div class="roomactions">
         <span id="leadKey" class="leadkey hidden">@lead</span>
-        <select id="leadSelect" class="leadselect hidden" title="name or replace this loca's lead">
+        <select id="leadSelect" class="leadselect hidden" aria-label="Loca lead" data-tip="Loca lead" data-tip-detail="Name, transfer, or end this loca's lead.">
           <option value="">◇ no lead</option>
         </select>
-        <button id="liveToggle" class="livebtn hidden" title="live (WhatsApp) mode — everyone gets every message, no @ needed">◉ Live: off</button>
-        <button class="admintoggle hidden" id="adminToggle" aria-expanded="false"
-          aria-controls="adminbar">properties ▾</button>
+        <button id="liveToggle" class="livebtn hidden" type="button" aria-pressed="false" data-tip="Live mode is off" data-tip-detail="Turn on so every message reaches everyone, no @ needed.">◉ Live: off</button>
+        <button class="iconbtn seattoggle hidden" id="seatToggle" type="button"></button>
+        <button class="iconbtn admintoggle hidden" id="adminToggle" type="button" aria-expanded="false"
+          aria-controls="adminbar" aria-label="Properties" data-tip="Properties" data-tip-detail="Lifecycle, speaking mode, operators, reminders."><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="var(--panel)"/><circle cx="15" cy="12" r="2" fill="var(--panel)"/><circle cx="7" cy="18" r="2" fill="var(--panel)"/></svg></button>
       </div>
-      <span class="conndot" id="connDot" role="status" aria-label="disconnected" title="disconnected"></span>
+      <span class="conndot" id="connDot" role="status" tabindex="0" aria-label="disconnected" data-tip="Disconnected" data-tip-detail="Not linked to the server; trying again."></span>
     </div>
 
     <!-- admin control bar (only with a valid admin token) -->
@@ -213,6 +224,11 @@
     </div>
     <div class="mentionpop hidden" id="mentionPop"></div>
     <div class="attachstrip hidden" id="attachStrip" aria-label="Files staged to send"></div>
+    <div class="birebirbar hidden" id="birebirBar" role="status"></div>
+    <div class="doorbar hidden" id="doorBar" role="status">
+      <span><b>Watching from the door.</b> You are not at the table: not in the roster, and nothing you type reaches it.</span>
+      <button id="doorTakeSeat" type="button">Take a seat</button>
+    </div>
     <div class="composer" id="composer">
       <select id="target" title="who should reply"></select>
       <input type="file" id="attachInput" class="hidden" multiple
@@ -227,7 +243,20 @@
 
     <!-- PEOPLE (the building, from above: who belongs, where they sit, who is barred) -->
     <div class="notes hidden" id="peoplePanel">
-      <div id="peopleList"></div>
+      <!-- The Building, from above. Groups is for the ranks (the server
+           shows each only the groups it may see); Keys and Private messages
+           are the Master's alone: the server refuses everyone else, and the
+           tabs are not drawn for them. -->
+      <div class="buildingtabs" role="tablist" aria-label="Building views">
+        <button type="button" class="btab active" role="tab" id="btabPeople" data-btab="people" aria-selected="true" aria-controls="peopleList">People</button>
+        <button type="button" class="btab hidden" role="tab" id="btabGroups" data-btab="groups" aria-selected="false" aria-controls="groupsPane">Groups</button>
+        <button type="button" class="btab hidden" role="tab" id="btabKeys" data-btab="keys" aria-selected="false" aria-controls="keyLedger">Keys</button>
+        <button type="button" class="btab hidden" role="tab" id="btabPrivate" data-btab="private" aria-selected="false" aria-controls="birebirOverview">Private messages</button>
+      </div>
+      <div id="peopleList" role="tabpanel" aria-labelledby="btabPeople"></div>
+      <section class="buildingpane groupspane hidden" id="groupsPane" role="tabpanel" aria-labelledby="btabGroups"></section>
+      <section class="buildingpane keyledger hidden" id="keyLedger" role="tabpanel" aria-labelledby="btabKeys"></section>
+      <section class="buildingpane hidden" id="birebirOverview" role="tabpanel" aria-labelledby="btabPrivate"></section>
     </div>
 
     <!-- JOURNAL (what was already done — nobody assigns it, nothing closes it) -->
@@ -415,6 +444,53 @@
     </div>
   </main>
 
+  <!-- Open a new loca: its name and the extensions it starts with. -->
+  <div class="extoverlay hidden" id="extCreate" role="dialog" aria-modal="true" aria-labelledby="extCreateTitle">
+    <button class="extbackdrop" id="extCreateBackdrop" type="button" aria-label="Cancel" tabindex="-1"></button>
+    <form class="extcard" id="extCreateForm" novalidate>
+      <h2 id="extCreateTitle">Open a new loca</h2>
+      <label class="extfield" for="extCreateName"><span>Name</span>
+        <input id="extCreateName" maxlength="128" autocomplete="off" placeholder="e.g. release-14" /></label>
+      <label class="extfield extgroupfield hidden" for="extCreateGroup" id="extCreateGroupField"><span>Group</span>
+        <select id="extCreateGroup"><option value="">Default — by invitation</option></select>
+        <small class="extgroupnote" id="extCreateGroupNote">Only the group's members will see and enter it.</small></label>
+      <div class="extsection">
+        <div class="extsectionhead">Extensions</div>
+        <div class="extgroup"><div class="extgrouplabel">Default</div><div id="extCreateDefault"></div></div>
+        <div class="extgroup"><div class="extgrouplabel">Add</div><div id="extCreateAdd"></div></div>
+      </div>
+      <p class="exttabs" id="extCreateTabs" aria-live="polite"></p>
+      <div class="exterror" id="extCreateError" role="alert"></div>
+      <div class="extactions">
+        <button type="button" class="btn" id="extCreateCancel">Cancel</button>
+        <button type="submit" class="btn primary" id="extCreateSubmit">Create loca</button>
+      </div>
+    </form>
+  </div>
+  <!-- This Loca › Extensions: the same list, Added / Add for those who may change it. -->
+  <div class="extoverlay hidden" id="extManage" role="dialog" aria-modal="true" aria-labelledby="extManageTitle">
+    <button class="extbackdrop" id="extManageBackdrop" type="button" aria-label="Close" tabindex="-1"></button>
+    <div class="extcard">
+      <h2 id="extManageTitle">Extensions <small># <span id="extManageRoom"></span></small></h2>
+      <div class="extlist" id="extManageList"></div>
+      <p class="extnote" id="extManageNote"></p>
+      <div class="exterror" id="extManageError" role="alert"></div>
+      <div class="extactions"><button type="button" class="btn" id="extManageClose">Close</button></div>
+    </div>
+  </div>
+
+  <!-- A person's card: who they are and the groups they are in. The founder
+       of a group (or the Master) adds and removes them here. -->
+  <div class="extoverlay hidden" id="personCard" role="dialog" aria-modal="true" aria-labelledby="personCardTitle">
+    <button class="extbackdrop" id="personCardBackdrop" type="button" aria-label="Close" tabindex="-1"></button>
+    <div class="extcard personcard">
+      <h2 id="personCardTitle"></h2>
+      <div id="personCardBody"></div>
+      <div class="exterror" id="personCardError" role="alert"></div>
+      <div class="extactions"><button type="button" class="btn" id="personCardClose">Close</button></div>
+    </div>
+  </div>
+
   <!-- GETTING STARTED: first-open guide; reopen from the ? Help button (top-left). -->
   <div class="gsoverlay hidden" id="gsOverlay" role="dialog" aria-modal="true" aria-labelledby="gsTitle">
     <button class="gsbackdrop" id="gsBackdrop" aria-label="Close guide" tabindex="-1"></button>
@@ -508,6 +584,8 @@
   </div>
 
 <script src="/assets/state.js"></script>
+<script src="/assets/birebir.js"></script>
+<script src="/assets/tooltip.js"></script>
 <script src="/assets/socket.js"></script>
 <script src="/assets/people.js"></script>
 <script src="/assets/chat.js"></script>
@@ -518,9 +596,13 @@
 <script src="/assets/wiki.js"></script>
 <script src="/assets/profile.js"></script>
 <script src="/assets/sidebar.js"></script>
+<script src="/assets/extensions.js"></script>
 <script src="/assets/api.js"></script>
 <script src="/assets/app.js"></script>
 <script src="/assets/joinrequest.js"></script>
 <script src="/assets/getstarted.js"></script>
+<script src="/assets/keys.js"></script>
+<script src="/assets/groups.js"></script>
+<script src="/assets/notifications.js"></script>
 </body>
 </html>

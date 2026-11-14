@@ -149,7 +149,17 @@ session yenileyebilir; Lobby membership ve davetler yeni session'ı üretir.
 
 `ROOM_RENAME=old:new` tek açılışlık atomik migration'dır. Merge yapmaz;
 hedef room zaten varsa başlangıç başarısız olur. Başarılı migration sonrası
-environment'tan kaldırılır.
+environment'tan kaldırılır. Loca'nın bütün kayıtları adıyla birlikte taşınır:
+konuşma, ekler, Notes, Tasks, Goal, Journal, Loca Wiki, davetler, Operator
+ataması, grup bağı ve Reminder kayıtları (başka bir Loca'ya yönlendirilmiş
+olanlar dahil). Birebir yeniden adlandırılmaz ve `bb-` ile başlayan bir hedef
+reddedilir.
+
+Bu düzeltmeden önceki bir sürümde `ROOM_RENAME` çalıştırılmışsa, o Loca'nın
+Operator ataması, Loca Wiki'si, ek referansları ve arşiv hafızası eski adın
+altında kalmıştır. Bu satırlar silinmez, ama kendiliğinden de kurtarılmaz:
+yeni sürüme geçmek onları yeni ada taşımaz. Kurtarma, yedek alındıktan sonra
+ayrı ve açık bir işlem olarak yapılır.
 
 ## 8. Health ve gözlem
 

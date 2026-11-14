@@ -301,6 +301,74 @@ async fn only_the_master_can_seal_an_archived_loca() {
     assert_eq!(sealed.status(), 204, "Master may seal the archived Loca");
 }
 
+/// LOCA_CAPACITY sets the seats per loca. Every person takes one, human or
+/// agent alike; the next identity is refused with a word; a watcher still
+/// gets in because it takes no seat; and /health tells clients the number.
+#[tokio::test]
+async fn loca_capacity_is_configurable_and_counts_humans_and_agents_alike() {
+    let (port, _guard) = spawn_server_env("master", &[("LOCA_CAPACITY", "15".to_string())]).await;
+    create_test_room(port, "master", "salon").await;
+    let client = reqwest::Client::new();
+    let health: Value = client
+        .get(format!("http://127.0.0.1:{port}/health"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(health["loca_capacity"], 15);
+    let mut seated = Vec::new();
+    for i in 1..=15 {
+        // Alternate humans and agents: both count as one seat each.
+        let kind = if i % 2 == 0 { "user" } else { "agent" };
+        let mut ws = connect_ws(port, "salon", &format!("p{i}"), kind).await;
+        let _ = wait_for(&mut ws, |frame| frame["t"] == "history").await;
+        seated.push(ws);
+    }
+    let members: Value = client
+        .get(format!("http://127.0.0.1:{port}/rooms/salon/members"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(members.as_array().unwrap().len(), 15, "fifteen fit");
+
+    let mut sixteenth = connect_ws(port, "salon", "p16", "user").await;
+    let frame = wait_for(&mut sixteenth, |v| v["t"] == "control").await;
+    let cmd = frame["cmd"].as_str().unwrap();
+    assert!(cmd.contains("full") && cmd.contains("15 seats"), "{cmd}");
+
+    // A watcher takes no seat, so a full loca still lets it look in.
+    let (mut watcher, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=salon&name=door&type=user&admin=master&watch=1"
+    ))
+    .await
+    .unwrap();
+    let _ = wait_for(&mut watcher, |frame| frame["t"] == "history").await;
+}
+
+/// Out-of-range values are held to a small table: never below a pair, never
+/// a hall.
+#[tokio::test]
+async fn loca_capacity_is_clamped() {
+    for (raw, expected) in [("1", 2), ("500", 32), ("nonsense", 7)] {
+        let (port, _guard) =
+            spawn_server_env("master", &[("LOCA_CAPACITY", raw.to_string())]).await;
+        let health: Value = reqwest::Client::new()
+            .get(format!("http://127.0.0.1:{port}/health"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(health["loca_capacity"], expected, "LOCA_CAPACITY={raw}");
+    }
+}
+
 /// A loca seats seven. More than that is a salon — a different kind of place.
 #[tokio::test]
 async fn loca_seats_seven() {
@@ -1962,4 +2030,126 @@ async fn durable_backfill_pages_the_complete_archive_after_restart() {
     assert!(recovered
         .windows(2)
         .all(|pair| pair[0]["id"].as_u64() < pair[1]["id"].as_u64()));
+}
+
+#[tokio::test]
+async fn the_master_is_operator_by_rank_in_every_loca_but_not_in_a_birebir() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("master-operator.db");
+    let (port, _guard) = spawn_server_env(
+        "mo-master",
+        &[
+            ("DB_PATH", db.to_str().unwrap().into()),
+            ("REQUIRE_SESSIONS", "1".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let pairing: Value = client
+        .post(format!("{base}/pairings?ttl_hours=1"))
+        .header("x-admin-token", "mo-master")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let session: Value = client
+        .post(format!("{base}/sessions"))
+        .header("x-pairing-code", pairing["pairing_code"].as_str().unwrap())
+        .json(&serde_json::json!({ "name": "", "kind": "user" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let master = session["session_token"].as_str().unwrap().to_string();
+    // A loca someone else founded: a Smaster opens it, so the appointment is theirs.
+    let sm: Value = client
+        .post(format!("{base}/smasters"))
+        .header("x-admin-token", "mo-master")
+        .json(&serde_json::json!({ "name": "mo-founder" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let created = client
+        .post(format!("{base}/rooms"))
+        .header("x-admin-token", sm["token"].as_str().unwrap())
+        .json(&serde_json::json!({ "name": "mo-room" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(created.status().is_success(), "{}", created.status());
+    let profile: Value = client
+        .get(format!("{base}/profile?room=mo-room"))
+        .header("x-session-token", &master)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let roles: Vec<&str> = profile["loca"]["roles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r.as_str().unwrap())
+        .collect();
+    assert!(roles.contains(&"operator"), "{profile}");
+    assert_eq!(profile["loca"]["operator_source"], "master");
+    // The founder keeps its own appointment.
+    let founder_session: Value = client
+        .post(format!("{base}/sessions"))
+        .header("x-admin-token", sm["token"].as_str().unwrap())
+        .json(&serde_json::json!({ "name": "mo-founder", "kind": "user" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let founder: Value = client
+        .get(format!("{base}/profile?room=mo-room"))
+        .header(
+            "x-session-token",
+            founder_session["session_token"].as_str().unwrap(),
+        )
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(founder["loca"]["operator_source"], "appointed");
+    // In a birebir there is no operator, not even by rank.
+    let opened: Value = client
+        .post(format!("{base}/birebirs"))
+        .header("x-session-token", &master)
+        .json(&serde_json::json!({ "name": "mo-founder" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let room = opened["birebir"]["room"].as_str().unwrap();
+    let inside: Value = client
+        .get(format!("{base}/profile?room={room}"))
+        .header("x-session-token", &master)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(!inside["loca"]["roles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == "operator"));
 }

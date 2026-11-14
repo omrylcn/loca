@@ -8,11 +8,60 @@ use protocol::{
     SenderType, ServerFrame, SetWait, TaskStatus, UpdateGoal, UpdateTask,
 };
 
-use super::{AttentionError, CareDraft, GoalError, Hub, HubConfig};
+use super::{
+    validate_display_name, AttentionError, CareDraft, GoalError, Hub, HubConfig, ModerationError,
+    NameError, ProfileRenameError,
+};
 use crate::store::{BuildingRole, Store};
 
 static TEST_NOW: AtomicU64 = AtomicU64::new(0);
 static TEST_CLOCK_LOCK: Mutex<()> = Mutex::new(());
+
+#[test]
+fn disabled_focus_never_generates_automatic_goal_reminders() {
+    let _clock = TEST_CLOCK_LOCK.lock().expect("clock test lock");
+    let mut hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        Arc::new(Store::open(None).unwrap()),
+        RoomSettings {
+            care_goal_secs: 1,
+            ..RoomSettings::default()
+        },
+        1,
+    );
+    hub.now_ms = test_now_ms;
+    TEST_NOW.store(1_000, Ordering::Relaxed);
+    hub.set_lead("proj", Some("lead".into()), "operator")
+        .unwrap();
+    hub.create_goal(
+        "proj",
+        CreateGoal {
+            outcome: "retained while disabled".into(),
+            checkpoint: None,
+            stale_after_secs: None,
+            completion: GoalCompletion::Manual,
+            task_ids: Vec::new(),
+            by: "operator".into(),
+        },
+    )
+    .unwrap();
+    hub.set_extensions("proj", &[], "operator", SenderType::User)
+        .unwrap();
+    TEST_NOW.store(31_000, Ordering::Relaxed);
+    hub.tick_care();
+    assert!(
+        hub.attentions("proj").is_empty(),
+        "disabled Focus must not wake agents into a 403"
+    );
+}
 
 #[test]
 fn suspension_and_concurrent_davet_creation_cannot_leave_a_revivable_seat() {
@@ -109,6 +158,392 @@ fn critical_restart_preserves_smaster_and_refuses_unbound_legacy_session() {
     assert!(!hub
         .resolve_authority(None, Some(&smaster))
         .is_building_admin());
+}
+
+#[test]
+fn smaster_and_master_browser_sessions_take_separate_seats() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("seats.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "deputy", 1).unwrap();
+    let hub = critical_restart_hub(store, "root");
+    let master_a = critical_admin_session(&hub, "root");
+    let master_b = critical_admin_session(&hub, "root");
+    let smaster = critical_admin_session(&hub, "sm_deputy");
+    let seat = |tok: &str, name: &str| {
+        let s = hub.session_identity(Some(tok)).expect("live session");
+        hub.seat_identity(None, None, Some(&s), Some(tok), name)
+    };
+    let master_seat = seat(&master_a, "Master");
+    // Two Master screens are still one person, one seat.
+    assert_eq!(master_seat, seat(&master_b, "Master"));
+    let smaster_seat = seat(&smaster, "deputy");
+    assert_ne!(
+        master_seat, smaster_seat,
+        "a Smaster must not wear the Master's seat"
+    );
+
+    let mut rx = hub.subscribe("ops").0;
+    assert!(hub.join("ops", &master_seat, "Master", SenderType::User, 1));
+    assert!(hub.join("ops", &smaster_seat, "deputy", SenderType::User, 2));
+    while let Ok(frame) = rx.try_recv() {
+        assert!(
+            !matches!(frame, ServerFrame::Evicted { .. }),
+            "Master and Smaster must not evict each other"
+        );
+    }
+}
+
+#[test]
+fn display_names_are_labels_never_titles() {
+    for ok in ["omrylcn", "ayse.k", "dev_ops-2", "a"] {
+        assert_eq!(validate_display_name(&format!("  {ok} ")), Ok(ok));
+    }
+    for bad in [
+        "",
+        "   ",
+        "two words",
+        "ömer",
+        "a@b",
+        "x".repeat(65).as_str(),
+    ] {
+        assert_eq!(
+            validate_display_name(bad),
+            Err(NameError::Invalid),
+            "{bad:?}"
+        );
+    }
+    // A title is refused in any letter case, Turkish dotted I included.
+    for title in [
+        "master", "Master", "SMASTER", "Operator", "lead", "ALL", "admin", "root",
+    ] {
+        assert_eq!(
+            validate_display_name(title),
+            Err(NameError::Reserved),
+            "{title}"
+        );
+    }
+    assert_eq!(
+        validate_display_name("ADM\u{0130}N"),
+        Err(NameError::Invalid)
+    );
+    // Agent identities with their own fixed names stay valid.
+    assert_eq!(validate_display_name("loca-care"), Ok("loca-care"));
+}
+
+#[test]
+fn loca_roster_wears_each_building_rank_beside_the_name() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("roster.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "deputy", 1).unwrap();
+    let hub = critical_restart_hub(store, "root");
+    let member = hub.admit_member("worker", "agent", "master").unwrap();
+    let master = critical_admin_session(&hub, "root");
+    let smaster = critical_admin_session(&hub, "sm_deputy");
+    let seat = |tok: &str, name: &str| {
+        let s = hub.session_identity(Some(tok)).expect("live session");
+        hub.seat_identity(None, None, Some(&s), Some(tok), name)
+    };
+    let mut rx = hub.subscribe("ops").0;
+    assert!(hub.join(
+        "ops",
+        &seat(&master, "Master"),
+        "Master",
+        SenderType::User,
+        1
+    ));
+    assert!(hub.join(
+        "ops",
+        &seat(&smaster, "deputy"),
+        "deputy",
+        SenderType::User,
+        2
+    ));
+    let worker_seat = format!("mb:{}", member.token);
+    assert!(hub.join("ops", &worker_seat, "worker", SenderType::Agent, 3));
+    let mut last = None;
+    while let Ok(frame) = rx.try_recv() {
+        if let ServerFrame::Members { members } = frame {
+            last = Some(members);
+        }
+    }
+    let roles: Vec<(String, Option<String>)> = last
+        .expect("a roster frame")
+        .into_iter()
+        .map(|m| (m.name, m.role))
+        .collect();
+    assert_eq!(
+        roles,
+        vec![
+            ("Master".into(), Some("master".into())),
+            ("deputy".into(), Some("smaster".into())),
+            ("worker".into(), None),
+        ]
+    );
+
+    // Ordinary members carry no role on the wire, and an old frame without
+    // the field still parses.
+    let wire = serde_json::to_value(protocol::Member {
+        name: "worker".into(),
+        kind: SenderType::Agent,
+        role: None,
+    })
+    .unwrap();
+    assert!(wire.get("role").is_none());
+    let old: protocol::Member =
+        serde_json::from_value(serde_json::json!({ "name": "x", "type": "user" })).unwrap();
+    assert_eq!(old.role, None);
+
+    // The Building directory lists every rank — seated or not — with its locas.
+    let ranks = hub.building_ranks();
+    let summary: Vec<(String, &str, Vec<String>)> = ranks
+        .into_iter()
+        .map(|r| (r.name, r.role, r.locas))
+        .collect();
+    assert_eq!(
+        summary,
+        vec![
+            ("Master".into(), "master", vec!["ops".to_string()]),
+            ("deputy".into(), "smaster", vec!["ops".to_string()]),
+        ]
+    );
+    hub.leave("ops", &seat(&smaster, "deputy"));
+    let deputy = hub
+        .building_ranks()
+        .into_iter()
+        .find(|r| r.role == "smaster")
+        .expect("an unseated Smaster is still part of the Building");
+    assert!(deputy.locas.is_empty());
+}
+
+#[test]
+fn a_rank_renames_its_own_profile_everywhere_it_is_worn() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("rename.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "smaster", 1).unwrap();
+    store.add_smaster("sm_other", "selin", 1).unwrap();
+    let hub = critical_restart_hub(store.clone(), "root");
+    let member = hub.admit_member("worker", "agent", "master").unwrap();
+    let session = critical_admin_session(&hub, "sm_deputy");
+    let identity = hub.session_identity(Some(&session)).unwrap();
+    let seat = hub.seat_identity(None, None, Some(&identity), Some(&session), "smaster");
+    assert!(hub.join("ops", &seat, "smaster", SenderType::User, 1));
+    let mut rx = hub.subscribe("ops").0;
+
+    let actor = hub.resolve_authority(None, Some(&session));
+    // A title, a malformed label, or another person's name is refused.
+    assert_eq!(
+        hub.rename_profile(&actor, "master"),
+        Err(ProfileRenameError::Name(NameError::Reserved))
+    );
+    assert_eq!(
+        hub.rename_profile(&actor, "two words"),
+        Err(ProfileRenameError::Name(NameError::Invalid))
+    );
+    assert_eq!(
+        hub.rename_profile(&actor, "SELIN"),
+        Err(ProfileRenameError::NameTaken)
+    );
+    assert_eq!(
+        hub.rename_profile(&actor, "worker"),
+        Err(ProfileRenameError::NameTaken)
+    );
+
+    let renamed = hub.rename_profile(&actor, "ayse").expect("rename");
+    assert_eq!(renamed.display_name, "ayse");
+    assert_eq!(renamed.role, BuildingRole::Smaster);
+    // Same principal, same rank, new label — in the store, the registry,
+    // the live session, the request authority and the loca seat.
+    assert_eq!(renamed.id, actor.principal_id.clone().unwrap());
+    assert_eq!(hub.smaster_name(Some("sm_deputy")).as_deref(), Some("ayse"));
+    assert_eq!(hub.session_identity(Some(&session)).unwrap().name, "ayse");
+    let after = hub.resolve_authority(None, Some(&session));
+    assert_eq!(after.display_name.as_deref(), Some("ayse"));
+    assert_eq!(after.building_role, Some(BuildingRole::Smaster));
+    let mut roster = None;
+    while let Ok(frame) = rx.try_recv() {
+        if let ServerFrame::Members { members } = frame {
+            roster = Some(members);
+        }
+    }
+    let roster = roster.expect("the rename is broadcast to the loca");
+    assert_eq!(roster.len(), 1, "a rename keeps the one seat");
+    assert_eq!(roster[0].name, "ayse");
+    assert_eq!(roster[0].role.as_deref(), Some("smaster"));
+    // Renaming to one's own current name in another case is not a clash.
+    assert!(hub.rename_profile(&after, "Ayse").is_ok());
+
+    // The new name survives a restart.
+    drop(hub);
+    let hub = critical_restart_hub(store, "root");
+    assert_eq!(hub.smaster_name(Some("sm_deputy")).as_deref(), Some("Ayse"));
+    assert!(hub
+        .profiles()
+        .iter()
+        .any(|p| p.display_name == "Ayse" && p.role == BuildingRole::Smaster));
+
+    // The Master renames itself too; an ordinary member cannot use this path.
+    let master = hub.resolve_authority(Some("root"), None);
+    assert_eq!(
+        hub.rename_profile(&master, "omrylcn").unwrap().role,
+        BuildingRole::Master
+    );
+    assert_eq!(hub.master_principal().unwrap().display_name, "omrylcn");
+    let worker = hub.resolve_authority(Some(&member.token), None);
+    assert_eq!(
+        hub.rename_profile(&worker, "boss"),
+        Err(ProfileRenameError::AuthorityRequired)
+    );
+}
+
+#[test]
+fn a_rename_carries_the_rank_s_past_messages_but_not_a_member_s() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("relabel.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "smaster2", 1).unwrap();
+    let hub = critical_restart_hub(store.clone(), "root");
+    let session = critical_admin_session(&hub, "sm_deputy");
+    let say = |sender: &str, text: &str, op: Option<&str>, principal: &str| {
+        hub.post(
+            "ops",
+            PostMessage {
+                kind: Default::default(),
+                sender: sender.into(),
+                sender_type: SenderType::User,
+                target: None,
+                text: text.into(),
+                reply_to: None,
+                op_id: op.map(Into::into),
+                attachments: Vec::new(),
+            },
+            true,
+            principal,
+        )
+        .unwrap()
+    };
+    let first = say("smaster2", "with op id", Some("op-1"), "user:smaster2");
+    say("smaster2", "without op id", None, "user:smaster2");
+    // A member that once wore the same label is someone else.
+    say(
+        "smaster2",
+        "a member's words",
+        Some("op-2"),
+        "mb:mb_someone",
+    );
+    let mut rx = hub.subscribe("ops").0;
+
+    let actor = hub.resolve_authority(None, Some(&session));
+    hub.rename_profile(&actor, "zhd").expect("rename");
+
+    let live: Vec<(String, String)> = hub
+        .subscribe("ops")
+        .1
+        .into_iter()
+        .map(|m| (m.sender, m.text))
+        .collect();
+    assert!(live.contains(&("zhd".into(), "with op id".into())));
+    assert!(live.contains(&("zhd".into(), "without op id".into())));
+    let mut told = None;
+    while let Ok(frame) = rx.try_recv() {
+        if let ServerFrame::Renamed { from, to } = frame {
+            told = Some((from, to));
+        }
+    }
+    assert_eq!(
+        told,
+        Some(("smaster2".into(), "zhd".into())),
+        "open feeds are told"
+    );
+
+    // On disk too: a restart shows the new name on the rank's messages and
+    // leaves the member's untouched.
+    drop(hub);
+    let stored = store
+        .messages_after("ops", 0, 0, u64::MAX, 50)
+        .unwrap()
+        .unwrap();
+    let by_text = |t: &str| stored.iter().find(|m| m.text == t).unwrap().sender.clone();
+    assert_eq!(by_text("with op id"), "zhd");
+    assert_eq!(by_text("without op id"), "zhd");
+    assert_eq!(by_text("a member's words"), "smaster2");
+    assert_eq!(
+        stored.iter().find(|m| m.id == first.id).unwrap().sender,
+        "zhd"
+    );
+}
+
+#[test]
+fn loca_moderation_cannot_reach_up_the_building_ranks() {
+    use protocol::ModAction::*;
+    let temp = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(Some(temp.path().join("rank.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_alice", "alice", 1).unwrap();
+    store.add_smaster("sm_bob", "bob", 1).unwrap();
+    let hub = critical_restart_hub(store, "root");
+    hub.admit_member("worker", "agent", "master").unwrap();
+    let master_name = hub
+        .master_principal()
+        .expect("master principal")
+        .display_name;
+
+    let master = hub.resolve_authority(Some("root"), None);
+    let smaster = hub.resolve_authority(Some("sm_alice"), None);
+    let operator = hub.resolve_authority(None, None);
+
+    for action in [Mute, Kick, Ban, Release] {
+        // Nobody moderates the Master — not a Smaster, not a Loca Operator.
+        assert!(!hub.may_moderate("oda", &smaster, action, &master_name));
+        assert!(!hub.may_moderate("oda", &operator, action, &master_name));
+        // Only the Master moderates a Smaster; peers and Operators cannot.
+        assert!(hub.may_moderate("oda", &master, action, "alice"));
+        assert!(!hub.may_moderate("oda", &smaster, action, "bob"));
+        assert!(!hub.may_moderate("oda", &operator, action, "alice"));
+        // Ordinary participants stay under every operator's moderation.
+        assert!(hub.may_moderate("oda", &operator, action, "worker"));
+        assert!(hub.may_moderate("oda", &smaster, action, "worker"));
+    }
+    // Lifting a nonexistent restriction does not override anyone's decision.
+    assert!(hub.may_moderate("oda", &operator, Unmute, &master_name));
+    assert!(hub.may_moderate("oda", &smaster, Unban, "bob"));
+}
+
+#[test]
+fn memory_only_restrictions_preserve_rank_under_concurrent_moderation() {
+    use protocol::ModAction::{Mute, Unmute};
+    let hub = critical_restart_hub(Arc::new(Store::open(None).unwrap()), "root");
+    let master = hub.resolve_authority(Some("root"), None);
+    let operator = hub.resolve_authority(None, None);
+    for _ in 0..10 {
+        hub.moderate("oda", Unmute, "worker", &master).unwrap();
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let higher = {
+            let hub = hub.clone();
+            let master = master.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                hub.moderate("oda", Mute, "worker", &master).unwrap();
+            })
+        };
+        let lower = {
+            let hub = hub.clone();
+            let operator = operator.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                let _ = hub.moderate("oda", Unmute, "worker", &operator);
+            })
+        };
+        higher.join().unwrap();
+        lower.join().unwrap();
+        assert!(hub.mod_state("oda").muted.contains(&"worker".into()));
+        assert!(matches!(
+            hub.moderate("oda", Unmute, "worker", &operator),
+            Err(ModerationError::Forbidden)
+        ));
+    }
 }
 
 #[test]
@@ -1053,7 +1488,7 @@ fn everyone_hub_from_store(store: Arc<Store>) -> Hub {
 
 fn everyone_hub(db: &std::path::Path, room: &str, names: &[&str]) -> Hub {
     let hub = everyone_hub_from_store(Arc::new(Store::open(db.to_str()).expect("sqlite store")));
-    hub.create_loca(room, &hub.resolve_authority(Some("MASTER"), None))
+    hub.create_loca(room, &hub.resolve_authority(Some("MASTER"), None), None)
         .expect("explicit reminder fixture loca");
     for name in names {
         let member = hub.admit_member(name, "agent", "operator").expect("admit");
@@ -1380,7 +1815,7 @@ fn everyone_treats_two_same_named_principals_as_distinct_recipients() {
     let dir = tempfile::tempdir().expect("temp store");
     let db = dir.path().join("same-name.sqlite");
     let hub = everyone_hub_from_store(Arc::new(Store::open(db.to_str()).expect("store")));
-    hub.create_loca("proj", &hub.resolve_authority(Some("MASTER"), None))
+    hub.create_loca("proj", &hub.resolve_authority(Some("MASTER"), None), None)
         .expect("explicit same-name fixture loca");
     // Two distinct members with distinct canonical principals, both davetted into
     // the same room.
@@ -2967,5 +3402,591 @@ fn join_request_is_announced_visibly_in_the_home_loca_without_leaking_the_secret
     assert!(
         !announce.text.contains(&request_secret) && !announce.text.contains("jrs_"),
         "the announce must never carry the request secret"
+    );
+}
+
+#[test]
+fn an_agent_naming_people_does_not_wake_every_agent() {
+    use super::names_people_but_not_all as named;
+    assert!(named("@Nwakaeme @smaster #18871'e ek"));
+    assert!(named("ok @mithrandir."));
+    assert!(!named("@all please look"));
+    assert!(!named("@Nwakaeme and @all of you"));
+    assert!(!named("no mention here"));
+    assert!(!named("mail me at omer@example.com"));
+    assert!(!named("@ alone"));
+}
+
+#[test]
+fn an_agents_all_target_narrows_to_its_mentions_but_a_human_and_at_all_stay() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("target.db").to_str().unwrap())).unwrap());
+    let hub = critical_restart_hub(store, "root");
+    let post = |sender: &str, kind: SenderType, text: &str| {
+        hub.post(
+            "team",
+            PostMessage {
+                kind: Default::default(),
+                sender: sender.into(),
+                sender_type: kind,
+                target: Some("all".into()),
+                text: text.into(),
+                reply_to: None,
+                op_id: None,
+                attachments: Vec::new(),
+            },
+            true,
+            sender,
+        )
+        .unwrap()
+        .target
+    };
+    assert_eq!(
+        post(
+            "curunir",
+            SenderType::Agent,
+            "@Nwakaeme @smaster see #18871"
+        ),
+        None
+    );
+    assert_eq!(
+        post("curunir", SenderType::Agent, "@all the build is green").as_deref(),
+        Some("all")
+    );
+    assert_eq!(
+        post("curunir", SenderType::Agent, "nobody named").as_deref(),
+        Some("all")
+    );
+    assert_eq!(
+        post("omrylcn", SenderType::User, "@Nwakaeme look").as_deref(),
+        Some("all"),
+        "a person's chosen @all target is theirs to keep"
+    );
+}
+
+#[test]
+fn a_group_loca_keeps_its_in_room_care_but_none_reaches_iye() {
+    let _clock = TEST_CLOCK_LOCK.lock().expect("clock test lock");
+    let mut hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::from(["loca-care".into()]),
+        },
+        Arc::new(Store::open(None).expect("memory store")),
+        RoomSettings {
+            care_goal_secs: 1,
+            care_cooldown_secs: 1,
+            ..RoomSettings::default()
+        },
+        1,
+    );
+    hub.now_ms = test_now_ms;
+    TEST_NOW.store(1_000, Ordering::Relaxed);
+    let master = hub.resolve_authority(Some("MASTER"), None);
+    let group = hub.create_group("quiet", &master).expect("group");
+    hub.create_loca_in("proj", &master, None, Some(&group.id))
+        .expect("group loca");
+    assert!(hub.is_group_loca("proj"));
+    assert!(hub.join("proj", "member:lead", "lead", SenderType::Agent, 1));
+    assert!(hub.join("iye", "member:loca-care", "loca-care", SenderType::Agent, 1));
+    hub.set_lead("proj", Some("lead".into()), "operator")
+        .expect("lead");
+    hub.report_runtime_health(
+        "loca-care",
+        RuntimeHealthUpdate {
+            wake: "IDLE".into(),
+            ack: "OK".into(),
+            delivery_id: None,
+            attention_id: None,
+            stored: false,
+            accepted: false,
+            first_response: false,
+            final_response: false,
+            turn_completed: false,
+        },
+    )
+    .expect("caretaker health");
+    // The group's own lead is healthy, so the reminder is theirs, in the loca.
+    hub.report_runtime_health(
+        "lead",
+        RuntimeHealthUpdate {
+            wake: "IDLE".into(),
+            ack: "OK".into(),
+            delivery_id: None,
+            attention_id: None,
+            stored: false,
+            accepted: false,
+            first_response: false,
+            final_response: false,
+            turn_completed: false,
+        },
+    )
+    .expect("lead health");
+    let (mut proj, _) = hub.subscribe("proj");
+    let (mut iye, _) = hub.subscribe("iye");
+    hub.create_goal(
+        "proj",
+        CreateGoal {
+            outcome: "nothing leaves".into(),
+            checkpoint: None,
+            stale_after_secs: None,
+            completion: GoalCompletion::Manual,
+            task_ids: Vec::new(),
+            by: "operator".into(),
+        },
+    )
+    .expect("goal");
+    while proj.try_recv().is_ok() {}
+    while iye.try_recv().is_ok() {}
+    TEST_NOW.store(5_000, Ordering::Relaxed);
+    hub.tick_care();
+    let mut in_room = 0;
+    while let Ok(frame) = proj.try_recv() {
+        if matches!(frame, ServerFrame::Care { .. }) {
+            in_room += 1;
+        }
+    }
+    assert!(
+        in_room > 0,
+        "the group's own lead is reminded inside the loca"
+    );
+    while let Ok(frame) = iye.try_recv() {
+        assert!(
+            !matches!(frame, ServerFrame::Care { .. }),
+            "a group loca's care never reaches İye, where every rank reads"
+        );
+    }
+}
+
+type TurnJob = Box<dyn FnOnce(&Hub, &super::RequestAuthority) + Send>;
+
+/// A loca move holds the davet lock from its check of the target group to
+/// its mirror. Everything that changes what that check saw — deleting or
+/// archiving the group, founding a loca in it, adding or removing a member —
+/// waits for the same lock, so none of it can land between a move's check and
+/// its commit. The test stands where a move stands: it holds the lock, starts
+/// each rival and a move, and nothing finishes or changes until it lets go.
+#[test]
+fn group_changes_and_a_loca_move_take_turns_on_the_davet_lock() {
+    let directory = tempfile::tempdir().unwrap();
+    let hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        Arc::new(Store::open(directory.path().join("turns.db").to_str()).unwrap()),
+        RoomSettings::default(),
+        1,
+    );
+    let master = hub.resolve_authority(Some("MASTER"), None);
+    let group = |name: &str| hub.create_group(name, &master).expect("group").id;
+    let (doomed, shelved, target, nursery, roster) = (
+        group("doomed"),
+        group("shelved"),
+        group("target"),
+        group("nursery"),
+        group("roster"),
+    );
+    hub.create_loca_in("mover", &master, None, None)
+        .expect("default loca");
+    let member = hub.admit_member("turn-member", "user", "master").unwrap();
+    let principal = hub.member_principal(&member.token).expect("principal");
+
+    let held = hub.member_lifecycle.lock().expect("davet lock");
+    let (done, finished) = std::sync::mpsc::channel::<&'static str>();
+    let mut threads = Vec::new();
+    let mut start = |label: &'static str, job: TurnJob| {
+        let (hub, master, done) = (hub.clone(), master.clone(), done.clone());
+        threads.push(std::thread::spawn(move || {
+            job(&hub, &master);
+            done.send(label).expect("report");
+        }));
+    };
+    {
+        let id = doomed.clone();
+        start(
+            "delete",
+            Box::new(move |hub, master| {
+                hub.delete_group(&id, master).expect("delete");
+            }),
+        );
+        let id = shelved.clone();
+        start(
+            "archive",
+            Box::new(move |hub, master| {
+                hub.set_group_archived(&id, true, master).expect("archive");
+            }),
+        );
+        let id = nursery.clone();
+        start(
+            "found",
+            Box::new(move |hub, master| {
+                hub.create_loca_in("born", master, None, Some(&id))
+                    .expect("found a group loca");
+            }),
+        );
+        let (id, who) = (roster.clone(), principal.clone());
+        start(
+            "add member",
+            Box::new(move |hub, master| {
+                hub.add_group_member(&id, &who, master).expect("add");
+            }),
+        );
+        let id = target.clone();
+        start(
+            "move",
+            Box::new(move |hub, master| {
+                hub.set_loca_group("mover", Some(&id), master)
+                    .expect("move");
+            }),
+        );
+    }
+
+    assert!(
+        finished
+            .recv_timeout(std::time::Duration::from_millis(500))
+            .is_err(),
+        "nothing finishes while the davet lock is held"
+    );
+    assert!(hub.group_view(&doomed, &master).is_ok(), "not deleted yet");
+    assert!(
+        !hub.group_view(&shelved, &master).unwrap().archived,
+        "not archived yet"
+    );
+    assert!(!hub.room_exists("born"), "not founded yet");
+    assert!(
+        hub.group_view(&roster, &master).unwrap().members.is_empty(),
+        "no member added yet"
+    );
+    assert!(!hub.is_group_loca("mover"), "not moved yet");
+
+    drop(held);
+    let mut labels: Vec<&str> = (0..5)
+        .map(|_| {
+            finished
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("every change finishes once the lock is free")
+        })
+        .collect();
+    labels.sort_unstable();
+    assert_eq!(labels, ["add member", "archive", "delete", "found", "move"]);
+    for thread in threads {
+        thread.join().expect("no change panicked");
+    }
+    assert!(hub.group_view(&doomed, &master).is_err(), "deleted");
+    assert!(hub.group_view(&shelved, &master).unwrap().archived);
+    assert_eq!(hub.group_of("born").as_deref(), Some(nursery.as_str()));
+    assert_eq!(hub.group_view(&roster, &master).unwrap().members.len(), 1);
+    assert_eq!(hub.group_of("mover").as_deref(), Some(target.as_str()));
+}
+
+/// Adding or removing ONE extension is worked out from the set as it stands
+/// under the rooms lock. Two single changes that wait on that lock together
+/// both land: neither is computed from a copy read before the other wrote.
+#[test]
+fn two_single_extension_changes_at_once_both_land() {
+    use super::ExtensionEdit;
+    let directory = tempfile::tempdir().unwrap();
+    let hub = Hub::build(
+        HubConfig {
+            admin_token: "MASTER".into(),
+            room_token: String::new(),
+            require_sessions: false,
+            require_invite: false,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: HashSet::new(),
+        },
+        Arc::new(Store::open(directory.path().join("ext-turns.db").to_str()).unwrap()),
+        RoomSettings::default(),
+        1,
+    );
+    let master = hub.resolve_authority(Some("MASTER"), None);
+    hub.create_loca_in("desk", &master, Some(vec!["notes".into()]), None)
+        .expect("loca with notes only");
+    assert_eq!(hub.enabled_extensions("desk"), ["notes"]);
+
+    let (done, finished) = std::sync::mpsc::channel::<&'static str>();
+    let held = hub.rooms.lock().expect("rooms lock");
+    let mut threads = Vec::new();
+    for (label, edit) in [
+        ("add focus", ("focus", true)),
+        ("add wiki", ("wiki", true)),
+        ("remove notes", ("notes", false)),
+    ] {
+        let (hub, done) = (hub.clone(), done.clone());
+        threads.push(std::thread::spawn(move || {
+            let (id, add) = edit;
+            let edit = if add {
+                ExtensionEdit::Add(id)
+            } else {
+                ExtensionEdit::Remove(id)
+            };
+            hub.edit_extensions("desk", edit, "operator", SenderType::User)
+                .expect("single change");
+            done.send(label).expect("report");
+        }));
+    }
+    assert!(
+        finished
+            .recv_timeout(std::time::Duration::from_millis(400))
+            .is_err(),
+        "each change waits for the lock before it reads the current set"
+    );
+    drop(held);
+    for thread in threads {
+        thread.join().expect("no change panicked");
+    }
+    assert_eq!(
+        hub.enabled_extensions("desk"),
+        ["focus", "wiki"],
+        "all three single changes are kept, in catalog order"
+    );
+    let journal = hub.journal("desk");
+    assert_eq!(
+        journal.len(),
+        4,
+        "the opening line plus one line per change: {journal:?}"
+    );
+}
+
+/// A birebir between a Smaster and a member, on a fixed clock, with a helper
+/// that lets either side speak. Returns (hub, room, smaster principal, member
+/// principal).
+fn witness_fixture(db: &std::path::Path) -> (Hub, String, String, String) {
+    let store = Arc::new(Store::open(db.to_str()).unwrap());
+    store.add_smaster("sm_witness", "deputy", 1).unwrap();
+    let mut hub = critical_restart_hub(store, "root");
+    hub.now_ms = test_now_ms;
+    TEST_NOW.store(10_000, Ordering::Relaxed);
+    let token = critical_admin_session(&hub, "sm_witness");
+    let deputy = hub.session_identity(Some(&token)).expect("deputy session");
+    hub.admit_member("ayse", "user", "master").expect("member");
+    let (birebir, _) = hub.open_birebir(&deputy, "ayse").expect("birebir");
+    (hub, birebir.room, birebir.a, birebir.b)
+}
+
+fn say_in(hub: &Hub, room: &str, principal: &str, text: &str) {
+    hub.post(
+        room,
+        PostMessage {
+            kind: Default::default(),
+            sender: "speaker".into(),
+            sender_type: SenderType::User,
+            target: None,
+            text: text.into(),
+            reply_to: None,
+            op_id: None,
+            attachments: Vec::new(),
+        },
+        true,
+        principal,
+    )
+    .expect("post");
+}
+
+fn witness_texts(hub: &Hub, room: &str) -> Option<Vec<String>> {
+    hub.birebir_witness_messages_after(room, 0, 1_000)
+        .map(|page| page.expect("archive").into_iter().map(|m| m.text).collect())
+}
+
+/// The call boundary is ordered with message writes, not with the wall clock.
+/// Message times run ahead of a clock that stands still, so a boundary taken
+/// from the clock would hand the Master words said before the call.
+#[test]
+fn a_called_in_master_never_reads_what_was_said_before_the_call() {
+    let _clock = TEST_CLOCK_LOCK.lock().expect("clock test lock");
+    let directory = tempfile::tempdir().unwrap();
+    let (hub, room, a, b) = witness_fixture(&directory.path().join("witness-clock.db"));
+
+    // Three messages while the clock stands still: their times are 10_000,
+    // 10_001 and 10_002, ahead of the clock.
+    for text in ["before 1", "before 2", "before 3"] {
+        say_in(&hub, &room, &a, text);
+    }
+    assert!(witness_texts(&hub, &room).is_none(), "nobody called yet");
+
+    hub.birebir_call_master(&room, &a).expect("call");
+    assert_eq!(
+        witness_texts(&hub, &room).expect("called in"),
+        Vec::<String>::new(),
+        "nothing said before the call is on the Master's side"
+    );
+    say_in(&hub, &room, &b, "after 1");
+    say_in(&hub, &room, &a, "after 2");
+    assert_eq!(
+        witness_texts(&hub, &room).expect("called in"),
+        ["after 1", "after 2"]
+    );
+
+    // One side allowing history opens nothing; both open all of it.
+    hub.birebir_allow_history(&room, &a).expect("allow a");
+    assert_eq!(
+        witness_texts(&hub, &room).expect("called in"),
+        ["after 1", "after 2"]
+    );
+    hub.birebir_allow_history(&room, &b).expect("allow b");
+    assert_eq!(witness_texts(&hub, &room).expect("called in").len(), 5);
+
+    // Sending the Master out ends the visit and its history permission: a
+    // second call starts from its own moment and opens nothing earlier.
+    hub.birebir_dismiss_master(&room, &a).expect("dismiss");
+    assert!(witness_texts(&hub, &room).is_none(), "the Master is out");
+    say_in(&hub, &room, &b, "between visits");
+    hub.birebir_call_master(&room, &b).expect("second call");
+    assert_eq!(
+        witness_texts(&hub, &room).expect("called in again"),
+        Vec::<String>::new(),
+        "the earlier permission does not carry into the new visit"
+    );
+    say_in(&hub, &room, &a, "second visit");
+    assert_eq!(
+        witness_texts(&hub, &room).expect("called in again"),
+        ["second visit"]
+    );
+}
+
+/// The permission and the messages it covers are fixed together. A read that
+/// was granted while the Master was in, and finishes after the Master is sent
+/// out, does not return what the two say afterwards.
+#[test]
+fn a_witness_read_granted_before_dismissal_returns_nothing_said_after_it() {
+    let _clock = TEST_CLOCK_LOCK.lock().expect("clock test lock");
+    let directory = tempfile::tempdir().unwrap();
+    let (hub, room, a, b) = witness_fixture(&directory.path().join("witness-window.db"));
+    hub.birebir_call_master(&room, &a).expect("call");
+    say_in(&hub, &room, &b, "during the visit");
+
+    // The read is granted here ...
+    let window = hub.birebir_witness_window(&room).expect("the Master is in");
+    // ... then the Master is sent out and the two go on in private ...
+    hub.birebir_dismiss_master(&room, &a).expect("dismiss");
+    say_in(&hub, &room, &a, "after the Master left");
+    say_in(&hub, &room, &b, "still private");
+    // ... and only now does the granted read reach the archive.
+    let texts: Vec<String> = hub
+        .birebir_witness_page(&room, &window, 0, 1_000)
+        .expect("archive")
+        .into_iter()
+        .map(|m| m.text)
+        .collect();
+    assert_eq!(
+        texts,
+        ["during the visit"],
+        "the old visit's permission does not open the later conversation"
+    );
+    assert!(
+        hub.birebir_witness_window(&room).is_none(),
+        "and no new read is granted"
+    );
+
+    // Called back in, a read granted before the new call still returns
+    // nothing from it: the new visit's words lie above the old ceiling and
+    // the old visit's words below the new floor.
+    hub.birebir_call_master(&room, &b).expect("second call");
+    say_in(&hub, &room, &a, "second visit");
+    let again: Vec<String> = hub
+        .birebir_witness_page(&room, &window, 0, 1_000)
+        .expect("archive")
+        .into_iter()
+        .map(|m| m.text)
+        .collect();
+    assert_eq!(again, ["during the visit"]);
+}
+
+/// A visit recorded by a version that stamped the call with the wall clock
+/// cannot be trusted: message times ran ahead of the clock, so words said
+/// before the call sit on the Master's side of that boundary. Opening the
+/// database ends such a visit once. A visit opened under the ordered rule
+/// survives a restart with the same boundary.
+#[test]
+fn a_visit_recorded_before_the_ordered_boundary_ends_when_the_store_opens() {
+    let _clock = TEST_CLOCK_LOCK.lock().expect("clock test lock");
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("witness-upgrade.db");
+    let (hub, room, a, _b) = witness_fixture(&path);
+    for text in ["before 1", "before 2", "before 3"] {
+        say_in(&hub, &room, &a, text);
+    }
+    drop(hub);
+
+    // The row as the earlier version left it: the Master called in at the
+    // wall-clock time 10_000, which the three messages above (10_000, 10_001,
+    // 10_002) are not before.
+    {
+        let conn = rusqlite::Connection::open(&path).expect("database");
+        let changed = conn
+            .execute(
+                "UPDATE birebirs SET master_called_by = ?1, master_since = 10000 WHERE room = ?2",
+                rusqlite::params![a, room],
+            )
+            .expect("legacy visit");
+        assert_eq!(changed, 1);
+    }
+
+    let reopen = |path: &std::path::Path| -> Hub {
+        let store = Arc::new(Store::open(path.to_str()).expect("reopen"));
+        let mut hub = critical_restart_hub(store, "root");
+        hub.now_ms = test_now_ms;
+        hub
+    };
+    let hub = reopen(&path);
+    assert!(
+        witness_texts(&hub, &room).is_none(),
+        "the legacy visit ended; nothing said before the call is shown"
+    );
+    {
+        let conn = rusqlite::Connection::open(&path).expect("database");
+        let open: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM birebirs WHERE master_since IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .expect("count");
+        assert_eq!(open, 0, "and it is ended on disk");
+    }
+
+    // The two call again under the ordered rule: still nothing earlier.
+    hub.birebir_call_master(&room, &a).expect("new call");
+    assert_eq!(
+        witness_texts(&hub, &room).expect("called in"),
+        Vec::<String>::new()
+    );
+    say_in(&hub, &room, &a, "after the new call");
+    assert_eq!(
+        witness_texts(&hub, &room).expect("called in"),
+        ["after the new call"]
+    );
+    drop(hub);
+
+    // A restart keeps a visit opened under the ordered rule, and its boundary.
+    let hub = reopen(&path);
+    assert_eq!(
+        witness_texts(&hub, &room).expect("the visit survives a restart"),
+        ["after the new call"]
+    );
+    say_in(&hub, &room, &a, "after the restart");
+    assert_eq!(
+        witness_texts(&hub, &room).expect("called in"),
+        ["after the new call", "after the restart"]
+    );
+    drop(hub);
+    // Opening again changes nothing: the one-time step leaves it alone.
+    let hub = reopen(&path);
+    assert_eq!(
+        witness_texts(&hub, &room).expect("still in"),
+        ["after the new call", "after the restart"]
     );
 }

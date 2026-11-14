@@ -19,7 +19,7 @@ async function pollHealth() {
       if (!h.needs_token) setLocked(false);   // open house (dev): no door
       $("adminbar").classList.toggle("on", isAdmin());
       $("adminToggle").classList.toggle("hidden", !isAdmin());
-      $("liveToggle").classList.toggle("hidden", !isAdmin());
+      $("liveToggle").classList.toggle("hidden", !isAdmin() || !extensionOn("live"));
       $("stopBtn").classList.toggle("hidden", !isAdmin());
       $("tabPeople").classList.toggle("hidden", !isAdmin());
       fetchSeated();   // admin just appeared: seats we could not see before
@@ -43,6 +43,8 @@ async function pollHealth() {
       }
     }
     if (!document.body.classList.contains("locked")) refreshRooms();
+    // Notifications ride the same tick (notifications.js, loaded later).
+    if (typeof pollNotifications === "function") pollNotifications();
   } catch (e) { /* server down; WS onclose already retries */ }
 }
 
@@ -105,21 +107,10 @@ function gotoMsg(id) {
 }
 
 /* ---- rooms create ---- */
-async function createRoom() {
-  const name = $("newRoomName").value.trim();
-  if (!name) return;
-  try {
-    const response = await fetch(`${serverBase()}/rooms`, {
-      method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify({ name }),
-    });
-    if (!response.ok) { addSys(`could not create loca: ${await response.text()}`); return; }
-  } catch (error) {
-    addSys("Loca creation could not be confirmed. Refresh Your Locas before retrying.");
-    return;
-  }
-  $("newRoomName").value = "";
-  joinRoom(name);
+// `+` opens the create screen (extensions.js): the name typed here carries
+// over, and the loca is created there with the extensions ticked.
+function createRoom() {
+  openCreateLoca($("newRoomName").value.trim());
 }
 
 let sendInFlight = false;
@@ -170,21 +161,34 @@ function postMessageRequest(room, payload) {
     body: JSON.stringify(payload),
   });
 }
-async function postMessageWithSafeRetry(room, payload) {
+// The retry is the writer's own, like the message. postMessageRequest takes
+// its credentials from whoever is signed in when it runs, so a retry made
+// after the writer left would post their message under the next person's
+// session. The generation is checked before every request and after every
+// wait; overtaken, this throws the AbortError a cancelled request gives and
+// sends nothing.
+function overtakenSend() {
+  return new DOMException("the writer signed out before this was sent", "AbortError");
+}
+async function postMessageWithSafeRetry(room, payload, gen = state.buildingGen) {
+  if (buildingStale(gen)) throw overtakenSend();
   try {
     const first = await postMessageRequest(room, payload);
+    if (buildingStale(gen)) throw overtakenSend();
     // Reverse proxies can lose the upstream response after the server has
     // committed. One retry is safe because it carries the same op_id.
     if (![502, 503, 504].includes(first.status)) return first;
   } catch (e) {
+    if (buildingStale(gen)) throw overtakenSend();
     // A broken connection is equally ambiguous: retry the same operation once.
   }
   await new Promise(resolve => setTimeout(resolve, 350));
+  if (buildingStale(gen)) throw overtakenSend();
   return postMessageRequest(room, payload);
 }
-async function acceptPostedMessage(response, room) {
+async function acceptPostedMessage(response, room, gen = state.buildingGen) {
   const posted = await response.json().catch(() => null);
-  if (!posted?.id) return;
+  if (!posted?.id || buildingStale(gen)) return;
   state.roomLatest[room] = Math.max(Number(state.roomLatest[room] || 0), Number(posted.id));
   // The POST response is the acknowledgement. Render it immediately instead
   // of making the writer wait for a delayed WS echo. addMsg's id set makes the
@@ -226,7 +230,12 @@ async function uploadAttachment(file) {
 // and add the returned refs to the pending strip. Duplicate ids are ignored.
 async function stageAttachments(files) {
   if (!state.room) { addSys("join a loca before attaching a file"); return; }
+  if (isWatchingDoor()) { addSys("you are watching from the door — take a seat to attach a file"); return; }
+  // The files are their chooser's: once that person has signed out, the rest
+  // are not uploaded and none lands in the next person's composer.
+  const gen = state.buildingGen;
   for (const file of files) {
+    if (buildingStale(gen)) return;
     if (state.pendingAttachments.length >= ATTACH_MAX_COUNT) {
       addSys(`at most ${ATTACH_MAX_COUNT} attachments per message`);
       break;
@@ -236,6 +245,7 @@ async function stageAttachments(files) {
       continue;
     }
     const ref = await uploadAttachment(file);
+    if (buildingStale(gen)) return;
     if (ref && !state.pendingAttachments.some(a => a.id === ref.id)) {
       state.pendingAttachments.push(ref);
       renderAttachStrip();
@@ -283,6 +293,10 @@ async function send() {
   const input = $("msg"); const text = input.value.trim();
   const hasAttachments = state.pendingAttachments.length > 0;
   if ((!text && !hasAttachments) || !state.room || sendInFlight) return;
+  if (isWatchingDoor()) {
+    addSys("you are watching from the door — take a seat to speak");
+    return;
+  }
   const leadCommand = parseLeadCommand(text);
   if (leadCommand) {
     if (!isAdmin()) {
@@ -294,13 +308,15 @@ async function send() {
       return;
     }
     setSendInFlight(true);
+    const gen = state.buildingGen;
     try {
-      if (await setLead(leadCommand.lead)) {
+      // The composer may be the next person's by the time this answers.
+      if (await setLead(leadCommand.lead) && !buildingStale(gen)) {
         input.value = "";
         autoGrow();
       }
     } catch (e) {
-      addSys("could not change lead — connection failed");
+      if (!buildingStale(gen)) addSys("could not change lead — connection failed");
     } finally {
       setSendInFlight(false);
     }
@@ -317,13 +333,14 @@ async function send() {
       return;
     }
     setSendInFlight(true);
+    const gen = state.buildingGen;
     try {
-      if (await applyGoalCommand(goalCommand.outcome)) {
+      if (await applyGoalCommand(goalCommand.outcome) && !buildingStale(gen)) {
         input.value = "";
         autoGrow();
       }
     } catch (e) {
-      addSys("could not change the room goal — connection failed");
+      if (!buildingStale(gen)) addSys("could not change the room goal — connection failed");
     } finally {
       setSendInFlight(false);
     }
@@ -358,25 +375,43 @@ async function send() {
   autoGrow();
   clearReply();
   setSendInFlight(true);
+  // This message is its writer's. Once that person has signed out, nothing
+  // here goes on for whoever sits down next: it is not sent again under their
+  // session, and it is not put back into their composer. Checked after every
+  // wait, because the sign-out can fall inside any of them.
+  const gen = state.buildingGen;
+  const refuse = async (label, response) => {
+    const why = await response.text();
+    if (!buildingStale(gen)) restoreSendDraft(room, payload, label + why);
+  };
   try {
     // Admin token (if set) is sent so the admin can bypass mode gating.
-    const r = await postMessageWithSafeRetry(room, payload);
+    const r = await postMessageWithSafeRetry(room, payload, gen);
+    if (buildingStale(gen)) return;
     if (r.status === 401) {
       // A davet session may have died with a restart; renew and retry once.
-      await takeSession();
+      if (!(await takeSession()) || buildingStale(gen)) return;
       if (state.session) {
-        const again = await postMessageWithSafeRetry(room, payload);
-        if (again.ok) { await acceptPostedMessage(again, room); clearPendingAttachments(); return; }
+        const again = await postMessageWithSafeRetry(room, payload, gen);
+        if (buildingStale(gen)) return;
+        if (again.ok) {
+          await acceptPostedMessage(again, room, gen);
+          // The attachments waiting now may be the next person's.
+          if (!buildingStale(gen)) clearPendingAttachments();
+          return;
+        }
       }
       restoreSendDraft(room, payload, "unauthorized — check the loca key");
       return;
     }
-    if (r.status === 403) { restoreSendDraft(room, payload, "blocked: " + (await r.text())); return; }
-    if (r.status === 429) { restoreSendDraft(room, payload, "rate limited: " + (await r.text())); return; }
-    if (!r.ok) { restoreSendDraft(room, payload, `send failed (${r.status}): ` + (await r.text())); return; }
-    await acceptPostedMessage(r, room);
+    if (r.status === 403) { await refuse("blocked: ", r); return; }
+    if (r.status === 429) { await refuse("rate limited: ", r); return; }
+    if (!r.ok) { await refuse(`send failed (${r.status}): `, r); return; }
+    await acceptPostedMessage(r, room, gen);
+    if (buildingStale(gen)) return;
     clearPendingAttachments();
   } catch (e) {
+    if (buildingStale(gen)) return;
     restoreSendDraft(
       room,
       payload,
@@ -392,13 +427,29 @@ async function send() {
 // sidebar (no more "joined as the default name before pressing connect").
 async function doConnect(room) {
   setMobileSidebar(false);
-  const nextName = $("name").value.trim() || "operator";
+  // A connect is the latest word on who is here. An automatic retry still
+  // waiting from an earlier failed start would re-read the remembered seat
+  // and could put that identity back over this one.
+  if (typeof authRetryTimer !== "undefined" && authRetryTimer) { clearTimeout(authRetryTimer); authRetryTimer = null; }
+  const typedName = $("name").value.trim();
+  const nextName = typedName || "operator";
   const nextPairing = $("pairingCode").value.trim();
   const nextRoomToken = $("roomToken").value.trim();
   const identityChanged = nextName !== state.name
     || nextRoomToken !== state.roomToken
-    || (!!nextPairing && nextPairing !== state.pairing);
+    || (!!nextPairing && nextPairing !== state.pairing)
+    || (!!state.server && serverBase() !== state.server);
   if (identityChanged) {
+    // Someone else, or another server, over a live session: nothing of the
+    // last one's Building stays, and its answers still out are dropped.
+    // The generation moves on in every case, so a session still being taken
+    // or renewed for the last identity is answered into nothing. (Its status
+    // reads "unknown" while that is out, so the status cannot decide this.)
+    // Only the first connect of a page load skips the clearing itself: it
+    // runs before the Building scripts below this one have loaded, and there
+    // is nothing of anyone's to clear yet.
+    if (document.readyState === "loading") moveBuildingOn();
+    else clearBuildingData();
     resetRoomPreferenceIdentity();
     state.profile = null;
   }
@@ -409,16 +460,28 @@ async function doConnect(room) {
   // A private server binds identity to a session; the browser must take one
   // too, or the WS handshake is refused and you sit at a table you can't
   // speak at. Cheap and harmless when the server doesn't require it.
-  await takeSession();
+  // Overtaken by a sign-out or another sign-in while the session was being
+  // taken: this connect was for someone who is no longer here, and the rest
+  // of it (the seat, the room, the remembered identity) is not theirs to set.
+  const gen = state.buildingGen;
+  if (!(await takeSession()) || buildingStale(gen)) return;
   if (state.authStatus === "unknown") {
     showAuthUnavailable();
     return;
   }
   document.body.classList.remove("auth-pending");
+  // A Smaster's key names it; the name typed at sign-in is the name it
+  // wants to be called. Apply it as a profile rename before taking a seat,
+  // so it is the name the table sees. Empty keeps the current name.
+  let renameRefused = "";
+  if (state.entryPath === "smaster" && state.adminSession && typedName && typedName !== state.name) {
+    renameRefused = await applyChosenName(typedName);
+    if (buildingStale(gen)) return;
+  }
   startHealthPoll();
   $("adminbar").classList.toggle("on", isAdmin());
   $("adminToggle").classList.toggle("hidden", !isAdmin());
-  $("liveToggle").classList.toggle("hidden", !isAdmin());
+  $("liveToggle").classList.toggle("hidden", !isAdmin() || !extensionOn("live"));
   $("tabPeople").classList.toggle("hidden", !isAdmin());
   $("adminNote").textContent = isAdmin() ? "Admin access · changes apply only to this loca." : "";
   refreshRooms();
@@ -431,6 +494,8 @@ async function doConnect(room) {
   // room list and ONLINE panel get the sidebar space.
   setConnOpen(false);
   await fetchProfile();
+  if (buildingStale(gen)) return;
+  if (renameRefused) showRenameRefusal(typedName, renameRefused);
   $("leaveBtn").classList.remove("hidden");
   // Remember the seat: an auto-reloaded page retakes it without a click. The
   // The one-use master pairing code is deliberately NOT stored. After a reload

@@ -16,6 +16,93 @@ function profileTime(value) {
   });
 }
 
+const APPEARANCE_LABELS = {
+  theme: { dark: "Dark", light: "Light" },
+  accent: { teal: "Teal", blue: "Blue", violet: "Violet", amber: "Amber", rose: "Rose" },
+  density: { comfortable: "Comfortable", compact: "Compact" },
+  font_size: { normal: "Normal", large: "Large" },
+};
+const APPEARANCE_ROWS = [["theme", "Theme"], ["accent", "Accent"], ["density", "Density"], ["font_size", "Text"]];
+
+function currentAppearance() {
+  return state.appearance || cachedAppearance();
+}
+
+// Personal look: real radio groups, applied instantly, saved per principal.
+function profileAppearanceHtml() {
+  const prefs = currentAppearance();
+  const rows = APPEARANCE_ROWS.map(([key, title]) => {
+    const labelId = `appearanceLabel-${key}`;
+    const options = APPEARANCE_CHOICES[key].map(value => {
+      const name = APPEARANCE_LABELS[key][value];
+      const checked = prefs[key] === value ? " checked" : "";
+      const face = key === "accent"
+        ? `<span class="swatch ${value}" title="${name}" aria-hidden="true"></span><span class="visuallyhidden">${name}</span>`
+        : `<span>${name}</span>`;
+      return `<label class="appearanceopt"><input type="radio" name="appearance-${key}"` +
+        ` data-appearance="${key}" value="${value}"${checked} />${face}</label>`;
+    }).join("");
+    return `<div class="appearancerow" role="radiogroup" aria-labelledby="${labelId}">` +
+      `<span id="${labelId}">${title}</span><div class="appearanceopts">${options}</div></div>`;
+  }).join("");
+  return `<div class="profileappearance" id="profileAppearance"><small>Appearance</small>${rows}` +
+    `<div class="appearancestatus" id="appearanceStatus" role="status"></div></div>`;
+}
+
+function syncAppearanceInputs() {
+  const prefs = currentAppearance();
+  document.querySelectorAll("input[data-appearance]").forEach(input => {
+    input.checked = prefs[input.dataset.appearance] === input.value;
+  });
+}
+
+function setAppearanceStatus(text) {
+  const status = $("appearanceStatus");
+  if (status) status.textContent = text;
+}
+
+// Server copy wins over the local cache unless the person changed something
+// while the read was in flight: their newer click is already being saved.
+let appearanceEdits = 0;
+async function fetchAppearance() {
+  const principal = state.principalId;
+  if (!principal) return;
+  const editsAtStart = appearanceEdits;
+  try {
+    const response = await fetch(`${serverBase()}/profile/preferences`, { headers: adminHeaders({}) });
+    if (!response.ok) return;
+    const prefs = await response.json();
+    if (editsAtStart !== appearanceEdits || principal !== state.principalId) return;
+    state.appearance = applyAppearance(prefs);
+    state.appearancePrincipal = principal;
+    cacheAppearance(state.appearance);
+    syncAppearanceInputs();
+  } catch (error) {}
+}
+
+let appearanceSaveSequence = 0;
+async function saveAppearance(key, value) {
+  appearanceEdits++;
+  state.appearance = applyAppearance({ ...currentAppearance(), [key]: value });
+  cacheAppearance(state.appearance);
+  const sequence = ++appearanceSaveSequence;
+  try {
+    const response = await fetch(`${serverBase()}/profile/preferences`, {
+      method: "PUT",
+      headers: adminHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ [key]: value }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    const saved = await response.json();
+    if (sequence !== appearanceSaveSequence) return;
+    state.appearance = applyAppearance(saved);
+    cacheAppearance(state.appearance);
+    setAppearanceStatus("");
+  } catch (error) {
+    if (sequence === appearanceSaveSequence) setAppearanceStatus("Not saved to your profile; kept on this device.");
+  }
+}
+
 function renderProfile() {
   const box = $("whoami");
   const profile = state.profile;
@@ -34,7 +121,8 @@ function renderProfile() {
   const locaLabels = roles
     .filter(role => role !== "participant" || roles.length === 1)
     .map(profileRoleLabel);
-  const source = loca?.operator_source === "appointed" ? "appointed" : "";
+  const source = loca?.operator_source === "appointed" ? "appointed"
+    : loca?.operator_source === "master" ? "by rank (Master)" : "";
   const management = loca?.building_management ? "Building management access" : "";
   const locaText = locaLabels.length ? locaLabels.join(" · ") : "PARTICIPANT";
   const expiry = profile.session?.expires_at
@@ -56,12 +144,15 @@ function renderProfile() {
       `<span><b>${esc(principal.display_name)}</b><small>You · ${profileKindLabel(principal.kind)}</small></span></span>` +
     `<span class="profilechevron" aria-hidden="true">›</span></summary>` +
     `<div class="profilepanel"><div class="profilepanelhead"><span>Profile</span><small>Identity &amp; access</small></div>` +
-    `<div class="profileconnected">connected as <b>${esc(principal.display_name)}</b> · You · ${profileKindLabel(principal.kind)}</div>` +
+    `<div class="profileconnected">connected as <b>${esc(principal.display_name)}</b>${rankBadge(profile.building_role)} · You · ${profileKindLabel(principal.kind)}</div>` +
+    profileRenameHtml(profile, principal) +
     `<div class="profileroles">` +
       `<span><small>Building</small><b class="role building-${esc(profile.building_role)}">${profileRoleLabel(profile.building_role)}</b></span>` +
       `<span><small>This Loca</small><b class="role loca-role">${esc(locaText)}</b>${source ? `<em>${source}</em>` : ""}${management ? `<em>${management}</em>` : ""}</span>` +
     `</div>` +
+    profileGroupsHtml(profile) +
     `<div class="profilesession"><small>Session</small><span>${profile.session ? "Bounded session" : "Direct credential"} · ${esc(expiry)}</span></div>` +
+    profileAppearanceHtml() +
     `<details class="profileaccess"><summary>Your access <span>${state.credentials.filter(c => !c.revoked_at).length}</span></summary>` +
       `<div class="credentiallist">${credentials || '<div class="credentialnone">No access keys listed.</div>'}</div>` +
       `<div class="credentialcreate"><input id="credentialLabel" maxlength="64" placeholder="New key label, e.g. MacBook" />` +
@@ -71,11 +162,184 @@ function renderProfile() {
   box.classList.add("on");
 }
 
+// The groups I belong to. Everyone is in the default group; a group adds
+// the locas only its people see.
+function profileGroupsHtml(profile) {
+  const groups = Array.isArray(profile.groups) ? profile.groups : [];
+  const chips = groups.length
+    ? groups.map(g => `<span class="grpchip">${esc(g.name)}</span>`).join("")
+    : `<span class="pnowhere">default group only</span>`;
+  return `<div class="profilegroups"><small>Groups</small><span class="grpchips">${chips}</span></div>`;
+}
+
+// ---- A person's card: who they are and their groups ----------------------
+// Opened from a name in the Building view. The founder of a group (or the
+// Master) adds and removes the person here; everyone else only reads. Built
+// from the groups the viewer may see, so a card never reveals a hidden one.
+let personCardName = null;
+let personCardReturnFocus = null;
+
+function personCardProfile(name) {
+  return (state.profilesList || []).find(p => p.display_name === name) || null;
+}
+
+function renderPersonCard() {
+  const name = personCardName;
+  if (!name) return;
+  const person = personCardProfile(name);
+  const resident = (state.people || []).find(p => p.name === name);
+  const kind = person?.kind === "agent" || resident?.kind === "agent" ? "agent" : "human";
+  const role = person?.role || "member";
+  $("personCardTitle").innerHTML = `${esc(name)}${rankBadge(role)}<small>${kind === "agent" ? "Agent" : "Human"}</small>`;
+  const theirs = groupsOfPerson(name);
+  const chips = theirs.length ? theirs.map(g => {
+    const founder = !g.owned_by_master && person && g.owner_id === person.id;
+    const remove = g.can_manage && !founder && person
+      ? `<button type="button" class="btn danger grpremove" data-card-remove="${esc(g.id)}" aria-label="Remove ${esc(name)} from ${esc(g.name)}" title="Remove from ${esc(g.name)}">${GROUP_REMOVE_ICON}<span>Remove</span></button>`
+      : "";
+    return `<div class="grpmember"><span class="pname">${GROUP_ICON}<b>${esc(g.name)}</b>${founder ? `<span class="pkind">founder</span>` : ""}</span><span class="pacts">${remove}</span></div>`;
+  }).join("") : `<div class="bbempty">Default group only.</div>`;
+  let add = "";
+  if (role === "master") {
+    add = `<p class="extnote">The Master sees every group and is never a member.</p>`;
+  } else if (person && person.id !== state.principalId) {
+    const open = (state.groups || []).filter(g =>
+      g.can_manage && !g.archived && !(g.members || []).some(m => m.principal_id === person.id));
+    if (open.length) {
+      add = `<div class="grpadd"><select id="personCardGroup" aria-label="Group to add ${esc(name)} to">` +
+        open.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("") +
+        `</select><button type="button" class="btn primary" id="personCardAdd">Add to group</button></div>`;
+    }
+  }
+  $("personCardBody").innerHTML =
+    `<div class="extsectionhead">Groups</div><div class="grpmembers">${chips}</div>${add}`;
+}
+
+async function openPersonCard(name) {
+  personCardName = name;
+  personCardReturnFocus = document.activeElement;
+  $("personCardError").textContent = "";
+  const gen = state.buildingGen;
+  if (!state.groupsLoaded || !state.profilesList) await fetchGroups(false);
+  if (buildingStale(gen)) return;
+  renderPersonCard();
+  $("personCard").classList.remove("hidden");
+  setTimeout(() => $("personCardClose")?.focus(), 0);
+}
+
+function closePersonCard() {
+  $("personCard").classList.add("hidden");
+  personCardName = null;
+  if (personCardReturnFocus && document.contains(personCardReturnFocus)) personCardReturnFocus.focus();
+  personCardReturnFocus = null;
+}
+
+async function personCardClick(event) {
+  const person = personCardProfile(personCardName);
+  const add = event.target.closest("#personCardAdd");
+  const remove = event.target.closest("[data-card-remove]");
+  if (!person || (!add && !remove)) return;
+  const gen = state.buildingGen;
+  const error = add
+    ? await addToGroup($("personCardGroup").value, person.id)
+    : await removeFromGroup(remove.dataset.cardRemove, person.id);
+  if (buildingStale(gen)) return;
+  $("personCardError").textContent = error;
+  renderPersonCard();
+}
+
+$("personCardBody").addEventListener("click", (event) => personCardClick(event));
+$("personCardClose").onclick = () => closePersonCard();
+$("personCardBackdrop").onclick = () => closePersonCard();
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("personCard").classList.contains("hidden")) closePersonCard();
+});
+
+// Titles are not names. A Master or Smaster sets its own display name here;
+// the server keeps identity, keys and rank, and refuses titles and names
+// someone else already wears.
+const PROFILE_TITLE_WORDS = ["master", "smaster", "operator", "lead", "admin", "root"];
+function profileRenameHtml(profile, principal) {
+  const role = profile.building_role;
+  if (role !== "master" && role !== "smaster") return "";
+  const isTitle = PROFILE_TITLE_WORDS.includes(String(principal.display_name).toLowerCase());
+  const hint = isTitle
+    ? `<div class="profilerenamehint">Your name is currently a title. Set your own name so people can tell who you are.</div>`
+    : "";
+  return `<div class="profilerename">${hint}` +
+    `<label for="profileNameInput">Display name</label>` +
+    `<div class="profilerenamerow"><input id="profileNameInput" maxlength="64" autocomplete="off" spellcheck="false" value="${esc(principal.display_name)}" />` +
+    `<button type="button" id="profileRename">Rename</button></div>` +
+    `<div class="profilerenamenote" id="profileRenameNote" role="status"></div></div>`;
+}
+
+// Set the display name chosen at sign-in. Returns "" on success, or the
+// server's reason when it is refused (a title, or a name someone else wears).
+async function applyChosenName(name) {
+  const gen = state.buildingGen;
+  try {
+    const response = await fetch(`${serverBase()}/profile`, {
+      method: "PUT",
+      headers: adminHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ display_name: name }),
+    });
+    if (!response.ok) return (await response.text()) || "the name was refused";
+    const own = (await response.json()).display_name;
+    // The name is its asker's: never worn by whoever signed in meanwhile.
+    if (!buildingStale(gen)) adoptOwnName(own);
+    return "";
+  } catch (e) {
+    return "could not reach the server to set the name";
+  }
+}
+
+function showRenameRefusal(name, reason) {
+  const menu = $("whoami").querySelector("details.profilemenu");
+  if (menu) menu.open = true;
+  const note = $("profileRenameNote");
+  if (note) note.textContent = `"${name}" was not set: ${reason}`;
+  const input = $("profileNameInput");
+  if (input) { input.value = name; input.focus(); }
+}
+
+async function renameProfile() {
+  const input = $("profileNameInput");
+  const note = $("profileRenameNote");
+  const name = input?.value.trim();
+  if (!name || name === state.profile?.principal?.display_name) return;
+  const gen = state.buildingGen;
+  const response = await fetch(`${serverBase()}/profile`, {
+    method: "PUT",
+    headers: adminHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({ display_name: name }),
+  });
+  if (buildingStale(gen)) return;   // signed out meanwhile: not the next person's name
+  if (!response.ok) {
+    const why = await response.text();
+    if (note && !buildingStale(gen)) note.textContent = why;
+    return;
+  }
+  const renamed = await response.json();
+  if (buildingStale(gen)) return;
+  const before = state.name;
+  adoptOwnName(renamed.display_name);
+  // The server relabels history and tells every open feed; reconnecting
+  // here covers a loca with nothing said yet (no frame arrives).
+  if (before !== renamed.display_name && state.room) openWs();
+  await fetchProfile();
+  if (buildingStale(gen)) return;
+  const menu = $("whoami").querySelector("details.profilemenu");
+  if (menu) menu.open = true;
+  const after = $("profileRenameNote");
+  if (after) after.textContent = `Renamed to ${renamed.display_name}.`;
+}
+
 let profileFetchSequence = 0;
 async function fetchProfile() {
   const box = $("whoami");
   const room = state.room;
   const sequence = ++profileFetchSequence;
+  const gen = state.buildingGen;
   try {
     const suffix = room ? `?room=${encodeURIComponent(room)}` : "";
     const [profileResponse, credentialResponse] = await Promise.all([
@@ -86,8 +350,9 @@ async function fetchProfile() {
     const profile = await profileResponse.json();
     const credentials = credentialResponse.ok ? await credentialResponse.json() : [];
     // Room switches issue overlapping reads. A slow A response must never
-    // repaint B's "This Loca" authority after the user has already moved.
-    if (sequence !== profileFetchSequence || room !== state.room) return;
+    // repaint B's "This Loca" authority after the user has already moved,
+    // nor a signed-out person's profile and rank come back after sign-out.
+    if (sequence !== profileFetchSequence || room !== state.room || buildingStale(gen)) return;
     state.profile = profile;
     state.credentials = credentials;
     const priorPrincipal = state.principalId;
@@ -103,6 +368,9 @@ async function fetchProfile() {
       state.name = state.profile.principal.display_name;
       $("name").value = state.name;
     }
+    if (state.principalId && state.principalId !== state.appearancePrincipal) {
+      fetchAppearance();
+    }
     markLocaContextReady("profile", room);
     loadRoomPreferences();
     renderRooms();
@@ -110,7 +378,7 @@ async function fetchProfile() {
     renderLocaSidebar();
     renderOperatorControls();
   } catch (error) {
-    if (sequence !== profileFetchSequence || room !== state.room) return;
+    if (sequence !== profileFetchSequence || room !== state.room || buildingStale(gen)) return;
     state.profile = null;
     state.credentials = [];
     box.innerHTML = `<details class="profilemenu"><summary>` +
@@ -128,17 +396,24 @@ async function createProfileCredential() {
   const input = $("credentialLabel");
   const label = input?.value.trim();
   if (!label) return;
+  // The key made here is its asker's: its secret is shown to nobody who
+  // signed in while the request, its body or the profile refresh was out.
+  const gen = state.buildingGen;
   const response = await fetch(`${serverBase()}/profile/credentials`, {
     method: "POST",
     headers: adminHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ label }),
   });
+  if (buildingStale(gen)) return;
   if (!response.ok) {
-    addSys(`could not create access key: ${await response.text()}`);
+    const why = await response.text();
+    if (!buildingStale(gen)) addSys(`could not create access key: ${why}`);
     return;
   }
   const created = await response.json();
+  if (buildingStale(gen)) return;
   await fetchProfile();
+  if (buildingStale(gen)) return;
   $("whoami").querySelector("details.profilemenu").open = true;
   $("whoami").querySelector("details.profileaccess").open = true;
   const secret = $("credentialSecret");
@@ -156,11 +431,16 @@ async function revokeProfileCredential(id, current) {
     ? "Revoke the key behind this session? You will be signed out now."
     : "Revoke this access key? Other keys and the profile stay active.";
   if (!confirm(warning)) return;
+  // Revoking one's own key ends one's own session. Answered after someone
+  // else signed in, it must not end theirs.
+  const gen = state.buildingGen;
   const response = await fetch(`${serverBase()}/profile/credentials/${encodeURIComponent(id)}`, {
     method: "DELETE", headers: adminHeaders({}),
   });
+  if (buildingStale(gen)) return;
   if (!response.ok) {
-    addSys(`could not revoke access key: ${await response.text()}`);
+    const why = await response.text();
+    if (!buildingStale(gen)) addSys(`could not revoke access key: ${why}`);
     return;
   }
   if (current) {
@@ -174,20 +454,31 @@ async function revokeProfileCredential(id, current) {
     resetRoomPreferenceIdentity();
     state.profile = null;
     setLocked(true);
+    clearBuildingData();
     setConnOpen(true);
     return;
   }
   await fetchProfile();
 }
 
+$("whoami").addEventListener("keydown", event => {
+  if (event.key === "Enter" && event.target.id === "profileNameInput") renameProfile();
+});
+
 $("whoami").addEventListener("click", event => {
   const create = event.target.closest("#credentialCreate");
   if (create) { createProfileCredential(); return; }
+  if (event.target.closest("#profileRename")) { renameProfile(); return; }
   const revoke = event.target.closest("[data-revoke-credential]");
   if (revoke) revokeProfileCredential(
     revoke.dataset.revokeCredential,
     revoke.dataset.current === "1",
   );
+});
+
+$("whoami").addEventListener("change", event => {
+  const input = event.target.closest("input[data-appearance]");
+  if (input?.checked) saveAppearance(input.dataset.appearance, input.value);
 });
 
 document.addEventListener("click", event => {

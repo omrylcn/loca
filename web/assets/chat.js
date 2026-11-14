@@ -291,7 +291,6 @@ function addMsg(m) {
     if (state.msgs.length > 400) state.msgs.shift();
   }
   const mine = m.sender === state.name;
-  const senderIsLead = state.settings?.lead === m.sender;
   const mentionsMe = new RegExp(`(^|\\s)@(${regexEsc(state.name)}|all)\\b`, "i").test(m.text) || m.target === state.name || m.target === "all";
   const row = document.createElement("div");
   row.className = "row" + (mine ? " mine" : "") + (mentionsMe && !mine ? " mentioned" : "")
@@ -310,7 +309,8 @@ function addMsg(m) {
     quote = `<div class="quote" data-goto="${m.reply_to}">↩ ${esc(q.sender)}: ${esc(q.text.slice(0, 70))}</div>`;
   }
   let source = m.text;
-  if (m.target && m.target !== "all" && !m.text.includes("@" + m.target)) {
+  // In a birebir every word is to the other side; saying so on each line is noise.
+  if (m.target && m.target !== "all" && !isBirebir(m.room) && !m.text.includes("@" + m.target)) {
     source = `@${m.target} ${source}`;
   }
   const txt = renderChatMarkdown(source);
@@ -326,7 +326,7 @@ function addMsg(m) {
     <div class="bubble${mentionsMe && !mine ? " mentioned" : ""}">
       <div class="line">
         <span class="glyph ${m.sender_type}">${glyph}</span>
-        <span class="sender ${m.sender_type}">${esc(m.sender)}</span>${senderIsLead ? `<span class="leadtag">lead</span>` : ""}
+        <span class="sender ${m.sender_type}">${esc(m.sender)}</span><span class="roletags" data-sender="${esc(m.sender)}">${roleTagsFor(m.sender)}</span>
         <span class="time" title="${esc(fmtFull(m.ts))}">${time}</span>
       </div>${quote}
       <div class="body markdown chatmarkdown">${txt}</div>
@@ -394,9 +394,26 @@ function attachmentChip(room, a) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "attachchip";
-  btn.innerHTML = `<span class="aglyph">📎</span><span class="aname">${esc(a.name || a.id.slice(0, 8))}</span><span class="asize">${fmtBytes(a.size)}</span>`;
+  btn.innerHTML = `<span class="aglyph">📎</span><span class="aname">${esc(a.name || a.id.slice(0, 8))}</span><span class="asize">${fmtBytes(a.size)}</span><span>↓ Download</span>`;
   btn.title = `${esc(a.mime || "")}`;
-  btn.addEventListener("click", () => openAttachment(room, a));
+  btn.setAttribute("aria-label", `Download ${a.name || "attachment"}`);
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      const url = await fetchAttachmentBlob(room, a.id);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = (a.name || "attachment").split(/[\\/]/).pop() || "attachment";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (_) {
+      addSys(`could not download ${a.name || "attachment"}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
   return btn;
 }
 function renderAttachments(row, m) {
@@ -411,6 +428,7 @@ function renderAttachments(row, m) {
       img.alt = a.name || "image";
       img.loading = "lazy";
       wrap.appendChild(img);
+      wrap.appendChild(attachmentChip(room, a));
       fetchAttachmentBlob(room, a.id)
         .then((url) => {
           // The row may have been cleared (repaint/room change) while the blob
@@ -478,6 +496,25 @@ function scrollFeed(force) {
   requestAnimationFrame(toBottom);
   if (force) { setTimeout(toBottom, 60); setTimeout(toBottom, 250); }
 }
+// The titles a sender wears at this table, shown on every line they write:
+// operator (appointed, or the Master by rank) and lead. A birebir has none.
+function roleTagsFor(name) {
+  if (!name || isBirebir(state.room)) return "";
+  const op = state.locaOperator;
+  const isOperator = name === op?.appointed?.display_name || name === op?.building_master?.display_name;
+  const isLead = state.settings?.lead === name;
+  return (isOperator ? `<span class="optag" title="loca operator">operator</span>` : "")
+    + (isLead ? `<span class="leadtag" title="loca lead">lead</span>` : "");
+}
+
+// Titles change after lines were drawn (the operator or the lead loads, or
+// changes): relabel what is already in the feed.
+function refreshSenderTags() {
+  for (const el of document.querySelectorAll("#feed .roletags[data-sender]")) {
+    el.innerHTML = roleTagsFor(el.dataset.sender);
+  }
+}
+
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
 /* ---- chat mode ---- */

@@ -59,6 +59,13 @@ impl Store {
     }
     pub fn append_journal(&self, e: &protocol::JournalEntry) -> rusqlite::Result<()> {
         let Some(c) = self.conn() else { return Ok(()) };
+        Self::write_journal(&c, e)
+    }
+    /// One Journal line, on a connection or inside a caller's transaction.
+    pub(super) fn write_journal(
+        c: &Connection,
+        e: &protocol::JournalEntry,
+    ) -> rusqlite::Result<()> {
         c.execute(
             "INSERT INTO journal (id, room, by, by_type, text, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![e.id, e.room, e.by, sender_type_str(e.by_type), e.text, e.at],

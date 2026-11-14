@@ -1007,6 +1007,77 @@ async fn a_watcher_cannot_speak() {
     );
 }
 
+/// Looking in from the door is not sitting at the table: a Building rank that
+/// watches a loca keeps watching when its own identity takes (or re-takes)
+/// the seat in another tab — a watcher holds no seat, so no seat change
+/// evicts it.
+#[tokio::test]
+async fn a_seat_change_never_evicts_a_watcher_on_the_same_identity() {
+    let (port, _g) = spawn_server_env("MASTER", &[]).await;
+    create_test_room(port, "MASTER", "kapi").await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let (mut watcher, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=kapi&name=boss&type=user&admin=MASTER&watch=1"
+    ))
+    .await
+    .unwrap();
+    let _ = wait_for(&mut watcher, |v| v["t"] == "history").await;
+    // The same identity sits down in another tab, then again under a new label
+    // — the second join evicts the first seat holder, never the watcher.
+    let (mut seated, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=kapi&name=boss&type=user&admin=MASTER"
+    ))
+    .await
+    .unwrap();
+    let _ = wait_for(&mut seated, |v| v["t"] == "history").await;
+    let (mut renamed, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=kapi&name=boss2&type=user&admin=MASTER"
+    ))
+    .await
+    .unwrap();
+    let _ = wait_for(&mut renamed, |v| v["t"] == "history").await;
+    wait_for_member(
+        &client,
+        &base,
+        "kapi",
+        "boss2",
+        Some(("x-admin-token", "MASTER")),
+    )
+    .await;
+    // The old seat holder was told to step aside and closed.
+    let _ = wait_for(&mut seated, |v| v["t"] == "evicted").await;
+    // The watcher still hears the table.
+    let posted = client
+        .post(format!("{base}/rooms/kapi/messages"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "sender": "boss2", "sender_type": "user", "text": "still there?" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(posted.status().is_success());
+    let heard = wait_for(&mut watcher, |v| {
+        v["t"] == "evicted" || (v["t"] == "msg" && v["message"]["text"] == "still there?")
+    })
+    .await;
+    assert_eq!(
+        heard["t"], "msg",
+        "a watcher is never evicted by a seat change"
+    );
+    // And it never appeared in the roster.
+    let members: Vec<Value> = client
+        .get(format!("{base}/rooms/kapi/members"))
+        .header("x-admin-token", "MASTER")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(members.len(), 1, "one identity, one seat: {members:?}");
+    drop(renamed);
+}
+
 /// Revoking a DAVET kills the session minted from it: the old session token no
 /// longer opens the loca. The door is shut in fact, not just on paper.
 #[tokio::test]
@@ -1575,4 +1646,181 @@ async fn admin_session_logout_revokes_open_websocket_control() {
         control.is_err(),
         "a logged-out admin socket must not retain control authority"
     );
+}
+
+/// Titles are not names. A Smaster cannot be created as "smaster"; a rank
+/// renames its own profile with `PUT /profile`; `/building/ranks` lists every
+/// rank by name for Building authority only.
+#[tokio::test]
+async fn ranks_carry_their_own_names_and_appear_in_the_building() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("names.db").to_string_lossy().to_string();
+    let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db)]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+
+    let refused = client
+        .post(format!("{base}/smasters"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "name": "Smaster" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 400, "a title is not a Smaster's name");
+
+    let sm: Value = client
+        .post(format!("{base}/smasters"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "name": "deputy" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let key = sm["token"].as_str().unwrap().to_string();
+    let member: Value = client
+        .post(format!("{base}/members"))
+        .header("x-admin-token", "MASTER")
+        .json(&serde_json::json!({ "name": "worker", "kind": "agent" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let member_key = member["token"].as_str().unwrap().to_string();
+
+    let rename = |key: String, name: &'static str| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .put(format!("{base}/profile"))
+                .header("x-admin-token", key)
+                .json(&serde_json::json!({ "display_name": name }))
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(rename(key.clone(), "master").await.status(), 400);
+    assert_eq!(rename(key.clone(), "worker").await.status(), 409);
+    assert_eq!(rename(member_key.clone(), "boss").await.status(), 403);
+    let ok = rename(key.clone(), "ayse").await;
+    assert_eq!(ok.status(), 200);
+    let profile: Value = ok.json().await.unwrap();
+    assert_eq!(profile["display_name"], "ayse");
+    assert_eq!(profile["role"], "smaster");
+    assert_eq!(rename("MASTER".into(), "omrylcn").await.status(), 200);
+
+    let ranks = |key: String| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .get(format!("{base}/building/ranks"))
+                .header("x-admin-token", key)
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(ranks(member_key).await.status(), 403);
+    let listed: Value = ranks(key.clone()).await.json().await.unwrap();
+    let pairs: Vec<(String, String)> = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (
+                r["name"].as_str().unwrap().to_string(),
+                r["role"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        pairs,
+        vec![
+            ("omrylcn".to_string(), "master".to_string()),
+            ("ayse".to_string(), "smaster".to_string()),
+        ]
+    );
+    // The Smaster key keeps working under the new name.
+    let smasters: Value = client
+        .get(format!("{base}/smasters"))
+        .header("x-admin-token", "MASTER")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(smasters[0]["name"], "ayse");
+}
+
+/// PRINCIPLES: the lower layer cannot undo the upper one. A Smaster operates
+/// every loca, but moderating the Master is refused, and a Smaster cannot
+/// moderate a peer Smaster; the Master still moderates a Smaster.
+#[tokio::test]
+async fn loca_moderation_refuses_to_reach_up_the_building_ranks() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("rank.db").to_string_lossy().to_string();
+    let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db)]).await;
+    create_test_room(port, "MASTER", "oda").await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let mut keys = Vec::new();
+    for name in ["murat", "selin"] {
+        let sm: Value = client
+            .post(format!("{base}/smasters"))
+            .header("x-admin-token", "MASTER")
+            .json(&serde_json::json!({ "name": name }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        keys.push(sm["token"].as_str().unwrap().to_string());
+    }
+    let profiles: Value = client
+        .get(format!("{base}/profiles"))
+        .header("x-admin-token", "MASTER")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let master_name = profiles
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["role"] == "master")
+        .and_then(|p| p["display_name"].as_str())
+        .expect("master profile")
+        .to_string();
+    let moderate = |key: String, action: &'static str, name: String| {
+        let client = client.clone();
+        let base = base.clone();
+        async move {
+            client
+                .post(format!("{base}/rooms/oda/moderate"))
+                .header("x-admin-token", key)
+                .json(&serde_json::json!({ "action": action, "name": name }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    assert_eq!(
+        moderate(keys[0].clone(), "kick", master_name.clone()).await,
+        403
+    );
+    assert_eq!(moderate(keys[0].clone(), "mute", master_name).await, 403);
+    assert_eq!(moderate(keys[0].clone(), "ban", "selin".into()).await, 403);
+    assert_eq!(moderate("MASTER".into(), "mute", "selin".into()).await, 200);
+    assert_eq!(moderate(keys[0].clone(), "mute", "guest".into()).await, 200);
 }

@@ -154,7 +154,11 @@ impl Hub {
         signal: &mut CareSignal,
         source_room: &str,
     ) {
-        if signal.owner.as_deref() == Some("loca-care") && source_room != self.home_room.as_str() {
+        // A group loca's words never travel to İye, where every rank reads.
+        if signal.owner.as_deref() == Some("loca-care")
+            && source_room != self.home_room.as_str()
+            && !self.is_group_loca(source_room)
+        {
             signal.source_room = source_room.to_string();
             signal.room = self.home_room.as_ref().clone();
         }

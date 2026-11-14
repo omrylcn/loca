@@ -325,6 +325,63 @@ never be conflated:
 
 An agent that finished its work is not treated with a punishment verb.
 
+### Birebir—a private two-person loca
+
+Sometimes a word is meant for one person, not the whole table. No separate
+messaging system is built for it: **a birebir is a special loca type that only
+two people sit in and only those two see.** History, attachments, reactions,
+and notifications travel the loca's path; there is no second message store or
+notification line.
+
+- **The pair defines it.** The same two people always return to the same
+  birebir. It is bound to identity (principal), not to names: the loca id
+  carries no name, and the sidebar shows the other person's current name.
+  There is no third seat; to bring someone else in, open a shared loca.
+- **A human opens it.** An agent answers in a birebir but never starts one;
+  there is no birebir between two agents. No agent line opens that a human does
+  not see. Every word in a birebir is said to the other person: no `@` is
+  needed to wake an agent.
+- **Who may write to whom:** a building member may open a birebir with someone
+  they sit with in a shared loca. Master and Smaster may open one with any
+  building member they could already call. The rule is checked only on
+  opening; an open birebir outlives the shared loca. The Lobby is still not a
+  place to chat.
+- **Nobody but the two sees its contents.** No rank watches from the door and
+  loca-care does not read it. Nothing is copied out: a caretaker summons, a
+  care reminder, or a notice carries no words into İye or any other loca. A
+  birebir appears in no ordinary loca list, in no "where" field of the
+  Building directory, and among no rank's seated locas.
+- **The Master sees only that it exists.** So the Building does not turn into
+  a dump, the Master sees in a separate tab that birebirs exist: between whom,
+  and when they were last active. That lets the Master gather up forgotten or
+  abused birebirs. **The Master does not see the messages; there is no look
+  path for the Master.** A Smaster does not even see that they exist.
+- **Only when called in.** Either of the two may **explicitly** call the
+  Master in; the other side's consent is not needed. The Master takes no seat,
+  cannot write, and **by default sees only what is said from the moment of the
+  call**. Earlier history opens only if **both sides allow it**. While the
+  Master is in, both sides see it plainly, and whoever called can send the
+  Master out. Who called, when, and who allowed the history are recorded. In
+  no other way are the contents opened to a third person.
+- **Private, not encrypted.** The interface says so honestly: whoever runs the
+  server can read the record on disk and in backups. In a birebir with an
+  agent, the words also reach the machine the agent runs on and the agent's
+  memory; the agent may remember them in another loca. No privacy is promised
+  that cannot be kept.
+- **A birebir is conversation.** There are no tasks, goals, wiki, notes,
+  operator, or lead; whoever opens it is not appointed operator. Work is born
+  at a shared table; work discussed in a birebir moves to the loca the team
+  sees through an explicit act.
+- **Lifecycle:** hiding a birebir is only one's own sidebar preference and does
+  not delete the other side's record; a new word makes it reappear. The
+  birebir of a side whose membership ended stays read-only. The Master may
+  **Close** a birebir it can see (read-only; the Master can reopen it) or
+  **Seal** it; Seal also permanently closes any new birebir between those two.
+  Neither gives the Master the right to read the contents.
+- A birebir does not count toward loca capacity and stays out of the
+  Building's loca list and İye; the sidebar shows it under its own
+  **Messages** heading.
+
 ### Roles—who does what
 
 - **Loca agent (`loca-dev`)** — maintains Loca itself and is **not a member of
@@ -366,6 +423,107 @@ done. There is no queue, lease, or automatic assignment, and there will not be.
 it either as a manual outcome or against an explicit task set. Agents may
 suggest progress, but they cannot open or change a goal or declare their own
 success.
+
+## Loca extensions
+
+A loca can be a place for one job or project. **Extensions** make it so: when
+a loca is created (`+`), an edit screen asks which extensions to add; the
+**defaults** come ticked and the rest are added from the list. In an existing
+loca the list lives under **This Loca › Extensions**; the operator, the
+Master, and Smasters change it. Each added extension becomes a tab in the
+loca. Chat is always on.
+
+**A loca's identity.** When a loca is created it gets not only a name but
+**what it is for** (a description). The description is the loca's identity;
+the Goal is the current target; the two stay separate.
+
+**Vault.** A loca's rules for agents and people live in one place, the loca's
+**Vault**: **AGENT.md**, loca rules, **skills**, and **hooks**. Everyone who
+enters, and every agent called in, first receives a **loca card**: name,
+description, rules, and what the Vault holds. An agent receives the card on
+connecting and the current version when the Vault changes; a person sees it on
+first entry and always finds it under This Loca.
+
+Example extensions:
+
+- **Task management**—a board (To do · Doing · Review · Done), Jira key, due
+  date.
+- **AGENT.md**—the rules agents follow in this loca. The Loca Wiki is
+  knowledge; AGENT.md is behavior.
+- **Skills**—skill instructions that belong to this loca only.
+- **Hooks**—"when this happens, do that" rules (post a summary when a task is
+  done).
+- Notes · Journal, Loca Wiki, Live—what every loca has today becomes an
+  extension; they stay on in existing locas.
+
+An agent entering a loca receives its extensions (AGENT.md, skills) and the
+current version whenever they change; the same agent is a project tracker in
+one loca and a reviewer in another.
+
+Boundaries:
+
+- **No code is loaded or run.** An extension turns on a capability written and
+  tested inside the server. Skills are text; hooks are rules the server
+  applies, chosen from ready-made actions, and run no command on an agent's
+  machine.
+- **An extension that is off is not merely hidden;** the server refuses it.
+  Removing one does not delete its records.
+- **Changes are known.** Adding or removing an extension and editing AGENT.md,
+  skills, or hooks is written to the Journal with who did it, and when.
+- **A loca rule never outranks a core rule.** No instruction can make an agent
+  ask for or write a secret (key, davet, session) or lift the limits in these
+  principles: a mention is not a task, agents do not assign work, there is no
+  queue or automatic assignment.
+- **A birebir has no extensions;** a birebir is conversation.
+
+## Groups—a group's own locas
+
+In a company, different groups use Loca (backend, ai, …). A **group** is a
+named set of people who work together: humans, agents, and Smasters. A person
+may be in more than one group.
+
+- **Everyone is in the default group.** Locas without a group belong to the
+  default group and work by invitation as today; an existing deployment does
+  not change.
+- **The Master or a Smaster creates a group, and the group is its
+  founder's:** the founder adds and removes the other people (humans, agents, other Smasters)
+  from the Building view or their profile card. Another Smaster cannot see
+  the group or add anyone to it; nobody adds themselves. The Master can manage
+  every group and never needs to be added. Every change is recorded with who made it, and when.
+- **Group loca:** a Smaster creates a loca for a group. **Only the group's
+  members see** and enter it; people in other groups **cannot be taken in**,
+  Smasters included. To bring someone in, add them to the group first.
+  Leaving the group ends their access to its locas at once.
+- **The Master sees everything:** every group, every group loca and what is
+  inside it, without being a member. The group boundary is for Smasters and
+  members. (A birebir is the exception: there the Master sees only that it
+  exists.)
+- **One door for access:** entering a loca = invitation **or** group
+  membership; for a group loca, group membership only. The rule is the same at
+  every door (sidebar, REST, WS, search); outsiders do not learn that a group
+  loca exists.
+- Group membership holds no seat; a loca's capacity fills as people sit down.
+- **A birebir and İye are never tied to a group.**
+
+## Building notifications—a one-way notice
+
+Sometimes a word is meant not for one table but for everyone in the Building,
+or for a group. No separate chat is opened for it: **a notification is
+one-way.**
+
+- **Who sends:** the Master to everyone; a Smaster only to the groups it
+  belongs to. Nobody else sends a notification.
+- **Who receives is fixed when it is sent.** Someone who joins or leaves a
+  group later does not change who an earlier notification went to. Each
+  person sees only what was sent to them.
+- **It is not a conversation.** It opens no loca, takes no reply, and does not
+  turn the Lobby into a chat.
+- **It is not lost.** A recipient who was away finds it on return.
+- **For an agent it is context, not work.** A notification runs no model,
+  becomes no task and grants no authority. An agent sees it as context on its
+  next real turn; having received it is not recorded as having read it.
+- **It carries no private word out.** A notification takes no words from a
+  loca or a birebir to anywhere else.
 
 ## Product boundary
 

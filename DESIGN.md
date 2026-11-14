@@ -55,8 +55,8 @@ kalır.
 
 Building rolleri:
 
-- **Master** — Building'deki tek nihai principal. Her Loca'da doğal
-  Operator'dır.
+- **Master** — Building'deki tek nihai principal. Her Loca'yı Building
+  rolüyle yönetir; bu, Loca'nın explicit Operator koltuğundan ayrıdır.
 - **Smaster** — Building yönetiminde delegedir; Master'ın son sözünü aşamaz.
 - **Member** — Building kimliğidir; tek başına özel bir Loca'yı açmaz.
 
@@ -86,10 +86,13 @@ vardır:
 
 ```text
 Building: Master > Smaster > Member
-Loca:     Operator > Lead > Participant
+Loca:     Operator (yönetir) · Lead (tavsiye eder) · Participant
 ```
 
-Building rolü ile Loca rolü aynı şey değildir.
+Building rolü ile Loca rolü aynı şey değildir. Loca satırı bir yetki zinciri
+de değildir: Operator yönetir ve moderasyon yapar; Lead görür, tavsiye eder
+ve raporlar ama moderasyon yapmaz, iş atamaz. İkisi çelişirse Operator'ın
+sözü geçer.
 
 ## 4. Loca rolleri ve yönetim
 
@@ -99,7 +102,12 @@ Her Loca'da en fazla **bir aktif explicit appointed Operator** vardır. Atama
 `principal_id` ile kalıcı `room_operator_assignments` ledger'ına yazılır;
 display name authority anahtarı değildir.
 
-- Master her Loca'da atamasız doğal Operator'dır.
+- Master her Loca'yı Building rolüyle yönetir; bu bir Operator ataması
+  değildir. Boş Operator koltuğu boş görünür ve sessizce Master'a atanmaz.
+- Kalıcı kayıtlı ve kimliği doğrulanan bir Building'de insan Master ya da
+  Smaster bir Loca'yı açıkça kurduğunda atamayı aynı işlemde alır. Açık
+  sandbox'ta ve yalnız bellekte çalışan kurulumda doğrulanmış bir kurucu
+  olmadığı için bu atama yapılmaz.
 - Smaster Building rolü nedeniyle Loca'yı yönetebilir ama Master'ın kararını
   bozamaz.
 - Explicit Operator yalnız aktif **human principal** olabilir.
@@ -133,9 +141,65 @@ Notes, Tasks veya private-room history taşımaz.
 
 ### Loca
 
-En fazla yedi kimlik oturtan, davetle açılan özel koordinasyon alanıdır. Her
-Loca'nın kendi conversation, Notes, Goal/Tasks/Waits, Journal, mode,
-moderation, lifecycle ve Reminder state'i vardır.
+Varsayılan olarak en fazla yedi kimlik oturtan, davetle açılan özel
+koordinasyon alanıdır; koltuk sayısı Building genelinde `LOCA_CAPACITY` ile
+ayarlanır. Her Loca'nın kendi conversation, Notes, Goal/Tasks/Waits, Journal,
+mode, moderation, lifecycle ve Reminder state'i vardır. Goal isteğe bağlıdır.
+
+### Birebir
+
+İki kişilik özel Loca türüdür; ayrı bir mesaj sistemi değildir. Kimliği iki
+principal'dan türetilir ve `bb-` kimlik alanı yalnız birebirlere ayrılmıştır.
+
+- İçeriği yalnız iki taraf görür; hiçbir rütbe rütbesiyle giremez.
+- Master yalnız varlığını görür. Taraflardan biri açıkça çağırırsa tanık
+  olur: koltuk almaz, yazamaz, varsayılan olarak çağrıdan sonrasını görür;
+  önceki geçmiş ancak iki taraf da izin verirse açılır.
+- Görev, Goal, Notes, Wiki, eklenti, Operator ve Lead yoktur. Bir gruba
+  bağlanmaz ve Loca kapasitesine sayılmaz.
+
+### Gruplar
+
+Grup, birlikte çalışan kişilerin (insan, agent, Smaster) adlandırılmış
+kümesidir. Bir kişi birden fazla grupta olabilir; bir Loca tek gruba bağlıdır
+ve grubu olmayan Loca varsayılan gruptadır.
+
+- Grup Loca'sına yalnız grubun üyeleri ve Master girer. Dışarıdaki herkes,
+  Smaster dahil, var olmayan bir Loca'nın aldığı yanıtı alır.
+- Üyeliği kurucu ya da Master yönetir. Gruba üye olan ama kurucusu olmayan
+  Smaster grubu ve Loca'larını görür, üyeliğini yönetemez. Grup dışındaki
+  Smaster grubu görmez. `PRINCIPLES.md`'deki "başka bir Smaster o grubu
+  göremez" cümlesi bu ayrımla okunur.
+- Loca'yı gruplar arasında yalnız Master taşır. Birebir ve İye gruba bağlanmaz.
+
+### Loca eklentileri
+
+Eklenti, server içinde yazılmış ve test edilmiş bir yeteneğin Loca başına
+açılıp kapatılmasıdır; kod yüklenmez. Bugünkü katalog: Notes, Focus (Goal ve
+Tasks), Journal, Loca Wiki, Live. Chat her zaman açıktır.
+
+- Kapalı eklenti gizlenmez, server tarafından reddedilir; kayıtları silinmez.
+- Kümeyi Loca'nın Operator'ı, Master ve Smaster değiştirir; değişiklik
+  Journal'a yazılır.
+- Birebirde eklenti yoktur.
+
+`PRINCIPLES.md` şunları da tanımlar; bu sürümde yoktur ve burada uygulama
+taahhüdü olarak okunmaz: Loca açıklaması, Vault (AGENT.md, Loca kuralları,
+skill'ler, hook'lar), Loca kartı ve görev panosu.
+
+### Building bildirimleri
+
+Master herkese, Smaster üyesi olduğu gruplara tek yönlü bildirim gönderir.
+Alıcı kümesi gönderim anında belirlenir; her alıcı yalnız kendine gelenleri
+görür. Bildirim bir konuşma değildir, Loca açmaz ve yanıt almaz. Agent için
+sonraki gerçek turun bağlamıdır: model turu açmaz, görev üretmez, yetki
+vermez. Bu yüzeyin `PRINCIPLES.md`'de henüz bölümü yoktur.
+
+### Kişisel görünüm
+
+Tema, vurgu rengi, yoğunluk ve yazı boyutu principal'a bağlı kişisel
+tercihlerdir. Değerler kapalı bir listeden seçilir ve yalnız o kişinin
+görünümünü değiştirir; Loca'yı ya da başkasının ekranını etkilemez.
 
 ### Davet / Release
 
@@ -220,6 +284,18 @@ GET/PUT   /rooms/{loca}/mode
 POST      /rooms/{loca}/lead
 GET/PUT   /rooms/{loca}/settings
 POST      /rooms/{loca}/release
+GET/PUT   /rooms/{loca}/extensions
+PUT/DELETE /rooms/{loca}/extensions/{ext}
+PUT       /rooms/{loca}/group               GET /rooms/{loca}/group/preview
+GET/POST  /groups                           GET/PATCH/DELETE /groups/{group}
+PUT/DELETE /groups/{group}/members/{principal_id}
+GET/POST  /birebirs                         GET /birebirs/candidates
+POST      /birebirs/{loca}/master
+GET       /building/birebirs                # Master: varlık, içerik değil
+GET/POST  /notifications                    GET /notifications/sent
+POST      /notifications/{id}/read
+GET/POST  /keys                             DELETE /keys/{id}
+GET/PUT   /profile/preferences
 ```
 
 Kesin request/response şeması `crates/protocol` ve server route'larının

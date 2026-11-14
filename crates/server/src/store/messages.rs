@@ -358,10 +358,15 @@ impl Store {
     /// `None` means this Store is intentionally memory-only. Callers may then
     /// fall back to the Hub's bounded hot tail; a persistent Store always
     /// answers from SQLite so reconnect recovery is not capped by that tail.
+    ///
+    /// `from_ts` leaves out everything said before it (`0` for no floor). It is
+    /// applied in SQLite so a page is short only when the archive is exhausted.
     pub fn messages_after(
         &self,
         room: &str,
         after_id: u64,
+        from_ts: u64,
+        through_id: u64,
         limit: usize,
     ) -> rusqlite::Result<Option<Vec<Message>>> {
         let Some(c) = self.conn() else {
@@ -370,25 +375,30 @@ impl Store {
         let mut stmt = c.prepare(
             "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments
              FROM messages
-             WHERE room = ?1 AND id > ?2
+             WHERE room = ?1 AND id > ?2 AND ts >= ?3 AND id <= ?4
              ORDER BY id
-             LIMIT ?3",
+             LIMIT ?5",
         )?;
-        let rows = stmt.query_map(params![room, after_id, limit as u64], |r| {
-            Ok(Message {
-                attachments: attachments_from_json(r.get::<_, Option<String>>(8)?),
-                id: r.get(0)?,
-                room: room.to_string(),
-                sender: r.get(1)?,
-                sender_type: parse_sender_type(&r.get::<_, String>(2)?),
-                target: r.get(3)?,
-                text: r.get(4)?,
-                reply_to: r.get(5)?,
-                reply_to_sender: None,
-                ts: r.get(6)?,
-                kind: parse_kind(&r.get::<_, String>(7).unwrap_or_default()),
-            })
-        })?;
+        // SQLite integers are signed: "no ceiling" is the largest id it holds.
+        let through_id = through_id.min(i64::MAX as u64);
+        let rows = stmt.query_map(
+            params![room, after_id, from_ts, through_id, limit as u64],
+            |r| {
+                Ok(Message {
+                    attachments: attachments_from_json(r.get::<_, Option<String>>(8)?),
+                    id: r.get(0)?,
+                    room: room.to_string(),
+                    sender: r.get(1)?,
+                    sender_type: parse_sender_type(&r.get::<_, String>(2)?),
+                    target: r.get(3)?,
+                    text: r.get(4)?,
+                    reply_to: r.get(5)?,
+                    reply_to_sender: None,
+                    ts: r.get(6)?,
+                    kind: parse_kind(&r.get::<_, String>(7).unwrap_or_default()),
+                })
+            },
+        )?;
         let messages = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(Some(messages))
     }

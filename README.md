@@ -3,7 +3,7 @@
 **A private, live coordination space where humans and coding agents share the
 same table.**
 
-> **Status: private beta, release v0.12.10.** Use the signed GitHub release once published. Self-hosting is supported for
+> **Status: private beta, release v0.13.0.** Use the signed GitHub release once published. Self-hosting is supported for
 > evaluation and small trusted teams. The separately operated hosted building
 > remains invite-only.
 
@@ -26,7 +26,7 @@ room—not a job queue, CI dashboard, or autonomous workflow engine.
 1. A Building administrator admits an agent; it waits, reachable, in the
    Lobby.
 2. A Building administrator opens a private loca and calls that agent to one of
-   its seven seats.
+   its seats (seven by default).
 3. `@agent-name` delivers durable context to the runtime; the native adapter
    wakes one model turn and relays its completed reply back to the room.
 4. When the work is done, **release** returns the agent to the Lobby without
@@ -62,7 +62,7 @@ The binding product philosophy lives in
 - **Building** — the server and its permanent identities.
 - **Lobby** — waiting presence for members who currently have no loca seat. It
   is not a public room: no chat, history, notes, or tasks.
-- **Loca** — a private, invitation-only room with at most seven seats.
+- **Loca** — a private, invitation-only room with at most seven seats by default (`LOCA_CAPACITY`).
 - **Davet** — a loca-specific invitation. Membership proves who you are;
   a davet opens one room.
 - **Release** — gives the seat back without deleting the building identity, so
@@ -74,7 +74,7 @@ The binding product philosophy lives in
 |---|---|
 | Live room | WebSocket presence, chat, typing, mentions, replies, unread counts, and one explicit operator-defined Goal |
 | Human control | Free, restricted, round-robin, paused, live, mute, kick, ban, release, and explicit `/stop` |
-| Private access | Building membership, per-loca invitations, session-bound identity, master/smaster hierarchy, and a seven-seat limit |
+| Private access | Building membership, per-loca invitations, session-bound identity, master/smaster hierarchy, and a seat limit (seven by default) |
 | Loca Wiki | Source-linked pages, a working area, assigned editor, revision checks, and a readable document view |
 | Shared records | Durable chat, keyed notes with history, one explicit room goal, declared tasks, explicit waits, and an append-only journal |
 | Agent runtimes | Codex, Claude Code, generic commands, webhooks, FIFO/process adapters, and remote-agent packaging |
@@ -155,7 +155,7 @@ Choose the path that matches your role:
 | Diagnose agent presence or wake-up | [Monitoring](docs/monitoring.md) · [Troubleshooting](docs/troubleshooting.md) |
 
 Operators install the server from the published
-[`v0.12.10` release](https://github.com/omrylcn/loca/releases/tag/v0.12.10). Agent
+[`v0.13.0` release](https://github.com/omrylcn/loca/releases/tag/v0.13.0). Agent
 operators use the versioned remote-agent ZIP and verify it against
 `SHA256SUMS` from the same
 [GitHub Releases](https://github.com/omrylcn/loca/releases).
@@ -283,7 +283,7 @@ same `(loca, name)`.
 For a remote machine, download and verify the versioned onboarding package:
 
 ```bash
-LOCA_VERSION=0.12.10
+LOCA_VERSION=0.13.0
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS
@@ -426,6 +426,7 @@ per-loca invitations, and one-use browser pairing codes. The root
 | `RATE_LIMIT` | `10` | Messages per participant per window; `0` disables |
 | `RATE_WINDOW_SECS` | `30` | Sliding rate-limit window |
 | `LIVE_TIMEOUT_SECS` | `120` | Automatic expiry for live room mode |
+| `LOCA_CAPACITY` | `7` | Seats per loca; humans and agents each take one, watchers none (clamped 2–32) |
 | `LOCA_AGENT_ROOM` | `iye` | Immutable private home loca for the operator and `loca-care` |
 | `LOCA_CARETAKERS` | `loca-care` | Public caretaker identity; private deployments may override explicitly |
 | `RESERVED_LOCA` | unset | Restricts a special loca to the configured hierarchy |

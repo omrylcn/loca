@@ -39,6 +39,7 @@ from credentials import (
     validate_server_scope,
 )
 from wiki_state import agent_event
+from notification_state import NotificationCache, NotificationRecovery
 
 ADAPTER_PROTOCOL_VERSION = "1"
 DELIVERY_DEADLINE_MS = 4000
@@ -843,7 +844,7 @@ def backfill_pages(url, last_id, skip_own, is_lead=False):
     rest_cursor = int(last_id)
     while True:
         params = urlencode({"since": rest_cursor, "limit": BACKFILL_PAGE_SIZE})
-        req = urllib.request.Request(f"{rest}/rooms/{room}/messages?{params}")
+        req = urllib.request.Request(f"{rest}/rooms/{quote(room, safe='')}/messages?{params}")
         if token:
             req.add_header("x-room-token", token)
         if os.environ.get("LOCA_SESSION"):
@@ -903,7 +904,7 @@ def fetch_room_settings(url):
     token = token_for_room(room)
     scheme = "https" if u.scheme == "wss" else "http"
     rest = f"{scheme}://{u.hostname}:{u.port or (443 if u.scheme == 'wss' else 80)}"
-    req = urllib.request.Request(f"{rest}/rooms/{room}/settings")
+    req = urllib.request.Request(f"{rest}/rooms/{quote(room, safe='')}/settings")
     if token:
         req.add_header("x-room-token", token)
     if os.environ.get("LOCA_SESSION"):
@@ -1077,6 +1078,18 @@ def main():
     last = load_cursor_state(cursor, rooms)
 
     lock = threading.Lock()   # one writer at a time: history, inbox, cursor
+    notification_cache = None
+    notification_recovery = None
+    if membership:
+        # Separate scope and cursor: a Building id must never advance a chat
+        # watermark or be relayed as an invented room message.
+        cache_base = cursor or os.environ.get("LOCA_ENV") or os.path.join(
+            os.path.expanduser("~"), ".loca", "notifications"
+        )
+        notification_cache = NotificationCache(
+            cache_base + ".notifications.sqlite3", origin, requested_name, membership
+        )
+        notification_recovery = NotificationRecovery(notification_cache, membership)
 
     def advance_cursor_locked(room, message_id):
         """Persist a durable checkpoint before publishing it in memory."""
@@ -1110,6 +1123,10 @@ def main():
         event = agent_event(event)
         if event is None:
             return
+        if notification_cache is not None:
+            context = notification_cache.context()
+            if context["items"]:
+                event = {**event, "notification_context": context}
         delivery = make_delivery(
             room,
             event,
@@ -1493,6 +1510,11 @@ def main():
                             sys.stderr.write(f"[lobby] called into {room}\n")
                             sys.stderr.flush()
                             start_room(room)
+                    elif kind == "notification":
+                        # This private Lobby frame is a recovery hint, not a
+                        # task/mention. REST proves the recipient and catches
+                        # gaps before a durable cursor is advanced.
+                        notification_recovery.wake.set()
                     elif kind == "membership_revoked":
                         persist_env_value("LOCA_MEMBERSHIP", "")
                         sys.stderr.write("[lobby] building membership revoked — exiting\n")
@@ -1515,6 +1537,7 @@ def main():
 
     try:
         if membership:
+            notification_recovery.start()
             # The lobby is the process anchor. Room listeners come and go as calls
             # arrive and release returns the member here. Do not start from cached
             # DAVET_* values first: after a revoke/re-call that token can be stale,
@@ -1531,6 +1554,8 @@ def main():
             thread.join()
         return 0
     finally:
+        if notification_recovery is not None:
+            notification_recovery.stop()
         if runtime_health is not None:
             runtime_health.stop()
 

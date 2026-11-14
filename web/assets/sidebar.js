@@ -200,6 +200,7 @@ function renderLocaSidebar() {
   const roles = isLocaContextReady("profile") ? state.profile?.loca?.roles || [] : [];
   const myRole = !isLocaContextReady("profile") ? "Loading…" : roles.length
     ? roles.filter(role => role !== "participant" || roles.length === 1).map(profileRoleLabel).join(" · ")
+      + (state.profile?.loca?.operator_source === "master" ? " · MASTER" : "")
     : "PARTICIPANT";
   const lifecycle = sidebarLifecycle();
   $("locaSummary").innerHTML =
@@ -209,7 +210,10 @@ function renderLocaSidebar() {
       `<div><dt>Operator</dt><dd>${esc(operator)}${operatorSource ? `<small>${esc(operatorSource)}</small>` : ""}</dd></div>` +
       `<div><dt>Lead</dt><dd>${esc(lead)}</dd></div>` +
       `<div><dt>Your role</dt><dd>${esc(myRole)}</dd></div>` +
-    `</dl>`;
+      (typeof locaGroupFact === "function" ? locaGroupFact() : "") +
+    `</dl>` +
+    (typeof locaGroupMoveHtml === "function" ? locaGroupMoveHtml() : "") +
+    locaExtensionsBlock();
 }
 
 async function fetchLocaSidebar() {
@@ -220,6 +224,7 @@ async function fetchLocaSidebar() {
     renderLocaSidebar();
     return;
   }
+  fetchLocaExtensions();
   try {
     const response = await fetch(
       `${serverBase()}/rooms/${encodeURIComponent(room)}/operators`,
@@ -228,6 +233,7 @@ async function fetchLocaSidebar() {
     const operator = response.ok ? await response.json() : null;
     if (sequence !== locaSidebarFetchSequence || room !== state.room) return;
     state.locaOperator = operator;
+    refreshSenderTags();
   } catch (error) {
     if (sequence !== locaSidebarFetchSequence || room !== state.room) return;
     state.locaOperator = null;

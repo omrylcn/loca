@@ -5,8 +5,13 @@ let connOn = false;
 function setStatus(txt, on) {
   connOn = !!on;
   $("connDot").classList.toggle("on", connOn);
-  $("connDot").title = txt;
-  $("connDot").setAttribute("aria-label", txt);
+  const dot = $("connDot");
+  dot.setAttribute("aria-label", txt);
+  dot.dataset.tip = connOn ? "Connected" : txt.charAt(0).toUpperCase() + txt.slice(1);
+  dot.dataset.tipDetail = connOn
+    ? "Live link to the server; messages arrive as they are sent."
+    : "Not linked to the server right now; messages will not arrive.";
+  refreshTip(dot);
   renderTopStatus();
 }
 
@@ -164,8 +169,8 @@ function joinRoom(room) {
   renderMembers();
   renderMode();
   markRoomRead(room, state.roomLatest[room]);
-  $("curRoom").textContent = room;
-  $("roomAvatar").textContent = (room[0] || "#").toUpperCase();
+  $("curRoom").textContent = roomLabel(room);
+  $("roomAvatar").textContent = (roomLabel(room)[0] || "#").toUpperCase();
   revokeInlineAttachmentUrls();
   $("feed").innerHTML = "";
   loadPinned(); // this room's personal pin (localStorage), if any
@@ -182,19 +187,61 @@ function joinRoom(room) {
   $("memoryDecisionInput").value = "";
   $("notesDot").classList.remove("on");
   refreshRooms();
-  fetchNotes();
-  if (state.tab === "wiki") fetchWiki();
   fetchMemory();
   fetchMode();
-  fetchSettings();
+  // Settings first: they say which extensions exist here, and nothing is
+  // asked of an extension this loca has off.
+  fetchExtensionData();
   fetchMod();
-  fetchTasks();
-  fetchJournal();
   fetchSeated();
   fetchLobby();
   fetchProfile();
   fetchLocaSidebar();
   openWs();
+}
+
+// A Building rank renamed its profile: what it said under the old name now
+// reads the new one. Relabel the messages already shown and repaint the feed
+// in place. If the rename is ours, adopt the name and reconnect so this
+// socket routes @mentions to the new name too.
+function onRenamed(from, to) {
+  if (!from || !to || from === to) return;
+  for (const m of state.msgs) {
+    if (m.sender_type === "user" && m.sender === from) m.sender = to;
+    if (m.reply_to_sender === from) m.reply_to_sender = to;
+  }
+  if (state.name === from) {
+    adoptOwnName(to);
+    openWs();
+    return;
+  }
+  const feed = $("feed");
+  const keep = nearBottom() ? null : feed.scrollTop;
+  const msgs = state.msgs.slice();
+  state.msgs = [];
+  state.seen = new Set();
+  state.lastId = 0;
+  lastDayKey = null;
+  feed.innerHTML = "";
+  resetReminderChatProjection();
+  for (const m of msgs) addMsg(m);
+  rebuildReminderChatProjection();
+  fetchReactions().catch(() => {});
+  if (keep !== null) feed.scrollTop = keep; else scrollFeed(true);
+}
+
+// One name everywhere this browser keeps it: state, the name field and the
+// remembered session, so a reload or another tab does not bring the old back.
+function adoptOwnName(name) {
+  state.name = name;
+  if ($("name")) $("name").value = name;
+  try {
+    const cached = JSON.parse(localStorage.getItem("loca-admin-session") || "null");
+    if (cached && cached.token) {
+      cached.name = name;
+      localStorage.setItem("loca-admin-session", JSON.stringify(cached));
+    }
+  } catch (e) { /* storage unavailable: the server still knows the name */ }
 }
 
 function openWs() {
@@ -206,7 +253,9 @@ function openWs() {
   // Bearers travel in the WebSocket protocol header, never in URLs that may
   // be retained by proxies, APM, browser history, or access logs. The server
   // negotiates only the non-secret `loca.v1` protocol in its response.
-  const url = `${wsBase()}/ws?room=${encodeURIComponent(state.room)}&name=${encodeURIComponent(state.name)}&type=user`;
+  const watch = isWatchingDoor() ? "&watch=1" : "";
+  const url = `${wsBase()}/ws?room=${encodeURIComponent(state.room)}&name=${encodeURIComponent(state.name)}&type=user${watch}`;
+  renderDoor();
   const ws = new WebSocket(url, protocols);
   state.ws = ws;
   setStatus("connecting…", false);
@@ -310,9 +359,11 @@ function onFrame(f) {
     }
   }
   else if (f.t === "members") { state.members = f.members; renderMembers(); fetchSeated(); fetchLobby(); }
+  else if (f.t === "renamed") { onRenamed(f.from, f.to); }
   else if (f.t === "control") {
     if (f.cmd && f.cmd.startsWith("note-deleted:")) { const k = f.cmd.slice("note-deleted:".length); delete state.notes[k]; if (state.tab === "notes") renderNotes(); }
     else if (f.cmd && f.cmd.startsWith("live-expired:")) { addSys(`⏱ live mode auto-disabled after ${f.cmd.split(":")[1]}s of silence`); }
+    else if (f.cmd === "birebir-access") { fetchBirebirs(); }
     else if (f.cmd === "room-closed") { addSys(`this loca was closed — moving you to ${state.homeRoom}`); setTimeout(() => doConnect(state.homeRoom), 800); }
     else { addSys("control: /" + f.cmd); scrollFeed(); }
   }
@@ -460,9 +511,10 @@ function renderLeadControl() {
     `<option value="${esc(name)}">◆ ${esc(name)}</option>`
   ).join("");
   select.value = current;
-  select.title = current
-    ? `${current} is lead — choose another name to transfer, or no lead to end`
-    : "choose this loca's lead";
+  select.dataset.tip = current ? `${current} is lead` : "No lead yet";
+  select.dataset.tipDetail = current
+    ? "Choose another name to transfer, or no lead to end."
+    : "Choose who leads this loca.";
 }
 
 // `@lead` is an explicit room-control command, not ordinary chat. Keeping the
