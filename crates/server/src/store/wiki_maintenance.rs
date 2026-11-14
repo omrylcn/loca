@@ -378,7 +378,13 @@ mod tests {
         );
         assert_eq!(s.wiki_snapshot("a").unwrap().reviewed_through, 0);
         assert!(s.claim_wiki_review("a", "editor", 3).unwrap().is_none());
-        assert_eq!(s.messages_after("a", 0, 10).unwrap().unwrap().len(), 1);
+        assert_eq!(
+            s.messages_after("a", 0, 0, u64::MAX, 10)
+                .unwrap()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -497,7 +503,13 @@ mod tests {
         };
         s.commit_wiki("a", "editor", &review, 12).unwrap();
         assert!(!s.valid_wiki_lease("a", "editor", &batch.lease, 13).unwrap());
-        assert_eq!(s.messages_after("a", 0, 10).unwrap().unwrap().len(), 3);
+        assert_eq!(
+            s.messages_after("a", 0, 0, u64::MAX, 10)
+                .unwrap()
+                .unwrap()
+                .len(),
+            3
+        );
         assert!(!s.schedule_wiki_review("a", MAX_PENDING_AGE_MS * 2).unwrap());
     }
 

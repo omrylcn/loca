@@ -90,11 +90,18 @@ const WEB_NOTES: &str = include_str!("../../../web/assets/notes.js");
 const WEB_MEMORY: &str = include_str!("../../../web/assets/memory.js");
 const WEB_WIKI: &str = include_str!("../../../web/assets/wiki.js");
 const WEB_PROFILE: &str = include_str!("../../../web/assets/profile.js");
+const WEB_THEME: &str = include_str!("../../../web/assets/theme.js");
 const WEB_SIDEBAR: &str = include_str!("../../../web/assets/sidebar.js");
 const WEB_API: &str = include_str!("../../../web/assets/api.js");
 const WEB_APP: &str = include_str!("../../../web/assets/app.js");
 const WEB_JOINREQUEST: &str = include_str!("../../../web/assets/joinrequest.js");
 const WEB_GETSTARTED: &str = include_str!("../../../web/assets/getstarted.js");
+const WEB_TOOLTIP: &str = include_str!("../../../web/assets/tooltip.js");
+const WEB_BIREBIR: &str = include_str!("../../../web/assets/birebir.js");
+const WEB_KEYS: &str = include_str!("../../../web/assets/keys.js");
+const WEB_EXTENSIONS: &str = include_str!("../../../web/assets/extensions.js");
+const WEB_GROUPS: &str = include_str!("../../../web/assets/groups.js");
+const WEB_NOTIFICATIONS: &str = include_str!("../../../web/assets/notifications.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
@@ -199,6 +206,9 @@ async fn main() {
         care_goal_secs: env_u32("CARE_GOAL_SECS", 0),
         care_task_secs: env_u32("CARE_TASK_SECS", 0),
         care_silence_secs: env_u32("CARE_SILENCE_SECS", 0),
+        // Absent = the legacy set: a loca auto-created by a first join keeps
+        // what every loca had before extensions could be chosen.
+        extensions: None,
     };
 
     // Boot epoch = process start time (seconds); changes every restart.
@@ -248,6 +258,11 @@ async fn main() {
         default_settings,
         epoch,
     );
+    // LOCA_CAPACITY: seats per loca, humans and agents alike (default 7,
+    // clamped 2..=32). Watchers never take a seat.
+    let capacity =
+        hub.set_loca_capacity(env_u32("LOCA_CAPACITY", hub::Hub::LOCA_KAPASITE as u32) as usize);
+    tracing::info!(capacity, "seats per loca");
     if hub.admin_pairing_code().is_some() {
         tracing::info!(
             "master browser pairing is available from the loopback master desk; code omitted from logs"
@@ -264,6 +279,7 @@ async fn main() {
                 tick.tick().await;
                 hub.expire_live();
                 hub.tick_wiki();
+                hub.expire_unused_smasters();
             }
         });
     }
@@ -388,7 +404,44 @@ async fn main() {
             axum::routing::post(ack_join_request_route),
         )
         .route("/whoami", get(whoami))
-        .route("/profile", get(profile_view))
+        .route("/profile", get(profile_view).put(rename_profile_route))
+        .route("/building/ranks", get(list_building_ranks))
+        .route("/building/bans", get(list_building_bans))
+        .route("/groups", get(list_groups).post(create_group_route))
+        .route(
+            "/groups/:id",
+            get(get_group)
+                .patch(update_group_route)
+                .delete(delete_group_route),
+        )
+        .route("/groups/:id/log", get(group_log_route))
+        .route(
+            "/groups/:id/members/:principal_id",
+            axum::routing::put(add_group_member_route).delete(remove_group_member_route),
+        )
+        .route("/rooms/:id/group", axum::routing::put(set_loca_group_route))
+        .route("/rooms/:id/group/preview", get(preview_loca_group_route))
+        .route(
+            "/notifications",
+            get(list_notifications).post(send_notification_route),
+        )
+        .route("/notifications/sent", get(sent_notifications_route))
+        .route(
+            "/notifications/audiences",
+            get(notification_audiences_route),
+        )
+        .route(
+            "/notifications/read-all",
+            axum::routing::post(read_all_notifications_route),
+        )
+        .route(
+            "/notifications/:id/read",
+            axum::routing::post(read_notification_route),
+        )
+        .route(
+            "/profile/preferences",
+            get(get_profile_preferences).put(put_profile_preferences),
+        )
         .route(
             "/profile/credentials",
             get(list_profile_credentials).post(create_profile_credential_route),
@@ -424,8 +477,10 @@ async fn main() {
         .route("/smasters", get(list_smasters).post(create_smaster))
         .route(
             "/smasters/:token",
-            axum::routing::delete(revoke_smaster_route),
+            axum::routing::delete(revoke_smaster_route).put(rename_smaster_route),
         )
+        .route("/keys", get(list_keys).post(issue_key))
+        .route("/keys/:id", axum::routing::delete(revoke_key_route))
         .route("/rooms", get(list_rooms).post(create_loca_route))
         .route("/rooms/:id/messages", get(get_messages).post(post_message))
         .route(
@@ -452,6 +507,15 @@ async fn main() {
                 .delete(revoke_loca_operator_route),
         )
         .route("/rooms/:id/settings", get(get_settings).put(set_settings))
+        .route("/extensions", get(extension_catalog))
+        .route(
+            "/rooms/:id/extensions",
+            get(get_extensions).put(put_extensions),
+        )
+        .route(
+            "/rooms/:id/extensions/:ext",
+            axum::routing::put(add_extension).delete(remove_extension),
+        )
         .route("/rooms/:id/moderate", get(get_mod).post(moderate))
         .route("/rooms/:id", axum::routing::delete(delete_room))
         .route("/rooms/:id/invites", get(list_invites).post(create_invite))
@@ -547,6 +611,40 @@ async fn main() {
             axum::routing::post(ack_care),
         )
         .route("/ws", get(ws_handler))
+        .route("/birebirs", get(list_my_birebirs).post(open_birebir_route))
+        .route("/birebirs/candidates", get(birebir_candidates_route))
+        .route(
+            "/birebirs/:room/master",
+            axum::routing::post(birebir_master_route),
+        )
+        .route("/building/birebirs", get(birebir_overview_route))
+        .route(
+            "/building/birebirs/:room/messages",
+            get(birebir_witness_route),
+        )
+        .route(
+            "/building/birebirs/:room/close",
+            axum::routing::post(birebir_close_route),
+        )
+        .route(
+            "/building/birebirs/:room/seal",
+            axum::routing::post(birebir_seal_route),
+        )
+        // Innermost: by the time it runs, the birebir fence has already
+        // answered for a birebir and the membership gate for a stranger.
+        .route_layer(axum::middleware::from_fn_with_state(
+            hub.clone(),
+            extension_fence,
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            hub.clone(),
+            birebir_fence,
+        ))
+        // A group loca is invisible to everyone outside its group.
+        .route_layer(axum::middleware::from_fn_with_state(
+            hub.clone(),
+            group_fence,
+        ))
         .route_layer(axum::middleware::from_fn_with_state(
             hub.clone(),
             require_membership,
@@ -671,11 +769,18 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "memory.js" => Some(("text/javascript; charset=utf-8", WEB_MEMORY)),
         "wiki.js" => Some(("text/javascript; charset=utf-8", WEB_WIKI)),
         "profile.js" => Some(("text/javascript; charset=utf-8", WEB_PROFILE)),
+        "theme.js" => Some(("text/javascript; charset=utf-8", WEB_THEME)),
         "sidebar.js" => Some(("text/javascript; charset=utf-8", WEB_SIDEBAR)),
         "api.js" => Some(("text/javascript; charset=utf-8", WEB_API)),
         "app.js" => Some(("text/javascript; charset=utf-8", WEB_APP)),
         "joinrequest.js" => Some(("text/javascript; charset=utf-8", WEB_JOINREQUEST)),
         "getstarted.js" => Some(("text/javascript; charset=utf-8", WEB_GETSTARTED)),
+        "tooltip.js" => Some(("text/javascript; charset=utf-8", WEB_TOOLTIP)),
+        "birebir.js" => Some(("text/javascript; charset=utf-8", WEB_BIREBIR)),
+        "keys.js" => Some(("text/javascript; charset=utf-8", WEB_KEYS)),
+        "extensions.js" => Some(("text/javascript; charset=utf-8", WEB_EXTENSIONS)),
+        "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
+        "notifications.js" => Some(("text/javascript; charset=utf-8", WEB_NOTIFICATIONS)),
         _ => None,
     };
     match asset {
@@ -724,7 +829,7 @@ fn admin_console_write_allowed(headers: &HeaderMap) -> bool {
 
 async fn admin_console_state(State(hub): State<Hub>) -> impl IntoResponse {
     Json(serde_json::json!({
-        "locas": hub.room_summaries_for(|_| true),
+        "locas": hub.room_summaries_for(|room| !hub.is_birebir(room)),
         // Resident deliberately omits the mb_ membership token. The browser
         // needs names and loca occupancy, never identity credentials.
         "residents": hub.residents(),
@@ -835,6 +940,16 @@ async fn admin_console_invite(
         Err(hub::InviteError::Sealed) => {
             (StatusCode::CONFLICT, "this loca is permanently sealed").into_response()
         }
+        Err(hub::InviteError::NotInGroup) => (
+            StatusCode::FORBIDDEN,
+            "not a member of this loca's group — add them to the group first",
+        )
+            .into_response(),
+        Err(hub::InviteError::PrivatePair) => (
+            StatusCode::FORBIDDEN,
+            "a birebir admits only its two people",
+        )
+            .into_response(),
     }
 }
 
@@ -979,6 +1094,8 @@ async fn health(State(hub): State<Hub>) -> impl IntoResponse {
         "version": env!("CARGO_PKG_VERSION"),
         "epoch": hub.epoch(),
         "needs_token": !hub.is_member(None),
+        // Seats per loca (LOCA_CAPACITY), humans and agents alike.
+        "loca_capacity": hub.loca_capacity(),
         // true when no ADMIN_TOKEN is configured: admin actions are open to all
         // (dev mode), so clients can surface admin controls without a token.
         "admin_open": hub.is_admin(None),
@@ -1045,6 +1162,9 @@ async fn ws_handler(
             return (StatusCode::FORBIDDEN, "banned from this room").into_response();
         }
         hub::EnterDecision::Denied => {
+            if hub.is_birebir(&room) || hub.is_group_loca(&room) || !hub.room_exists(&room) {
+                return (StatusCode::NOT_FOUND, "no such loca").into_response();
+            }
             return (StatusCode::UNAUTHORIZED, "davet required for this loca").into_response();
         }
     }
@@ -1301,7 +1421,7 @@ async fn ws_session(
             &ServerFrame::Control {
                 cmd: format!(
                     "loca full ({} seats). ask the master for a seat, or watch with ?watch=1",
-                    hub::Hub::LOCA_KAPASITE
+                    hub.loca_capacity()
                 ),
             },
         )
@@ -1427,7 +1547,10 @@ async fn ws_session(
                     if let ServerFrame::Evicted { identity: who, session, .. } = &frame {
                         // Our own eviction broadcast carries our session id;
                         // ignore it. Anyone else on our identity steps aside.
-                        if who == &identity && *session != session_id {
+                        // A watcher holds no seat, so a seat change on its
+                        // identity never closes it (a Master watching one tab
+                        // and seated in another stays at the door).
+                        if !watch_only && who == &identity && *session != session_id {
                             let _ = send_frame(&mut sink, &frame).await;
                             evicted = true;
                             break;

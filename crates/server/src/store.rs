@@ -15,17 +15,27 @@
 mod attachment_index;
 mod attachments;
 mod attention;
+mod birebir;
 pub(crate) use attachment_index::{AttachError, BlobServe};
+pub use birebir::Birebir;
+pub use groups::{GroupLogEntry, GroupRecord};
+pub use keys::KeyRecord;
+pub use notifications::{NotificationPage, NotificationRow, SentNotificationRow};
 mod content;
+mod groups;
 mod identity;
+mod keys;
 mod memory;
 mod messages;
+mod notifications;
 mod operators;
+mod preferences;
 mod rooms;
 mod wiki;
 mod wiki_context;
 mod wiki_maintenance;
 mod work;
+pub use preferences::{PreferenceError, Preferences};
 pub use wiki::{
     WikiCommit, WikiError, WikiPageEdit, WikiPageRemoval, WikiPageSnapshot, WikiSnapshot,
 };
@@ -91,6 +101,13 @@ pub enum BuildingRole {
     Master,
     Smaster,
     Member,
+}
+
+pub struct ModerationRecord {
+    pub room: String,
+    pub name: String,
+    pub kind: String,
+    pub authority_rank: u8,
 }
 
 /// Credential-free public view of a room's explicit Loca Operator assignment.
@@ -457,6 +474,8 @@ impl Store {
                 name TEXT NOT NULL,
                 kind TEXT NOT NULL,        -- 'ban' | 'mute'
                 at INTEGER NOT NULL,
+                authority_rank INTEGER NOT NULL DEFAULT 3,
+                decided_by TEXT,
                 PRIMARY KEY (room, name, kind)
             );
             -- Browser admin sessions are short-lived bearer credentials, but
@@ -512,6 +531,14 @@ impl Store {
             );
             CREATE INDEX IF NOT EXISTS principal_sessions_principal
                 ON principal_sessions(principal_id, revoked_at, expires_at);
+            -- Personal appearance preferences (theme, accent, density, font
+            -- size). One validated JSON document per principal, so the look
+            -- follows the person to every device instead of one browser.
+            CREATE TABLE IF NOT EXISTS principal_preferences (
+                principal_id TEXT PRIMARY KEY REFERENCES principals(id),
+                json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );
             -- A Loca Operator is an explicit, principal-bound room authority.
             -- Rows are never overwritten: replacement/revocation closes the
             -- prior row, preserving who appointed whom and when.
@@ -607,6 +634,35 @@ impl Store {
             -- message_id FKs messages ON DELETE CASCADE, so deleting a message
             -- automatically drops its refs; the sweep then collects any blob
             -- whose global count fell to 0.
+            -- A birebir: a private loca for exactly two principals. `a` < `b`
+            -- so the pair maps to one row; the room id is derived from it.
+            -- The Master's call-in is the only third-party access, recorded
+            -- here with who called and since when; earlier history opens only
+            -- when both sides allow it.
+            -- Every Master pairing code handed out. The code itself is never
+            -- stored: only a short fingerprint to recognise it, when it was
+            -- issued, until when it could be used, and what became of it.
+            CREATE TABLE IF NOT EXISTS pairing_log (
+                id TEXT PRIMARY KEY,
+                fingerprint TEXT NOT NULL,
+                issued_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                session_ttl_ms INTEGER NOT NULL,
+                used_at INTEGER,
+                superseded_at INTEGER
+            );
+            CREATE TABLE IF NOT EXISTS birebirs (
+                room TEXT PRIMARY KEY,
+                a TEXT NOT NULL,
+                b TEXT NOT NULL,
+                opened_by TEXT NOT NULL,
+                opened_at INTEGER NOT NULL,
+                master_called_by TEXT,
+                master_since INTEGER,
+                history_a INTEGER NOT NULL DEFAULT 0,
+                history_b INTEGER NOT NULL DEFAULT 0,
+                UNIQUE (a, b)
+            );
             CREATE TABLE IF NOT EXISTS attachment_refs (
                 room TEXT NOT NULL,
                 message_id INTEGER NOT NULL,
@@ -624,6 +680,11 @@ impl Store {
                 ON attachment_refs(sha);
             "#,
         )?;
+        // Groups (PRINCIPLES "Groups"). An older database simply gains empty
+        // tables: no loca belongs to a group, so every loca stays default.
+        conn.execute_batch(groups::SCHEMA)?;
+        // Notifications (docs/concepts.md "Notifications"): new tables only.
+        conn.execute_batch(notifications::SCHEMA)?;
         // Older databases predate the bootstrap-ACK column. Adding it is a no-op
         // once present. It gates re-delivery: an approved request's mb_ stays
         // re-fetchable via /bootstrap until the client explicitly ACKs (after
@@ -631,30 +692,25 @@ impl Store {
         // persisting the credential can never lose it. `bootstrap_delivered_at`
         // becomes a first-delivery timestamp for observability, no longer the
         // gate; only the ACK closes the window.
-        let _ = conn.execute(
-            "ALTER TABLE join_requests ADD COLUMN bootstrap_acked_at INTEGER",
-            [],
-        );
+        add_column(&conn, "join_requests", "bootstrap_acked_at INTEGER")?;
         // Older databases predate message kinds; adding the column is a no-op
         // once it exists, and existing rows are plain speech by definition.
-        let _ = conn.execute(
-            "ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'say'",
-            [],
-        );
-        let _ = conn.execute("ALTER TABLE messages ADD COLUMN principal TEXT", []);
-        let _ = conn.execute("ALTER TABLE messages ADD COLUMN op_id TEXT", []);
+        add_column(&conn, "messages", "kind TEXT NOT NULL DEFAULT 'say'")?;
+        add_column(&conn, "messages", "principal TEXT")?;
+        // Unknown legacy decisions are Master-protected, never downgraded
+        // during migration. A column that cannot be added stops the open.
+        add_column(&conn, "bans", "authority_rank INTEGER NOT NULL DEFAULT 3")?;
+        add_column(&conn, "bans", "decided_by TEXT")?;
+        add_column(&conn, "messages", "op_id TEXT")?;
         // Attachments ride on the message row as a JSON array of the ref
         // objects (id/sha/name/mime/size), so a reloaded message shows its
         // chips exactly like the live broadcast — the word AND its files are
         // durable together. NULL/absent means no attachments. Older databases
         // predate the column; adding it is a no-op once present.
-        let _ = conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT", []);
+        add_column(&conn, "messages", "attachments TEXT")?;
         // Memory frames carry a durable monotonic revision. Existing rows begin
         // at zero and advance on every owner or body mutation.
-        let _ = conn.execute(
-            "ALTER TABLE loca_memory ADD COLUMN version INTEGER NOT NULL DEFAULT 0",
-            [],
-        );
+        add_column(&conn, "loca_memory", "version INTEGER NOT NULL DEFAULT 0")?;
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_operation
              ON messages(room, principal, op_id)
@@ -664,56 +720,59 @@ impl Store {
         // A davet now seats a MEMBER (mb_ token) — identity comes from the
         // membership record, the invite's name/kind are an audit snapshot.
         // Legacy rows get an empty member and are bound at load (migration).
-        let _ = conn.execute(
-            "ALTER TABLE invites ADD COLUMN member TEXT NOT NULL DEFAULT ''",
-            [],
-        );
+        add_column(&conn, "invites", "member TEXT NOT NULL DEFAULT ''")?;
         // A deleted loca is SEALED, not destroyed (PRINCIPLES: "seal not
         // destroy" — the record survives so "what happened here" stays
         // answerable). `sealed_at` marks it; the row and its history stay on
         // disk, and boot re-tombstones it so it never silently reopens.
-        let _ = conn.execute("ALTER TABLE rooms ADD COLUMN sealed_at INTEGER", []);
+        add_column(&conn, "rooms", "sealed_at INTEGER")?;
         // Goal/task care is based on explicit progress, never on unrelated
         // chat. Existing rows start at creation time so upgrades do not
         // manufacture artificial recent progress.
-        let _ = conn.execute(
-            "ALTER TABLE tasks ADD COLUMN progress_at INTEGER NOT NULL DEFAULT 0",
-            [],
-        );
-        let _ = conn.execute(
+        add_column(&conn, "tasks", "progress_at INTEGER NOT NULL DEFAULT 0")?;
+        conn.execute(
             "UPDATE tasks SET progress_at = created_at WHERE progress_at = 0",
             [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE goals ADD COLUMN progress_at INTEGER NOT NULL DEFAULT 0",
-            [],
-        );
-        let _ = conn.execute("ALTER TABLE goals ADD COLUMN checkpoint TEXT", []);
-        let _ = conn.execute("ALTER TABLE goals ADD COLUMN stale_after_secs INTEGER", []);
-        let _ = conn.execute(
+        )?;
+        add_column(&conn, "goals", "progress_at INTEGER NOT NULL DEFAULT 0")?;
+        add_column(&conn, "goals", "checkpoint TEXT")?;
+        add_column(&conn, "goals", "stale_after_secs INTEGER")?;
+        conn.execute(
             "UPDATE goals SET progress_at = created_at WHERE progress_at = 0",
             [],
-        );
-        let _ = conn.execute(
-            "ALTER TABLE care_outbox ADD COLUMN attention_id TEXT NOT NULL DEFAULT ''",
-            [],
-        );
-        let _ = conn.execute(
+        )?;
+        add_column(
+            &conn,
+            "care_outbox",
+            "attention_id TEXT NOT NULL DEFAULT ''",
+        )?;
+        conn.execute(
             "UPDATE care_outbox SET attention_id = id WHERE attention_id = ''",
             [],
-        );
+        )?;
         // v0.9.4: Everyone reminders deliver by canonical principal. Legacy rows
         // (Lead/Person and everything written before this) keep NULL here and stay
         // on the name-based delivery path.
-        let _ = conn.execute(
-            "ALTER TABLE care_outbox ADD COLUMN owner_principal_id TEXT",
-            [],
-        );
-        let _ = conn.execute(
+        add_column(&conn, "care_outbox", "owner_principal_id TEXT")?;
+        // A called-in Master's boundary is ordered with message writes since
+        // this column exists. Visits recorded before it end here, once.
+        add_column(
+            &conn,
+            "birebirs",
+            "master_since_ordered INTEGER NOT NULL DEFAULT 0",
+        )?;
+        let ended = birebir::end_unordered_birebir_visits(&conn)?;
+        if ended > 0 {
+            tracing::warn!(
+                ended,
+                "ended Master visits recorded before the ordered call boundary"
+            );
+        }
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS care_outbox_delivery_principal
                 ON care_outbox(delivery_room, owner_principal_id, acked_at)",
             [],
-        );
+        )?;
         // v0.6.9 makes Attention a first-class product ledger. Older DBs may
         // already contain durable Care deliveries; promote each one instead
         // of replaying an event that cannot be claimed or resolved.
@@ -1242,6 +1301,29 @@ fn hex_bytes(bytes: &[u8]) -> String {
         output.push(HEX[(byte & 0x0f) as usize] as char);
     }
     output
+}
+
+/// Add one column to an existing table while the store opens. A database that
+/// already has the column answers "duplicate column name", and only that
+/// answer counts as success. Every other failure (a missing table, a locked or
+/// read-only file, a full disk) is returned, so `Store::open` stops with the
+/// real error instead of serving a half-upgraded schema.
+fn add_column(conn: &Connection, table: &str, column_definition: &str) -> rusqlite::Result<()> {
+    let sql = format!("ALTER TABLE {table} ADD COLUMN {column_definition}");
+    match conn.execute(&sql, []) {
+        Ok(_) => Ok(()),
+        Err(error) if is_duplicate_column(&error) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn is_duplicate_column(error: &rusqlite::Error) -> bool {
+    let message = match error {
+        rusqlite::Error::SqliteFailure(_, Some(message)) => message,
+        rusqlite::Error::SqlInputError { msg, .. } => msg,
+        _ => return false,
+    };
+    message.starts_with("duplicate column name")
 }
 
 /// Backfill legacy token-shaped identities without copying their raw secrets

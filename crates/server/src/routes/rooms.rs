@@ -3,7 +3,19 @@ use crate::*;
 #[derive(serde::Deserialize)]
 pub(crate) struct CreateLoca {
     name: String,
+    /// The extensions the new loca starts with. Absent keeps the legacy set
+    /// (every extension that existed before they could be chosen), so an
+    /// older client or script that sends only a name is unaffected. The web
+    /// create screen always sends its ticked list.
+    #[serde(default)]
+    extensions: Option<Vec<String>>,
+    /// The group the new loca belongs to (its id). Absent or null: the
+    /// default group, exactly as before groups existed.
+    #[serde(default)]
+    group: Option<String>,
 }
+
+use super::groups::group_error as groups_error;
 
 pub(crate) async fn create_loca_route(
     State(hub): State<Hub>,
@@ -14,17 +26,24 @@ pub(crate) async fn create_loca_route(
     if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
         return (StatusCode::BAD_REQUEST, "invalid loca name").into_response();
     }
+    let extensions = match body.extensions.as_deref().map(hub::normalize_extensions) {
+        None => None,
+        Some(Ok(list)) => Some(list),
+        Some(Err(error)) => return (StatusCode::BAD_REQUEST, error.message()).into_response(),
+    };
     let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
-    match hub.create_loca(name, &actor) {
+    let group = body.group.as_deref().filter(|g| !g.is_empty());
+    match hub.create_loca_in(name, &actor, extensions, group) {
         Ok(assignment) => (
             StatusCode::CREATED,
-            Json(serde_json::json!({"room":name,"operator":assignment})),
+            Json(serde_json::json!({"room":name,"operator":assignment,"group":group})),
         )
             .into_response(),
-        Err(hub::OperatorAssignmentError::AuthorityRequired) => {
+        Err(hub::CreateLocaError::Group(error)) => groups_error(error),
+        Err(hub::CreateLocaError::Operator(hub::OperatorAssignmentError::AuthorityRequired)) => {
             (StatusCode::FORBIDDEN, "Building authority required").into_response()
         }
-        Err(hub::OperatorAssignmentError::Conflict) => (
+        Err(hub::CreateLocaError::Operator(hub::OperatorAssignmentError::Conflict)) => (
             StatusCode::CONFLICT,
             "loca already exists or is permanently sealed",
         )
@@ -148,6 +167,26 @@ pub(crate) async fn list_rooms(State(hub): State<Hub>, headers: HeaderMap) -> im
         )
         .is_allowed()
     }))
+}
+/// `GET /building/bans` — who is barred from which loca, for every loca the
+/// caller may enter, in one request (the Building view used to ask each loca
+/// in turn). Birebirs are conversation only and never listed.
+pub(crate) async fn list_building_bans(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !is_admin_req(&hub, &headers) {
+        return (StatusCode::FORBIDDEN, "Building authority required").into_response();
+    }
+    let rows: Vec<_> = hub
+        .bans_by_room()
+        .into_iter()
+        .filter(|(room, _)| {
+            !hub.is_birebir(room) && room_decision_of(&hub, room, &headers).is_allowed()
+        })
+        .map(|(room, banned)| serde_json::json!({ "room": room, "banned": banned }))
+        .collect();
+    Json(rows).into_response()
 }
 pub(crate) async fn get_members(State(hub): State<Hub>, access: RoomAccess) -> impl IntoResponse {
     Json(hub.members(&access.room)).into_response()
@@ -275,6 +314,11 @@ pub(crate) async fn set_settings(
     if hub.is_deleted(&id) {
         return (StatusCode::CONFLICT, "this loca is permanently sealed").into_response();
     }
+    // Live mode is an extension: with it off, nobody turns live on. Turning
+    // it off stays allowed (removing the extension already does that).
+    if body.live == Some(true) && !hub.extension_enabled(&id, "live") {
+        return extension_off("live");
+    }
     if let Some(protocol::ReminderRecipient::Person { name }) = &body.care_recipient {
         if !valid_identity_name(name) {
             return (
@@ -371,9 +415,8 @@ pub(crate) async fn create_invite(
     // Who signed this davet. The distinction matters at revoke time: a
     // smaster may not undo what the master decided.
     let issued_by = hub
-        .smaster_name(admin_token_of(&headers))
-        .map(|n| format!("smaster:{n}"))
-        .unwrap_or_else(|| "master".into());
+        .resolve_authority(admin_token_of(&headers), session_of(&headers))
+        .invitation_issuer();
     match hub.invite_member_to_room(&member.token, &id, &issued_by) {
         Ok(inv) => (StatusCode::OK, Json(inv)).into_response(),
         Err(hub::InviteError::AlreadyInvited) => {
@@ -405,6 +448,16 @@ pub(crate) async fn create_invite(
         Err(hub::InviteError::Sealed) => {
             (StatusCode::CONFLICT, "this loca is permanently sealed").into_response()
         }
+        Err(hub::InviteError::NotInGroup) => (
+            StatusCode::FORBIDDEN,
+            "not a member of this loca's group — add them to the group first",
+        )
+            .into_response(),
+        Err(hub::InviteError::PrivatePair) => (
+            StatusCode::FORBIDDEN,
+            "a birebir admits only its two people",
+        )
+            .into_response(),
     }
 }
 /// Who currently holds a davet to this loca (master view).
@@ -455,15 +508,15 @@ pub(crate) async fn revoke_invite(
     // The master has the last word: a smaster does everything a master does,
     // except undo the Master's own decisions. A Master principal session may
     // end anything without exposing the root/bootstrap credential.
-    if !is_master_req(&hub, &headers) {
-        let issued_by_master = hub
-            .invite_by_token(&token)
-            .map(|i| i.issued_by == "master")
-            .unwrap_or(false);
-        if issued_by_master {
+    {
+        let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+        if hub
+            .invite_by_ref(&token)
+            .is_some_and(|invite| !hub.may_end_invite(&actor, &invite))
+        {
             return (
                 StatusCode::FORBIDDEN,
-                "the master issued this davet — only the master ends it",
+                "cannot end a davet issued by a higher or unknown authority",
             )
                 .into_response();
         }
@@ -514,9 +567,22 @@ pub(crate) async fn moderate(
         )
             .into_response();
     }
-    match hub.moderate(&id, body.action, &body.name) {
+    let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    if !hub.may_moderate(&id, &actor, body.action, &body.name) {
+        return (
+            StatusCode::FORBIDDEN,
+            "cannot override a higher authority's decision or moderate a protected Building rank",
+        )
+            .into_response();
+    }
+    match hub.moderate(&id, body.action, &body.name, &actor) {
         Ok(state) => (StatusCode::OK, Json(state)).into_response(),
-        Err(_) => (
+        Err(hub::ModerationError::Forbidden) => (
+            StatusCode::FORBIDDEN,
+            "cannot override a higher authority's restriction or davet",
+        )
+            .into_response(),
+        Err(hub::ModerationError::Storage) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "could not save moderation — try again",
         )

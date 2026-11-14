@@ -3,11 +3,11 @@
 let residentRequestSequence = 0;
 let residentAppliedSequence = 0;
 function residentReadScope() {
-  return { sequence: ++residentRequestSequence, server: serverBase(), session: state.session, name: state.name };
+  return { sequence: ++residentRequestSequence, server: serverBase(), session: state.session, name: state.name, gen: state.buildingGen };
 }
 function residentReadCurrent(scope) {
   return isAdmin() && scope.sequence >= residentAppliedSequence && scope.server === serverBase()
-    && scope.session === state.session && scope.name === state.name;
+    && scope.session === state.session && scope.name === state.name && !buildingStale(scope.gen);
 }
 async function fetchLobby() {
   const box = $("lobbyBox");
@@ -85,14 +85,27 @@ async function openCallList() {
   const box = $("callList");
   box.classList.remove("hidden");
   box.innerHTML = `<div class="callnone">looking…</div>`;
+  const gen = state.buildingGen;
   try {
     const r = await fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) });
+    if (buildingStale(gen)) return;
     if (!r.ok) { box.innerHTML = `<div class="callnone">could not fetch the list</div>`; return; }
     const all = await r.json();
+    if (buildingStale(gen)) return;
     const here = new Set(state.members.map(m => m.name));
-    const free = all.filter(p => !p.suspended && !here.has(p.name) && !(p.locas || []).includes(state.room));
+    // A group loca seats only its group's people: offer nobody else.
+    const groupId = (state.rooms || []).find(rm => rm.room === state.room)?.group_id;
+    let inGroup = null;
+    if (groupId) {
+      await fetchGroups(false);
+      if (buildingStale(gen)) return;
+      const group = (state.groups || []).find(g => g.id === groupId);
+      inGroup = new Set((group?.members || []).map(m => m.name));
+    }
+    const free = all.filter(p => !p.suspended && !here.has(p.name) && !(p.locas || []).includes(state.room)
+      && (!inGroup || inGroup.has(p.name)));
     if (!free.length) {
-      box.innerHTML = `<div class="callnone">nobody in the building to call</div>`;
+      box.innerHTML = `<div class="callnone">${inGroup ? "nobody else in this group to call — add them to the group first" : "nobody in the building to call"}</div>`;
       return;
     }
     box.innerHTML = free.map(p => {
@@ -102,7 +115,7 @@ async function openCallList() {
              `<span>${glyph}${esc(p.name)}</span><span class="where">${esc(where)}</span></button>`;
     }).join("");
   } catch (e) {
-    box.innerHTML = `<div class="callnone">could not reach the server</div>`;
+    if (!buildingStale(gen)) box.innerHTML = `<div class="callnone">could not reach the server</div>`;
   }
 }
 
@@ -146,18 +159,36 @@ function offerAdmitAndInvite(name) {
 }
 
 async function admitAndInvite(name) {
+  // Two steps of one person's decision: the second is not taken, into
+  // whatever loca is open then, for whoever signed in after the first.
+  const gen = state.buildingGen;
   try {
     const a = await fetch(`${serverBase()}/members`, {
       method: "POST",
       headers: adminHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({ name, kind: "agent" }),
     });
-    if (!a.ok) { addSys(`could not admit ${name}: ${await a.text()}`); return; }
+    if (buildingStale(gen)) return;
+    if (!a.ok) { const why = await a.text(); if (!buildingStale(gen)) addSys(`could not admit ${name}: ${why}`); return; }
     addSys(`${name} admitted to the building`);
     await callIn(name);
-  } catch (e) { addSys("admit failed to send"); }
+  } catch (e) { if (!buildingStale(gen)) addSys("admit failed to send"); }
 }
 
+/// Building rank worn beside the name: the name says who, the badge says what.
+function rankBadge(role) {
+  if (role === "master") return ` <span class="rankbadge rank-master" title="Building Master">Master</span>`;
+  if (role === "smaster") return ` <span class="rankbadge rank-smaster" title="Building Smaster">Smaster</span>`;
+  return "";
+}
+/// The server refuses moderation that reaches up the Building ranks; do not
+/// offer buttons it will refuse. Nobody moderates the Master; only the Master
+/// moderates a Smaster.
+function canModerateSeat(m) {
+  if (m.role === "master") return false;
+  if (m.role === "smaster") return state.profile?.building_role === "master";
+  return true;
+}
 function renderMembers() {
   renderTopStatus();   // header subtitle shows online counts + mode
   renderLeadControl();
@@ -203,7 +234,7 @@ function renderMembers() {
     let acts = "";
     if (isAdmin()) {
       let moderation = "";
-      if (!isMe) {
+      if (!isMe && canModerateSeat(m)) {
         const mu = muted.has(m.name)
           ? `<button data-mod="unmute" data-n="${esc(m.name)}" title="unmute">🔊</button>`
           : `<button data-mod="mute" data-n="${esc(m.name)}" title="mute">🔇</button>`;
@@ -216,7 +247,12 @@ function renderMembers() {
       }
       acts = `<span class="omacts">${leadAct}${moderation}</span>`;
     }
-    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${flag}${leadTag}</span><span class="otag">${m.type}</span>${acts}`;
+    // Anyone at the table may speak to one person privately — never from
+    // inside a birebir (there is nobody else to reach).
+    const dm = !isMe && !isBirebir(state.room)
+      ? `<button type="button" class="dmbtn" data-dm="${esc(m.name)}" aria-label="Message ${esc(m.name)} privately" data-tip="Message ${esc(m.name)}" data-tip-detail="A birebir: only the two of you see it.">${BIREBIR_ICON}</button>`
+      : "";
+    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}</span><span class="otag">${m.type}</span>${dm}${acts}`;
     ol.appendChild(d);
   }
   if (!seated.length) ol.innerHTML = `<div class="omem" style="color:var(--muted)">nobody seated</div>`;
@@ -299,41 +335,51 @@ async function fetchPeople() {
   const scope = residentReadScope();
   const box = $("peopleList");
   try {
-    const [resRooms, resPeople, resJoin, resStock] = await Promise.all([
-      fetch(`${serverBase()}/rooms`, { headers: adminHeaders({}) }),
+    const [resBans, resPeople, resJoin, resStock, resRanks] = await Promise.all([
+      fetch(`${serverBase()}/building/bans`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/join-requests`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
+      fetch(`${serverBase()}/building/ranks`, { headers: adminHeaders({}) }),
     ]);
     if (!resPeople.ok) { if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">liste alınamadı</div>`; return; }
-    const rooms = resRooms.ok ? await resRooms.json() : [];
     const people = await resPeople.json();
     if (!residentReadCurrent(scope)) return;
+    // Each body below is one more await: a sign-out may land between any two.
     // Durable source of truth for admissions: reloaded from the server on every
     // open/reconnect, so a Master always sees pending requests even if the live
     // "wants to join" chat nudge was missed. On a failed fetch we KEEP the last
     // known list and flag the error — a fetch failure must never masquerade as
     // "no pending requests".
     if (resJoin.ok) {
-      state.joinRequests = (await resJoin.json()).pending || [];
+      const pending = (await resJoin.json()).pending || [];
+      if (buildingStale(scope.gen)) return;
+      state.joinRequests = pending;
       state.joinRequestsError = false;
     } else {
       state.joinRequestsError = true;
     }
-    if (resStock.ok) state.admissionStock = await resStock.json();
+    if (resStock.ok) { const stock = await resStock.json(); if (buildingStale(scope.gen)) return; state.admissionStock = stock; }
+    if (resRanks.ok) { const ranks = await resRanks.json(); if (buildingStale(scope.gen)) return; state.ranks = ranks; }
 
-    // Ask each loca who it has barred; a ban lives in the room, not on the person.
+    // A ban lives in the room, not on the person: one request returns every
+    // loca's bans that this viewer may see, regrouped here by person.
     const bans = {};
-    await Promise.all(rooms.map(async (r) => {
-      try {
-        const m = await fetch(`${serverBase()}/rooms/${encodeURIComponent(r.room)}/moderate`, { headers: adminHeaders({}) });
-        if (m.ok) { const st = await m.json(); (st.banned || []).forEach(n => { (bans[n] ||= []).push(r.room); }); }
-      } catch (e) { /* one loca failing must not blank the whole page */ }
-    }));
+    const banRows = resBans.ok ? await resBans.json().catch(() => []) : [];
+    if (buildingStale(scope.gen)) return;
+    for (const row of Array.isArray(banRows) ? banRows : []) {
+      if (isBirebir(row.room)) continue;
+      (row.banned || []).forEach(n => { (bans[n] ||= []).push(row.room); });
+    }
 
+    // Groups give the People tab its group column and filter.
+    await fetchGroups(false);
+    if (buildingStale(scope.gen)) return;
     if (!applyResidentSnapshot(people, { people: true, scope })) return;
     state.bans = bans;
     renderPeople();
+    fetchBirebirOverview();
+    fetchKeyLedger();
   } catch (e) {
     if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">sunucuya ulaşılamadı</div>`;
   }
@@ -341,7 +387,8 @@ async function fetchPeople() {
 
 // Building-level admissions surface: pending join requests (the durable list,
 // reloaded from the server), plus admission stock, all in the MAIN app so a
-// Master approves here rather than in the hidden SSH-tunnel desk.
+// Master approves here rather than in the hidden SSH-tunnel desk. Empty, it
+// collapses to one quiet line; it only becomes a card when someone waits.
 function joinRequestsHtml() {
   const loaded = Array.isArray(state.joinRequests);
   // Not fetched yet (and no error): render nothing rather than a misleading box.
@@ -349,8 +396,8 @@ function joinRequestsHtml() {
   const jr = loaded ? state.joinRequests : [];
   const stock = state.admissionStock;
   const gauge = stock
-    ? `${stock.available} available / ${stock.total} total`
-    : "stock —";
+    ? `${stock.available} of ${stock.total} admissions left`
+    : "admissions —";
   let rows;
   if (state.joinRequestsError && !jr.length) {
     // A failed fetch is shown AS an error — never as "no pending requests".
@@ -363,16 +410,39 @@ function joinRequestsHtml() {
     const stale = state.joinRequestsError
       ? `<div class="jrerr jrstale">could not refresh — showing last known list</div>`
       : "";
-    rows = stale + jr.map(r =>
-      `<div class="jrrow"><span class="jrwho"><b>${esc(r.name)}</b> · ${esc(r.kind === "user" ? "Human" : r.kind === "agent" ? "Agent" : "Unknown type")} wants to join</span>` +
-      `<span class="jracts"><button data-jr-approve="${esc(r.id)}">approve</button>` +
-      `<button data-jr-deny="${esc(r.id)}" class="quiet">deny</button></span></div>`).join("");
+    rows = stale + jr.map(r => {
+      const kind = r.kind === "user" ? "human" : r.kind === "agent" ? "agent" : "unknown";
+      return `<div class="jrrow"><span class="jrwho">${kindMark(kind)}<b>${esc(r.name)}</b>` +
+        `<span class="pkind">${esc(kind === "unknown" ? "Unknown type" : kind)}</span> wants to join</span>` +
+        `<span class="jracts"><button class="btn primary" data-jr-approve="${esc(r.id)}">Approve</button>` +
+        `<button class="btn" data-jr-deny="${esc(r.id)}">Deny</button></span></div>`;
+    }).join("");
   }
-  return `<div class="jrsection">` +
-    `<div class="jrhead"><span class="sectionlabel">Join requests${jr.length ? ` (${jr.length})` : ""}</span>` +
-    `<span class="jrstock">admission stock: ${esc(gauge)} · <button data-jr-mint="5" class="quiet">mint 5</button></span></div>` +
+  const waiting = jr.length ? " waiting" : "";
+  return `<section class="jrsection${waiting}">` +
+    `<div class="jrhead"><span class="bsection">Join requests${jr.length ? ` <span class="bcount">${jr.length}</span>` : ""}</span>` +
+    `<span class="jrstock">${esc(gauge)}<button class="btn" data-jr-mint="5" title="add five admission rights">Mint 5</button></span></div>` +
     rows +
-    `<div class="jrnotice" id="jrNotice"></div></div>`;
+    `<div class="jrnotice" id="jrNotice"></div></section>`;
+}
+
+// A small coloured mark says human or agent; the word sits beside it.
+function kindMark(kind) {
+  return `<span class="kindmark ${kind === "agent" ? "agent" : kind === "human" || kind === "user" ? "human" : ""}" aria-hidden="true"></span>`;
+}
+
+// Where someone is, as loca chips; nothing is a quiet dash-free sentence.
+function whereHtml(locas, fallback) {
+  if (locas && locas.length) {
+    // A busy agent sits in many locas: show three, then "+N" with the rest
+    // in its tooltip, so the column never spills into the next one.
+    const shown = locas.slice(0, 3).map(l =>
+      `<span class="locachip" title="seated in ${esc(l)}">#${esc(l)}</span>`).join("");
+    const rest = locas.slice(3);
+    return shown + (rest.length
+      ? `<span class="locachip more" title="${esc(rest.map(l => "#" + l).join("\n"))}">+${rest.length}</span>` : "");
+  }
+  return `<span class="pnowhere">${esc(fallback)}</span>`;
 }
 
 function renderPeople() {
@@ -381,20 +451,48 @@ function renderPeople() {
   const bans = state.bans || {};
   const names = new Set(people.map(p => p.name));
   Object.keys(bans).forEach(n => names.add(n));   // barred people may hold no seat
+  const ranks = Array.isArray(state.ranks) ? state.ranks : [];
+  renderBuildingSummary();
 
   const jrHtml = joinRequestsHtml();
+  // Ranks hold no Lobby membership, so the resident directory never lists
+  // them. They are still part of the Building: show them first, by name.
+  const ranksHtml = ranks.length
+    ? `<section class="bblock"><div class="bsection">Ranks <span class="bcount">${ranks.length}</span></div>` +
+      `<div class="peoplehead"><span>name</span><span>seat</span><span>groups</span><span>location</span><span></span></div>` +
+      ranks.filter(r => r.role === "master" || personInGroupFilter(r.name)).map(r => {
+        const seated = (r.locas || []).length;
+        // Location already says where; the status only marks a live seat.
+        // An issued but never-used Smaster code is a code, not a person.
+        const status = r.unused
+          ? `<span class="pstatus warn" title="This Smaster code was issued but nobody has signed in with it">unused code</span>`
+          : seated
+            ? `<span class="pstatus connection ok" title="seated in a loca right now">seated</span>`
+            : "";
+        const where = r.unused
+          ? `<span class="pnowhere">nobody has signed in with it yet</span>`
+          : whereHtml(r.locas, "not in a loca");
+        const rename = state.profile?.building_role === "master" && r.role === "smaster"
+          ? `<button type="button" class="btn" data-rename-smaster="${esc(r.name)}" title="Set this Smaster's real name">Rename</button>`
+          : "";
+        const groups = r.role === "master"
+          ? `<span class="pnowhere">sees every group</span>` : groupChipsHtml(r.name);
+        return `<div class="prow rankrow${r.unused ? " unusedcode" : ""}"><span class="pname">${kindMark("human")}${personNameHtml(r.name)}${rankBadge(r.role)}</span>` +
+          `<span class="pstatuses">${status}</span><span class="pgroups">${groups}</span><span class="pwhere">${where}</span><span class="pacts">${rename}</span></div>`;
+      }).join("") + `</section>`
+    : "";
   if (!names.size) {
-    box.innerHTML = jrHtml + `<div class="callnone">nobody in the building</div>`;
+    box.innerHTML = jrHtml + groupFilterHtml() + ranksHtml +
+      `<section class="bblock"><div class="bsection">Members</div><div class="callnone">no members in the building yet</div></section>`;
     return;
   }
-  const statusHead = `<div class="peoplehead"><span>member</span>` +
-    `<span>connection</span><span>wake</span><span>location</span></div>`;
-  box.innerHTML = jrHtml + statusHead + [...names].sort().map(name => {
+  const isMaster = state.profile?.building_role === "master";
+  const shown = [...names].filter(personInGroupFilter);
+  const membersHtml = shown.sort((a, b) => a.localeCompare(b)).map(name => {
     const p = people.find(x => x.name === name);
-    const glyph = p?.kind === "agent" ? "*" : ".";
+    const kind = p?.kind === "agent" ? "agent" : "human";
     const locas = p?.locas || [];
     const barred = bans[name] || [];
-    const statuses = residentStatusBadges(p);
     const rt = p?.runtime;
     let stage = "";
     if (rt?.attention_id) {
@@ -405,43 +503,72 @@ function renderPeople() {
       else if (rt.accepted) stage = `<span class="pstage accepted" title="runtime accepted this attention · ${esc(shortId)}">accepted</span>`;
       else if (rt.stored) stage = `<span class="pstage" title="attention stored durably · ${esc(shortId)}">queued</span>`;
     }
-    const where = locas.length
-      ? `in loca: ${locas.join(", ")}`
-      : p?.online
-        ? "lobby"
-        : "offline · history unknown";
+    const fallback = p?.online ? "lobby" : "offline";
+    const suspended = p?.suspended ? `<span class="pflag warn">Suspended</span>` : "";
     const banTxt = barred.length
-      ? `<span class="pban">banned: ${esc(barred.join(", "))}</span>` : "";
+      ? `<span class="pflag bad" title="banned from ${esc(barred.join(", "))}">banned: ${esc(barred.join(", "))}</span>` : "";
     const unban = barred.map(r =>
-      `<button data-unban="${esc(name)}" data-room="${esc(r)}">unban ${esc(r)}</button>`).join(" ");
-    const revoke = state.profile?.building_role === "master" && p?.membership_id
-      ? `<button type="button" data-suspend-member="${esc(p.membership_id)}" data-suspended="${p.suspended ? "0" : "1"}" data-member-name="${esc(name)}">${p.suspended ? "Resume" : "Suspend"}</button>` +
-        `<button type="button" data-revoke-member="${esc(p.membership_id)}" data-member-name="${esc(name)}">Revoke membership</button>` : "";
-    return `<div class="prow"><span class="pname">${glyph}${esc(name)}${stage}</span>` +
-           `${statuses}<span class="pwhere">${p?.suspended ? "Suspended · " : ""}${esc(where)} ${banTxt}</span>${unban}${revoke}</div>`;
+      `<button class="btn" data-unban="${esc(name)}" data-room="${esc(r)}">Unban #${esc(r)}</button>`).join("");
+    const manage = isMaster && p?.membership_id
+      ? `<button type="button" class="btn" data-suspend-member="${esc(p.membership_id)}" data-suspended="${p.suspended ? "0" : "1"}" data-member-name="${esc(name)}">${p.suspended ? "Resume" : "Suspend"}</button>` +
+        `<button type="button" class="btn danger" title="Revoke membership" data-revoke-member="${esc(p.membership_id)}" data-member-name="${esc(name)}">Revoke</button>` : "";
+    return `<div class="prow${p?.suspended ? " suspended" : ""}">` +
+      `<span class="pname">${kindMark(kind)}${personNameHtml(name)}<span class="pkind">${kind}</span>${stage}</span>` +
+      `<span class="pstatuses">${residentStatusBadges(p)}</span>` +
+      `<span class="pgroups">${groupChipsHtml(name)}</span>` +
+      `<span class="pwhere">${suspended}${whereHtml(locas, fallback)}${banTxt}</span>` +
+      `<span class="pacts">${name !== state.name ? `<button type="button" class="btn" data-dm="${esc(name)}" title="Open a birebir with ${esc(name)}">Message</button>` : ""}${unban}${manage}</span></div>`;
   }).join("");
+  box.innerHTML = jrHtml + groupFilterHtml() + ranksHtml +
+    `<section class="bblock"><div class="bsection">Members <span class="bcount">${shown.length}</span></div>` +
+    `<div class="peoplehead"><span>name</span><span>connection · wake</span><span>groups</span><span>location</span><span></span></div>` +
+    (membersHtml || `<div class="callnone">nobody in this group</div>`) + `</section>`;
+}
+
+// A name opens that person's card (who they are, and their groups).
+function personNameHtml(name) {
+  return `<button type="button" class="pnametext pnamebtn" data-person-card="${esc(name)}" title="Open ${esc(name)}'s card">${esc(name)}</button>`;
+}
+
+// The Building header counts what the directory actually shows.
+function renderBuildingSummary() {
+  if (state.tab !== "people") return;
+  const people = state.people || [];
+  const ranks = Array.isArray(state.ranks) ? state.ranks.length : 0;
+  const online = people.filter(p => p.online).length;
+  const lobby = people.filter(p => p.online && !(p.locas || []).length).length;
+  const parts = [];
+  if (ranks) parts.push(`${ranks} rank${ranks === 1 ? "" : "s"}`);
+  parts.push(`${people.length} member${people.length === 1 ? "" : "s"}`);
+  parts.push(`${online} online`);
+  parts.push(`${lobby} in lobby`);
+  $("subStatus").textContent = parts.join(" · ");
 }
 
 async function refreshPeopleRuntime() {
   if (!isAdmin() || state.tab !== "people") return;
   const scope = residentReadScope();
   try {
-    const [resPeople, resJoin, resStock] = await Promise.all([
+    const [resPeople, resJoin, resStock, resRanks] = await Promise.all([
       fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/join-requests`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
+      fetch(`${serverBase()}/building/ranks`, { headers: adminHeaders({}) }),
     ]);
     if (!resPeople.ok) return;
     if (!applyResidentSnapshot(await resPeople.json(), { people: true, scope })) return;
     // Keep the admissions panel live while the tab is open: a request that
     // arrives (or is approved elsewhere) shows up within the poll interval.
     if (resJoin.ok) {
-      state.joinRequests = (await resJoin.json()).pending || [];
+      const pending = (await resJoin.json()).pending || [];
+      if (buildingStale(scope.gen)) return;
+      state.joinRequests = pending;
       state.joinRequestsError = false;
     } else {
       state.joinRequestsError = true; // keep the last known list; flag the error
     }
-    if (resStock.ok) state.admissionStock = await resStock.json();
+    if (resStock.ok) { const stock = await resStock.json(); if (buildingStale(scope.gen)) return; state.admissionStock = stock; }
+    if (resRanks.ok) { const ranks = await resRanks.json(); if (buildingStale(scope.gen)) return; state.ranks = ranks; }
     renderPeople();
   } catch (e) { /* the normal health indicator owns transport errors */ }
 }

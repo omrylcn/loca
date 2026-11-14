@@ -20,7 +20,19 @@ pub(crate) async fn profile_view(
     Query(query): Query<ProfileQuery>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let authority = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    let mut authority = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    let session = hub.session_identity(session_of(&headers));
+    let scoped = session.as_ref().and_then(|s| s.loca.as_deref());
+    // A room-only session may identify itself *in that room* for pins,
+    // sidebar preferences and editor attribution, never as a Building login.
+    if let Some(scope) = scoped {
+        if query.room.as_deref() != Some(scope)
+            || !room_decision_of(&hub, scope, &headers).is_allowed()
+        {
+            return (StatusCode::UNAUTHORIZED, "profile is scoped to this loca").into_response();
+        }
+        authority.principal_id = session.as_ref().and_then(|s| s.principal_id.clone());
+    }
     let Some(principal_id) = authority.principal_id.as_deref() else {
         return (StatusCode::UNAUTHORIZED, "verified profile required").into_response();
     };
@@ -31,19 +43,21 @@ pub(crate) async fn profile_view(
     let mut loca_roles = Vec::new();
     let mut operator_source: Option<&str> = None;
     if let Some(room) = room {
-        if hub
-            .loca_operator(room)
-            .is_some_and(|assignment| assignment.principal_id == principal_id)
-        {
+        if hub.is_operator_principal(room, principal_id) {
             loca_roles.push("operator");
             operator_source = Some("appointed");
+        } else if authority.is_master() && !hub.is_birebir(room) {
+            // The Master stands at the top of the hierarchy: in every loca it
+            // holds the operator's authority by rank, without an appointment.
+            // (A birebir has no operator; there the Master is one of the two.)
+            loca_roles.push("operator");
+            operator_source = Some("master");
         }
         if hub.is_lead(room, display_name) {
             loca_roles.push("lead");
         }
         loca_roles.push("participant");
     }
-    let session = session_of(&headers).and_then(|token| hub.session_identity(Some(token)));
     let current_credential_id =
         hub.credential_id_for_request(admin_token_of(&headers), session_of(&headers));
     Json(serde_json::json!({
@@ -53,6 +67,7 @@ pub(crate) async fn profile_view(
             "kind": authority.kind,
         },
         "building_role": authority.building_role,
+        "groups": if scoped.is_some() { Vec::new() } else { hub.groups_of_principal(principal_id) },
         "loca": room.map(|room| serde_json::json!({
             "room": room,
             "roles": loca_roles,
@@ -66,6 +81,44 @@ pub(crate) async fn profile_view(
         })),
     }))
     .into_response()
+}
+
+/// The caller's own appearance preferences. There is deliberately no way to
+/// name another principal: the row is always the authenticated caller's.
+pub(crate) async fn get_profile_preferences(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let Some(principal_id) = request_principal(&hub, &headers) else {
+        return (StatusCode::UNAUTHORIZED, "verified profile required").into_response();
+    };
+    Json(hub.preferences_for(&principal_id)).into_response()
+}
+
+/// Partial update: fields left out keep their value; any unknown field or
+/// value outside the allowed set rejects the whole body with 400.
+pub(crate) async fn put_profile_preferences(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    let Some(principal_id) = request_principal(&hub, &headers) else {
+        return (StatusCode::UNAUTHORIZED, "verified profile required").into_response();
+    };
+    let Ok(patch) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return (StatusCode::BAD_REQUEST, "preferences must be a JSON object").into_response();
+    };
+    match hub.update_preferences(&principal_id, &patch) {
+        Ok(preferences) => Json(preferences).into_response(),
+        Err(crate::store::PreferenceError::Invalid(reason)) => {
+            (StatusCode::BAD_REQUEST, reason).into_response()
+        }
+        Err(crate::store::PreferenceError::Storage) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not save preferences — try again",
+        )
+            .into_response(),
+    }
 }
 
 pub(crate) async fn list_profile_credentials(
@@ -291,7 +344,10 @@ pub(crate) async fn list_residents(
     if !is_admin_req(&hub, &headers) {
         return (StatusCode::UNAUTHORIZED, "master only").into_response();
     }
-    Json(hub.residents()).into_response()
+    // A Smaster sees every person, but never a group loca it cannot enter
+    // named as where someone sits.
+    let viewer = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    Json(hub.residents_for(&viewer)).into_response()
 }
 /// The caretaker's least-privilege Building presence view.
 ///
@@ -320,7 +376,17 @@ pub(crate) async fn caretaker_residents(
     if !hub.is_caretaker(&actor) {
         return (StatusCode::FORBIDDEN, "configured caretaker only").into_response();
     }
-    Json(hub.residents()).into_response()
+    Json(hub.residents_for(&caretaker_viewer(&hub, &headers))).into_response()
+}
+/// Whose view a caretaker request reads with: its session's principal, or
+/// its membership credential's. A davet proves no principal, so it sees no
+/// group loca at all.
+pub(crate) fn caretaker_viewer(hub: &Hub, headers: &HeaderMap) -> hub::RequestAuthority {
+    let by_session = hub.resolve_authority(None, session_of(headers));
+    if by_session.principal_id.is_some() {
+        return by_session;
+    }
+    hub.resolve_authority(member_token_of(headers), None)
 }
 /// Who can act as a second master. Master-only: seeing the list means seeing
 /// who holds authority.
@@ -336,6 +402,68 @@ pub(crate) async fn list_smasters(State(hub): State<Hub>, headers: HeaderMap) ->
         })
         .collect();
     Json(rows).into_response()
+}
+fn name_error_response(error: hub::NameError) -> axum::response::Response {
+    let message = match error {
+        hub::NameError::Invalid => {
+            "a name is 1-64 ASCII letters, digits, '-', '_' or '.', so it can be @mentioned"
+        }
+        hub::NameError::Reserved => {
+            "that word is a title or keyword, not a name — use the person's own name"
+        }
+    };
+    (StatusCode::BAD_REQUEST, message).into_response()
+}
+
+/// Building ranks — the Master and every Smaster — with where each sits now.
+/// Ranks hold no Lobby membership, so this completes the Building directory.
+pub(crate) async fn list_building_ranks(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if !is_admin_req(&hub, &headers) {
+        return (StatusCode::FORBIDDEN, "Building authority required").into_response();
+    }
+    let viewer = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    Json(hub.building_ranks_for(&viewer)).into_response()
+}
+
+/// `PUT /profile {"display_name": …}` — a Master or Smaster renames itself.
+/// The verified principal comes from the credential/session, never the body.
+pub(crate) async fn rename_profile_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    let requested = body
+        .get("display_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    match hub.rename_profile(&actor, requested) {
+        Ok(profile) => (StatusCode::OK, Json(profile)).into_response(),
+        Err(hub::ProfileRenameError::AuthorityRequired) => (
+            StatusCode::FORBIDDEN,
+            "only a signed-in Master or Smaster renames its own profile here",
+        )
+            .into_response(),
+        Err(hub::ProfileRenameError::Name(error)) => name_error_response(error),
+        Err(hub::ProfileRenameError::RestrictionActive) => (
+            StatusCode::FORBIDDEN,
+            "a moderation restriction must be resolved before renaming this profile",
+        )
+            .into_response(),
+        Err(hub::ProfileRenameError::NameTaken) => (
+            StatusCode::CONFLICT,
+            "that name is already used by someone in this Building",
+        )
+            .into_response(),
+        Err(hub::ProfileRenameError::Failed) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not save the new name — try again",
+        )
+            .into_response(),
+    }
 }
 /// Make someone a second master. Only the master may — smaster authority
 /// flows from the master and nowhere else, so a smaster cannot appoint one.
@@ -359,6 +487,10 @@ pub(crate) async fn create_smaster(
     if name.is_empty() {
         return (StatusCode::BAD_REQUEST, "a smaster needs a name").into_response();
     }
+    let name = match hub::validate_display_name(name) {
+        Ok(name) => name,
+        Err(error) => return name_error_response(error),
+    };
     match hub.add_smaster(name) {
         Ok(token) => (
             StatusCode::CREATED,

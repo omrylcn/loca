@@ -1,5 +1,90 @@
 use super::*;
 
+/// Every table whose rows belong to a loca by its name, in a `room` column.
+/// `rename_room` moves all of them together. A test reads the schema and
+/// fails when a table with a `room` column is in neither this list nor
+/// `ROOM_TABLES_NEVER_RENAMED`, so a new loca table cannot be left behind the
+/// way `group_rooms`, the Wiki, attachments and operator appointments were.
+pub(super) const ROOM_KEYED_TABLES: &[&str] = &[
+    "messages",
+    "message_reactions",
+    "attachment_pending",
+    "attachment_refs",
+    "notes",
+    "note_revisions",
+    "tasks",
+    "goals",
+    "waits",
+    "care_marks",
+    "attentions",
+    "rooms",
+    "room_operator_assignments",
+    "invites",
+    "journal",
+    "bans",
+    "group_rooms",
+    "loca_memory",
+    "loca_memory_entries",
+    "loca_wiki",
+    "loca_wiki_pages",
+    "loca_wiki_history",
+    "loca_wiki_batches",
+    "loca_wiki_receipts",
+    "wiki_context_selection",
+    "wiki_context_receipts",
+    "wiki_native_runtime",
+];
+
+/// Tables with a `room` column that a rename must not carry. A birebir's id
+/// is derived from its two people and its `bb-` id space is reserved, so a
+/// birebir is never renamed and no loca is renamed into that space.
+pub(super) const ROOM_TABLES_NEVER_RENAMED: &[&str] = &["birebirs"];
+
+/// `attention:{from}:…` → `attention:{to}:…`; `None` when `id` does not name
+/// `from`. Callers apply it only to a signal whose origin loca is `from`, so a
+/// loca whose name merely starts the same way is never touched.
+fn renamed_attention_ref(id: &str, from: &str, to: &str) -> Option<String> {
+    id.strip_prefix(&format!("attention:{from}:"))
+        .map(|suffix| format!("attention:{to}:{suffix}"))
+}
+
+/// Move every reference to the loca `from` inside one care signal to `to`:
+/// delivery room, source room, the attention id and group that embed the
+/// origin loca, and the context messages. Returns whether anything changed.
+fn rename_in_care_signal(signal: &mut protocol::CareSignal, from: &str, to: &str) -> bool {
+    let from_origin = signal.origin_room() == from;
+    let mut changed = false;
+    if signal.room == from {
+        signal.room = to.to_string();
+        changed = true;
+    }
+    if signal.source_room == from {
+        signal.source_room = to.to_string();
+        changed = true;
+    }
+    if from_origin {
+        if let Some(next) = renamed_attention_ref(&signal.attention_id, from, to) {
+            signal.attention_id = next;
+            changed = true;
+        }
+        if let Some(next) = signal
+            .group
+            .as_deref()
+            .and_then(|group| renamed_attention_ref(group, from, to))
+        {
+            signal.group = Some(next);
+            changed = true;
+        }
+    }
+    for message in &mut signal.context {
+        if message.room == from {
+            message.room = to.to_string();
+            changed = true;
+        }
+    }
+    changed
+}
+
 impl Store {
     /// Atomically move every durable record from one loca name to another.
     /// Re-running after a successful migration is a no-op; merging two
@@ -8,21 +93,19 @@ impl Store {
         let Some(mut c) = self.conn() else {
             return Ok(false);
         };
-        const TABLES: &[&str] = &[
-            "messages",
-            "message_reactions",
-            "notes",
-            "note_revisions",
-            "tasks",
-            "goals",
-            "waits",
-            "care_marks",
-            "attentions",
-            "rooms",
-            "invites",
-            "journal",
-            "bans",
-        ];
+        const TABLES: &[&str] = ROOM_KEYED_TABLES;
+        // A loca recorded in a never-renamed table (a birebir) is neither the
+        // source nor the target of a rename, and its id space is reserved.
+        let mut never = from.starts_with("bb-") || to.starts_with("bb-");
+        for table in ROOM_TABLES_NEVER_RENAMED {
+            let sql = format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE room = ?1 OR room = ?2)");
+            never |= c.query_row(&sql, params![from, to], |row| row.get::<_, bool>(0))?;
+        }
+        if never {
+            return Err(rusqlite::Error::InvalidParameterName(format!(
+                "cannot rename '{from}' to '{to}': a birebir is never renamed and its id space is reserved"
+            )));
+        }
         let exists = |conn: &Connection, room: &str| -> rusqlite::Result<bool> {
             for table in TABLES {
                 let sql = format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE room = ?1)");
@@ -45,9 +128,28 @@ impl Store {
             let sql = format!("UPDATE {table} SET room = ?2 WHERE room = ?1");
             tx.execute(&sql, params![from, to])?;
         }
-        // A care signal has two loca references: the room where its owner
-        // receives it and the source room embedded in the durable JSON.
-        // Keep the signal id stable so a late ACK remains valid.
+        // A care signal names locas in several places: where its owner
+        // receives it (`room`), where it came from when it was re-homed
+        // (`source_room`), the attention id and group that embed the origin
+        // loca, and the context messages it carries. The outbox row repeats
+        // the delivery room and the attention id beside the JSON. All of them
+        // move together and independently — a relay delivered in İye about
+        // the renamed loca, and a relay delivered in the renamed loca about
+        // another one, both stay whole. The delivery id is never changed, so
+        // a late ACK remains valid.
+        let parse = |column: usize, json: &str| -> rusqlite::Result<protocol::CareSignal> {
+            serde_json::from_str(json).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    column,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })
+        };
+        let render = |signal: &protocol::CareSignal| -> rusqlite::Result<String> {
+            serde_json::to_string(signal)
+                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))
+        };
         let outbox_updates = {
             let mut stmt =
                 tx.prepare("SELECT id, attention_id, delivery_room, signal FROM care_outbox")?;
@@ -62,43 +164,23 @@ impl Store {
             let mut updates = Vec::new();
             for row in rows {
                 let (id, attention_id, delivery_room, json) = row?;
-                let mut signal: protocol::CareSignal =
-                    serde_json::from_str(&json).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            3,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })?;
-                let mut changed = false;
-                if signal.room == from {
-                    signal.room = to.to_string();
-                    changed = true;
-                }
-                let old_prefix = format!("attention:{from}:");
-                let next_attention_id = attention_id
-                    .strip_prefix(&old_prefix)
-                    .map(|suffix| format!("attention:{to}:{suffix}"))
-                    .unwrap_or(attention_id);
-                if signal.attention_id != next_attention_id {
-                    signal.attention_id = next_attention_id.clone();
-                    changed = true;
-                }
+                let mut signal = parse(3, &json)?;
+                let from_origin = signal.origin_room() == from;
+                let mut changed = rename_in_care_signal(&mut signal, from, to);
+                let next_attention_id = if from_origin {
+                    renamed_attention_ref(&attention_id, from, to).unwrap_or(attention_id.clone())
+                } else {
+                    attention_id.clone()
+                };
+                changed |= next_attention_id != attention_id;
                 let next_delivery = if delivery_room == from {
                     changed = true;
-                    to
+                    to.to_string()
                 } else {
-                    delivery_room.as_str()
+                    delivery_room
                 };
                 if changed {
-                    updates.push((
-                        id,
-                        next_attention_id,
-                        next_delivery.to_string(),
-                        serde_json::to_string(&signal).map_err(|error| {
-                            rusqlite::Error::ToSqlConversionFailure(Box::new(error))
-                        })?,
-                    ));
+                    updates.push((id, next_attention_id, next_delivery, render(&signal)?));
                 }
             }
             updates
@@ -111,39 +193,28 @@ impl Store {
                 params![id, attention_id, delivery_room, signal],
             )?;
         }
+        // The ledger files a signal under its origin loca (the `room` column,
+        // already moved above) while its JSON may name the renamed loca as
+        // the delivery room instead, so every row is read, not only the
+        // renamed loca's own.
         let attention_updates = {
-            let mut stmt = tx.prepare("SELECT id, signal FROM attentions WHERE room = ?1")?;
-            let rows = stmt.query_map(params![to], |row| {
+            let mut stmt = tx.prepare("SELECT id, signal FROM attentions")?;
+            let rows = stmt.query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
             })?;
             let mut updates = Vec::new();
             for row in rows {
                 let (id, json) = row?;
-                let mut signal: protocol::CareSignal =
-                    serde_json::from_str(&json).map_err(|error| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            1,
-                            rusqlite::types::Type::Text,
-                            Box::new(error),
-                        )
-                    })?;
-                if signal.room == from {
-                    signal.room = to.to_string();
-                    let old_prefix = format!("attention:{from}:");
-                    let next_id = id
-                        .strip_prefix(&old_prefix)
-                        .map(|suffix| format!("attention:{to}:{suffix}"))
-                        .unwrap_or_else(|| id.clone());
-                    if signal.attention_id == id {
-                        signal.attention_id = next_id.clone();
-                    }
-                    updates.push((
-                        id,
-                        next_id,
-                        serde_json::to_string(&signal).map_err(|error| {
-                            rusqlite::Error::ToSqlConversionFailure(Box::new(error))
-                        })?,
-                    ));
+                let mut signal = parse(1, &json)?;
+                let from_origin = signal.origin_room() == from;
+                let changed = rename_in_care_signal(&mut signal, from, to);
+                let next_id = if from_origin {
+                    renamed_attention_ref(&id, from, to).unwrap_or(id.clone())
+                } else {
+                    id.clone()
+                };
+                if changed || next_id != id {
+                    updates.push((id, next_id, render(&signal)?));
                 }
             }
             updates
@@ -208,6 +279,29 @@ impl Store {
         }
         tx.commit()
             .inspect_err(|e| tracing::error!(error = %e, "save_room failed"))
+    }
+
+    /// Save a loca's state together with the Journal line that records the
+    /// change: both are written or neither is, so a change the loca's people
+    /// are told about and the change that took effect cannot drift apart.
+    pub fn save_room_with_journal(
+        &self,
+        room: &str,
+        mode: &ChatMode,
+        settings: &RoomSettings,
+        entry: &protocol::JournalEntry,
+    ) -> rusqlite::Result<()> {
+        let Some(mut c) = self.conn() else {
+            return Ok(());
+        };
+        let tx = c.transaction()?;
+        Self::write_room_state(&tx, room, mode, settings)?;
+        if settings.archived {
+            Self::pause_room_attentions(&tx, room, current_time_ms())?;
+        }
+        Self::write_journal(&tx, entry)?;
+        tx.commit()
+            .inspect_err(|e| tracing::error!(error = %e, "save_room_with_journal failed"))
     }
 
     pub(super) fn require_unsealed_room(c: &Connection, room: &str) -> rusqlite::Result<()> {

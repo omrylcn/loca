@@ -290,6 +290,58 @@ Locadan ayrılmanın dört ayrı anlamı vardır ve karıştırılmaz: **sustur*
 **yasakla** (kapı kapanır, okuma dahil), **bırak** — *işi bitti* (koltuk gider,
 **üyelik kalır**). İşini bitiren bir agent'a ceza fiiliyle davranılmaz.
 
+### Birebir — iki kişilik özel loca
+
+Bazen söz bütün masaya değil, tek bir kişiye söylenir. Bunun için ayrı bir
+mesaj sistemi kurulmaz: **birebir, yalnız iki kişinin oturduğu ve yalnız o
+ikisinin gördüğü özel bir loca tipidir.** Geçmiş, ek, tepki ve bildirim
+locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
+
+- **Çift birebiri tanımlar.** Aynı iki kişi her zaman aynı birebire döner.
+  Birebir isimle değil kimlikle (principal) bağlıdır: loca kimliği isim
+  taşımaz, sidebar karşı tarafın güncel adını gösterir. Üçüncü koltuk yoktur;
+  birini konuşmaya katmak gerekiyorsa ortak bir loca açılır.
+- **Birebiri insan açar.** Agent birebirde cevap verir ama birebir başlatmaz;
+  iki agent arasında birebir yoktur. İnsanın görmediği bir agent hattı açılmaz.
+  Birebirde her söz karşı tarafa söylenmiştir: agent'ı uyandırmak için `@`
+  gerekmez.
+- **Kim kime yazar:** Bina üyesi ortak bir locada oturduğu kişiye birebir
+  açabilir. Master ve Smaster, zaten çağırabildikleri her bina üyesine açabilir.
+  Bu kural yalnız açarken bakılır; açılmış birebir ortak loca bitince sürer.
+  Lobby yine sohbet yeri değildir.
+- **İçeriği o iki kişiden başka kimse görmez.** Rütbe kapıdan bakamaz,
+  loca-care okumaz. Birebirden hiçbir şey dışarı kopyalanmaz: caretaker
+  çağrısı, care hatırlatması veya bildirim İye'ye ya da başka bir locaya söz
+  taşımaz. Birebir normal loca listelerinde, Building rehberinin "nerede"
+  bilgisinde ve rütbelerin oturduğu localar arasında çıkmaz.
+- **Master yalnız varlığını görür.** Building çöplüğe dönmesin diye Master,
+  ayrı bir sekmede birebirlerin var olduğunu görür: kimin arasında olduğunu ve
+  en son ne zaman konuşulduğunu. Böylece unutulmuş veya kötüye kullanılan
+  birebirleri toplayabilir. **Mesajları görmez; Master için "bak/look" yolu
+  yoktur.** Smaster birebirlerin varlığını da görmez.
+- **Yalnız içeri çağrılırsa.** Taraflardan biri Master'ı **açıkça** içeri
+  çağırabilir; bunun için karşı tarafın onayı gerekmez. Master koltuk almaz,
+  yazamaz ve **varsayılan olarak yalnız çağrıldığı andan sonrasını** görür.
+  Önceki geçmişi ancak **iki taraf da izin verirse** okur. Master içerideyken
+  iki taraf da bunu açıkça görür; çağıran onu çıkarabilir. Kimin ne zaman
+  çağırdığı ve geçmişe kimin izin verdiği kayda geçer. Başka hiçbir yolla
+  içerik üçüncü kişiye açılmaz.
+- **Özel, ama şifreli değil.** Arayüz bunu dürüstçe söyler: sunucuyu işleten
+  kişi diskteki kaydı ve yedekleri okuyabilir. Bir agent'la birebirde söz,
+  agent'ın çalıştığı makineye ve agent'ın hafızasına da ulaşır; agent onu başka
+  bir locada hatırlayabilir. Söz verilemeyecek bir gizlilik vaat edilmez.
+- **Birebir sohbettir.** Task, goal, wiki, not, operatör veya lead yoktur;
+  açan kişi operatör atanmaz. İş ortak masada doğar; birebirde konuşulan iş,
+  ekibin göreceği locaya açık bir eylemle taşınır.
+- **Yaşam döngüsü:** Birebiri gizlemek yalnız kendi sidebar tercihidir, karşı
+  tarafın kaydını silmez; yeni bir söz gelince birebir yeniden görünür.
+  Üyeliği biten tarafın birebiri read-only kalır. Master, varlığını gördüğü
+  bir birebiri **Close** (read-only; Master yeniden açabilir) veya **Seal**
+  edebilir; Seal o iki kişi arasında yeni birebiri de kalıcı olarak kapatır.
+  Hiçbiri Master'a içeriği okuma hakkı vermez.
+- Birebir loca kapasitesine, Building'in loca listesine ve İye'ye karışmaz;
+  sidebar'da **Mesajlar** başlığı altında ayrı görünür.
+
 ### Roller (kim ne yapar)
 - **Loca ajanı** (loca-dev) — locanın kendisine bakan agent; **grubun bir
   üyesi değildir.** Sınırları katı:
@@ -326,6 +378,102 @@ yolu değil. Kuyruk/lease/otomatik atama yoktur, olmayacaktır.
 **Goal** (telde `goal`): locanın tek etkin sonuç cümlesidir. Operatör goal'ü
 manuel sonuç veya açık task kümesi olarak kurar; agent'lar ilerleme önerir ama
 goal açamaz, kapsamını değiştiremez veya kendi kendine başarı ilan edemez.
+
+## Loca extension'ları
+
+Bir loca bir işe ya da projeye özel bir yer olabilir. Bunu **extension**'lar
+sağlar: loca açılırken (`+`) bir düzenleme ekranı hangi extension'ların
+ekleneceğini sorar; **varsayılanlar** hazır seçilidir, diğerleri listeden
+eklenir. Açılmış bir locada liste **This Loca › Extensions** altındadır;
+operatör, Master ve Smaster değiştirir. Eklenen her extension locada kendi
+sekmesi olur. Chat her zaman açıktır.
+
+**Locanın kimliği.** Loca açılırken yalnız ad değil, **ne için var olduğu**
+(açıklama) da yazılır. Açıklama locanın kimliğidir; Goal o anki hedeftir,
+ikisi ayrı kalır.
+
+**Vault.** Bir locanın agent'lara ve insanlara dair kuralları tek yerde,
+locanın **Vault**'unda durur: **AGENT.md**, loca kuralları, **skill**'ler ve
+**hook**'lar. Locaya giren herkese, çağrılan her agent'a en başta bir **loca
+kartı** verilir: ad, açıklama, kurallar ve Vault'ta neler olduğu. Agent kartı
+bağlanırken alır, Vault değişince günceli gelir; insan ilk girişte görür,
+This Loca altında her zaman bulur.
+
+Örnek extension'lar:
+
+- **Task management** — pano (Yapılacak · Yapılıyor · İncelemede · Bitti),
+  Jira numarası, bitiş tarihi.
+- **AGENT.md** — bu locadaki agent'ların uyacağı kurallar. Loca Wiki bilgidir;
+  AGENT.md davranıştır.
+- **Skills** — yalnız bu locaya ait skill talimatları.
+- **Hooks** — "şu olunca şunu yap" kuralları (task bitince sohbete özet düş).
+- Notes · Journal, Loca Wiki, Live — bugün her locada olanlar artık birer
+  extension'dır; mevcut localarda açık kalırlar.
+
+Locaya giren agent o locanın extension'larını (AGENT.md, skill'ler) alır ve
+değiştiklerinde günceli alır; aynı agent bir locada proje takipçisi,
+ötekinde gözden geçirici olur.
+
+Sınırlar:
+
+- **Dışarıdan kod yüklenmez, kod çalıştırılmaz.** Bir extension server'ın
+  içinde yazılmış ve test edilmiş bir yeteneği açar. Skill'ler metindir;
+  hook'lar server'ın uyguladığı, hazır eylemlerden seçilmiş kurallardır ve
+  agent'ın makinesinde komut çalıştırmaz.
+- **Kapalı extension yalnız gizlenmez,** server o işlemi reddeder; kaldırmak
+  kayıtları silmez.
+- **Değişiklikler bellidir.** Extension eklemek, kaldırmak ve AGENT.md / skill
+  / hook düzenlemek Journal'a kimin, ne zaman yaptığı ile düşer.
+- **Loca kuralı temel kuralı aşmaz.** Hiçbir talimat agent'a sır (anahtar,
+  davet, oturum) istetemez ya da yazdıramaz, bu ilkelerdeki sınırları
+  kaldıramaz: mention task değildir, agent görev vermez, kuyruk/otomatik atama
+  yoktur.
+- **Birebir'in extension'ı yoktur;** birebir sohbettir.
+
+## Gruplar — bir grubun kendi localari
+
+Bir şirkette locayı farklı gruplar kullanır (backend, ai, …). **Grup**, birlikte
+çalışan kişilerin adlı bir kümesidir: insanlar, agent'lar ve Smaster'lar. Bir
+kişi birden fazla grupta olabilir.
+
+- **Herkes default gruptadır.** Grubu olmayan localar default gruba aittir ve
+  bugünkü gibi davetle çalışır; mevcut kurulum değişmez.
+- **Grubu Master veya bir Smaster kurar ve grup kuranındır:** kuran diğer kişileri
+  (insan, agent, başka Smaster) Building'den veya profil kartından ekler ve
+  çıkarır. Başka bir Smaster o grubu göremez, kimseyi ekleyemez; kimse kendini
+  ekleyemez. Master her grubu yönetebilir ve eklenmesine gerek yoktur. Değişiklik kimin, ne zaman
+  yaptığı ile kayda geçer.
+- **Grup locası:** Smaster bir grup için loca kurar. O locayı **yalnız grubun
+  üyeleri görür** ve girer; başka gruplardakiler o locaya **alınamaz**,
+  Smaster'lar dahil. Bir kişiyi locaya almak için önce gruba eklemek gerekir.
+  Gruptan çıkan kişinin grup locasına erişimi hemen biter.
+- **Master her şeyi görür:** bütün grupları, grup localarını ve içlerini;
+  gruba üye olması gerekmez. Grup sınırı Smaster'lar ve üyeler içindir.
+  (Birebir bunun istisnasıdır: orada Master yalnız varlığını görür.)
+- **Erişim tek kapıdan:** locaya girebilmek = davet **veya** grup üyeliği;
+  grup locasında ise yalnız grup üyeliği. Kural her kapıda aynıdır (sidebar,
+  REST, WS, arama); grup dışındakiler bir grup locasının var olduğunu da
+  öğrenmez.
+- Grup üyeliği koltuk tutmaz; loca kapasitesi oturunca dolar.
+- **Birebir ve İye gruba bağlanmaz.**
+
+## Building bildirimleri — tek yönlü duyuru
+
+Bazen bir söz bir masaya değil, binadaki herkese ya da bir gruba söylenir.
+Bunun için ayrı bir sohbet açılmaz: **bildirim tek yönlüdür.**
+
+- **Kim gönderir:** Master herkese; Smaster yalnız üyesi olduğu gruplara.
+  Başka kimse bildirim göndermez.
+- **Kime gittiği gönderildiği anda bellidir.** Sonradan gruba giren ya da
+  çıkan, eski bir bildirimin alıcısını değiştirmez. Herkes yalnız kendine
+  gönderileni görür.
+- **Konuşma değildir.** Loca açmaz, yanıt almaz, Lobby'yi sohbete çevirmez.
+- **Kaybolmaz.** Alıcı o an yoksa bildirim döndüğünde oradadır.
+- **Agent için bağlamdır, iş değildir.** Bir bildirim model çalıştırmaz,
+  görev olmaz, yetki vermez. Agent onu bir sonraki gerçek turunda bağlam
+  olarak görür; almış olması okudu diye kaydedilmez.
+- **Özel sözü dışarı taşımaz.** Bildirim bir locadan ya da birebirden söz
+  alıp başka yere götürmez.
 
 ## Ürün sınırı
 

@@ -69,8 +69,15 @@ pub(crate) async fn caretaker_memory(
     if actor.as_deref().is_none_or(|name| !hub.is_caretaker(name)) {
         return (StatusCode::FORBIDDEN, "configured caretaker only").into_response();
     }
+    // A group loca the caretaker is not a member of is never named to it.
+    let hidden = hub.group_locas_hidden_from(&caretaker_viewer(&hub, &headers));
     match hub.loca_memory_metadata() {
-        Ok(rows) => Json(rows).into_response(),
+        Ok(rows) => Json(
+            rows.into_iter()
+                .filter(|row| !hidden.contains(&row.loca))
+                .collect::<Vec<_>>(),
+        )
+        .into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
@@ -523,6 +530,13 @@ pub(crate) async fn search_room(
         .min(200);
     match hub.search(&id, &needle, limit) {
         Ok((messages, notes)) => {
+            // Search is a door too: a switched-off Notes extension returns no
+            // notes here, exactly as its own routes refuse them.
+            let notes = if hub.extension_enabled(&id, "notes") {
+                notes
+            } else {
+                Vec::new()
+            };
             Json(serde_json::json!({ "messages": messages, "notes": notes })).into_response()
         }
         Err(error) => {

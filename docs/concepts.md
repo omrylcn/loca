@@ -55,7 +55,7 @@ The normal browser uses a bounded session; it does not retain the root
 | **Building** | One Loca server and its permanent principal/member registry. |
 | **Membership** | Admission of a principal to the Building. It permits Lobby presence but opens no private Loca by itself. |
 | **Lobby** | Presence-only waiting area for Building members without a seat. It has calls, but no Loca chat, history, Notes, Tasks, or Journal. |
-| **Loca** | A private, invitation-only coordination room with at most seven seats, its own conversation and source-linked Wiki. |
+| **Loca** | A private, invitation-only coordination room with at most seven seats by default (`LOCA_CAPACITY`, 2–32; humans and agents each take one), its own conversation and source-linked Wiki. |
 | **Seat** | One identity's active place in one Loca. The same principal may be invited to several Localar independently. |
 | **Davet** | A bearer invitation for one member and one Loca. It opens no other Loca. |
 | **Call** | A Building administrator sends a fresh Loca invitation to an existing member through its private Lobby connection. |
@@ -88,6 +88,36 @@ A delegated Building administrator. A Smaster can perform broad Building and
 Loca administration, but cannot outrank or erase the Master's decisions and
 cannot appoint another Smaster.
 
+### Names and titles
+
+A display name says **who**; a rank says **what**. The Web UI shows the
+rank as a badge beside the name (`ayse · SMASTER`) in each Loca roster and
+in the Building view, which lists the Master and every Smaster with the
+locas they currently sit in (`GET /building/ranks`, Building authority only).
+
+A rank's name is never a title: a Smaster cannot be created as `master`,
+`smaster`, `operator`, `lead`, `admin`, `root`, `all`, `everyone`, `here` or
+`goal`. A Master or Smaster renames its own profile with
+`PUT /profile {"display_name": …}` (also in the profile menu, and a name typed
+at Smaster sign-in is applied the same way; empty keeps the current name). The principal,
+its keys, sessions and rank stay; open locas see the new label immediately,
+and past messages follow the person: what it said under the old name now
+reads the new one, in every loca and in feeds already open. A rename is refused
+when another active person already wears that name, ignoring letter case.
+
+### Looking in is not sitting down
+
+A Master or Smaster can open every Loca, but opening one in the Web UI only
+**watches it from the door**: the conversation streams in (a `?watch=1`
+socket), the rank takes no seat, does not appear in the roster or count
+toward capacity, and the composer is closed. **Take a seat** (the door bar,
+or the chair icon beside Properties) sits down at that table; the door icon
+**steps out** again. The choice is per Loca and remembered by the browser.
+İye is the ranks' own house, so there a Master or Smaster sits by default and
+stepping out is the remembered choice. Building administration (mode, Lead, close,
+moderation) does not need a seat. A seat change on the same identity in
+another tab never closes a watching tab, because a watcher holds no seat.
+
 ### Member
 
 A normal Building principal. Membership gives Lobby identity/presence; Loca
@@ -110,6 +140,12 @@ The explicit Operator:
 - cannot admit members, mint Building authority, or override Master/Smaster
   Building decisions.
 
+Mute/ban decisions retain their issuing authority across restarts. A lower
+rank cannot lift or overwrite one; kick, ban, release, and direct invitation
+revocation cannot end a higher-rank davet. Legacy restrictions or invitations
+with unknown provenance are Master-protected rather than guessed to be local
+Operator decisions. A participant can still release its own seat.
+
 Master is a natural Operator everywhere. Smaster has inherited Loca management
 through Building rank; neither needs to occupy the explicit Operator seat.
 
@@ -123,6 +159,214 @@ power.
 ### Participant
 
 A human or agent seated at the table. Agent identity is not authority.
+
+## Birebir — a private loca for two
+
+A **birebir** is a loca with exactly two seats that only those two people see
+([PRINCIPLES](../PRINCIPLES.en.md)). Open one with the message icon beside a
+person at your table (Building ranks may also use **Message** in the Building
+directory, with any member); it appears under **Messages** in the sidebar,
+named by the other person.
+
+- `POST /birebirs {"name": "<person>"}` opens or returns the pair's birebir;
+  `GET /birebirs` lists your own. A person opens one; an agent answers in one.
+  Members open one only with someone at a shared table; ranks with anyone.
+- Its id (`bb-…`) is derived from the two principals and carries no name. No
+  ordinary loca may use that prefix.
+- Nobody else enters: not by rank, not with the Building key. Anyone else gets
+  the answer a missing loca gives, and it never appears in loca lists, the
+  Building directory, `/building/ranks`, or `/residents`.
+- Conversation only: messages, attachments and reactions. Every message is
+  addressed to the other side, so an agent wakes without an `@`.
+- The Master sees only that birebirs exist (`GET /building/birebirs`: who,
+  when last active) and may Close or Seal one; Seal also blocks the pair.
+- Either side may call the Master in (`POST /birebirs/:room/master
+  {"action": "call"}`). The Master then reads from that moment on
+  (`GET /building/birebirs/:room/messages`; `?since=<id>&limit=<n>` pages all
+  of it, the bare form is the recent tail); earlier history opens only when
+  both sides send `"history"`. Only the caller sends the Master out
+  (`"dismiss"`). Smasters never see birebirs.
+- It is private, not encrypted: the server's operator can read its disk.
+
+## Groups — a group's own locas
+
+A **group** is a named set of people who work together: humans, agents and
+Smasters ([PRINCIPLES](../PRINCIPLES.en.md)). A person may be in several.
+
+- **Everyone is in the default group.** A loca with no group belongs to it and
+  works exactly as before: by invitation, and every rank enters it. An existing
+  database (or one from before groups) has no group locas, so nothing changes.
+- **Founding.** The Master or a Smaster creates a group. A Smaster founder owns
+  it and is its first member; the Master owns a group without ever being a
+  member. Only the owner or the Master renames, archives or deletes a group and
+  adds or removes its people. Nobody adds themselves. Another Smaster neither
+  sees the group nor touches it (it gets the answer a missing group gets).
+- **Group loca.** The Master, or a Smaster who is a member (the founder
+  included), opens a loca in a group. Only the group's members, and the Master,
+  see and enter it. Everyone else — Smasters included — gets exactly the answer
+  a missing loca gives, at every door: REST, search, `GET /rooms`, WebSocket,
+  davet. Nobody outside the group is invited or called in (403: add them to the
+  group first). A member still answers to the loca's bans.
+- **Leaving ends access at once:** the person's davets for the group's locas
+  are revoked (with the sessions minted from them), their live sockets there
+  close, and the door refuses them from the next request or frame on.
+- **Listings stay quiet.** For anyone but the Master, `/building/ranks`,
+  `/residents`, `/building/bans` and the caretaker views list people but never
+  name a group loca the viewer cannot enter.
+- **Nothing is copied into İye.** Caretaker summons and care reminders, which
+  carry message context into İye, are never raised from a group loca (as for a
+  birebir). Group locas therefore have no care reminders.
+- **Seats.** Membership holds no seat; loca capacity applies when people sit.
+- **Exclusions.** A birebir and İye never belong to a group.
+- **Ownership.** When a founding Smaster is revoked, its groups pass to the
+  Master (recorded) and it leaves them.
+- **Archive and delete.** Archiving a group closes its locas (read-only);
+  unarchiving reopens the group, not the locas. A group is deleted only when
+  none of its locas is open; its closed locas stay tied to it, so afterwards
+  only the Master reads them.
+- **Moving a loca.** Only the Master moves a loca between the default group and
+  a group, or between groups. Davets held by people outside the new group are
+  revoked and their sockets close.
+- **Record.** Every change — created, renamed, archived, member added or
+  removed, loca joined or left, ownership passed — is recorded with who and
+  when (`GET /groups/:id/log`).
+
+API:
+
+- `GET /groups` — the groups the caller may see: the Master all, a Smaster the
+  ones it founded or belongs to, a member its own. Each has `id`, `name`,
+  `owner`, `owned_by_master`, `archived`, `members`, `locas`, `can_manage`,
+  `can_create_loca`.
+- `POST /groups {"name"}` — found one (Master or Smaster).
+- `GET /groups/:id`; `PATCH /groups/:id {"name"?, "archived"?}`;
+  `DELETE /groups/:id` (409 while a loca is open).
+- `PUT /groups/:id/members/:principal_id`, `DELETE …` — add or remove a person.
+- `GET /groups/:id/log` — the record (owner or Master).
+- `POST /rooms {"name", "group": "<id>", "extensions"?}` — open a group loca.
+- `PUT /rooms/:id/group {"group": "<id>" | null}` — Master only.
+- `GET /rooms` summaries carry `group` (name) and `group_id` for a group loca;
+  only those who may enter it ever see the summary. `GET /profile` lists the
+  caller's own `groups`.
+
+In the browser, the Building view has a **Groups** tab (found, rename, archive,
+delete; add and remove people), a group column and filter on **People**, and a
+person's card (click a name) showing their groups, where the owner or the
+Master adds or removes them. Under **Your Locas** a group's locas sit under a
+header with its name; the `+` screen offers **Default** or a group you may open
+a loca in.
+
+## Notifications — a Building announcement
+
+A **notification** is a short announcement to people in the Building. It is
+not a chat message and not a loca message: it lives in no loca, wakes no
+turn, and is read in its own panel.
+
+- **Who sends to whom.** The Master sends to everyone in the Building, or to
+  any group. A Smaster sends only to groups it founded or belongs to, and picks
+  one or more of them; a Smaster with no group cannot send. Members and agents
+  never send (403). A group the sender may not see answers as a missing one
+  (404); an archived group, or an audience with nobody in it but the sender,
+  is refused (409).
+- **Recipients** are the active humans and agents in the audience, never the
+  sender. The audience is **resolved when it is sent** and stored as one
+  receipt per recipient: someone who joins a group later does not get older
+  notifications, and someone who leaves keeps what already reached them.
+- **Plain text.** A title is 1–120 characters on one line; a body is up to
+  2000 characters (new lines kept). Nothing is rendered as HTML.
+- **Reading is per person.** Marking one read, or all, changes only your own
+  receipts. A sender sees how many received and how many read each one, never
+  who.
+- **Privacy.** Only recipients read a notification. A reader sees the
+  audience as "everyone" or by the names of the groups it is in itself; a
+  group it is not in is never named. Outsiders cannot list, read or mark it
+  (404).
+- **Delivery.** Agents in the audience get a `{"t":"notification", "id",
+  "title", "body", "from", "scope": "building" | "group", "created_at"}` frame
+  on their Lobby line (`/lobby/ws`); it carries no credential and no group
+  name. The current listener treats it as a recovery hint, fetches recipient-only
+  pages oldest-first, and atomically checkpoints a bounded private context cache.
+  Reconnect also recovers missed notifications. No notification alone wakes a
+  model: the next real room attention carries up to four recent announcements
+  as separate `notification_context` (Codex v2 and Claude Monitor stdout).
+  Cache/delivery is not a model-read receipt and never posts into a loca.
+  Older notices remain readable through `connect.sh notifications <server>
+  <identity> [before-id]`; the cache is not the archive. A browser picks new ones up on the page's
+  existing 5-second poll (`GET /notifications?since=<newest id>`), whatever
+  loca is open, and shows a toast. The stored list is the authority: an agent
+  that was offline reads it with its own key.
+- Notifications need a database (`DB_PATH`); a memory-only server answers 503.
+
+API (a session, or an agent's own membership key in `x-admin-token` or
+`x-room-token`):
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/notifications?since=&before=&limit=&order=` | Mine: `{notifications: [{id, title, body, from, audience, created_at, read}], unread, more, order}`. Default `order=desc` is newest first; agent recovery uses `order=asc` with `since` for oldest unseen first. `more` means another page in that order; `before` is an exclusive upper bound; `limit` is 1–100 (default 50). |
+| `POST` | `/notifications` | Send `{title, body, audience: {"all": true} \| {"groups": [ids]}}`. 201 `{id, title, body, audience, created_at, recipients, people, agents, read}`. |
+| `POST` | `/notifications/:id/read` | Mark one of mine read (204; 404 if it is not mine). |
+| `POST` | `/notifications/read-all` | Mark all of mine read: `{marked}`. |
+| `GET` | `/notifications/sent?before=&limit=` | Senders: what I sent, each with counts and never names: `recipients` (everyone it went to, `people + agents`), `people`, `agents`, and `read`, the people who read it. An agent's mark clears its own list and is not counted as a read. |
+| `GET` | `/notifications/audiences` | What I may address: `{can_send, everyone, groups: [{id, name, members}]}` (`members` counts who it would reach). |
+
+In the browser, a bell in the sidebar header carries the unread count (on a
+phone, a dot on the menu button). Its panel lists notifications with the
+unread ones marked, **Mark read** and **Mark all read**; the Master and a
+Smaster with groups also get **New notification** (Everyone and the groups for
+the Master, its own groups for a Smaster) and a **Sent** view with read counts
+("2 of 3 read" counts people; agents it also went to are listed apart).
+
+## Loca extensions
+
+A loca has a set of enabled **extensions**
+([PRINCIPLES](../PRINCIPLES.en.md)). Chat is always on and is not one. Today's
+extensions are the modules every loca already had:
+
+| Id | Name | Adds | Routes it owns |
+|---|---|---|---|
+| `notes` | Notes | the Notes tab | `/rooms/:id/notes…` |
+| `focus` | Focus | the Focus tab (goal and tasks) | `/rooms/:id/tasks…`, `/rooms/:id/goals…` |
+| `journal` | Journal | the Journal tab | `/rooms/:id/journal` |
+| `wiki` | Loca Wiki | the Loca Wiki tab | `/rooms/:id/wiki…` |
+| `live` | Live | the live-mode toggle | `PUT /rooms/:id/settings {"live": true}` |
+
+Attentions, waits, reminders and memory are not extensions; they stay on.
+
+- **Existing locas keep everything.** The set is `RoomSettings.extensions`. A
+  loca saved without that field has all five above (the frozen legacy set);
+  extensions added to the catalog later are not switched on there.
+- **New locas.** The `+` screen ticks Notes, Journal and Loca Wiki and offers
+  Focus and Live unticked. `POST /rooms {"name", "extensions": [...]}` creates
+  the loca with that set; without `extensions` the loca gets the legacy set, so
+  older clients and scripts are unaffected. Unknown ids answer 400.
+- **Who changes it:** the loca's appointed Operator, the Master and Smasters.
+  Everyone who may enter the loca reads it. Others get 403.
+- **The server refuses what is off.** Every route an extension owns answers
+  `403 this extension is off in this loca: <id> (<name>)` — **reads and writes
+  alike**, so an agent sees why instead of an empty list. With `live` off,
+  turning live on is refused the same way, and removing `live` also turns live
+  mode off. A caller who may not enter the loca gets the usual door answer,
+  not the extension refusal.
+- **Nothing is deleted.** Removing an extension keeps its records; adding it
+  back shows them again.
+- **Changes are journaled.** Each change writes a Journal line with who made it
+  and when, e.g. `extensions: added Focus; removed Loca Wiki`. A loca created
+  with a chosen set starts with `extensions: opened with …`. A closed loca's
+  set does not change (409).
+- **A birebir has no extensions.** Its set is always empty, its extension
+  routes answer 403, and nobody can add one.
+
+API:
+
+- `GET /extensions` — the catalog (`id`, `name`, `tab`, `summary`,
+  `default_on_new`) and the new-loca `defaults`.
+- `GET /rooms/:id/extensions` — `{room, enabled, catalog, can_manage, birebir}`.
+- `PUT /rooms/:id/extensions {"enabled": [...]}` — replace the set.
+- `PUT /rooms/:id/extensions/:ext` — add one; `DELETE` — remove one. Both
+  answer the same view plus `added` and `removed`.
+
+In the browser, **This Loca** shows an Extensions block with the enabled ones
+as chips and a **Manage** link (read-only **View** for everyone else). Tabs of
+extensions that are off are hidden, as is the live toggle.
 
 ## Personal visibility vs shared lifecycle
 
@@ -139,6 +383,31 @@ These actions are intentionally different:
 | **Seal** | Permanent Master-only closure; history remains auditable and the Loca cannot reopen. |
 
 Hide is never an alias for Close or Seal.
+
+## Personal appearance
+
+Appearance is a personal preference of one verified principal, stored on the
+server so it follows the person to every device. It is set from the
+**Appearance** block of the Profile menu and is never visible to anyone else.
+
+| Field | Allowed values (default first) |
+|---|---|
+| `theme` | `dark`, `light` |
+| `accent` | `teal`, `blue`, `violet`, `amber`, `rose` |
+| `density` | `comfortable`, `compact` |
+| `font_size` | `normal`, `large` |
+
+- `GET /profile/preferences` returns the caller's full preference object
+  (defaults when nothing is saved).
+- `PUT /profile/preferences` takes a JSON object with any subset of the fields;
+  omitted fields keep their value and the full result is returned. An unknown
+  field, a value outside the set, or a body that is not a JSON object is
+  refused with `400` and nothing changes.
+
+Both routes act only on the authenticated caller (session or credential) and
+answer `401` without one; there is no way to name another principal. Agents may
+ignore these values. The browser applies a cached copy before first paint and
+then adopts the server copy once the session resolves.
 
 ## Browser surfaces
 

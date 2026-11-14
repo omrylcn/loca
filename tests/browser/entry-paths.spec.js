@@ -22,6 +22,7 @@ test("Master pairing asks for neither a name nor a member type", async ({ page, 
   expect(profile.principal.id).toBeTruthy();
   await page.locator("#newRoomName").fill("browser-created-loca");
   await page.locator("#newRoomBtn").click();
+  await page.locator("#extCreateSubmit").click();
   await expect.poll(() => page.evaluate(() => state.room)).toBe("browser-created-loca");
   await expect.poll(() => page.evaluate(() => state.ws?.readyState)).toBe(1);
   const assignment = await (await request.get("/rooms/browser-created-loca/operators", {
@@ -52,7 +53,10 @@ test("room creation appoints its founder without appointing them everywhere", as
   expect(room.operator.principal_id).toBe(founder.principal.id);
   expect(founder.loca.operator_source).toBe("appointed");
   const other = await (await request.get("/profile?room=unrelated-room", { headers: root })).json();
-  expect(other.loca.roles).not.toContain("operator");
+  // Elsewhere the Master is operator by rank (top of the hierarchy), never
+  // by an appointment it did not make.
+  expect(other.loca.roles).toContain("operator");
+  expect(other.loca.operator_source).toBe("master");
   expect(other.loca.building_management).toBe(true);
   expect((await request.post("/rooms", { headers: root, data: { name } })).status()).toBe(409);
   const assignment = await (await request.get(`/rooms/${name}/operators`, { headers: root })).json();

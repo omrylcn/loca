@@ -115,6 +115,7 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
     let assets = [
         ("favicon.svg", "image/svg+xml", "viewBox=\"0 0 64 64\""),
         ("styles.css", "text/css", ":root"),
+        ("theme.js", "text/javascript", "function applyAppearance("),
         ("state.js", "text/javascript", "const state ="),
         ("socket.js", "text/javascript", "function openWs()"),
         ("people.js", "text/javascript", "function renderMembers()"),
@@ -134,6 +135,28 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "getstarted.js",
             "text/javascript",
             "window.openGettingStarted",
+        ),
+        ("tooltip.js", "text/javascript", "window.refreshTip"),
+        ("birebir.js", "text/javascript", "function openBirebir("),
+        (
+            "keys.js",
+            "text/javascript",
+            "async function fetchKeyLedger(",
+        ),
+        (
+            "extensions.js",
+            "text/javascript",
+            "function applyLocaExtensions(",
+        ),
+        (
+            "groups.js",
+            "text/javascript",
+            "async function fetchGroups(",
+        ),
+        (
+            "notifications.js",
+            "text/javascript",
+            "async function pollNotifications(",
         ),
     ];
     for (name, content_type, marker) in assets {

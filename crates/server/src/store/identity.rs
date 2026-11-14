@@ -802,14 +802,33 @@ impl Store {
         out
     }
     /// Record a ban or mute so it survives a restart. `kind` is 'ban'|'mute'.
-    pub fn set_ban(&self, room: &str, name: &str, kind: &str, at: u64) -> rusqlite::Result<()> {
-        let Some(c) = self.conn() else { return Ok(()) };
-        c.execute(
-            "INSERT OR REPLACE INTO bans (room, name, kind, at) VALUES (?1, ?2, ?3, ?4)",
-            params![room, name, kind, at as i64],
-        )
-        .inspect_err(|e| tracing::error!(error = %e, "set_ban failed"))
-        .map(|_| ())
+    pub fn set_ban(
+        &self,
+        room: &str,
+        name: &str,
+        kind: &str,
+        at: u64,
+        authority_rank: u8,
+        decided_by: Option<&str>,
+    ) -> rusqlite::Result<()> {
+        let Some(mut c) = self.conn() else {
+            return Ok(());
+        };
+        let tx = c.transaction()?;
+        tx.execute(
+            "INSERT OR REPLACE INTO bans (room, name, kind, at, authority_rank, decided_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![room, name, kind, at as i64, authority_rank, decided_by],
+        )?;
+        if kind == "ban" {
+            tx.execute(
+                "UPDATE invites SET revoked_at = ?3
+                WHERE room = ?1 AND name = ?2 AND revoked_at IS NULL",
+                params![room, name, at as i64],
+            )?;
+        }
+        tx.commit()
+            .inspect_err(|e| tracing::error!(error = %e, "set_ban failed"))
     }
     /// Lift a ban or mute (unban/unmute) — the row is removed.
     pub fn clear_ban(&self, room: &str, name: &str, kind: &str) -> rusqlite::Result<()> {
@@ -823,23 +842,84 @@ impl Store {
     }
     /// All persisted bans/mutes, as (room, name, kind). Loaded into each room
     /// on boot so the door state is exactly what it was before the restart.
-    pub fn load_bans(&self) -> Vec<(String, String, String)> {
+    pub fn load_bans(&self) -> rusqlite::Result<Vec<ModerationRecord>> {
         let Some(c) = self.conn() else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        let mut out = Vec::new();
-        if let Ok(mut stmt) = c.prepare("SELECT room, name, kind FROM bans") {
-            if let Ok(rows) = stmt.query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                ))
-            }) {
-                out.extend(rows.flatten());
-            }
+        let mut stmt = c.prepare("SELECT room, name, kind, authority_rank FROM bans")?;
+        let rows = stmt.query_map([], |r| {
+            Ok(ModerationRecord {
+                room: r.get(0)?,
+                name: r.get(1)?,
+                kind: r.get(2)?,
+                authority_rank: {
+                    let rank = r.get::<_, u8>(3)?;
+                    if (1..=3).contains(&rank) {
+                        rank
+                    } else {
+                        3
+                    }
+                },
+            })
+        })?;
+        rows.collect()
+    }
+    /// Change an active principal's display name. The principal id, its
+    /// credentials, sessions and Building role are untouched: the name is only
+    /// the label (PRINCIPLES). Returns `Ok(false)` when another active
+    /// principal already wears that name (case-insensitively), so two people
+    /// can never be told apart only by letter case. `smaster_token` keeps the
+    /// legacy Smaster registry row in step with the principal.
+    pub fn rename_principal(
+        &self,
+        principal_id: &str,
+        name: &str,
+        smaster_token: Option<&str>,
+        relabel_from: Option<&str>,
+    ) -> rusqlite::Result<bool> {
+        let Some(mut c) = self.conn() else {
+            return Ok(true);
+        };
+        let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let clash: Option<String> = tx
+            .query_row(
+                "SELECT id FROM principals
+                 WHERE disabled_at IS NULL AND id <> ?1 AND lower(display_name) = lower(?2)
+                 LIMIT 1",
+                params![principal_id, name],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if clash.is_some() {
+            return Ok(false);
         }
-        out
+        let changed = tx.execute(
+            "UPDATE principals SET display_name = ?2 WHERE id = ?1 AND disabled_at IS NULL",
+            params![principal_id, name],
+        )?;
+        if changed == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        if let Some(token) = smaster_token {
+            tx.execute(
+                "UPDATE smasters SET name = ?2 WHERE token = ?1 AND revoked_at IS NULL",
+                params![token, name],
+            )?;
+        }
+        // Past messages follow the person. A rank's own posts carry the
+        // principal `user:<name>` (or none, when sent without an op id); a
+        // member's carry `mb:…`, so a member who once wore the label keeps it.
+        if let Some(old) = relabel_from {
+            tx.execute(
+                "UPDATE messages SET sender = ?2
+                 WHERE sender = ?1 AND sender_type = 'user'
+                   AND (principal IS NULL OR principal = 'user:' || ?1)",
+                params![old, name],
+            )?;
+        }
+        tx.commit()
+            .inspect_err(|e| tracing::error!(error = %e, "rename_principal failed"))?;
+        Ok(true)
     }
     pub fn add_smaster(&self, token: &str, name: &str, at: u64) -> rusqlite::Result<()> {
         let Some(mut c) = self.conn() else {

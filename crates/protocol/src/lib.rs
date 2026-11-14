@@ -72,6 +72,10 @@ pub struct Member {
     pub name: String,
     #[serde(rename = "type")]
     pub kind: SenderType,
+    /// Building rank worn into this loca: `"master"` or `"smaster"`. Absent
+    /// for ordinary members and agents; older clients simply ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 /// Body of `POST /rooms/{id}/messages`. The server fills in `id`/`ts`/`room`.
@@ -171,6 +175,13 @@ pub struct RoomSummary {
     /// The building's private governance/caretaker loca.
     #[serde(default)]
     pub special: bool,
+    /// The group this loca belongs to, by name; absent for a default-group
+    /// loca. Only those who may enter the loca ever see this summary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// The group's id, alongside its name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
 }
 
 /// Body of `PUT /rooms/{id}/mode` (admin-only; requires the admin token).
@@ -279,6 +290,111 @@ pub struct RoomSettings {
     pub care_task_secs: u32,
     #[serde(default)]
     pub care_silence_secs: u32,
+    /// The extensions enabled in this loca (PRINCIPLES "Loca extensions").
+    /// Chat is always on and is not an extension.
+    ///
+    /// `None` — absent from the stored JSON — means a loca from before
+    /// extensions existed: it keeps every extension it already had
+    /// ([`LEGACY_EXTENSIONS`]), so an upgrade turns nothing off. Extensions
+    /// added to the catalog later are NOT switched on in such a loca. Use
+    /// [`RoomSettings::extension_enabled`] rather than reading this directly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<String>>,
+}
+
+/// One entry in the extension catalog: a capability written and tested
+/// inside the server that a loca switches on or off. No code is loaded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ExtensionSpec {
+    /// Stable id stored in [`RoomSettings::extensions`] and used in the API.
+    pub id: &'static str,
+    /// What people see.
+    pub name: &'static str,
+    /// The loca tab it adds, if any (`live` is a toggle, not a tab).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab: Option<&'static str>,
+    /// One line for the create and manage screens.
+    pub summary: &'static str,
+    /// Ticked by default on the create screen of a new loca.
+    pub default_on_new: bool,
+}
+
+/// The extension catalog, in tab order. Future extensions (task board,
+/// AGENT.md, skills, hooks) are new entries here; nothing else in the list
+/// changes.
+pub const EXTENSIONS: &[ExtensionSpec] = &[
+    ExtensionSpec {
+        id: "notes",
+        name: "Notes",
+        tab: Some("Notes"),
+        summary: "Keyed notes: the current state of the work.",
+        default_on_new: true,
+    },
+    ExtensionSpec {
+        id: "focus",
+        name: "Focus",
+        tab: Some("Focus"),
+        summary: "The loca's goal and declared tasks.",
+        default_on_new: false,
+    },
+    ExtensionSpec {
+        id: "journal",
+        name: "Journal",
+        tab: Some("Journal"),
+        summary: "What was done here, in the doers' own words.",
+        default_on_new: true,
+    },
+    ExtensionSpec {
+        id: "wiki",
+        name: "Loca Wiki",
+        tab: Some("Loca Wiki"),
+        summary: "The loca's shared knowledge, kept by an editor agent.",
+        default_on_new: true,
+    },
+    ExtensionSpec {
+        id: "live",
+        name: "Live",
+        tab: None,
+        summary: "A live-mode toggle: every message reaches everyone.",
+        default_on_new: false,
+    },
+];
+
+/// What a loca without an `extensions` field has: every extension that
+/// existed before extensions could be chosen. Frozen — never grows.
+pub const LEGACY_EXTENSIONS: &[&str] = &["notes", "focus", "journal", "wiki", "live"];
+
+/// The catalog entry for `id`, if there is one.
+pub fn extension_spec(id: &str) -> Option<&'static ExtensionSpec> {
+    EXTENSIONS.iter().find(|spec| spec.id == id)
+}
+
+/// The ticked set on a new loca's create screen.
+pub fn default_new_extensions() -> Vec<String> {
+    EXTENSIONS
+        .iter()
+        .filter(|spec| spec.default_on_new)
+        .map(|spec| spec.id.to_string())
+        .collect()
+}
+
+impl RoomSettings {
+    /// Whether extension `id` is on, honouring the legacy (absent) case.
+    pub fn extension_enabled(&self, id: &str) -> bool {
+        match &self.extensions {
+            Some(list) => list.iter().any(|value| value == id),
+            None => LEGACY_EXTENSIONS.contains(&id),
+        }
+    }
+
+    /// The enabled extension ids, in catalog order.
+    pub fn enabled_extensions(&self) -> Vec<String> {
+        EXTENSIONS
+            .iter()
+            .filter(|spec| self.extension_enabled(spec.id))
+            .map(|spec| spec.id.to_string())
+            .collect()
+    }
 }
 
 fn default_live_timeout() -> u32 {
@@ -334,6 +450,7 @@ impl Default for RoomSettings {
             care_goal_secs: 0,
             care_task_secs: 0,
             care_silence_secs: 0,
+            extensions: None,
         }
     }
 }
@@ -995,6 +1112,12 @@ pub enum ServerFrame {
     /// The room's member list changed.
     Members {
         members: Vec<Member>,
+    },
+    /// A Building rank renamed its profile. Past messages it sent under
+    /// `from` now read `to`; clients relabel the feed they already show.
+    Renamed {
+        from: String,
+        to: String,
     },
     /// Out-of-band control, e.g. the operator broadcasting `/stop`.
     Control {

@@ -75,9 +75,15 @@
     }
   }
 
+  // A request waits for whoever filed it at this door. If someone signs in at
+  // this tab meanwhile, the page is theirs: an approval that arrives then must
+  // not collect the key and take the seat over them. The watch stops; the
+  // request itself stays, and asking again from the door resumes it.
   function pollUntilDecided(server, id, secret, name) {
     stopPoll();
+    var gen = state.buildingGen;
     poll = setInterval(async function () {
+      if (buildingStale(gen)) { stopPoll(); return; }
       try {
         var r = await fetch(
           server + "/join-requests/" + encodeURIComponent(id),
@@ -88,8 +94,10 @@
           stopPoll();
           return;
         }
+        if (buildingStale(gen)) { stopPoll(); return; }
         if (!r.ok) return; // keep polling through transient errors
         var s = await r.json();
+        if (buildingStale(gen)) { stopPoll(); return; }
         if (s.status === "denied") {
           setStatus("a Master declined the request");
           stopPoll();
@@ -97,7 +105,7 @@
         }
         if (s.status === "approved" && s.bootstrap_ready) {
           stopPoll();
-          await bootstrapAndSeat(server, id, secret, name);
+          await bootstrapAndSeat(server, id, secret, name, gen);
         }
       } catch (e) {
         /* transient — keep polling */
@@ -105,18 +113,22 @@
     }, 3000);
   }
 
-  async function bootstrapAndSeat(server, id, secret, name) {
+  async function bootstrapAndSeat(server, id, secret, name, gen) {
+    if (buildingStale(gen)) return;
     setStatus("approved — collecting your key…");
     try {
       var r = await fetch(
         server + "/join-requests/" + encodeURIComponent(id) + "/bootstrap",
         { method: "POST", headers: { "x-join-secret": secret } }
       );
+      if (buildingStale(gen)) return;
       if (!r.ok) {
-        setStatus("could not collect the key: " + (await r.text()));
+        var why = await r.text();
+        if (!buildingStale(gen)) setStatus("could not collect the key: " + why);
         return;
       }
       var data = await r.json();
+      if (buildingStale(gen)) return;
       try {
         sessionStorage.removeItem("loca-join-" + id);
       } catch (e) {}

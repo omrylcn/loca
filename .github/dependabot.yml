@@ -2,7 +2,7 @@ version: 2
 updates:
   - package-ecosystem: cargo
     directory: /
-    target-branch: dev
+    target-branch: master
     schedule:
       interval: weekly
     open-pull-requests-limit: 1
@@ -12,7 +12,7 @@ updates:
           - "*"
   - package-ecosystem: github-actions
     directory: /
-    target-branch: dev
+    target-branch: master
     schedule:
       interval: weekly
     open-pull-requests-limit: 1
@@ -22,7 +22,7 @@ updates:
           - "*"
   - package-ecosystem: docker
     directory: /
-    target-branch: dev
+    target-branch: master
     schedule:
       interval: weekly
     open-pull-requests-limit: 1

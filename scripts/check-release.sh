@@ -73,6 +73,24 @@ if grep -Fq 'include_str!("../../../docs/' "$ROOT/crates/server/src/main.rs" \
   exit 1
 fi
 
+# The server release workflow must leave its release as a draft. The action's
+# default publishes at once, which would skip the check of the built assets
+# and the separate approval that publication needs.
+RELEASE_WORKFLOW="$ROOT/.github/workflows/release.yml"
+if [ -f "$RELEASE_WORKFLOW" ]; then
+  publish_steps=$(grep -c 'uses: softprops/action-gh-release@' "$RELEASE_WORKFLOW" || true)
+  draft_steps=$(awk '
+    /^      - / { in_step = 0 }
+    /uses: softprops\/action-gh-release@/ { in_step = 1 }
+    in_step && /^[[:space:]]+draft:[[:space:]]*true[[:space:]]*$/ { count++; in_step = 0 }
+    END { print count + 0 }
+  ' "$RELEASE_WORKFLOW")
+  if [ "$publish_steps" -lt 1 ] || [ "$draft_steps" -ne "$publish_steps" ]; then
+    echo "release.yml must create its GitHub Release with draft: true ($draft_steps of $publish_steps release steps do)" >&2
+    exit 1
+  fi
+fi
+
 if [ -n "$TAG" ] && [ "$TAG" != "v$VERSION" ]; then
   echo "tag $TAG does not match canonical version v$VERSION" >&2
   exit 1

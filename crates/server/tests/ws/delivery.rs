@@ -487,12 +487,17 @@ async fn a_self_reply_addresses_nobody() {
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let mut watcher = connect_ws(port, "general", "watcher", "user").await;
+    // Transport upgrade is not room subscription. Do not race publication
+    // against the watcher joining, or the reply may be in history, not live.
+    wait_for_member(&client, &base, "general", "watcher", None).await;
 
     let root: Value = client
         .post(format!("{base}/rooms/general/messages"))
         .json(&serde_json::json!({ "sender": "bob", "sender_type": "agent", "text": "root" }))
         .send()
         .await
+        .unwrap()
+        .error_for_status()
         .unwrap()
         .json()
         .await
@@ -508,6 +513,8 @@ async fn a_self_reply_addresses_nobody() {
         }))
         .send()
         .await
+        .unwrap()
+        .error_for_status()
         .unwrap();
     let frame = wait_for(&mut watcher, |v| {
         v["message"]["text"] == "talking to myself"

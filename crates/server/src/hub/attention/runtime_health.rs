@@ -105,6 +105,35 @@ impl Hub {
     /// server only knew who was *in a room*; a member with no seat was
     /// invisible, so the master had nobody to pick from and every invitation
     /// started from scratch — mint a token, hand it over, run setup.
+    /// `residents` as a viewer may read it: people are listed, but a group
+    /// loca the viewer cannot enter is never named as where someone sits.
+    pub fn residents_for(&self, viewer: &crate::hub::RequestAuthority) -> Vec<protocol::Resident> {
+        let mut hidden = self.group_locas_hidden_from(viewer);
+        // A rank may know a pair exists, but its operational activity is not
+        // part of another person's public Building presence.
+        hidden.extend(self.birebirs.lock_or_recover().keys().cloned());
+        let mut residents = self.residents();
+        if !hidden.is_empty() {
+            for resident in &mut residents {
+                resident.locas.retain(|room| !hidden.contains(room));
+                if let Some(runtime) = resident.runtime.as_mut() {
+                    let private_id = |id: &str| {
+                        hidden.iter().any(|room| {
+                            id.starts_with(&format!("{room}:")) || id.contains(&format!(":{room}:"))
+                        })
+                    };
+                    if runtime.attention_id.as_deref().is_some_and(private_id) {
+                        runtime.attention_id = None;
+                    }
+                    if runtime.delivery_id.as_deref().is_some_and(private_id) {
+                        runtime.delivery_id = None;
+                    }
+                }
+            }
+        }
+        residents
+    }
+
     pub fn residents(&self) -> Vec<protocol::Resident> {
         use std::collections::BTreeMap;
         let mut by_name: BTreeMap<String, protocol::Resident> = BTreeMap::new();
@@ -130,7 +159,12 @@ impl Hub {
         }
 
         // Davets say where a member currently sits.
+        // A birebir is nobody else's business: it never shows as "where".
+        let birebirs = self.birebirs.lock_or_recover().clone();
         for inv in self.invites.lock_or_recover().values() {
+            if birebirs.contains_key(&inv.room) {
+                continue;
+            }
             if let Some(e) = by_name.get_mut(&inv.name) {
                 if !e.locas.contains(&inv.room) {
                     e.locas.push(inv.room.clone());
@@ -142,10 +176,11 @@ impl Hub {
         // watchers are the building's own, not residents.
         let rooms = self.rooms.lock_or_recover();
         for (room, r) in rooms.iter() {
+            let private = birebirs.contains_key(room);
             for (name, _, _) in r.members.values() {
                 if let Some(e) = by_name.get_mut(name) {
                     e.online = true;
-                    if !e.locas.contains(room) {
+                    if !private && !e.locas.contains(room) {
                         e.locas.push(room.clone());
                     }
                 }

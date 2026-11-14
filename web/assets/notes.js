@@ -30,7 +30,7 @@ function onNoteFrame(note) {
 /// The lobby: building members with no active loca invitation. It lives beside
 /// the roster but is not a room — there is no chat, history or task surface.
 async function fetchNotes() {
-  if (!state.room) return;
+  if (!state.room || !extensionOn("notes")) return;
   const room = state.room;
   const context = state.locaContext;
   try {

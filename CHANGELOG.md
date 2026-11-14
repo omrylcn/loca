@@ -6,6 +6,139 @@ All notable changes to Loca are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-14
+
+### Security
+- Update dependencies with published advisories: `rustls-webpki` 0.103.17 and
+  `webpki-roots` 1.0.12 (distrusted emSign intermediates, RUSTSEC-2026-0382
+  and RUSTSEC-2026-0381), `rusqlite` 0.41.1 with bundled SQLite 3.54.1
+  (RUSTSEC-2026-0459), and `tokio` 1.54.1 (RUSTSEC-2026-0386; 1.53.3 in the
+  desktop lock). A database written by the previous build opens in this one
+  and the other way round.
+
+### Fixed
+- Count only people in a sent notification's read count. Agents were counted
+  among the recipients a notification could be read by, although for an agent
+  a notification is context and is not recorded as read, so "2 of 5 read"
+  could stay short for ever; and an agent that cleared its own list was
+  counted as a reader. `GET /notifications/sent` and the send response now
+  also report `people` and `agents`; `recipients` stays their sum, and the
+  Sent view reads "2 of 3 read · sent to 2 agents". The counts in the send
+  response are taken in the transaction that stores the notification, so a
+  send cannot be stored and announced and still answer with an error.
+- Learn whose page it is as soon as a stored session is restored, not only
+  when a loca is entered. Until then the page did not know which person's
+  sidebar preferences and appearance to read, so everything that person had
+  hidden was listed, in the default look.
+- Keep a closed private conversation in Messages once a new word has brought
+  it back. It used to return only while that word was unread and vanish again
+  the moment it was read, so the reply could not be answered from the list.
+  Closing now also counts everything said so far as read: only a word that
+  comes after the close brings the conversation back. An unread count that
+  was still being read when the conversation was closed, or when a loca was
+  opened and read, is no longer applied afterwards.
+- Download an attachment with an explicit button instead of opening it in a
+  new tab. The file is fetched with the viewer's credentials and saved under
+  its own name, so an HTML attachment is never navigated to, and a long name
+  wraps inside the chip instead of overflowing on a phone.
+- Treat loca settings the web client could not read as unknown rather than
+  empty: a failed settings request no longer shows the Notes, Focus, Journal and
+  Wiki tabs of a chat-only loca or sends requests the server refuses.
+- Clear Building data from the page on sign-out without a reload: the issued
+  key and the witnessed private conversation, the key ledger, people, ranks,
+  join requests, groups and notifications no longer stay behind in the tab. A
+  Building request still in flight at sign-out no longer writes its answer
+  after the clear and brings that data back for the next person to sign in.
+  The same holds when the server ends the session (401), when one's own key is
+  revoked, and when another identity or server replaces a live one; a late 401
+  answering an earlier session's request no longer closes the new session.
+- Keep a session being taken or renewed with the person it was started for.
+  An answer that arrives after that person signed out and someone else signed
+  in at the same tab, whether a success, a refusal or a broken connection, no
+  longer writes its session, name or verdict over the new person's; and a
+  message whose send was waiting on that renewal is neither sent again under
+  the new person's session nor put back into their composer. A display-name
+  change answered late is not applied to the next person either. Typing
+  another key over a session that is being renewed now clears the Building
+  like any other change of identity. Pressing connect twice exchanges a
+  one-use pairing code once.
+- Cancel every request still out when the person at the tab changes. The
+  browser drops the request and nothing of its answer reaches the page, so an
+  answer for the last person cannot arrive for the next one whether or not
+  the code that asked checks for it. Work that was not waiting on the network
+  at that moment checks for itself before it goes on: a send's one automatic
+  retry is not made under the next person's session, a key created just
+  before leaving is not shown to them, a late answer to revoking one's own
+  key does not end their session, a renewed send does not clear the files
+  they staged, the rest of a batch of chosen files is not uploaded into their
+  composer, and a join request approved after they signed in no longer takes
+  the tab from them.
+- Fix a called-in Master's view of a private conversation to what the visit
+  covers. The call boundary now comes from the sequence that stamps every
+  message, so words said just before the call can no longer fall on the
+  Master's side when message times run ahead of the clock; and a read is
+  bounded by the last message that existed when its permission was checked,
+  so a read already under way when the Master is sent out returns nothing
+  said afterwards. A visit an earlier version recorded with a wall-clock
+  boundary is ended once when the database opens; the two call again if they
+  wish. A visit opened under the new rule survives a restart.
+- Read a called-in Master's view of a private conversation from the durable
+  archive instead of the 200-message memory tail. A long conversation lost its
+  beginning for the witness, whether said since the call or opened by both
+  sides; `?since=<id>&limit=<n>` now pages all of it, and nothing earlier.
+- Stop at startup with SQLite's own error when a column cannot be added while
+  the store opens, instead of starting on a half-upgraded schema. An already
+  present column remains the only accepted no-op.
+- Move a loca between groups as one transaction: the group relation, the
+  davets that carry its people to the default group and the davets its new
+  group no longer admits are written together or not at all. A move that
+  cannot seat everyone is refused whole and the preview reports the seats
+  needed and free, because a davet is a seat and who stays is the Master's
+  decision, never iteration order. Davet calls, group membership changes,
+  renaming, archiving or deleting a group, founding a loca in a group and
+  moves share one lock, so racing calls cannot seat one person twice, exceed
+  the seat cap, leave a davet with someone just removed from the group, or
+  bind a loca to a group deleted or archived a moment earlier. The record
+  itself also refuses a deleted or archived target.
+- Carry every record of a loca through `ROOM_RENAME`. Attachments, the Loca
+  Wiki, archived memory, Wiki context receipts and the Operator appointment
+  stayed under the old name, so a renamed loca lost them. The rename now reads
+  one list of loca tables, a schema test fails when a new loca table is in no
+  list, and a birebir or its `bb-` id space is never a rename source or target.
+  A Reminder relayed to another loca now keeps its ledger row, attention id,
+  source and delivery room together when either loca is renamed, so it still
+  resolves and a resolved one is not delivered again. Rows an earlier version
+  left under an old name are not recovered automatically.
+- Write a loca's extension change and the Journal line that records it
+  together. The setting was saved first and the Journal line after it, so a
+  failed Journal write answered with an error while the extension set had
+  already changed and nobody had been told.
+- Work out a single extension add or remove from the loca's current set
+  under its lock. The routes read the set first and replaced it afterwards,
+  so two people changing different extensions at once could lose one change.
+- Preserve restriction authority across restart; lower ranks cannot lift or
+  overwrite a superior mute/ban or end a superior davet via moderation or opaque
+  revoke ids. Record invite provenance from verified sessions as well as keys.
+- Recover recipient-only Building notifications with a durable cursor and
+  bounded context cache; include recent announcements in existing Codex/Claude
+  turns without creating a model call, room reply or automatic read receipt.
+- Keep room-invitation sessions confined to their room; they cannot manage
+  profile credentials, open unrelated rooms, or discover private conversations.
+- Authorize decoded room names consistently across group, private-conversation,
+  and extension middleware; enforce private-pair admission in the shared core
+  used by HTTP, Lobby calls, and the local administration console.
+- Preserve group access boundaries during room rename and hide private-room
+  identifiers in Building health projections and WebSocket refusal responses.
+- Do not generate automatic follow-up while the Focus extension is disabled.
+- Drain notification pages before advancing the browser's live watermark;
+  await the appearance request before removing its test route.
+- Preserve newest-first notification order across catch-up pages and retries,
+  without advertising nonexistent older history.
+- Box decoded-path middleware errors instead of suppressing Clippy's large-error
+  check; pin the Rust toolchain used by source, CI, and release builds.
+- Encode listener query components and write browser screenshots only to
+  the test runner's output directory.
+
 ## [0.12.10] - 2026-10-18
 
 ### Added

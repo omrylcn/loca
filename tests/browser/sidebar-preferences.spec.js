@@ -96,3 +96,43 @@ test("unresolved or failed identity never sees or mutates another principal's lo
   await expect(page.locator("#roomList [data-room-preference]").first()).toBeDisabled();
   expect(await page.evaluate(key => localStorage.getItem(key), keyA)).toBe(storedA);
 });
+
+test("a restored session hides what its person hid before any loca is entered", async ({ browser, request }) => {
+  const MASTER = { "x-admin-token": "MASTER" };
+  const key = async name => (await (await request.post("/smasters", { headers: MASTER, data: { name } })).json()).token;
+  const session = async (token, name) => (await request.post("/sessions", { headers: { "x-admin-token": token }, data: { name, kind: "user" } })).json();
+  const info = await session(await key("rs-sa"), "rs-sa");
+  await key("rs-sb");
+
+  // Signed in from a stored session alone: no remembered seat, so the page
+  // restores the identity and enters no loca.
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.addInitScript(({ token, expiresAt }) => {
+    localStorage.setItem("loca-gs-seen", "1");
+    localStorage.setItem("loca-admin-session", JSON.stringify({ token, expiresAt, name: "rs-sa" }));
+  }, { token: info.session_token, expiresAt: info.expires_at });
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
+
+  // A conversation is opened and then closed (hidden), and a loca is hidden.
+  await page.evaluate(() => openBirebir("rs-sb"));
+  await expect.poll(() => page.evaluate(() => isBirebir(state.room))).toBe(true);
+  await expect(page.locator("#dmList")).toContainText("rs-sb");
+  await page.locator("#dmList .roompreftrigger").first().click();
+  page.once("dialog", dialog => dialog.accept());
+  await page.locator("#dmList [data-dm-delete]").click();
+  await expect(page.locator("#dmList")).not.toContainText("rs-sb");
+  await page.evaluate(() => updateRoomPreference("hide", "preference-security"));
+  await expect(page.locator("#roomList")).not.toContainText("preference-security");
+
+  // Reload. No loca is entered, and what was hidden stays hidden.
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
+  await expect.poll(() => page.evaluate(() => state.rooms.some(r => r.room === "preference-security") && state.birebirs.length)).toBeTruthy();
+  expect(await page.evaluate(() => state.room)).toBeNull();
+  await expect(page.locator("#dmList")).not.toContainText("rs-sb");
+  await expect(page.locator("#roomList")).not.toContainText("preference-security");
+  await expect(page.locator("#hiddenRoomList")).toContainText("preference-security");
+  await context.close();
+});

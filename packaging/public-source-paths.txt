@@ -30,6 +30,7 @@ package-lock.json
 package.json
 packaging
 playwright.config.js
+rust-toolchain.toml
 scripts
 skill
 tests

@@ -26,6 +26,7 @@ import os
 import shlex
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -54,7 +55,7 @@ def api(method, url, body=None, token=None):
 def recent(server, room, token, limit):
     """Last `limit` messages, for context on wake."""
     try:
-        msgs = api("GET", f"{server}/rooms/{room}/messages", token=token) or []
+        msgs = api("GET", f"{server}/rooms/{urllib.parse.quote(room, safe='')}/messages", token=token) or []
         return msgs[-limit:]
     except Exception:
         return []
