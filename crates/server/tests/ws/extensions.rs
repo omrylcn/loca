@@ -211,6 +211,24 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
         catalog["defaults"],
         serde_json::json!(["notes", "journal", "wiki"])
     );
+    // An entry carries the key of its web tab (`tab_key`, absent without a
+    // tab) and nothing the server keeps for itself (its routes and frames).
+    assert_eq!(
+        catalog["catalog"][1],
+        serde_json::json!({
+            "id": "focus", "name": "Focus", "tab": "Focus",
+            "summary": "The loca's goal and declared tasks.",
+            "default_on_new": false, "tab_key": "tasks",
+        })
+    );
+    assert_eq!(
+        catalog["catalog"][4],
+        serde_json::json!({
+            "id": "live", "name": "Live",
+            "summary": "A live-mode toggle: every message reaches everyone.",
+            "default_on_new": false,
+        })
+    );
 
     // A new loca gets exactly the chosen set; unknown names are refused.
     assert_eq!(create(&base, "bad", Some(&["notes", "chat"])).await.0, 400);
@@ -584,7 +602,7 @@ async fn existing_locas_keep_every_extension_across_an_upgrade() {
 }
 
 #[tokio::test]
-async fn a_birebir_has_no_extensions() {
+async fn a_dm_has_no_extensions() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("bb-ext.db");
     let (port, _guard) = spawn_server_env(
@@ -616,7 +634,7 @@ async fn a_birebir_has_no_extensions() {
     assert!(enabled(&v).is_empty());
     assert_eq!(v["birebir"], true);
     assert_eq!(v["can_manage"], false);
-    // Nobody can give a birebir an extension: not a party, not the Master.
+    // Nobody can give a direct message an extension: not a party, not the Master.
     for header in [
         ("x-session-token", ayse.as_str()),
         ("x-admin-token", MASTER),
@@ -637,7 +655,7 @@ async fn a_birebir_has_no_extensions() {
             assert!(status == 403 || status == 404, "{path}: {status} {v}");
         }
     }
-    // A loca cannot be created under the birebir prefix to sneak one in.
+    // A loca cannot be created under the direct message prefix to sneak one in.
     assert_eq!(create(&base, "bb-fake", Some(&["notes"])).await.0, 409);
     // Its extension routes answer 403 to the two.
     for (_, method, path, body) in probes(&room) {
@@ -816,4 +834,206 @@ async fn a_failed_journal_line_leaves_the_extensions_unchanged() {
         after
     );
     assert_eq!(journal_texts(&base, "atomic-ext").await, lines_after);
+}
+
+// ============================================================================
+// The registry (`protocol::EXTENSIONS`) is the one place an extension is
+// written down. What else names extensions by hand is held to it here, so a
+// new entry cannot leave the docs, the web page or the frame list behind.
+// ============================================================================
+
+const CONCEPTS_MD: &str = include_str!("../../../../docs/concepts.md");
+const INDEX_HTML: &str = include_str!("../../../../web/index.html");
+const EXTENSIONS_JS: &str = include_str!("../../../../web/assets/extensions.js");
+const PROTOCOL_FRAMES: &str = include_str!("../../../../docs/protocol-frames.json");
+
+/// The rows of the table under `## Loca extensions` in docs/concepts.md, as
+/// (id, name, the "Routes it owns" cell).
+fn concepts_table() -> Vec<(String, String, String)> {
+    let start = CONCEPTS_MD
+        .find("\n## Loca extensions\n")
+        .expect("docs/concepts.md has a `## Loca extensions` section");
+    let section = &CONCEPTS_MD[start + 1..];
+    let section = &section[..section[3..].find("\n## ").map_or(section.len(), |i| i + 3)];
+    let mut rows = Vec::new();
+    for line in section.lines() {
+        let cells: Vec<&str> = line.trim().split('|').map(str::trim).collect();
+        // | `id` | Name | Adds | Routes it owns |
+        if cells.len() != 6 || !cells[1].starts_with('`') {
+            continue;
+        }
+        rows.push((
+            cells[1].trim_matches('`').to_string(),
+            cells[2].to_string(),
+            cells[4].to_string(),
+        ));
+    }
+    rows
+}
+
+/// The table in docs/concepts.md stays prose, but it lists exactly the
+/// registry's extensions, in its order, under their names, with every route
+/// segment each one owns.
+#[test]
+fn the_concepts_table_lists_the_registry() {
+    let rows = concepts_table();
+    let listed: Vec<(&str, &str)> = rows
+        .iter()
+        .map(|(id, name, _)| (id.as_str(), name.as_str()))
+        .collect();
+    let registry: Vec<(&str, &str)> = protocol::EXTENSIONS
+        .iter()
+        .map(|spec| (spec.id, spec.name))
+        .collect();
+    assert_eq!(
+        listed, registry,
+        "docs/concepts.md `## Loca extensions` table (id, name) differs from protocol::EXTENSIONS"
+    );
+    for ((id, _, routes), spec) in rows.iter().zip(protocol::EXTENSIONS) {
+        for segment in spec.routes {
+            assert!(
+                routes.contains(&format!("/rooms/:id/{segment}")),
+                "docs/concepts.md: the {id} row does not name /rooms/:id/{segment}: {routes}"
+            );
+        }
+    }
+}
+
+/// The loca tabs of the web page, as (`data-tab`, visible label), read from
+/// the `<div class="tabs" ...>` block of web/index.html.
+fn page_tabs() -> Vec<(String, String)> {
+    let start = INDEX_HTML
+        .find("<div class=\"tabs\"")
+        .expect("web/index.html has the loca tabs");
+    let block = &INDEX_HTML[start..start + INDEX_HTML[start..].find("</div>").unwrap()];
+    let mut tabs = Vec::new();
+    for button in block.split("<button").skip(1) {
+        let key = button
+            .split("data-tab=\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .expect("every loca tab has a data-tab");
+        let label = button
+            .split_once('>')
+            .map(|(_, rest)| rest.split('<').next().unwrap_or("").trim())
+            .unwrap_or("");
+        tabs.push((key.to_string(), label.to_string()));
+    }
+    tabs
+}
+
+/// The browser shows a loca tab from the catalog's `tab_key`: every
+/// extension with a tab has its button in the page under that key and label,
+/// and every tab but Chat belongs to an extension.
+#[test]
+fn every_loca_tab_in_the_page_is_an_extension_tab_of_the_registry() {
+    let tabs = page_tabs();
+    assert_eq!(
+        tabs.first().map(|(key, _)| key.as_str()),
+        Some("chat"),
+        "{tabs:?}"
+    );
+    let mut problems = Vec::new();
+    for spec in protocol::EXTENSIONS {
+        if spec.tab.is_some() != spec.tab_key.is_some() {
+            problems.push(format!(
+                "{}: `tab` and `tab_key` must both be set or both absent",
+                spec.id
+            ));
+        }
+        let Some(key) = spec.tab_key else { continue };
+        match tabs.iter().find(|(have, _)| have == key) {
+            None => problems.push(format!(
+                "{}: web/index.html has no loca tab with data-tab=\"{key}\"",
+                spec.id
+            )),
+            Some((_, label)) if Some(label.as_str()) != spec.tab => problems.push(format!(
+                "{}: the data-tab=\"{key}\" tab reads {label:?}, the catalog says {:?}",
+                spec.id, spec.tab
+            )),
+            Some(_) => {}
+        }
+    }
+    for (key, _) in tabs.iter().skip(1) {
+        if !protocol::EXTENSIONS
+            .iter()
+            .any(|spec| spec.tab_key == Some(key.as_str()))
+        {
+            problems.push(format!(
+                "web/index.html loca tab data-tab=\"{key}\" belongs to no extension"
+            ));
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+/// The web keeps one copy of an extension fact: the frozen legacy set, which
+/// it needs before any answer arrives. It must be the server's. No other line
+/// of the web assets may spell out a list of extension ids (a second table
+/// to keep in step): names and tabs come from the catalog.
+#[test]
+fn the_web_keeps_no_list_of_extensions_but_the_frozen_legacy_set() {
+    let line = EXTENSIONS_JS
+        .lines()
+        .find(|line| line.starts_with("const LEGACY_EXTENSIONS = ["))
+        .expect("web/assets/extensions.js declares LEGACY_EXTENSIONS");
+    let web: Vec<&str> = line
+        .split('[')
+        .nth(1)
+        .and_then(|rest| rest.split(']').next())
+        .unwrap()
+        .split(',')
+        .map(|id| id.trim().trim_matches('"'))
+        .collect();
+    assert_eq!(web, protocol::LEGACY_EXTENSIONS);
+
+    let assets = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/assets");
+    let mut lists = Vec::new();
+    for entry in std::fs::read_dir(&assets).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|ext| ext != "js") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (number, line) in text.lines().enumerate() {
+            if line.starts_with("const LEGACY_EXTENSIONS = [") {
+                continue;
+            }
+            let named = protocol::EXTENSIONS
+                .iter()
+                .filter(|spec| {
+                    line.contains(&format!("\"{}\"", spec.id))
+                        || line.contains(&format!("{}: ", spec.id))
+                })
+                .count();
+            if named >= 3 {
+                lists.push(format!("{}:{}: {line}", path.display(), number + 1));
+            }
+        }
+    }
+    assert!(
+        lists.is_empty(),
+        "a hand-kept list of extensions in the web assets; read the catalog instead:\n{}",
+        lists.join("\n")
+    );
+}
+
+/// Every frame the registry gives an extension is a loca-socket frame of
+/// docs/protocol-frames.json, and no frame is given to two extensions.
+#[test]
+fn the_registry_frames_are_loca_frames_of_the_protocol() {
+    let frames: Value = serde_json::from_str(PROTOCOL_FRAMES).unwrap();
+    let mut owner = std::collections::BTreeMap::new();
+    for spec in protocol::EXTENSIONS {
+        for frame in spec.frames {
+            assert_eq!(
+                frames["server_frames"][frame]["socket"], "loca",
+                "{}: {frame} is not a loca frame in docs/protocol-frames.json",
+                spec.id
+            );
+            if let Some(other) = owner.insert(*frame, spec.id) {
+                panic!("{frame} is given to both {other} and {}", spec.id);
+            }
+        }
+    }
 }

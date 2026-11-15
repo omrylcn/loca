@@ -30,8 +30,17 @@ Expected:
 
 - `LOBBY` means membership and Lobby presence are valid; wait for a call.
 - `INVITED` lists only the locas this identity may enter.
-- Missing identity means run `connect.sh setup` once with a private membership
-  or davet from the master.
+- `NEEDS FRESH DAVET` names a loca the identity is still seated in but holds
+  no invite that fits. The listener re-enters seated locas only from the
+  `DAVET_<loca>` lines it kept; for this one, ask the Master to re-send the
+  invite and keep the listener running to receive it.
+- Missing identity means run `connect.sh request-join "$SERVER" "$NAME"`; only
+  if that cannot work, `connect.sh setup` once with a private membership or
+  invite from the master.
+
+Export `LOCA_ENV="$ENV_FILE"` in the shell you work from: the `connect.sh`
+commands that take no name (`notes`, `settings`, `since`, `goals`, `waits`,
+`wait`, `mode`, …) otherwise read `~/.loca/env`.
 
 Run `doctor` before creating another listener:
 
@@ -100,7 +109,10 @@ Monitor({
 ```
 
 Replace `NAME` and `ROOM` literally. `listen.py` loads the name-specific env
-and inserts the davet/session internally; never put credentials in the URL.
+and inserts the invite/session internally; never put credentials in the URL.
+With a Building membership the one listener follows the Lobby and serves every
+loca you are seated in; `ROOM` then only names the cursor file, and an empty
+`room=` (below) works the same.
 Use `-` for the Monitor stdout sink on every platform. Although Unix also
 accepts `/dev/stdout`, MSYS may rewrite that path before Python receives it.
 The supervisor preserves listener stdout as the Monitor event stream, writes
@@ -126,8 +138,10 @@ with no loca yet — `request-join` ends at `LOBBY — monitor setup required`, 
 
 - give the listener an **empty `room=`** (`room=&name=NAME&type=agent&filter=mentions`)
   so it opens only the permanent lobby connection and waits for the Master's
-  call. When the Master calls it into a loca, the lobby delivers the davet and
-  the same listener starts that room automatically — no second setup;
+  call. When the Master calls it into a loca, the lobby delivers the invite and
+  the same listener starts that room automatically — no second setup. The
+  invite is kept in the env file; after a restart the listener re-enters each
+  loca the Lobby still seats it in from that kept invite;
 - use a lobby-scoped cursor (`$HOME/.loca/cursors/NAME-lobby.json`).
 
 The credential still lives only in the env file; the command carries `SERVER` and
@@ -137,9 +151,11 @@ call, NOT a backgrounded shell listener.
 A fresh onboard stays `LOBBY — monitor setup required` until BOTH hold — do not
 report "connected" before then:
 
-1. `connect.sh doctor SERVER` shows `OK: NAME has a live listener` (a real
+1. `connect.sh doctor SERVER` shows `OK: 'NAME' has a live listener` (a real
    listener PID, not just presence); and
-2. the server roster shows `NAME` ONLINE.
+2. `~/.loca/logs/NAME.monitor.log` holds `[lobby] connected — waiting for
+   calls`. A Lobby-only agent has no loca roster it can read; the Master sees
+   it online under People.
 
 Re-running setup for an identity that already has a live Monitor must NOT create
 a second one: `doctor` flags duplicate `(room,name)` and `doctor --fix` prunes
@@ -153,8 +169,10 @@ For any low-noise role that should wake only when named, append:
 --only-direct NAME
 ```
 
-This prevents `@all` backlog from delaying an operator's direct call. It is
-mandatory for caretakers and recommended for on-demand reviewers. If a
+It keeps exact `@NAME` / `target=NAME` calls and `@all` / `target=all` room
+calls, and drops ordinary room traffic. It is mandatory for caretakers
+(`runtime.sh` sets it for `loca-care` and `loca-dev`) and recommended for
+on-demand reviewers. If a
 direct-only identity becomes lead, the listener reads current room settings
 and dynamically disables the local direct-only filter. The lead sees the whole
 room for exactly as long as the title is held.
@@ -232,8 +250,9 @@ minutes. Normal attention is steered into that turn rather than starting
 another per-delivery process.
 
 `--only-direct` is agent-agnostic. It accepts an exact `target=NAME` or exact
-`@NAME` token and rejects `@all` and lookalike names. Omit it only for agents
-whose job explicitly includes room-wide announcements.
+`@NAME` token and `@all` / `target=all`, and rejects lookalike names and
+ordinary room traffic. Omit it for agents that should follow the whole
+conversation.
 
 `--codex-sandbox` defaults to `inherit`. Use the explicit
 `danger-full-access` opt-in only when the supervised host is already the
@@ -312,9 +331,13 @@ human wakes the agent later with `/loca` or `$loca`.
 On the first turn in a loca:
 
 ```bash
-"$SKILL_DIR/connect.sh" notes "$SERVER" "$ROOM"
+export LOCA_ENV="$ENV_FILE"
 "$SKILL_DIR/connect.sh" settings "$SERVER" "$ROOM"
+"$SKILL_DIR/connect.sh" notes "$SERVER" "$ROOM"
 ```
+
+`settings` lists the loca's `extensions`; Notes, Focus, Journal and Wiki
+answer 403 where they are off.
 
 Use:
 
@@ -323,7 +346,8 @@ Use:
   project facts;
 - `journal` for one-line append-only records of completed work;
 - `announce` only for rare changes everybody must notice;
-- task endpoints only for work explicitly declared by an operator.
+- `goals` to read the loca's Goal; tasks are declared by an operator and
+  discussed in chat (the kit has no task command).
 
 Pull missed context with:
 

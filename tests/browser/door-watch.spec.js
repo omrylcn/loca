@@ -106,7 +106,7 @@ test("members are unaffected: no door bar, no seat icon", async ({ page }) => {
   expect(await page.evaluate(() => isWatchingDoor())).toBe(false);
 });
 
-test("İye is the ranks' own house: they sit there by default and may step out", async ({ page, request }) => {
+test("Care is the ranks' own house: they sit there by default and may step out", async ({ page, request }) => {
   const info = await masterSession(request, "iye-boss");
   await openAs(page, info, "iye-boss");
   const home = await page.evaluate(() => state.homeRoom);
@@ -118,7 +118,7 @@ test("İye is the ranks' own house: they sit there by default and may step out",
   await expect(page.locator("#msg")).toBeEnabled();
   await expect(page.locator("#seatToggle")).toHaveAttribute("aria-label", "Step out to the door");
 
-  // Stepping out of İye is remembered like any other seat choice.
+  // Stepping out of Care is remembered like any other seat choice.
   await page.locator("#seatToggle").click();
   await expect.poll(() => roster(request, home)).not.toContain("Master");
   await page.reload();

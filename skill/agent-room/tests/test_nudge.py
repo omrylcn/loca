@@ -111,14 +111,14 @@ class NudgeTests(unittest.TestCase):
                 "room": "sb-dev",
                 "sender": "operator",
                 "target": "codex-dev",
-                "text": "testleri kontrol et",
+                "text": "check the tests",
             }
         )
         self.assertIn("$loca", text)
         self.assertIn("operator", text)
         self.assertIn("sb-dev", text)
         self.assertIn("codex-dev", text)
-        self.assertIn("testleri kontrol et", text)
+        self.assertIn("check the tests", text)
 
     def test_prompt_combines_a_server_turn_without_losing_message_order(self):
         text = NUDGE_MODULE.nudge_text(
@@ -126,15 +126,15 @@ class NudgeTests(unittest.TestCase):
                 "t": "turn",
                 "room": "sb-dev",
                 "messages": [
-                    {"sender": "operator", "text": "önce bunu yap"},
-                    {"sender": "operator", "text": "sonra testi çalıştır"},
-                    {"sender": "debug", "text": "şu loga da bak"},
+                    {"sender": "operator", "text": "do this first"},
+                    {"sender": "operator", "text": "then run the test"},
+                    {"sender": "debug", "text": "look at that log too"},
                 ],
             }
         )
         self.assertIn("queued 3 messages into one turn", text)
-        self.assertLess(text.index("önce bunu yap"), text.index("sonra testi çalıştır"))
-        self.assertLess(text.index("sonra testi çalıştır"), text.index("şu loga da bak"))
+        self.assertLess(text.index("do this first"), text.index("then run the test"))
+        self.assertLess(text.index("then run the test"), text.index("look at that log too"))
 
     def test_care_prompt_is_bounded_and_allows_one_direct_nudge(self):
         text = NUDGE_MODULE.nudge_text(
@@ -147,8 +147,8 @@ class NudgeTests(unittest.TestCase):
                     "target": "reviewer",
                     "subject": "worker waits for reviewer",
                     "context": [
-                        {"sender": "worker", "text": "contract bekliyorum"},
-                        {"sender": "reviewer", "text": "migration bekliyorum"},
+                        {"sender": "worker", "text": "waiting for the contract"},
+                        {"sender": "reviewer", "text": "waiting for the migration"},
                     ],
                 },
             }
@@ -158,7 +158,7 @@ class NudgeTests(unittest.TestCase):
         self.assertIn("resolve the displayed attention id", text)
         self.assertIn("connect.sh attention-resolve", text)
         self.assertIn("reviewer", text)
-        self.assertIn("contract bekliyorum", text)
+        self.assertIn("waiting for the contract", text)
         self.assertIn("exactly one direct message", text)
 
     def test_reaction_prompt_is_low_noise_and_does_not_invite_a_reply(self):
@@ -225,7 +225,7 @@ for line in sys.stdin:
                 "room": "iye",
                 "sender": "operator",
                 "target": "loca-dev",
-                "text": "buraya bak",
+                "text": "look here",
             }
             result = subprocess.run(
                 [
@@ -266,7 +266,7 @@ for line in sys.stdin:
             self.assertNotIn("sandboxPolicy", turn["params"])
             self.assertEqual(turn["params"]["input"][1]["type"], "skill")
             self.assertEqual(turn["params"]["input"][1]["name"], "loca")
-            self.assertIn("buraya bak", turn["params"]["input"][0]["text"])
+            self.assertIn("look here", turn["params"]["input"][0]["text"])
 
     def test_codex_adapter_does_not_claim_success_before_turn_completed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -414,7 +414,7 @@ for line in sys.stdin:
                     "--turn-timeout",
                     "0.2",
                 ],
-                input='{"room":"sb-dev","sender":"operator","text":"hemen bak"}',
+                input='{"room":"sb-dev","sender":"operator","text":"look right now"}',
                 text=True,
                 capture_output=True,
                 env=env,
@@ -440,7 +440,7 @@ for line in sys.stdin:
                 steer["params"]["clientUserMessageId"],
                 "loca:sb-dev:42",
             )
-            self.assertIn("hemen bak", steer["params"]["input"][0]["text"])
+            self.assertIn("look right now", steer["params"]["input"][0]["text"])
 
     def test_direct_operator_call_preempts_active_turn(self):
         with tempfile.TemporaryDirectory() as tmp:

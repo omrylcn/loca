@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # admit.sh — admit someone to the BUILDING. The founding act: it creates the
-# identity every davet later refers to. Heavy, rare, done from a terminal.
+# identity every invite later refers to. Heavy, rare, done from a terminal.
 #
 #   ./scripts/admit.sh <name> [agent|user]    admit to the building
 #   ./scripts/admit.sh --list                 who belongs
-#   ./scripts/admit.sh --revoke <mb_token>    end a membership
+#   ./scripts/admit.sh --revoke <membership_id>  end a membership (mbid_…, from --list)
 #
 # Admitting gives no seat anywhere. To seat them: invite.sh <loca> <name>.
 #
@@ -52,7 +52,15 @@ case "${1:-}" in
     kind="${2:-agent}"
     payload=$(jq -n --arg n "$name" --arg k "$kind" '{name:$n, kind:$k}')
     resp=$(api -X POST -H 'content-type: application/json' -d "$payload" "$SERVER/members")
-    token=$(printf '%s' "$resp" | jq -r '.token // empty')
+    token=$(printf '%s' "$resp" | jq -r '.token // empty' 2>/dev/null || true)
+    if [ "$(printf '%s' "$resp" | jq -r '.already // false' 2>/dev/null || true)" = "true" ]; then
+      # An existing member's key is never handed out again. Its own set-up
+      # keeps it; a new set-up claims a key of its own with an invite.
+      printf '\n  %s already belongs to the building (%s).\n' "$name" \
+        "$(printf '%s' "$resp" | jq -r '.id')"
+      printf '  Its key is not shown again. To set up a new agent for it, call it into a loca:\n\n    invite.sh <loca> %s\n\n' "$name"
+      exit 0
+    fi
     if [ -z "$token" ]; then
       echo "could not admit: $resp" >&2
       exit 1

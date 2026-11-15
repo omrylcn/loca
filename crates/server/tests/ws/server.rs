@@ -65,6 +65,46 @@ async fn public_docs_serve_on_a_closed_building_but_protected_routes_stay_gated(
         );
     }
 
+    // The principles are served under their file names, in the right
+    // language, and each one's link to the other language opens the other one
+    // (the links are relative file names, as in the repository). The address
+    // the English text had before it became PRINCIPLES.md still opens it.
+    let principles = |path: &'static str| {
+        let (client, base) = (client.clone(), base.clone());
+        async move {
+            let response = client.get(format!("{base}{path}")).send().await.unwrap();
+            assert_eq!(
+                response.status(),
+                reqwest::StatusCode::OK,
+                "{path} must be publicly readable on a closed building"
+            );
+            response.text().await.unwrap()
+        }
+    };
+    let english = principles("/PRINCIPLES.md").await;
+    let turkish = principles("/PRINCIPLES.tr.md").await;
+    assert!(
+        english.starts_with("# loca — Product Spirit"),
+        "English at /PRINCIPLES.md"
+    );
+    assert!(
+        turkish.starts_with("# loca — Proje Ruhu"),
+        "Turkish at /PRINCIPLES.tr.md"
+    );
+    assert!(
+        english.contains("](PRINCIPLES.tr.md)"),
+        "the English text links to the Turkish one"
+    );
+    assert!(
+        turkish.contains("](PRINCIPLES.md)"),
+        "the Turkish text links to the English one"
+    );
+    assert_eq!(
+        principles("/PRINCIPLES.en.md").await,
+        english,
+        "the old English address"
+    );
+
     // A protected route is still gated for an anonymous caller — the allow-list
     // opened exactly one doc, not the membership wall.
     let protected = client
@@ -137,7 +177,7 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "window.openGettingStarted",
         ),
         ("tooltip.js", "text/javascript", "window.refreshTip"),
-        ("birebir.js", "text/javascript", "function openBirebir("),
+        ("dm.js", "text/javascript", "function openDm("),
         (
             "keys.js",
             "text/javascript",
@@ -147,6 +187,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "extensions.js",
             "text/javascript",
             "function applyLocaExtensions(",
+        ),
+        (
+            "identity.js",
+            "text/javascript",
+            "function applyLocaIdentity(",
         ),
         (
             "groups.js",

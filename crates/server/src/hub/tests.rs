@@ -12,7 +12,87 @@ use super::{
     validate_display_name, AttentionError, CareDraft, GoalError, Hub, HubConfig, ModerationError,
     NameError, ProfileRenameError,
 };
-use crate::store::{BuildingRole, Store};
+use crate::store::{BuildingRole, InviteRecord, MemberRecord, Store};
+
+/// Admit a new member and keep the key the hub hands over once, at the
+/// admission: the store keeps only its hash.
+fn admit_with_key(hub: &Hub, name: &str, kind: &str, by: &str) -> (MemberRecord, String) {
+    let (member, key) = hub.admit_member_once(name, kind, by).unwrap();
+    (
+        member,
+        key.expect("a member admitted now is handed its key"),
+    )
+}
+
+/// An invite minted in a test: the invite itself, which the hub hands over once,
+/// with its record's fields. `member` is the membership's id.
+#[derive(Debug, Clone)]
+struct Minted {
+    token: String,
+    room: String,
+    member: String,
+    name: String,
+    kind: String,
+    issued_by: String,
+}
+
+impl From<(InviteRecord, String)> for Minted {
+    fn from((record, invite): (InviteRecord, String)) -> Self {
+        Self {
+            token: invite,
+            room: record.room,
+            member: record.member_id,
+            name: record.name,
+            kind: record.kind,
+            issued_by: record.issued_by,
+        }
+    }
+}
+
+/// End the invite `invite` (a test holds the invite; the hub, its hash).
+fn revoke_invite(hub: &Hub, invite: &str) -> bool {
+    hub.revoke_invite_by_hash(&crate::store::secret_hash(invite))
+        .unwrap()
+}
+
+/// Record an invite `invite` for `member` in `room`, as a mint does.
+fn add_test_invite(hub: &Hub, invite_key: &str, room: &str, member: &MemberRecord, issued_at: u64) {
+    hub.add_invite(
+        InviteRecord::issued(
+            invite_key,
+            room,
+            &member.id,
+            &member.name,
+            &member.kind,
+            issued_at,
+            "master",
+        ),
+        invite_key,
+    )
+    .unwrap();
+}
+
+/// A test that posts as a fixed sender names its operation scope directly.
+impl From<&str> for super::OperationScope {
+    fn from(key: &str) -> Self {
+        Self {
+            key: key.into(),
+            principal: None,
+            legacy: None,
+        }
+    }
+}
+
+mod claim_window;
+mod invite_delivery;
+mod join_window;
+mod key_ids;
+mod loca_seats;
+mod name_claims;
+mod notification_limit;
+mod profile_card;
+mod reissue;
+mod session_lifetime;
 
 static TEST_NOW: AtomicU64 = AtomicU64::new(0);
 static TEST_CLOCK_LOCK: Mutex<()> = Mutex::new(());
@@ -64,34 +144,35 @@ fn disabled_focus_never_generates_automatic_goal_reminders() {
 }
 
 #[test]
-fn suspension_and_concurrent_davet_creation_cannot_leave_a_revivable_seat() {
+fn suspension_and_concurrent_invite_creation_cannot_leave_a_revivable_seat() {
     let directory = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(directory.path().join("suspend-race.db").to_str()).unwrap());
     let hub = critical_restart_hub(store, "race-fixture-root");
     let member = hub.admit_member("race-worker", "agent", "master").unwrap();
-    let reference = hub.member_management_id(&member.token);
+    let reference = member.id.clone();
     for _ in 0..20 {
-        let invite = protocol::Invite {
-            token: hub.new_invite_token(),
-            room: "race-room".into(),
-            member: member.token.clone(),
-            name: member.name.clone(),
-            kind: member.kind.clone(),
-            issued_at: 1,
-            issued_by: "master".into(),
-        };
-        let token = invite.token.clone();
+        let token = hub.new_invite_token();
+        let invite = InviteRecord::issued(
+            &token,
+            "race-room",
+            &member.id,
+            &member.name,
+            &member.kind,
+            1,
+            "master",
+        );
         let barrier = Arc::new(std::sync::Barrier::new(2));
         let writer = hub.clone();
         let ready = barrier.clone();
+        let invite_key = token.clone();
         let thread = std::thread::spawn(move || {
             ready.wait();
-            let _ = writer.add_invite(invite);
+            let _ = writer.add_invite(invite, &invite_key);
         });
         barrier.wait();
         assert!(hub.set_member_suspended(&reference, true, "test").unwrap());
         thread.join().unwrap();
-        assert!(!hub.has_active_invite("race-room", &member.token));
+        assert!(!hub.has_active_invite("race-room", &member.id));
         assert!(hub.set_member_suspended(&reference, false, "").unwrap());
         assert!(hub.invite_for("race-room", Some(&token)).is_none());
     }
@@ -114,6 +195,93 @@ fn critical_restart_hub(store: Arc<Store>, root: &str) -> Hub {
     )
 }
 
+fn session_request(name: &str) -> protocol::CreateSession {
+    protocol::CreateSession {
+        name: name.into(),
+        kind: Some(SenderType::User),
+        runtime: None,
+        capabilities: vec![],
+    }
+}
+
+/// The route resolves the membership behind a member's own key, then records
+/// the session. Hold it between the two while the Master revokes the
+/// membership (memory-only store: no principal binds the session, the
+/// membership does): no session may be recorded from the stale copy.
+#[test]
+fn a_membership_revoked_after_it_was_resolved_records_no_session() {
+    let hub = critical_restart_hub(Arc::new(Store::open(None).unwrap()), "race-root");
+    let (member, key) = admit_with_key(&hub, "late-member", "user", "master");
+    let resolved = hub.member_for_credential(Some(&key));
+    assert!(resolved.is_some(), "the route resolved a live membership");
+    assert!(hub.revoke_member(&member.id).unwrap());
+    let created = hub
+        .create_session_scoped(session_request("late-member"), None, None, false, resolved)
+        .unwrap();
+    assert!(
+        created.is_none(),
+        "a session was recorded for a revoked membership"
+    );
+}
+
+/// The same window for an invite: resolved, then revoked on its own, then the
+/// session is recorded. The invite's session must not outlive the invite.
+#[test]
+fn an_invite_revoked_after_it_was_resolved_records_no_session() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(directory.path().join("invite-race.db").to_str()).unwrap());
+    let hub = critical_restart_hub(store, "race-root");
+    let member = hub.admit_member("late-guest", "agent", "master").unwrap();
+    let token = hub.new_invite_token();
+    add_test_invite(&hub, &token, "late-room", &member, 1_767_225_600_000);
+    let resolved = hub.invite_by_token(&token).expect("a live invite");
+    assert!(hub.revoke_invite_by_hash(&resolved.secret_hash).unwrap());
+    let created = hub
+        .create_session_scoped(
+            session_request("late-guest"),
+            Some(&resolved),
+            None,
+            false,
+            None,
+        )
+        .unwrap();
+    assert!(
+        created.is_none(),
+        "a session was recorded for a revoked invite"
+    );
+}
+
+/// Persistent store: a member's own-key session is bound to its principal,
+/// which suspension and revocation disable. Resolved before either, recorded
+/// after, it must still open nothing.
+#[test]
+fn a_principal_session_recorded_after_suspension_or_revocation_is_dead() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(directory.path().join("grant-race.db").to_str()).unwrap());
+    let hub = critical_restart_hub(store, "race-root");
+    for (name, suspend) in [("late-suspended", true), ("late-revoked", false)] {
+        let (member, key) = admit_with_key(&hub, name, "user", "master");
+        let grant = hub
+            .admin_session_grant(Some(&key), Hub::ADMIN_SESSION_TTL_MS)
+            .expect("a member's own key binds its principal");
+        if suspend {
+            let reference = member.id.clone();
+            assert!(hub.set_member_suspended(&reference, true, "test").unwrap());
+        } else {
+            assert!(hub.revoke_member(&member.id).unwrap());
+        }
+        let created = hub
+            .create_session_scoped(session_request(name), None, Some(grant), false, None)
+            .unwrap();
+        if let Some(session) = created {
+            assert!(
+                hub.session_identity(Some(&session.session_token)).is_none(),
+                "{name}: the session outlived its principal"
+            );
+        }
+    }
+}
+
 fn critical_admin_session(hub: &Hub, key: &str) -> String {
     hub.create_session_scoped(
         protocol::CreateSession {
@@ -124,8 +292,11 @@ fn critical_admin_session(hub: &Hub, key: &str) -> String {
         },
         None,
         hub.admin_session_grant(Some(key), Hub::ADMIN_SESSION_TTL_MS),
+        false,
+        None,
     )
     .unwrap()
+    .expect("session recorded")
     .session_token
 }
 
@@ -152,12 +323,172 @@ fn critical_restart_preserves_smaster_and_refuses_unbound_legacy_session() {
     assert!(!hub
         .resolve_authority(None, Some("st_unbound"))
         .is_building_admin());
-    hub.revoke_smaster("sm_deputy").unwrap();
+    hub.revoke_smaster_ref("sm_deputy").unwrap();
     drop(hub);
     let hub = critical_restart_hub(store, "root");
     assert!(!hub
         .resolve_authority(None, Some(&smaster))
         .is_building_admin());
+}
+
+/// The Hub keeps sessions under their token's hash, so after a restart it
+/// has nothing else. A restored session must still end on sign-out and on
+/// revocation, in memory and in the database, and stay ended across the
+/// next restart.
+#[test]
+fn restored_admin_sessions_are_keyed_by_hash_and_still_end() {
+    use crate::store::secret_hash;
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("restored-sessions.db");
+    let store = Arc::new(Store::open(Some(path.to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "deputy", 1).unwrap();
+    let hub = critical_restart_hub(store.clone(), "root");
+    let master_id = hub
+        .resolve_authority(Some("root"), None)
+        .principal_id
+        .expect("Master principal");
+    let (device, device_secret) = hub.create_profile_credential(&master_id, "Laptop").unwrap();
+    let master = critical_admin_session(&hub, "root");
+    let signed_out = critical_admin_session(&hub, "root");
+    let on_device = critical_admin_session(&hub, &device_secret);
+    let smaster = critical_admin_session(&hub, "sm_deputy");
+    drop(hub);
+
+    let keys = |hub: &Hub| {
+        let mut keys: Vec<String> = hub.sessions.lock().unwrap().keys().cloned().collect();
+        keys.sort();
+        keys
+    };
+    let hashes = |tokens: &[&String]| {
+        let mut hashes: Vec<String> = tokens.iter().map(|t| secret_hash(t)).collect();
+        hashes.sort();
+        hashes
+    };
+    let stored = || {
+        let c = rusqlite::Connection::open(&path).unwrap();
+        let mut statement = c
+            .prepare("SELECT secret_hash FROM admin_sessions ORDER BY secret_hash")
+            .unwrap();
+        let rows: Vec<String> = statement
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        rows
+    };
+    let revoked_in_db = |token: &str| -> bool {
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .query_row(
+                "SELECT revoked_at IS NOT NULL FROM principal_sessions WHERE id = ?1",
+                [secret_hash(token)],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+
+    // Restart: only hashes, in the database and in memory.
+    let hub = critical_restart_hub(store.clone(), "root");
+    let all = [&master, &signed_out, &on_device, &smaster];
+    assert_eq!(keys(&hub), hashes(&all), "sessions are keyed by hash");
+    assert_eq!(stored(), hashes(&all));
+    for token in all {
+        assert!(hub.resolve_authority(None, Some(token)).is_building_admin());
+    }
+
+    // Sign-out of a restored session.
+    assert!(hub.revoke_session(&signed_out).unwrap());
+    assert!(!keys(&hub).contains(&secret_hash(&signed_out)));
+    assert!(!stored().contains(&secret_hash(&signed_out)));
+    assert!(revoked_in_db(&signed_out));
+    assert!(!hub
+        .resolve_authority(None, Some(&signed_out))
+        .is_building_admin());
+    assert!(
+        !hub.revoke_session(&signed_out).unwrap(),
+        "a second sign-out finds nothing"
+    );
+
+    // Revoking the credential a restored session was taken with drops it
+    // from memory at once, not only at its next lookup.
+    hub.revoke_profile_credential(&master_id, &device.id)
+        .unwrap();
+    assert!(!keys(&hub).contains(&secret_hash(&on_device)));
+    assert!(revoked_in_db(&on_device));
+    assert!(!hub
+        .resolve_authority(None, Some(&on_device))
+        .is_building_admin());
+
+    // Revoking the Smaster ends its restored session.
+    assert!(hub.revoke_smaster_ref("sm_deputy").unwrap());
+    assert!(!hub
+        .resolve_authority(None, Some(&smaster))
+        .is_building_admin());
+    assert!(hub.resolve_authority(None, Some(&master)).is_master());
+    drop(hub);
+
+    // Nothing comes back with the next restart.
+    let hub = critical_restart_hub(store, "root");
+    assert_eq!(keys(&hub), hashes(&[&master]));
+    assert_eq!(stored(), hashes(&[&master]));
+    for token in [&signed_out, &on_device, &smaster] {
+        assert!(!hub.resolve_authority(None, Some(token)).is_building_admin());
+    }
+    assert!(hub.resolve_authority(None, Some(&master)).is_master());
+}
+
+/// A seat key built from a session (a Smaster session without a principal,
+/// as in a memory-only sandbox, or a plain building-key session) names the
+/// session by its hash. The key leaves the process in `Evicted` frames.
+#[test]
+fn a_seat_key_names_a_session_by_its_hash_never_its_token() {
+    use crate::store::secret_hash;
+    let hub = critical_restart_hub(Arc::new(Store::open(None).unwrap()), "root");
+    let code = hub.add_smaster("deputy").unwrap();
+    let smaster = critical_admin_session(&hub, &code);
+    let identity = hub.session_identity(Some(&smaster)).expect("live session");
+    assert_eq!(identity.building_role, BuildingRole::Smaster);
+    assert!(identity.principal_id.is_none(), "the path under test");
+    let seat = hub.seat_identity(None, None, Some(&identity), Some(&smaster), "deputy");
+    assert_eq!(seat, format!("sm:st:{}", secret_hash(&smaster)));
+
+    let plain = hub
+        .create_session_scoped(
+            protocol::CreateSession {
+                name: "guest".into(),
+                kind: Some(SenderType::Agent),
+                runtime: None,
+                capabilities: vec![],
+            },
+            None,
+            None,
+            true,
+            None,
+        )
+        .unwrap()
+        .expect("session recorded")
+        .session_token;
+    let guest = hub.session_identity(Some(&plain)).expect("live session");
+    assert_eq!(
+        hub.seat_identity(None, None, Some(&guest), Some(&plain), "guest"),
+        format!("st:{}", secret_hash(&plain))
+    );
+
+    // A second connection on the same seat under another name evicts the
+    // first; the frame names the seat, and so carries no token.
+    let mut rx = hub.subscribe("ops").0;
+    assert!(hub.join("ops", &seat, "deputy", SenderType::User, 1));
+    assert!(hub.join("ops", &seat, "deputy-laptop", SenderType::User, 2));
+    let mut evicted = 0;
+    while let Ok(frame) = rx.try_recv() {
+        let wire = serde_json::to_string(&frame).unwrap();
+        assert!(!wire.contains(&smaster[3..]), "a frame carries the token");
+        if let ServerFrame::Evicted { identity, .. } = frame {
+            assert_eq!(identity, seat);
+            evicted += 1;
+        }
+    }
+    assert_eq!(evicted, 1);
 }
 
 #[test]
@@ -260,7 +591,7 @@ fn loca_roster_wears_each_building_rank_beside_the_name() {
         SenderType::User,
         2
     ));
-    let worker_seat = format!("mb:{}", member.token);
+    let worker_seat = format!("mb:{}", member.id.clone());
     assert!(hub.join("ops", &worker_seat, "worker", SenderType::Agent, 3));
     let mut last = None;
     while let Ok(frame) = rx.try_recv() {
@@ -288,6 +619,9 @@ fn loca_roster_wears_each_building_rank_beside_the_name() {
         name: "worker".into(),
         kind: SenderType::Agent,
         role: None,
+        full_name: None,
+        principal_id: None,
+        icon: None,
     })
     .unwrap();
     assert!(wire.get("role").is_none());
@@ -308,13 +642,55 @@ fn loca_roster_wears_each_building_rank_beside_the_name() {
             ("deputy".into(), "smaster", vec!["ops".to_string()]),
         ]
     );
-    hub.leave("ops", &seat(&smaster, "deputy"));
+    hub.leave("ops", &seat(&smaster, "deputy"), 2);
     let deputy = hub
         .building_ranks()
         .into_iter()
         .find(|r| r.role == "smaster")
         .expect("an unseated Smaster is still part of the Building");
     assert!(deputy.locas.is_empty());
+}
+
+/// An identity is seated exactly while one of its connections is, whatever
+/// order a reconnect's join and the old connection's leave arrive in.
+#[test]
+fn a_seat_is_held_while_any_of_its_connections_is_seated() {
+    let hub = critical_restart_hub(Arc::new(Store::open(None).unwrap()), "root");
+    let seated = |identity: &str| {
+        hub.members("ops")
+            .iter()
+            .any(|member| member.name == identity)
+    };
+
+    // An agent reconnects: the new connection (2) evicts the old one (1),
+    // whose leave arrives late. The seat stays with the new connection.
+    assert!(hub.join("ops", "name:agent", "agent", SenderType::Agent, 1));
+    assert!(hub.join("ops", "name:agent", "agent", SenderType::Agent, 2));
+    hub.leave("ops", "name:agent", 1);
+    assert!(seated("agent"), "a late leave freed the reconnected seat");
+    hub.leave("ops", "name:agent", 2);
+    assert!(
+        !seated("agent"),
+        "the last connection's leave frees the seat"
+    );
+
+    // The old leave arriving first is the ordinary case.
+    assert!(hub.join("ops", "name:agent", "agent", SenderType::Agent, 3));
+    hub.leave("ops", "name:agent", 3);
+    assert!(!seated("agent"));
+    assert!(hub.join("ops", "name:agent", "agent", SenderType::Agent, 4));
+    assert!(seated("agent"));
+    hub.leave("ops", "name:agent", 4);
+
+    // Two web clients of one human share the seat until both have left, in
+    // either order, and a repeated leave changes nothing.
+    assert!(hub.join("ops", "name:human", "human", SenderType::User, 5));
+    assert!(hub.join("ops", "name:human", "human", SenderType::User, 6));
+    hub.leave("ops", "name:human", 6);
+    hub.leave("ops", "name:human", 6);
+    assert!(seated("human"), "the other screen still reads");
+    hub.leave("ops", "name:human", 5);
+    assert!(!seated("human"));
 }
 
 #[test]
@@ -325,7 +701,7 @@ fn a_rank_renames_its_own_profile_everywhere_it_is_worn() {
     store.add_smaster("sm_deputy", "smaster", 1).unwrap();
     store.add_smaster("sm_other", "selin", 1).unwrap();
     let hub = critical_restart_hub(store.clone(), "root");
-    let member = hub.admit_member("worker", "agent", "master").unwrap();
+    let (_, member_key) = admit_with_key(&hub, "worker", "agent", "master");
     let session = critical_admin_session(&hub, "sm_deputy");
     let identity = hub.session_identity(Some(&session)).unwrap();
     let seat = hub.seat_identity(None, None, Some(&identity), Some(&session), "smaster");
@@ -391,7 +767,7 @@ fn a_rank_renames_its_own_profile_everywhere_it_is_worn() {
         BuildingRole::Master
     );
     assert_eq!(hub.master_principal().unwrap().display_name, "omrylcn");
-    let worker = hub.resolve_authority(Some(&member.token), None);
+    let worker = hub.resolve_authority(Some(&member_key), None);
     assert_eq!(
         hub.rename_profile(&worker, "boss"),
         Err(ProfileRenameError::AuthorityRequired)
@@ -406,36 +782,52 @@ fn a_rename_carries_the_rank_s_past_messages_but_not_a_member_s() {
     store.add_smaster("sm_deputy", "smaster2", 1).unwrap();
     let hub = critical_restart_hub(store.clone(), "root");
     let session = critical_admin_session(&hub, "sm_deputy");
-    let say = |sender: &str, text: &str, op: Option<&str>, principal: &str| {
-        hub.post(
-            "ops",
-            PostMessage {
-                kind: Default::default(),
-                sender: sender.into(),
-                sender_type: SenderType::User,
-                target: None,
-                text: text.into(),
-                reply_to: None,
-                op_id: op.map(Into::into),
-                attachments: Vec::new(),
-            },
-            true,
-            principal,
-        )
-        .unwrap()
-    };
-    let first = say("smaster2", "with op id", Some("op-1"), "user:smaster2");
-    say("smaster2", "without op id", None, "user:smaster2");
+    let actor = hub.resolve_authority(None, Some(&session));
+    let deputy = actor.principal_id.clone().expect("deputy principal");
+    let say =
+        |sender: &str, text: &str, op: Option<&str>, principal: &str, writer: Option<&str>| {
+            hub.post(
+                "ops",
+                PostMessage {
+                    kind: Default::default(),
+                    sender: sender.into(),
+                    sender_type: SenderType::User,
+                    target: None,
+                    text: text.into(),
+                    reply_to: None,
+                    op_id: op.map(Into::into),
+                    attachments: Vec::new(),
+                },
+                true,
+                &principal.into(),
+                writer,
+            )
+            .unwrap()
+        };
+    let first = say(
+        "smaster2",
+        "with op id",
+        Some("op-1"),
+        "user:smaster2",
+        Some(&deputy),
+    );
+    let second = say(
+        "smaster2",
+        "without op id",
+        None,
+        "user:smaster2",
+        Some(&deputy),
+    );
     // A member that once wore the same label is someone else.
     say(
         "smaster2",
         "a member's words",
         Some("op-2"),
-        "mb:mb_someone",
+        "mb:mbid_someone",
+        Some("pr_someone_else"),
     );
     let mut rx = hub.subscribe("ops").0;
 
-    let actor = hub.resolve_authority(None, Some(&session));
     hub.rename_profile(&actor, "zhd").expect("rename");
 
     let live: Vec<(String, String)> = hub
@@ -446,16 +838,13 @@ fn a_rename_carries_the_rank_s_past_messages_but_not_a_member_s() {
         .collect();
     assert!(live.contains(&("zhd".into(), "with op id".into())));
     assert!(live.contains(&("zhd".into(), "without op id".into())));
-    let mut told = None;
-    while let Ok(frame) = rx.try_recv() {
-        if let ServerFrame::Renamed { from, to } = frame {
-            told = Some((from, to));
-        }
-    }
     assert_eq!(
-        told,
-        Some(("smaster2".into(), "zhd".into())),
-        "open feeds are told"
+        rename_frames(&mut rx),
+        vec![
+            Told::ById("zhd".into(), vec![first.id, second.id], Vec::new()),
+            Told::ByName("smaster2".into(), "zhd".into()),
+        ],
+        "open feeds are told exactly which messages changed, then by name as before"
     );
 
     // On disk too: a restart shows the new name on the rank's messages and
@@ -495,19 +884,19 @@ fn loca_moderation_cannot_reach_up_the_building_ranks() {
 
     for action in [Mute, Kick, Ban, Release] {
         // Nobody moderates the Master — not a Smaster, not a Loca Operator.
-        assert!(!hub.may_moderate("oda", &smaster, action, &master_name));
-        assert!(!hub.may_moderate("oda", &operator, action, &master_name));
+        assert!(!hub.may_moderate("parlor", &smaster, action, &master_name));
+        assert!(!hub.may_moderate("parlor", &operator, action, &master_name));
         // Only the Master moderates a Smaster; peers and Operators cannot.
-        assert!(hub.may_moderate("oda", &master, action, "alice"));
-        assert!(!hub.may_moderate("oda", &smaster, action, "bob"));
-        assert!(!hub.may_moderate("oda", &operator, action, "alice"));
+        assert!(hub.may_moderate("parlor", &master, action, "alice"));
+        assert!(!hub.may_moderate("parlor", &smaster, action, "bob"));
+        assert!(!hub.may_moderate("parlor", &operator, action, "alice"));
         // Ordinary participants stay under every operator's moderation.
-        assert!(hub.may_moderate("oda", &operator, action, "worker"));
-        assert!(hub.may_moderate("oda", &smaster, action, "worker"));
+        assert!(hub.may_moderate("parlor", &operator, action, "worker"));
+        assert!(hub.may_moderate("parlor", &smaster, action, "worker"));
     }
     // Lifting a nonexistent restriction does not override anyone's decision.
-    assert!(hub.may_moderate("oda", &operator, Unmute, &master_name));
-    assert!(hub.may_moderate("oda", &smaster, Unban, "bob"));
+    assert!(hub.may_moderate("parlor", &operator, Unmute, &master_name));
+    assert!(hub.may_moderate("parlor", &smaster, Unban, "bob"));
 }
 
 #[test]
@@ -517,7 +906,7 @@ fn memory_only_restrictions_preserve_rank_under_concurrent_moderation() {
     let master = hub.resolve_authority(Some("root"), None);
     let operator = hub.resolve_authority(None, None);
     for _ in 0..10 {
-        hub.moderate("oda", Unmute, "worker", &master).unwrap();
+        hub.moderate("parlor", Unmute, "worker", &master).unwrap();
         let barrier = Arc::new(std::sync::Barrier::new(2));
         let higher = {
             let hub = hub.clone();
@@ -525,7 +914,7 @@ fn memory_only_restrictions_preserve_rank_under_concurrent_moderation() {
             let barrier = barrier.clone();
             std::thread::spawn(move || {
                 barrier.wait();
-                hub.moderate("oda", Mute, "worker", &master).unwrap();
+                hub.moderate("parlor", Mute, "worker", &master).unwrap();
             })
         };
         let lower = {
@@ -533,14 +922,14 @@ fn memory_only_restrictions_preserve_rank_under_concurrent_moderation() {
             let operator = operator.clone();
             std::thread::spawn(move || {
                 barrier.wait();
-                let _ = hub.moderate("oda", Unmute, "worker", &operator);
+                let _ = hub.moderate("parlor", Unmute, "worker", &operator);
             })
         };
         higher.join().unwrap();
         lower.join().unwrap();
-        assert!(hub.mod_state("oda").muted.contains(&"worker".into()));
+        assert!(hub.mod_state("parlor").muted.contains(&"worker".into()));
         assert!(matches!(
-            hub.moderate("oda", Unmute, "worker", &operator),
+            hub.moderate("parlor", Unmute, "worker", &operator),
             Err(ModerationError::Forbidden)
         ));
     }
@@ -589,18 +978,12 @@ fn critical_sealed_room_cannot_be_revived_by_invitation() {
     let store =
         Arc::new(Store::open(Some(temp.path().join("sealed.db").to_str().unwrap())).unwrap());
     store.seal_room("sealed", 1).unwrap();
-    store
-        .add_member(&protocol::Membership {
-            token: "mb_agent".into(),
-            name: "agent".into(),
-            kind: "agent".into(),
-            joined_at: 1,
-            admitted_by: "master".into(),
-        })
+    let agent = store
+        .add_member("mb_agent", "agent", "agent", 1, "master")
         .unwrap();
     let hub = critical_restart_hub(store, "root");
     assert!(hub
-        .invite_member_to_room("mb_agent", "sealed", "master")
+        .invite_member_to_room(&agent.id, "sealed", "master")
         .is_err());
     assert!(hub.is_deleted("sealed"));
     assert!(hub.invites_of("sealed").is_empty());
@@ -622,6 +1005,7 @@ fn critical_message_counter_includes_sealed_history() {
                 kind: protocol::MessageKind::Say,
                 reply_to: None,
                 reply_to_sender: None,
+                sender_principal: None,
                 ts: 1,
                 attachments: vec![],
             },
@@ -669,8 +1053,11 @@ fn mutation_actor_rejects_expired_and_revoked_sessions() {
             },
             None,
             Some(hub.master_pairing_grant(10)),
+            false,
+            None,
         )
         .unwrap()
+        .expect("session recorded")
         .session_token
     };
     let token = mint();
@@ -735,7 +1122,7 @@ fn authority_resolves_server_side_principals_and_revocation_takes_effect_live() 
     assert_eq!(unknown.building_role, None);
     assert!(!unknown.is_building_admin());
 
-    hub.revoke_smaster("sm_alice").expect("revoke smaster");
+    hub.revoke_smaster_ref("sm_alice").expect("revoke smaster");
     let revoked = hub.resolve_authority(Some("sm_alice"), None);
     assert_eq!(revoked.building_role, None);
     assert!(!revoked.is_building_admin());
@@ -771,6 +1158,7 @@ fn a_reply_to_a_caretaker_is_addressed_once() {
         kind: protocol::MessageKind::Say,
         reply_to: Some(1),
         reply_to_sender: Some("loca-dev".into()),
+        sender_principal: None,
         ts: 1,
         attachments: Vec::new(),
     };
@@ -797,6 +1185,7 @@ fn a_reply_to_a_caretaker_is_addressed_once() {
     // A non-caretaker reply author addresses nobody.
     let non_caretaker = protocol::Message {
         reply_to_sender: Some("someone-else".into()),
+        sender_principal: None,
         ..base.clone()
     };
     assert!(hub.addressed_caretakers(&non_caretaker).is_empty());
@@ -1147,7 +1536,8 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
             attachments: Vec::new(),
         },
         true,
-        "operator",
+        &"operator".into(),
+        None,
     )
     .expect("chat");
     while events.try_recv().is_ok() {}
@@ -1458,7 +1848,7 @@ fn operator_can_route_reminders_to_one_specific_healthy_person() {
 
 /// Build a hub whose new rooms default to an `Everyone` room-silence reminder,
 /// and seat a canonical roster of `names` (each admitted — which mints a
-/// principal — and davetted into `room`). Returns the hub with a controllable
+/// principal — and invited into `room`). Returns the hub with a controllable
 /// clock already at `t=1_000`.
 fn everyone_hub_from_store(store: Arc<Store>) -> Hub {
     let mut hub = Hub::build(
@@ -1492,7 +1882,7 @@ fn everyone_hub(db: &std::path::Path, room: &str, names: &[&str]) -> Hub {
         .expect("explicit reminder fixture loca");
     for name in names {
         let member = hub.admit_member(name, "agent", "operator").expect("admit");
-        hub.invite_member_to_room(&member.token, room, "operator")
+        hub.invite_member_to_room(&member.id, room, "operator")
             .expect("invite");
     }
     hub
@@ -1512,7 +1902,8 @@ fn arm_silence(hub: &Hub, room: &str, sender: &str) {
             attachments: Vec::new(),
         },
         true,
-        sender,
+        &sender.into(),
+        None,
     )
     .expect("seed message");
 }
@@ -1625,19 +2016,18 @@ fn everyone_reminder_is_all_or_nothing_when_a_principal_cannot_resolve() {
     let hub = everyone_hub(&db, "proj", &["alice", "bob", "carol"]);
     arm_silence(&hub, "proj", "alice");
 
-    // Break bob's principal resolution while his davet + membership stay active:
-    // drop the credential that binds his member record to a principal (targeted
-    // via his principal's unique display name). The roster is now inconsistent.
+    // Break bob's principal resolution while his invite + membership stay active:
+    // his membership record no longer names the principal it was bound to
+    // (the store's row cannot lose it: `members.principal_id` is NOT NULL and
+    // a foreign key). The roster is now inconsistent.
     {
-        let conn = rusqlite::Connection::open(&db).unwrap();
-        conn.busy_timeout(std::time::Duration::from_secs(5))
-            .unwrap();
-        conn.execute(
-            "DELETE FROM credentials WHERE principal_id IN
-                 (SELECT id FROM principals WHERE display_name = 'bob')",
-            [],
-        )
-        .unwrap();
+        let bob = hub.member_by_name("bob").expect("bob").id;
+        hub.members
+            .lock()
+            .expect("members")
+            .get_mut(&bob)
+            .expect("bob's membership")
+            .principal_id = None;
     }
 
     TEST_NOW.store(5_000, Ordering::Relaxed);
@@ -1740,7 +2130,7 @@ fn everyone_roster_drops_a_revoked_member() {
         3
     );
 
-    let carol = hub.member_by_name("carol").expect("carol").token;
+    let carol = hub.member_by_name("carol").expect("carol").id;
     hub.revoke_member(&carol).expect("revoke carol");
 
     let roster = hub
@@ -1787,9 +2177,9 @@ fn everyone_reconnect_replay_drops_a_revoked_principals_row() {
         "carol's enqueued reminder replays before revoke"
     );
 
-    // Revoke carol's davet AFTER her row was already enqueued.
+    // Revoke carol's invite AFTER her row was already enqueued.
     hub.revoke_invites_for("proj", "carol")
-        .expect("revoke carol's davet");
+        .expect("revoke carol's invite");
 
     // The principal-scoped replay re-checks the LIVE roster and drops the stale
     // row: a revoked principal receives zero on reconnect.
@@ -1817,15 +2207,15 @@ fn everyone_treats_two_same_named_principals_as_distinct_recipients() {
     let hub = everyone_hub_from_store(Arc::new(Store::open(db.to_str()).expect("store")));
     hub.create_loca("proj", &hub.resolve_authority(Some("MASTER"), None), None)
         .expect("explicit same-name fixture loca");
-    // Two distinct members with distinct canonical principals, both davetted into
+    // Two distinct members with distinct canonical principals, both invited into
     // the same room.
     let dave = hub.admit_member("dave", "agent", "operator").expect("dave");
     let other = hub
         .admit_member("dave-two", "agent", "operator")
         .expect("other");
-    hub.invite_member_to_room(&dave.token, "proj", "operator")
+    hub.invite_member_to_room(&dave.id, "proj", "operator")
         .expect("invite dave");
-    hub.invite_member_to_room(&other.token, "proj", "operator")
+    hub.invite_member_to_room(&other.id, "proj", "operator")
         .expect("invite other");
     // Rename the second member to the SAME display name — in the store and the
     // in-memory roster — so two distinct principals now share a display name.
@@ -1834,15 +2224,15 @@ fn everyone_treats_two_same_named_principals_as_distinct_recipients() {
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .unwrap();
         conn.execute(
-            "UPDATE members SET name = 'dave' WHERE token = ?1",
-            rusqlite::params![other.token],
+            "UPDATE members SET name = 'dave' WHERE id = ?1",
+            rusqlite::params![other.id],
         )
         .unwrap();
     }
     hub.members
         .lock()
         .expect("members")
-        .get_mut(&other.token)
+        .get_mut(&other.id)
         .expect("other membership")
         .name = "dave".into();
 
@@ -1938,7 +2328,7 @@ fn everyone_treats_two_same_named_principals_as_distinct_recipients() {
     );
 
     // Revoking one same-named member drops only its own delivery; the other stays.
-    hub.revoke_member(&dave.token).expect("revoke dave");
+    hub.revoke_member(&dave.id).expect("revoke dave");
     let after = hub
         .everyone_recipients("proj")
         .expect("roster after revoke");
@@ -1957,26 +2347,26 @@ fn a_legacy_invite_binds_to_its_principal_and_enters_the_roster_once() {
     let dir = tempfile::tempdir().expect("temp store");
     let db = dir.path().join("legacy.sqlite");
     let store = Arc::new(Store::open(db.to_str()).expect("store"));
-    // First boot: admit erin (membership + principal), then seed a LEGACY davet
+    // First boot: admit erin (membership + principal), then seed a LEGACY invite
     // that predates the member link — empty `member`, carrying only her name.
     let erin = {
         let hub = everyone_hub_from_store(store.clone());
         let erin = hub.admit_member("erin", "agent", "operator").expect("erin");
-        let legacy = protocol::Invite {
-            token: "dv_legacy_erin".into(),
-            room: "proj".into(),
-            member: String::new(),
-            name: "erin".into(),
-            kind: "agent".into(),
-            issued_at: 1_000,
-            issued_by: "operator".into(),
-        };
+        let legacy = InviteRecord::issued(
+            "dv_legacy_erin",
+            "proj",
+            "",
+            "erin",
+            "agent",
+            1_000,
+            "operator",
+        );
         hub.store
-            .insert_invite(&legacy)
+            .issue_invite(&legacy, "dv_legacy_erin")
             .expect("seed legacy invite");
         erin
     };
-    // Second boot: the load-time migration binds the legacy davet to erin's
+    // Second boot: the load-time migration binds the legacy invite to erin's
     // membership by name, so she resolves to her real canonical principal —
     // exactly once, never a fabricated or duplicate identity.
     let hub = everyone_hub_from_store(store);
@@ -1984,14 +2374,12 @@ fn a_legacy_invite_binds_to_its_principal_and_enters_the_roster_once() {
     assert_eq!(
         roster.len(),
         1,
-        "the migrated legacy davet enters the roster once"
+        "the migrated legacy invite enters the roster once"
     );
     assert_eq!(roster[0].1, "erin");
     assert_eq!(
         roster[0].0,
-        hub.store
-            .principal_id_for_member_record(&erin.token)
-            .expect("erin principal"),
+        erin.principal_id.clone().expect("erin principal"),
         "bound to erin's real canonical principal"
     );
 }
@@ -2550,7 +2938,8 @@ fn reminder_is_recorded_and_published_before_a_healthy_owner_exists() {
                 attachments: Vec::new(),
             },
             true,
-            "operator",
+            &"operator".into(),
+            None,
         )
         .expect("seed message");
     while events.try_recv().is_ok() {}
@@ -2664,7 +3053,8 @@ fn accepted_chat_retires_old_silence_attention_and_starts_a_new_generation() {
                 attachments: Vec::new(),
             },
             true,
-            "operator",
+            &"operator".into(),
+            None,
         )
         .expect("first message");
     while events.try_recv().is_ok() {}
@@ -2696,7 +3086,8 @@ fn accepted_chat_retires_old_silence_attention_and_starts_a_new_generation() {
                 attachments: Vec::new(),
             },
             true,
-            "operator",
+            &"operator".into(),
+            None,
         )
         .expect("progress message");
     let retired = hub
@@ -3343,7 +3734,10 @@ fn approve_issued_membership_authenticates_on_a_persistent_store() {
     ));
     let mb = hub
         .claim_join_request_bootstrap(&request_id, &request_secret)
-        .expect("bootstrap yields the mb_");
+        .expect("bootstrap reads the store");
+    let crate::store::BootstrapClaim::Delivered(mb) = mb else {
+        panic!("bootstrap yields the mb_, got {mb:?}");
+    };
     assert!(mb.starts_with("mb_"));
 
     // REGRESSION GUARD (review blocker): the approve-issued mb_ must AUTHENTICATE
@@ -3437,7 +3831,8 @@ fn an_agents_all_target_narrows_to_its_mentions_but_a_human_and_at_all_stay() {
                 attachments: Vec::new(),
             },
             true,
-            sender,
+            &sender.into(),
+            None,
         )
         .unwrap()
         .target
@@ -3466,7 +3861,7 @@ fn an_agents_all_target_narrows_to_its_mentions_but_a_human_and_at_all_stay() {
 }
 
 #[test]
-fn a_group_loca_keeps_its_in_room_care_but_none_reaches_iye() {
+fn a_group_loca_keeps_its_in_room_care_but_none_reaches_care_loca() {
     let _clock = TEST_CLOCK_LOCK.lock().expect("clock test lock");
     let mut hub = Hub::build(
         HubConfig {
@@ -3529,7 +3924,7 @@ fn a_group_loca_keeps_its_in_room_care_but_none_reaches_iye() {
     )
     .expect("lead health");
     let (mut proj, _) = hub.subscribe("proj");
-    let (mut iye, _) = hub.subscribe("iye");
+    let (mut care_loca, _) = hub.subscribe("iye");
     hub.create_goal(
         "proj",
         CreateGoal {
@@ -3543,7 +3938,7 @@ fn a_group_loca_keeps_its_in_room_care_but_none_reaches_iye() {
     )
     .expect("goal");
     while proj.try_recv().is_ok() {}
-    while iye.try_recv().is_ok() {}
+    while care_loca.try_recv().is_ok() {}
     TEST_NOW.store(5_000, Ordering::Relaxed);
     hub.tick_care();
     let mut in_room = 0;
@@ -3556,24 +3951,24 @@ fn a_group_loca_keeps_its_in_room_care_but_none_reaches_iye() {
         in_room > 0,
         "the group's own lead is reminded inside the loca"
     );
-    while let Ok(frame) = iye.try_recv() {
+    while let Ok(frame) = care_loca.try_recv() {
         assert!(
             !matches!(frame, ServerFrame::Care { .. }),
-            "a group loca's care never reaches İye, where every rank reads"
+            "a group loca's care never reaches Care, where every rank reads"
         );
     }
 }
 
 type TurnJob = Box<dyn FnOnce(&Hub, &super::RequestAuthority) + Send>;
 
-/// A loca move holds the davet lock from its check of the target group to
+/// A loca move holds the invite lock from its check of the target group to
 /// its mirror. Everything that changes what that check saw — deleting or
 /// archiving the group, founding a loca in it, adding or removing a member —
 /// waits for the same lock, so none of it can land between a move's check and
 /// its commit. The test stands where a move stands: it holds the lock, starts
 /// each rival and a move, and nothing finishes or changes until it lets go.
 #[test]
-fn group_changes_and_a_loca_move_take_turns_on_the_davet_lock() {
+fn group_changes_and_a_loca_move_take_turns_on_the_invite_lock() {
     let directory = tempfile::tempdir().unwrap();
     let hub = Hub::build(
         HubConfig {
@@ -3601,9 +3996,9 @@ fn group_changes_and_a_loca_move_take_turns_on_the_davet_lock() {
     hub.create_loca_in("mover", &master, None, None)
         .expect("default loca");
     let member = hub.admit_member("turn-member", "user", "master").unwrap();
-    let principal = hub.member_principal(&member.token).expect("principal");
+    let principal = hub.member_principal(&member.id).expect("principal");
 
-    let held = hub.member_lifecycle.lock().expect("davet lock");
+    let held = hub.member_lifecycle.lock().expect("invite lock");
     let (done, finished) = std::sync::mpsc::channel::<&'static str>();
     let mut threads = Vec::new();
     let mut start = |label: &'static str, job: TurnJob| {
@@ -3657,7 +4052,7 @@ fn group_changes_and_a_loca_move_take_turns_on_the_davet_lock() {
         finished
             .recv_timeout(std::time::Duration::from_millis(500))
             .is_err(),
-        "nothing finishes while the davet lock is held"
+        "nothing finishes while the invite lock is held"
     );
     assert!(hub.group_view(&doomed, &master).is_ok(), "not deleted yet");
     assert!(
@@ -3761,7 +4156,7 @@ fn two_single_extension_changes_at_once_both_land() {
     );
 }
 
-/// A birebir between a Smaster and a member, on a fixed clock, with a helper
+/// A direct message between a Smaster and a member, on a fixed clock, with a helper
 /// that lets either side speak. Returns (hub, room, smaster principal, member
 /// principal).
 fn witness_fixture(db: &std::path::Path) -> (Hub, String, String, String) {
@@ -3773,8 +4168,8 @@ fn witness_fixture(db: &std::path::Path) -> (Hub, String, String, String) {
     let token = critical_admin_session(&hub, "sm_witness");
     let deputy = hub.session_identity(Some(&token)).expect("deputy session");
     hub.admit_member("ayse", "user", "master").expect("member");
-    let (birebir, _) = hub.open_birebir(&deputy, "ayse").expect("birebir");
-    (hub, birebir.room, birebir.a, birebir.b)
+    let (dm, _) = hub.open_dm(&deputy, "ayse").expect("dm");
+    (hub, dm.room, dm.a, dm.b)
 }
 
 fn say_in(hub: &Hub, room: &str, principal: &str, text: &str) {
@@ -3791,13 +4186,14 @@ fn say_in(hub: &Hub, room: &str, principal: &str, text: &str) {
             attachments: Vec::new(),
         },
         true,
-        principal,
+        &principal.into(),
+        None,
     )
     .expect("post");
 }
 
 fn witness_texts(hub: &Hub, room: &str) -> Option<Vec<String>> {
-    hub.birebir_witness_messages_after(room, 0, 1_000)
+    hub.dm_witness_messages_after(room, 0, 1_000)
         .map(|page| page.expect("archive").into_iter().map(|m| m.text).collect())
 }
 
@@ -3817,7 +4213,7 @@ fn a_called_in_master_never_reads_what_was_said_before_the_call() {
     }
     assert!(witness_texts(&hub, &room).is_none(), "nobody called yet");
 
-    hub.birebir_call_master(&room, &a).expect("call");
+    hub.dm_call_master(&room, &a).expect("call");
     assert_eq!(
         witness_texts(&hub, &room).expect("called in"),
         Vec::<String>::new(),
@@ -3831,20 +4227,20 @@ fn a_called_in_master_never_reads_what_was_said_before_the_call() {
     );
 
     // One side allowing history opens nothing; both open all of it.
-    hub.birebir_allow_history(&room, &a).expect("allow a");
+    hub.dm_allow_history(&room, &a).expect("allow a");
     assert_eq!(
         witness_texts(&hub, &room).expect("called in"),
         ["after 1", "after 2"]
     );
-    hub.birebir_allow_history(&room, &b).expect("allow b");
+    hub.dm_allow_history(&room, &b).expect("allow b");
     assert_eq!(witness_texts(&hub, &room).expect("called in").len(), 5);
 
     // Sending the Master out ends the visit and its history permission: a
     // second call starts from its own moment and opens nothing earlier.
-    hub.birebir_dismiss_master(&room, &a).expect("dismiss");
+    hub.dm_dismiss_master(&room, &a).expect("dismiss");
     assert!(witness_texts(&hub, &room).is_none(), "the Master is out");
     say_in(&hub, &room, &b, "between visits");
-    hub.birebir_call_master(&room, &b).expect("second call");
+    hub.dm_call_master(&room, &b).expect("second call");
     assert_eq!(
         witness_texts(&hub, &room).expect("called in again"),
         Vec::<String>::new(),
@@ -3865,18 +4261,18 @@ fn a_witness_read_granted_before_dismissal_returns_nothing_said_after_it() {
     let _clock = TEST_CLOCK_LOCK.lock().expect("clock test lock");
     let directory = tempfile::tempdir().unwrap();
     let (hub, room, a, b) = witness_fixture(&directory.path().join("witness-window.db"));
-    hub.birebir_call_master(&room, &a).expect("call");
+    hub.dm_call_master(&room, &a).expect("call");
     say_in(&hub, &room, &b, "during the visit");
 
     // The read is granted here ...
-    let window = hub.birebir_witness_window(&room).expect("the Master is in");
+    let window = hub.dm_witness_window(&room).expect("the Master is in");
     // ... then the Master is sent out and the two go on in private ...
-    hub.birebir_dismiss_master(&room, &a).expect("dismiss");
+    hub.dm_dismiss_master(&room, &a).expect("dismiss");
     say_in(&hub, &room, &a, "after the Master left");
     say_in(&hub, &room, &b, "still private");
     // ... and only now does the granted read reach the archive.
     let texts: Vec<String> = hub
-        .birebir_witness_page(&room, &window, 0, 1_000)
+        .dm_witness_page(&room, &window, 0, 1_000)
         .expect("archive")
         .into_iter()
         .map(|m| m.text)
@@ -3887,17 +4283,17 @@ fn a_witness_read_granted_before_dismissal_returns_nothing_said_after_it() {
         "the old visit's permission does not open the later conversation"
     );
     assert!(
-        hub.birebir_witness_window(&room).is_none(),
+        hub.dm_witness_window(&room).is_none(),
         "and no new read is granted"
     );
 
     // Called back in, a read granted before the new call still returns
     // nothing from it: the new visit's words lie above the old ceiling and
     // the old visit's words below the new floor.
-    hub.birebir_call_master(&room, &b).expect("second call");
+    hub.dm_call_master(&room, &b).expect("second call");
     say_in(&hub, &room, &a, "second visit");
     let again: Vec<String> = hub
-        .birebir_witness_page(&room, &window, 0, 1_000)
+        .dm_witness_page(&room, &window, 0, 1_000)
         .expect("archive")
         .into_iter()
         .map(|m| m.text)
@@ -3959,7 +4355,7 @@ fn a_visit_recorded_before_the_ordered_boundary_ends_when_the_store_opens() {
     }
 
     // The two call again under the ordered rule: still nothing earlier.
-    hub.birebir_call_master(&room, &a).expect("new call");
+    hub.dm_call_master(&room, &a).expect("new call");
     assert_eq!(
         witness_texts(&hub, &room).expect("called in"),
         Vec::<String>::new()
@@ -3989,4 +4385,801 @@ fn a_visit_recorded_before_the_ordered_boundary_ends_when_the_store_opens() {
         witness_texts(&hub, &room).expect("still in"),
         ["after the new call", "after the restart"]
     );
+}
+
+/// The seven-day sweep takes back a Smaster code nobody signed in with and
+/// leaves one that was used, across a restart, and the ledger says which.
+#[test]
+fn the_unused_smaster_sweep_spares_a_used_code() {
+    let _clock = TEST_CLOCK_LOCK.lock().expect("clock test lock");
+    let temp = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(temp.path().join("sweep.db").to_str()).unwrap());
+    TEST_NOW.store(1_000, Ordering::Relaxed);
+    let mut hub = critical_restart_hub(store.clone(), "root");
+    hub.now_ms = test_now_ms;
+    let used = hub.add_smaster("used").unwrap();
+    let idle = hub.add_smaster("idle").unwrap();
+    assert!(hub.resolve_authority(Some(&used), None).is_building_admin());
+    hub.expire_unused_smasters();
+    assert!(hub.smaster_name(Some(&idle)).is_some(), "not yet due");
+    TEST_NOW.store(1_000 + Hub::SMASTER_USE_MS + 1, Ordering::Relaxed);
+    hub.expire_unused_smasters();
+    assert_eq!(hub.smaster_name(Some(&used)).as_deref(), Some("used"));
+    assert!(hub.smaster_name(Some(&idle)).is_none());
+    assert!(!hub.resolve_authority(Some(&idle), None).is_building_admin());
+    let states: Vec<(String, &str)> = hub
+        .key_ledger()
+        .unwrap()
+        .into_iter()
+        .filter(|k| k.kind == "smaster")
+        .map(|k| (k.for_name.unwrap_or_default(), k.state))
+        .collect();
+    assert!(states.contains(&("used".into(), "active")), "{states:?}");
+    assert!(states.contains(&("idle".into(), "expired")), "{states:?}");
+    drop(hub);
+    let hub = critical_restart_hub(store, "root");
+    assert!(hub.smaster_name(Some(&used)).is_some());
+    assert!(hub.smaster_name(Some(&idle)).is_none());
+}
+
+/// Post into "ops" as `sender`, with the operation scope (`principal`) and the
+/// verified writer (`writer`) the REST or WS door would pass.
+#[allow(clippy::too_many_arguments)]
+fn rename_case_say(
+    hub: &Hub,
+    sender: &str,
+    sender_type: SenderType,
+    text: &str,
+    reply_to: Option<u64>,
+    op: Option<&str>,
+    principal: &str,
+    writer: Option<&str>,
+) -> protocol::Message {
+    hub.post(
+        "ops",
+        PostMessage {
+            kind: Default::default(),
+            sender: sender.into(),
+            sender_type,
+            target: None,
+            text: text.into(),
+            reply_to,
+            op_id: op.map(Into::into),
+            attachments: Vec::new(),
+        },
+        true,
+        &principal.into(),
+        writer,
+    )
+    .unwrap()
+}
+
+/// A rename frame as a client receives it: `Relabelled` (to, ids,
+/// reply_ids) or the older `Renamed` (from, to).
+#[derive(Debug, PartialEq)]
+enum Told {
+    ById(String, Vec<u64>, Vec<u64>),
+    ByName(String, String),
+}
+
+/// Every rename frame waiting on `rx`, in the order it was sent.
+fn rename_frames(rx: &mut tokio::sync::broadcast::Receiver<ServerFrame>) -> Vec<Told> {
+    let mut frames = Vec::new();
+    while let Ok(frame) = rx.try_recv() {
+        match frame {
+            ServerFrame::Relabelled { to, ids, reply_ids } => {
+                frames.push(Told::ById(to, ids, reply_ids))
+            }
+            ServerFrame::Renamed { from, to } => frames.push(Told::ByName(from, to)),
+            _ => {}
+        }
+    }
+    frames
+}
+
+fn sender_of(history: &[protocol::Message], id: u64) -> String {
+    history.iter().find(|m| m.id == id).unwrap().sender.clone()
+}
+
+fn reply_label_of(history: &[protocol::Message], id: u64) -> Option<String> {
+    history
+        .iter()
+        .find(|m| m.id == id)
+        .unwrap()
+        .reply_to_sender
+        .clone()
+}
+
+#[test]
+fn a_rename_leaves_a_former_wearer_s_and_an_unknown_author_s_messages_alone() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("wearers.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "deputy-start", 1).unwrap();
+    let hub = critical_restart_hub(store.clone(), "root");
+    // The first wearer of "shared" is a member; it speaks, then leaves.
+    let member = hub.admit_member("shared", "human", "master").unwrap();
+    let member_principal = hub.member_principal(&member.id).expect("member principal");
+    let member_words = rename_case_say(
+        &hub,
+        "shared",
+        SenderType::User,
+        "member words",
+        None,
+        Some("op-member"),
+        &format!("mb:{}", member.id.clone()),
+        Some(&member_principal),
+    );
+    // A line under the same label whose writer nobody recorded.
+    let unknown_words = rename_case_say(
+        &hub,
+        "shared",
+        SenderType::User,
+        "unknown words",
+        None,
+        None,
+        "user:shared",
+        None,
+    );
+    assert!(hub.revoke_member(&member.id).unwrap());
+
+    // The Smaster takes the freed label, speaks under it, then renames.
+    let session = critical_admin_session(&hub, "sm_deputy");
+    let actor = hub.resolve_authority(None, Some(&session));
+    let deputy = actor.principal_id.clone().expect("deputy principal");
+    hub.rename_profile(&actor, "shared")
+        .expect("take the freed name");
+    let actor = hub.resolve_authority(None, Some(&session));
+    let smaster_words = rename_case_say(
+        &hub,
+        "shared",
+        SenderType::User,
+        "smaster words",
+        None,
+        Some("op-smaster"),
+        "user:shared",
+        Some(&deputy),
+    );
+    let reply_to_member = rename_case_say(
+        &hub,
+        "helper",
+        SenderType::Agent,
+        "answering the member",
+        Some(member_words.id),
+        Some("op-r1"),
+        "agent:helper",
+        None,
+    );
+    let reply_to_unknown = rename_case_say(
+        &hub,
+        "helper",
+        SenderType::Agent,
+        "answering the unknown",
+        Some(unknown_words.id),
+        Some("op-r3"),
+        "agent:helper",
+        None,
+    );
+    let reply_to_smaster = rename_case_say(
+        &hub,
+        "helper",
+        SenderType::Agent,
+        "answering the smaster",
+        Some(smaster_words.id),
+        Some("op-r2"),
+        "agent:helper",
+        None,
+    );
+    assert_eq!(reply_to_member.reply_to_sender.as_deref(), Some("shared"));
+    assert_eq!(reply_to_smaster.reply_to_sender.as_deref(), Some("shared"));
+    let mut rx = hub.subscribe("ops").0;
+
+    hub.rename_profile(&actor, "renamed").expect("rename");
+
+    let live = hub.subscribe("ops").1;
+    assert_eq!(sender_of(&live, smaster_words.id), "renamed");
+    assert_eq!(
+        sender_of(&live, member_words.id),
+        "shared",
+        "memory: member"
+    );
+    assert_eq!(
+        sender_of(&live, unknown_words.id),
+        "shared",
+        "memory: unknown"
+    );
+    assert_eq!(
+        reply_label_of(&live, reply_to_member.id).as_deref(),
+        Some("shared"),
+        "memory: reply label pointing at the member"
+    );
+    assert_eq!(
+        reply_label_of(&live, reply_to_unknown.id).as_deref(),
+        Some("shared"),
+        "memory: reply label pointing at the unknown writer"
+    );
+    assert_eq!(
+        reply_label_of(&live, reply_to_smaster.id).as_deref(),
+        Some("renamed")
+    );
+    assert_eq!(
+        rename_frames(&mut rx),
+        vec![
+            Told::ById(
+                "renamed".into(),
+                vec![smaster_words.id],
+                vec![reply_to_smaster.id]
+            ),
+            // People's lines under "shared" are in the tail, so older pages
+            // are told by name exactly as before.
+            Told::ByName("shared".into(), "renamed".into()),
+        ],
+        "connected clients are told exactly which messages changed"
+    );
+
+    drop(hub);
+    let restarted = critical_restart_hub(store.clone(), "root");
+    let after = restarted.subscribe("ops").1;
+    assert_eq!(sender_of(&after, smaster_words.id), "renamed");
+    assert_eq!(
+        sender_of(&after, member_words.id),
+        "shared",
+        "restart: member"
+    );
+    assert_eq!(
+        sender_of(&after, unknown_words.id),
+        "shared",
+        "restart: unknown"
+    );
+    // Reply labels are not stored: after a restart no reply carries one.
+    for reply in [&reply_to_member, &reply_to_unknown, &reply_to_smaster] {
+        assert_eq!(reply_label_of(&after, reply.id), None);
+    }
+}
+
+#[test]
+fn a_rank_s_socket_sent_words_read_the_same_after_a_rename_and_a_restart() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("ws-sent.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "before", 1).unwrap();
+    let hub = critical_restart_hub(store.clone(), "root");
+    let session = critical_admin_session(&hub, "sm_deputy");
+    let actor = hub.resolve_authority(None, Some(&session));
+    let deputy = actor.principal_id.clone().unwrap();
+    // The WS door passes the seat identity as the operation principal.
+    let said = rename_case_say(
+        &hub,
+        "before",
+        SenderType::User,
+        "over the socket",
+        None,
+        Some("op-ws"),
+        &format!("sm:pr:{deputy}"),
+        Some(&deputy),
+    );
+    hub.rename_profile(&actor, "after").expect("rename");
+    let live_sender = sender_of(&hub.subscribe("ops").1, said.id);
+    drop(hub);
+    let restarted = critical_restart_hub(store.clone(), "root");
+    let stored_sender = sender_of(&restarted.subscribe("ops").1, said.id);
+    assert_eq!(live_sender, "after");
+    assert_eq!(stored_sender, live_sender, "a restart shows what was live");
+}
+
+#[test]
+fn a_second_rename_still_carries_words_from_before_the_first() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("twice.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "first", 1).unwrap();
+    let hub = critical_restart_hub(store.clone(), "root");
+    let session = critical_admin_session(&hub, "sm_deputy");
+    let actor = hub.resolve_authority(None, Some(&session));
+    let deputy = actor.principal_id.clone().unwrap();
+    let said = rename_case_say(
+        &hub,
+        "first",
+        SenderType::User,
+        "said as first",
+        None,
+        Some("op-1"),
+        "user:first",
+        Some(&deputy),
+    );
+    let reply = rename_case_say(
+        &hub,
+        "helper",
+        SenderType::Agent,
+        "answering first",
+        Some(said.id),
+        None,
+        "agent:helper",
+        None,
+    );
+    hub.rename_profile(&actor, "second").expect("first rename");
+    let actor = hub.resolve_authority(None, Some(&session));
+    hub.rename_profile(&actor, "third").expect("second rename");
+    let live = hub.subscribe("ops").1;
+    let live_sender = sender_of(&live, said.id);
+    assert_eq!(reply_label_of(&live, reply.id).as_deref(), Some("third"));
+    drop(hub);
+    let restarted = critical_restart_hub(store.clone(), "root");
+    let stored_sender = sender_of(&restarted.subscribe("ops").1, said.id);
+    assert_eq!(live_sender, "third");
+    assert_eq!(stored_sender, "third", "a restart shows what was live");
+}
+
+#[test]
+fn a_reply_label_follows_ownership_after_its_target_left_the_memory_tail() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(Some(temp.path().join("tail.db").to_str().unwrap())).unwrap());
+    store.add_smaster("sm_deputy", "deputy-start", 1).unwrap();
+    let hub = critical_restart_hub(store.clone(), "root");
+    let member = hub.admit_member("shared", "human", "master").unwrap();
+    let member_principal = hub.member_principal(&member.id).unwrap();
+    let member_words = rename_case_say(
+        &hub,
+        "shared",
+        SenderType::User,
+        "member words",
+        None,
+        None,
+        &format!("mb:{}", member.id.clone()),
+        Some(&member_principal),
+    );
+    assert!(hub.revoke_member(&member.id).unwrap());
+    let session = critical_admin_session(&hub, "sm_deputy");
+    let actor = hub.resolve_authority(None, Some(&session));
+    let deputy = actor.principal_id.clone().unwrap();
+    hub.rename_profile(&actor, "shared").unwrap();
+    let smaster_words = rename_case_say(
+        &hub,
+        "shared",
+        SenderType::User,
+        "smaster words",
+        None,
+        None,
+        "user:shared",
+        Some(&deputy),
+    );
+    // Push both out of the in-memory tail, then answer each of them.
+    for n in 0..super::HISTORY_LIMIT {
+        rename_case_say(
+            &hub,
+            "filler",
+            SenderType::Agent,
+            &format!("filler {n}"),
+            None,
+            None,
+            "agent:filler",
+            None,
+        );
+    }
+    let to_member = rename_case_say(
+        &hub,
+        "helper",
+        SenderType::Agent,
+        "to the member",
+        Some(member_words.id),
+        None,
+        "agent:helper",
+        None,
+    );
+    let to_smaster = rename_case_say(
+        &hub,
+        "helper",
+        SenderType::Agent,
+        "to the smaster",
+        Some(smaster_words.id),
+        None,
+        "agent:helper",
+        None,
+    );
+    let live = hub.subscribe("ops").1;
+    assert!(live
+        .iter()
+        .all(|m| m.id != member_words.id && m.id != smaster_words.id));
+    assert_eq!(
+        reply_label_of(&live, to_member.id).as_deref(),
+        Some("shared")
+    );
+    assert_eq!(
+        reply_label_of(&live, to_smaster.id).as_deref(),
+        Some("shared")
+    );
+
+    let mut rx = hub.subscribe("ops").0;
+    let actor = hub.resolve_authority(None, Some(&session));
+    hub.rename_profile(&actor, "renamed").unwrap();
+    let live = hub.subscribe("ops").1;
+    assert_eq!(
+        reply_label_of(&live, to_member.id).as_deref(),
+        Some("shared")
+    );
+    assert_eq!(
+        reply_label_of(&live, to_smaster.id).as_deref(),
+        Some("renamed")
+    );
+    assert_eq!(
+        rename_frames(&mut rx),
+        vec![Told::ById("renamed".into(), vec![], vec![to_smaster.id])],
+        "no person's line under the old name is in the tail: no by-name frame"
+    );
+
+    // A second rename finds the same owner in storage again.
+    let actor = hub.resolve_authority(None, Some(&session));
+    hub.rename_profile(&actor, "again").unwrap();
+    let live = hub.subscribe("ops").1;
+    assert_eq!(
+        reply_label_of(&live, to_member.id).as_deref(),
+        Some("shared")
+    );
+    assert_eq!(
+        reply_label_of(&live, to_smaster.id).as_deref(),
+        Some("again")
+    );
+    assert_eq!(
+        rename_frames(&mut rx),
+        vec![Told::ById("again".into(), vec![], vec![to_smaster.id])]
+    );
+
+    // After a restart no reply carries a label, and a rename then gives none.
+    drop(hub);
+    let restarted = critical_restart_hub(store.clone(), "root");
+    let mut rx = restarted.subscribe("ops").0;
+    let actor =
+        restarted.resolve_authority(None, Some(&critical_admin_session(&restarted, "sm_deputy")));
+    restarted.rename_profile(&actor, "final").unwrap();
+    let after = restarted.subscribe("ops").1;
+    assert_eq!(reply_label_of(&after, to_member.id), None);
+    assert_eq!(reply_label_of(&after, to_smaster.id), None);
+    assert!(
+        rename_frames(&mut rx).is_empty(),
+        "nothing in the tail changed"
+    );
+    let stored = store
+        .messages_after("ops", 0, 0, u64::MAX, 10)
+        .unwrap()
+        .unwrap();
+    assert_eq!(sender_of(&stored, smaster_words.id), "final");
+    assert_eq!(sender_of(&stored, member_words.id), "shared");
+}
+
+/// One operation, one key: the sender, whichever credential carried it. An
+/// ordinary member over its own-key session, an invite session, the bare invite
+/// or the bare membership key; the Master over its session or the root key;
+/// a Smaster over its session or its code. Different senders never share a
+/// key, and a sender nobody verified is keyed apart from every verified one.
+#[test]
+fn an_operation_is_keyed_by_its_sender_whichever_credential_carried_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(directory.path().join("op-scope.db").to_str()).unwrap());
+    let hub = critical_restart_hub(store, "op-root");
+    let code = hub.add_smaster("deputy").unwrap();
+    let (ayse, ayse_key) = admit_with_key(&hub, "ayse", "user", "master");
+    let invite = hub.new_invite_token();
+    add_test_invite(&hub, &invite, "ops", &ayse, 1_767_225_600_000);
+    let own = critical_admin_session(&hub, &ayse_key);
+    let by_invite = hub
+        .create_session_scoped(
+            session_request("ayse"),
+            Some(&hub.invite_by_token(&invite).expect("a live invite")),
+            None,
+            false,
+            None,
+        )
+        .unwrap()
+        .expect("session recorded")
+        .session_token;
+    let master = critical_admin_session(&hub, "op-root");
+    let deputy = critical_admin_session(&hub, &code);
+    let scope = |admin: Option<&str>, invite: Option<&str>, session: Option<&str>, name: &str| {
+        let session = session.map(|token| hub.session_identity(Some(token)).expect("live"));
+        hub.operation_scope(
+            "ops",
+            admin,
+            invite,
+            session.as_ref(),
+            SenderType::User,
+            name,
+        )
+    };
+
+    let ayse_principal = hub.member_principal(&ayse.id).expect("ayse's principal");
+    for (how, got) in [
+        ("own-key session", scope(None, None, Some(&own), "ayse")),
+        (
+            "invite session",
+            scope(None, None, Some(&by_invite), "ayse"),
+        ),
+        ("invite", scope(None, Some(&invite), None, "ayse")),
+        ("membership key", scope(None, Some(&ayse_key), None, "ayse")),
+    ] {
+        assert_eq!(got.key, format!("pr:{ayse_principal}"), "ayse, {how}");
+        assert_eq!(got.principal.as_deref(), Some(ayse_principal.as_str()));
+    }
+    // What the REST route stored for the same request before this version.
+    let own_legacy = scope(None, None, Some(&own), "ayse").legacy;
+    assert_eq!(own_legacy.as_deref(), Some("user:ayse"));
+    let invite_legacy = scope(None, None, Some(&by_invite), "ayse").legacy;
+    assert_eq!(invite_legacy, Some(format!("mb:{}", ayse.id.clone())));
+
+    let master_principal = hub.master_principal().expect("the Master").id;
+    let master_key = format!("pr:{master_principal}");
+    assert_eq!(scope(None, None, Some(&master), "Master").key, master_key);
+    assert_eq!(
+        scope(Some("op-root"), None, None, "any label").key,
+        master_key
+    );
+
+    let deputy_principal = hub
+        .session_identity(Some(&deputy))
+        .and_then(|session| session.principal_id)
+        .expect("the Smaster's principal");
+    let deputy_key = format!("pr:{deputy_principal}");
+    assert_eq!(scope(None, None, Some(&deputy), "deputy").key, deputy_key);
+    assert_eq!(scope(Some(&code), None, None, "deputy").key, deputy_key);
+
+    // Nobody verified: the label alone, under a prefix no verified sender
+    // and no earlier version uses.
+    let unverified = scope(None, None, None, "ayse");
+    assert_eq!(unverified.key, "label:user:ayse");
+    assert_eq!(unverified.principal, None);
+    assert_eq!(unverified.legacy.as_deref(), Some("user:ayse"));
+    let keys: HashSet<String> = [
+        format!("pr:{ayse_principal}"),
+        master_key,
+        deputy_key,
+        unverified.key,
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(keys.len(), 4, "two senders share a key: {keys:?}");
+}
+
+/// After the upgrade an operation the previous version stored under its REST
+/// key is answered with the original message, but only to the sender that
+/// key meant: a row that names a different writer, or that a verified sender
+/// wrote under its own key now, is not handed to anyone else.
+#[test]
+fn an_operation_stored_under_the_previous_rest_key_is_answered_once_and_only_to_its_sender() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("op-legacy.db");
+    let store = Arc::new(Store::open(path.to_str()).unwrap());
+    let hub = critical_restart_hub(store.clone(), "op-root");
+    let (ayse, ayse_key) = admit_with_key(&hub, "ayse", "user", "master");
+    let ayse_id = hub.member_principal(&ayse.id).expect("principal");
+    drop(hub);
+    // What earlier versions stored under the REST key: a row with no writer
+    // recorded, one whose writer is recorded as somebody else, and one whose
+    // writer is recorded as ayse.
+    for (id, text, op, writer) in [
+        (40, "said before the upgrade", "old-1", None),
+        (41, "someone else's", "old-2", Some("pr_someone_else")),
+        (
+            42,
+            "ayse's, and it says so",
+            "old-3",
+            Some(ayse_id.as_str()),
+        ),
+    ] {
+        store
+            .insert_message(
+                &protocol::Message {
+                    id,
+                    room: "ops".into(),
+                    sender: "ayse".into(),
+                    sender_type: SenderType::User,
+                    target: None,
+                    text: text.into(),
+                    kind: protocol::MessageKind::Say,
+                    reply_to: None,
+                    reply_to_sender: None,
+                    sender_principal: writer.map(Into::into),
+                    ts: 1_767_225_600_000 + id,
+                    attachments: vec![],
+                },
+                Some(("user:ayse", op)),
+            )
+            .unwrap();
+    }
+    let hub = critical_restart_hub(store, "op-root");
+    let own = critical_admin_session(&hub, &ayse_key);
+    let ayse_principal = hub.member_principal(&ayse.id);
+    let post = |scope: &super::OperationScope, text: &str, op: &str| {
+        hub.post(
+            "ops",
+            PostMessage {
+                kind: Default::default(),
+                sender: "ayse".into(),
+                sender_type: SenderType::User,
+                target: None,
+                text: text.into(),
+                reply_to: None,
+                op_id: Some(op.into()),
+                attachments: Vec::new(),
+            },
+            false,
+            scope,
+            scope.principal.as_deref(),
+        )
+        .expect("post")
+    };
+    let identity = hub.session_identity(Some(&own)).expect("live session");
+    let ayse_scope =
+        hub.operation_scope("ops", None, None, Some(&identity), SenderType::User, "ayse");
+    assert_eq!(ayse_scope.principal, ayse_principal);
+
+    // A row that names ayse as its writer answers her re-send.
+    let again = post(&ayse_scope, "ayse's, and it says so", "old-3");
+    assert_eq!(again.id, 42, "the original answers the re-send");
+    // A row another writer wrote is not hers: her own is posted.
+    let mine = post(&ayse_scope, "my own old-2", "old-2");
+    assert_ne!(mine.id, 41, "a row another writer wrote was handed over");
+    // A row that names no writer, under a display name: nothing proves it is
+    // hers (a namesake, a re-admitted name or a renamed rank could have
+    // written it), so it is neither handed over nor posted again.
+    let unclear = hub.post(
+        "ops",
+        PostMessage {
+            kind: Default::default(),
+            sender: "ayse".into(),
+            sender_type: SenderType::User,
+            target: None,
+            text: "said before the upgrade".into(),
+            reply_to: None,
+            op_id: Some("old-1".into()),
+            attachments: Vec::new(),
+        },
+        false,
+        &ayse_scope,
+        ayse_scope.principal.as_deref(),
+    );
+    assert!(
+        matches!(unclear, Err(super::PostReject::OperationUnclear)),
+        "a row with no writer under a name was treated as proven or posted again"
+    );
+    // A sender nobody verified is its label, before and after: the row
+    // answers it.
+    let labelled = hub.operation_scope("ops", None, None, None, SenderType::User, "ayse");
+    assert_eq!(
+        post(&labelled, "said before the upgrade", "old-1").id,
+        40,
+        "an unverified sender's re-send under its label"
+    );
+
+    // A sender nobody verified, wearing the same label, does not meet what
+    // the verified one stores from now on.
+    let fresh = post(&ayse_scope, "after the upgrade", "new-1");
+    let unverified = hub.operation_scope("ops", None, None, None, SenderType::User, "ayse");
+    let other = post(&unverified, "an unverified ayse", "new-1");
+    assert_ne!(other.id, fresh.id);
+    assert_eq!(post(&ayse_scope, "after the upgrade", "new-1").id, fresh.id);
+    let stored = hub
+        .store
+        .messages_after("ops", 0, 0, u64::MAX, 50)
+        .unwrap()
+        .unwrap();
+    let count = |text: &str| stored.iter().filter(|m| m.text == text).count();
+    assert_eq!(count("said before the upgrade"), 1);
+    assert_eq!(count("after the upgrade"), 1);
+}
+
+/// A record an earlier version stored under a name alone, with no writer,
+/// while two senders bear that name (a member and a Smaster, both kept from
+/// before names were compared without regard to letter case): the server
+/// cannot prove whose it is. Neither is answered with it as if their re-send
+/// had succeeded, and neither has a second message posted under that
+/// operation; each is told, and a new operation of either is posted.
+#[test]
+fn a_record_with_no_writer_under_a_shared_name_answers_neither_namesake() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("op-shared-name.db");
+    let store = Arc::new(Store::open(path.to_str()).unwrap());
+    let hub = critical_restart_hub(store.clone(), "op-root");
+    let (_, member_key) = admit_with_key(&hub, "shared", "user", "master");
+    // No door lets a Smaster take a member's name now, in any letter case.
+    // An earlier version did, so the pair is written the way it stored it.
+    assert!(hub.add_smaster("shared").is_err(), "the door refuses it");
+    drop(hub);
+    let smaster_code = "sm_stored-by-an-earlier-version".to_string();
+    store
+        .add_smaster(&smaster_code, "shared", 1_767_225_600_000)
+        .unwrap();
+    store
+        .insert_message(
+            &protocol::Message {
+                id: 60,
+                room: "ops".into(),
+                sender: "shared".into(),
+                sender_type: SenderType::User,
+                target: None,
+                text: "one of them said this before the upgrade".into(),
+                kind: protocol::MessageKind::Say,
+                reply_to: None,
+                reply_to_sender: None,
+                sender_principal: None,
+                ts: 1_767_225_660_000,
+                attachments: vec![],
+            },
+            Some(("user:shared", "op-X")),
+        )
+        .unwrap();
+    let hub = critical_restart_hub(store, "op-root");
+    let post = |scope: &super::OperationScope, text: &str, op: &str| {
+        hub.post(
+            "ops",
+            PostMessage {
+                kind: Default::default(),
+                sender: "shared".into(),
+                sender_type: SenderType::User,
+                target: None,
+                text: text.into(),
+                reply_to: None,
+                op_id: Some(op.into()),
+                attachments: Vec::new(),
+            },
+            false,
+            scope,
+            scope.principal.as_deref(),
+        )
+    };
+    let session = critical_admin_session(&hub, &member_key);
+    let identity = hub.session_identity(Some(&session)).expect("live session");
+    let as_member = hub.operation_scope(
+        "ops",
+        None,
+        None,
+        Some(&identity),
+        SenderType::User,
+        "shared",
+    );
+    let as_smaster = hub.operation_scope(
+        "ops",
+        Some(&smaster_code),
+        None,
+        None,
+        SenderType::User,
+        "shared",
+    );
+    assert!(as_member.principal.is_some() && as_smaster.principal.is_some());
+    assert_ne!(
+        as_member.principal, as_smaster.principal,
+        "two senders, one name"
+    );
+
+    for (who, scope) in [("the member", &as_member), ("the Smaster", &as_smaster)] {
+        match post(scope, "my own word", "op-X") {
+            Err(super::PostReject::OperationUnclear) => {}
+            Ok(message) => panic!(
+                "{who} was answered as if the re-send had succeeded, with message {}: {:?}",
+                message.id, message.text
+            ),
+            Err(other) => panic!("{who}: {}", other.message()),
+        }
+    }
+    let stored = || {
+        hub.store
+            .messages_after("ops", 0, 0, u64::MAX, 50)
+            .unwrap()
+            .unwrap()
+    };
+    assert_eq!(
+        stored().iter().map(|m| m.id).collect::<Vec<_>>(),
+        vec![60],
+        "nothing was posted under the unclear operation"
+    );
+
+    // A new operation of each is its own message, and repeats as itself.
+    let first = post(&as_member, "the member, afresh", "op-Y").expect("post");
+    let second = post(&as_smaster, "the Smaster, afresh", "op-Y").expect("post");
+    assert_ne!(first.id, second.id, "two senders, one op_id, two messages");
+    assert_eq!(
+        post(&as_member, "the member, afresh", "op-Y")
+            .expect("post")
+            .id,
+        first.id
+    );
+    assert_eq!(stored().len(), 3);
 }

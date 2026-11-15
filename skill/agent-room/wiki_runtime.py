@@ -232,7 +232,7 @@ class WikiRunner:
 
 
 class ShellTransport:
-    """Only the shipped credential boundary handles sessions/davets."""
+    """Only the shipped credential boundary handles sessions/invites."""
     def __init__(self, server, room, name, env):
         self.server,self.room,self.name,self.env = server,room,name,env
 

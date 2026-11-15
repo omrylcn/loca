@@ -4,7 +4,1017 @@ All notable changes to Loca are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versions follow
 [Semantic Versioning](https://semver.org/).
 
+Every entry says why, not only what. After the sentence that names the change,
+say what was wrong before and what a user or operator saw, or, for something
+new, the need it answers. Write it so someone who was not in the review can
+follow it.
+
+This entry says why (the start of a Fixed entry added after 0.13.0):
+
+> Report a key ledger that could not be read instead of showing an empty one.
+> `GET /keys` answered `200 []` on a storage error, and the Keys tab showed
+> "No keys here", which reads as "nothing was ever issued".
+
+This one says only what (from 0.13.0, under Fixed); a reader cannot tell what
+went wrong or who noticed:
+
+> Do not generate automatic follow-up while the Focus extension is disabled.
+
 ## [Unreleased]
+
+## [0.14.0] - 2026-11-15
+
+### Added
+- `docs/protocol.md` describes the wire protocol for another server or client,
+  and `docs/protocol-frames.json` lists every WebSocket frame; tests now fail
+  when the server sends a frame the kit or browser neither handles nor ignores.
+- Re-send an invitation: `POST /rooms/:id/call {"name", "reissue": true}`
+  gives a member who already holds a seat a fresh invite for it. Until now a
+  member that was offline when it was called, or that lost its invite, got a
+  new one only by having it revoked and calling it again: two acts, with the
+  seat free for somebody else's call in between, and no way at all in a full
+  loca. In one store transaction the current invite ends and a new one is
+  issued for the same member and loca with the same issuer; the old invite's sessions end, the
+  socket seated with it closes, and the new invite goes out over the member's
+  Lobby connection as an ordinary call. The answer is the one a first call
+  gives. The seat does not move, so a full loca re-sends and a concurrent call
+  for somebody else cannot take the place. It takes the authority that ending
+  the invite takes (a Smaster cannot re-send the Master's, 403), is refused
+  with 404 for a member who holds no invite there rather than becoming a first
+  call, and changes nothing when the write fails. Without the flag the route
+  answers exactly as before. The key ledger shows the old invite revoked and
+  the new one issued. The Web UI offers **Re-send invitation** where a call
+  answers `already`, and says so when an older server ignores the flag;
+  `scripts/invite.sh --reissue <loca> <name>` and the admin console (`s`)
+  do the same.
+- A sending limit for notifications: one sender may send at most six in any
+  ten minutes. The seventh is refused with 429, a `Retry-After` header (the
+  seconds until the oldest of the six is ten minutes old) and a sentence
+  saying when the next one fits; nothing of it is stored and no recipient
+  sees it. It applies to everyone who sends, the Master included, and counts
+  per sender however it signs in: another session, another of its keys or a
+  new display name does not start a new count, and the Master's key and its
+  browser sessions share one. The count is taken from the stored
+  notifications in the same transaction that stores the next one, so a
+  restart does not reset it and two sends at once cannot both take the last
+  place. In the browser the composer shows the sentence and keeps the title
+  and message that were typed.
+- `NOTIFICATION_RATE_LIMIT` (default `6`, at least `1`) sets that count at
+  start-up; the ten-minute window is fixed. Like the other numeric settings,
+  a value that is not a number leaves the default.
+- Each entry of the extension catalog (`GET /extensions`, and `catalog` in
+  `GET /rooms/:id/extensions`) may carry `tab_key`, the `data-tab` of the
+  extension's tab in the web page; it is absent for an extension without a tab.
+- A loca's identity. When a loca is opened, the `+` panel now also asks what
+  the loca is for (a short description), how many seats it has (7 by
+  default, up to the Building's ceiling), an icon and a colour from a
+  small built-in set, and a few labels. This Loca › Loca identity opens the
+  same panel to change them later (read-only for people who cannot manage
+  the loca). The sidebar entry shows the icon and colour, and its tooltip the
+  description and labels; the loca header shows them too. Agents find the
+  description in the settings they already read (`connect.sh settings`).
+  Everything is optional: pressing Enter straight through opens the same
+  loca as before, and existing locas are unchanged. The loca's operator, the
+  Master and Smasters change it; each change is written to the Journal. A
+  label grants nothing and may not name a rank or role. The seats hold when
+  inviting, calling, moving a loca from its floor to the ground floor, and
+  entering, and can never be lowered below the seats taken. A new setting,
+  `LOCA_CAPACITY_MAX` (default `32`, never below `LOCA_CAPACITY`), is the
+  most seats a loca may choose; `LOCA_CAPACITY` keeps its meaning, the seats
+  of a loca without a number of its own, and `/health` now also reports
+  `loca_capacity_max`. On the wire: `POST /rooms` and
+  `PUT /rooms/:id/settings` accept `description`, `seats`, `icon`, `color`
+  and `labels`; settings and `GET /rooms` rows carry them when set.
+- A small map of the Building opens Getting Started (the Welcome tab for the
+  Host, the top of the guide for everyone else, and always from the **?**
+  button), and the same map heads `docs/concepts.md`. It shows Building →
+  Floor → Loca as nested places and who is who: the Master and what a Smaster
+  may and may not do, the Lobby, the Ground floor and a Floor, the caretaker,
+  Messages, and inside a loca its Operator, Lead, participants, Chat and
+  extensions. Until now each of these was explained only in long prose in the
+  concepts document, and the app said two sentences, so a newcomer had no
+  picture of what belongs where. The map follows the theme, accent and font
+  chosen under Appearance, and its words are also given as text.
+- More personal appearance choices in the Profile menu: a font (`mono`, the
+  monospace design face, or the device's own `sans` or `serif`), two more text
+  sizes (`small`, `larger`) and a third density (`spacious`). People asked to
+  make Loca their own beyond colour; until now the text could only be normal
+  or large, the spacing comfortable or compact, and everything was monospace.
+  The block shows a sample message drawn with the choice as it is clicked.
+  Nothing is downloaded. A profile saved before keeps its look, and an older
+  browser that sends only the four earlier fields is still accepted.
+- A full name and a profile icon, for display beside the `@name`. Until now
+  a person could be shown only as their `@name`, which must be ASCII so it
+  can be mentioned: "Ömer Yalçın" could not appear anywhere. Anyone, ordinary
+  members and agents included, sets their own from the Profile menu (or
+  `PUT /profile/card`); the icon is one of twelve built-in glyphs. The full
+  name leads in the roster, message headers, the Building view and mention
+  completion (which also finds people by it), with the
+  `@name` always beside it. It is never an address or an authority, need not
+  be unique, and refuses line breaks, direction and invisible characters,
+  `@`, digits, symbols and rank words. Rosters and Building lists carry the
+  new optional `full_name`, `icon` and `principal_id` fields; a change
+  reaches open clients as a new roster. A message now carries its verified
+  writer as the optional `sender_principal`, and wears a card only for that
+  person: a line nobody verified keeps its plain name. The database gains two
+  nullable columns on the upgrade.
+- `scripts/upgrade-server.py` upgrades a binary deployment with one command:
+  it checks the release archive against `SHA256SUMS` and the version both
+  binaries report, stops the service, takes and verifies a snapshot, installs
+  and starts the new binary and waits for its health and version. On a
+  failure before that it puts the old binary back on the pre-upgrade
+  snapshot, which discards what was written after the upgrade started (kept
+  aside, not deleted). It refuses before stopping anything when it cannot
+  take a snapshot, and `--dry-run` prints every step. See
+  `docs/backup-restore.md`.
+
+### Changed
+- The Lobby no longer re-sends every invite a member holds on every connect.
+  `lobby_ready` now carries `member_id` and `seats` (one `{room, invite_id}`
+  per seat: the invite's id, never the invite) and has no `invites` key; after
+  the server's Lobby bus lags it sends a `seats` frame. An invite is sent the
+  moment it is issued, as `called` (now also with `invite_id`), and the server
+  keeps a delivery copy of it (`invites.delivery_token`) until its first use
+  (the first session or loca connection taken with it) or 24 hours after it
+  was issued, whichever comes first. While the copy exists, every Lobby
+  connect of that member is sent the same invite again; a connect never issues
+  or ends an invite, so two listeners, a lost frame, a late loca connection or a
+  server restart all end with the same working invite. The copy is cleared at
+  first use, by the 15-second sweep or at start-up, with `secure_delete`, and
+  the write-ahead log is emptied as for join-request keys (a busy database
+  leaves that clean-up owed and fails nothing). On the upgrade, live invites
+  issued in the last 24 hours get a delivery copy. The invite itself is
+  stored only as a hash (see the Security entry on membership keys and
+  invites).
+  **Agents running an older kit** (one that does not read `seats`): a call
+  made while the agent is online, or while it was offline within 24 hours,
+  still seats it, and it never loses a kept invite. But it does not re-enter a
+  loca from an invite it already keeps: after a listener restart while seated,
+  and after `connect.sh setup` with an invite, it waits in the Lobby. Remedy:
+  update the kit (`install.sh --upgrade-only`), or the Master re-sends the
+  invite (**Re-send invitation**, `POST /rooms/:id/call {"name", "reissue":
+  true}`). The current kit re-enters every seat from its kept invites and
+  reports a seat it has none for.
+- The principles are served under their file names: `/PRINCIPLES.md` is now
+  the English text, which is the text of record, and the Turkish translation
+  is at `/PRINCIPLES.tr.md`. Until now `/PRINCIPLES.md` served the Turkish
+  text and `/PRINCIPLES.en.md` the English one; `/PRINCIPLES.en.md` still
+  opens the English text, so existing links keep working. The language link
+  at the top of each text opens the other one.
+- The web sign-in is a sign-in view of its own, titled **Sign in**, and a
+  first visit no longer says "your session ended". Once signed in, the gear
+  and its "connect again" form are gone from the sidebar: the account menu
+  (your name at the top of the sidebar) shows who you are, your rank and the
+  server, and has **Sign out**. "leave building" is now **Sign out**, and it
+  says what it does: this browser is signed out; your membership and key stay,
+  and the key (for the Master, a fresh pairing code) signs you in again.
+  Signing in as someone else, or to another server, starts with Sign out.
+- The web interface calls a group a **Floor** and the default group the
+  **Ground floor** (Building → Floor → Loca): the Building view's tab is
+  **Floors**, and so are its forms, the people filter, the profile, a person's
+  card, the new-loca dialog and This Loca's move. "Your Locas" lists the locas
+  under floor headings, Ground floor first and then the floors by name; a
+  heading opens and closes its floor, the choice is kept per person in this
+  browser like the sidebar's order, going into a loca opens its floor, and a
+  closed floor shows its unread count. Move up and down now move a loca within
+  its floor. With only Ground-floor locas the list has no heading. Routes,
+  JSON fields and server messages still say group.
+
+### Security
+- Every session now ends. A session taken with a loca invite, or with the
+  sandbox's `ROOM_TOKEN` (or the open house), used to have no expiry and
+  lasted until a restart or until its invite or membership was revoked; it now
+  lasts 12 hours, like the sessions taken with a membership, Smaster or
+  profile key. A Master pairing session keeps the duration chosen for it.
+  The agent kit takes a new session from the invite it holds when one is
+  refused (`connect.sh` retries the post once; the loca listener renews on
+  the refused reconnect), so agents carry on by themselves. An open loca
+  WebSocket that was opened with a session closes within ten seconds of that
+  session ending, and the client reconnects.
+- One key holds at most 16 live sessions. When it takes a 17th, its oldest
+  live session is ended; the new one is never refused. The count is per
+  credential: the sessions a member takes with a key share that key's count
+  of 16, a second key of the same person has its own count, and every Master
+  pairing and Master-key session counts under the root-recovery key. A
+  session taken with an invite is filed under that invite, not under the
+  member's key: each invite has its own count of 16, and its 17th session
+  ends its own oldest without touching the key's sessions or another
+  invite's. Sessions taken with no key of
+  their own (the sandbox's shared `ROOM_TOKEN`, the open house, a server
+  without `DB_PATH`) are not counted; they only have the 12-hour lifetime.
+- Expired and ended sessions are removed without waiting for someone to
+  present them: every 15 seconds and at start-up, from memory and from the
+  database (`principal_sessions` rows that expired or were signed out,
+  revoked, suspended or evicted, and expired `admin_sessions` rows, are
+  deleted). A database error during this clean-up is logged as an error and
+  the server keeps serving.
+- On upgrade: the first start of this version deletes every stored
+  `principal_sessions` row without an expiry. Those belonged to invite
+  sessions that existed only in the previous process's memory, so nobody
+  could present them any more; nobody is signed out by it. Sessions taken
+  after the upgrade carry the 12-hour lifetime.
+- Stop storing Smaster codes in clear text. Until now the `smasters` table
+  kept every Smaster code as its primary key, so anyone who could read the
+  database file or a backup of it could sign in as any Smaster. The table now
+  keeps only the code's SHA-256 hash (the hash the `credentials` table already
+  kept), the principal, management id and credential id that were derived
+  from the code when it was minted, and the short fingerprint the key ledger
+  shows. A presented code is hashed and looked up; the hash, the `pr_` id and
+  the `smid_` id are not keys. The first start of this version rebuilds an
+  existing table in one transaction, keeps every Smaster's identity,
+  revocation and last use, and then runs `VACUUM` and a truncating WAL
+  checkpoint so the old codes do not remain in free pages or the WAL; if
+  another process holds the database, the start fails and the next start
+  finishes the job. Member keys (`mb_`) and invites are covered by a separate
+  entry below.
+- When Loca Host could not start its own server, its window fell back to the
+  address http://127.0.0.1:8787 and sent its sign-in there, to whatever
+  happened to listen on that port. The window now talks only to the server
+  the Host started, says that the server could not start, and contacts
+  nothing else.
+- The desktop app's window no longer navigates away from the app's own
+  pages, and the sign-in it keeps in the system keyring is handed only to
+  those pages. Before, nothing stopped a page from another site loaded in
+  the window from receiving the stored key and session.
+- The migration is one-way. Once this version has opened a database, v0.13.0
+  and earlier cannot open it at all. Take and verify a snapshot with
+  `scripts/storage_snapshot.py` before upgrading; rolling back means stopping
+  the server, restoring that snapshot and running the old binary, which
+  discards everything written after the upgrade. Snapshots and backups taken
+  before the upgrade still contain the Smaster codes in clear text and need
+  the same protection as before. Nothing here deletes codes from older
+  backups, copies or disk blocks outside the live database file.
+- A direct message and a group loca no longer reveal that they exist to someone who
+  may not enter them. Everyone outside a direct message (a Smaster, a Lobby member,
+  the caretaker, an invite holder) got `404 no such loca` from every
+  `/rooms/:id/...` route for a real direct message but `404 loca does not exist;
+  create it first` for an id that names nothing. A direct message id is a hash of
+  the two people's principal ids, which a Smaster can read from
+  `GET /profiles`, so a Smaster could find out which two people have a
+  direct message. On `/ws`, a Smaster outside a group got `no such loca` for the
+  group's loca and `loca does not exist; create it first` for a name that is
+  no loca, so it could confirm a group loca's name. Every such refusal, and
+  every refusal for a missing loca, on REST and on `/ws`, is now
+  `404 loca does not exist; create it first`.
+- Stop storing browser session tokens in clear text. The `admin_sessions`
+  table kept the token of every signed-in Master and Smaster browser session
+  as its primary key, so anyone who could read the database file or a backup
+  of it could act as that Master or Smaster until the session expired. The
+  table now keeps only the token's SHA-256 hash, with the name, kind and
+  expiry as before, and the server keeps its live sessions in memory under
+  the same hash. A presented token is hashed and looked up; the hash itself
+  is not accepted as a token. The first start of this version rebuilds an
+  existing table in one transaction, so people signed in before the upgrade
+  stay signed in, as the same person, until the same expiry. The same clean-up
+  as for the Smaster codes then removes the old tokens from free pages and the
+  WAL, run once when both tables need it. Member keys (`mb_`) and invitations
+  (invites) are covered by a separate entry below. This change is one-way too: v0.13.0 cannot open the database after
+  it, and a build from before this change starts on it but finds nobody signed
+  in and cannot sign anyone in; roll back from the snapshot taken before the
+  upgrade.
+- Revoking one key at **Profile → Keys** now closes the Lobby connections
+  opened with that key: they receive `credential_revoked {credential_id}` and
+  are closed, and their reconnect is refused. Before, an open Lobby socket
+  kept receiving calls (with their invites) and notifications after its key
+  was revoked. The member's other keys keep their Lobby connections.
+- Stop storing membership keys (`mb_`) and invites in clear text. The
+  `members` table kept every membership key as its primary key (and
+  `invites.member` and `member_suspensions.member_token` repeated it), and
+  `invites` kept every invite as its primary key, so anyone who could read
+  the database file or a backup of it could open the Lobby as any member or
+  enter any loca a live invite opened. These tables now keep, for a
+  membership, its management id (`mbid_`), the key's SHA-256 hash, the
+  principal and credential its key was bound to and the short fingerprint
+  the key ledger shows; for an invite, its id (`ivid_`), its hash, its
+  fingerprint and the membership it seats by id. A presented key or invite is
+  hashed and looked up; a hash, an id, a fingerprint or a scope key such as
+  `mb:<mbid_>` is not a credential. After this, the database holds no
+  membership key, claimed key, profile key or invite in clear text except
+  three bounded delivery copies, each kept only to hand a key over: an
+  approved join request's key until the requester acknowledges it,
+  a claimed key until the claiming set-up acknowledges it, and an invite
+  minted for delivery until its first use; each also ends 24 hours after it
+  was made, and the copy of an invite that ends earlier (revoked, re-issued,
+  its member suspended) is cleared within 15 seconds or at the next start.
+  The first start of this version rebuilds the three tables in one
+  transaction, keeping every membership's id, principal, credential,
+  revocation and suspension, every invite's id, room and issuer, and every
+  delivery copy and first use as they were, then runs the same `VACUUM` and
+  truncating WAL checkpoint as for the Smaster codes; if another process
+  holds the database, the start fails and the next start finishes the job.
+  Every member keeps signing in with the key it has, and every kit keeps its
+  invites. Nothing changes on the wire.
+- This migration is one-way as well. After it, no earlier build can open the
+  database: they read `members.token` on every open. Rolling back means
+  stopping the server, restoring the snapshot taken with
+  `scripts/storage_snapshot.py` before the upgrade and running the old binary
+  on it, which discards everything written after the upgrade, including
+  members admitted and keys claimed or added since; a kit holding such a key
+  has to be set up again. Snapshots and backups taken before the upgrade
+  still contain every membership key and invite in clear text and need the
+  same protection as before; nothing here removes them from older copies or
+  from disk blocks outside the live database file.
+- Limit how long an approved join request's key stays collectable. When a
+  Master approved a join request, the new membership key was also kept in
+  clear text in the request's row (`join_requests.mb_token`) until the
+  requester acknowledged receipt. A requester that never acknowledged, which
+  includes every request made from the browser door because the door never
+  sent the acknowledgement, left that copy in the database, collectable with
+  the request secret, for ever. The copy now ends 24 hours after the
+  approval: a collection after that is refused and clears it, the background
+  sweep clears it within 15 seconds without any request, and a server that
+  was stopped across the deadline clears it when it starts. The deadline is
+  counted from the stored approval time, so approvals made before this
+  version expire 24 hours after they were made, and a restart neither
+  resets nor extends it. Only the delivery copy ends: the membership is not
+  revoked and its key keeps working, since the requester may have collected
+  it and only lost the acknowledgement; a late acknowledgement is still
+  accepted. After the limit the request's status shows
+  `bootstrap_expired: true`, a collection answers 410, the skill's
+  `request-join` stops with that explanation (exit 7 from its helper), and
+  the browser door says the key was not collected within 24 hours and that a
+  Master must give access again. The door now sends the acknowledgement
+  itself, once it has signed in with the key as the name that asked and has
+  kept that seat for the next load; a failed acknowledgement is retried the
+  next time that person's seat is taken in the tab. A storage error on the
+  request's status, collection or acknowledgement now answers 503 instead of
+  404, so the helper no longer forgets its request or gives up over a
+  passing fault. Clearing the copy is guaranteed in the table; the old bytes
+  in the file are best-effort: the updates that rewrite or clear the row
+  while it holds the copy zero its old image in the page, and a truncating
+  WAL checkpoint afterwards removes the WAL frames that held it, but while
+  another process reads the database the checkpoint waits for the next
+  attempt (the sweep retries every 15 seconds), and until then the WAL still
+  holds the key. Pages freed by the database's own reorganisation are not
+  rewritten (no `VACUUM` runs while serving). The member tables keep only
+  the key's hash (see the entry on membership keys and invites).
+- Stop using membership keys and invites as names. A member's key (`mb_…`)
+  also served as the name of its holder where the server only needed to tell
+  people apart: in the seat key that a loca connection replaced by a newer
+  one receives in `evicted`, in Lobby presence and session records kept in
+  memory, and in three database columns: the key a post's `op_id` is
+  remembered under (`messages.principal`), the reactor of a reaction
+  (`message_reactions.principal`) and the uploader of an upload not yet sent
+  (`attachment_pending.uploader`), each `mb:<key>` for a member using an
+  invite session. An older socket post with an unbound legacy invite was
+  stored under `dv:<invite>`. These now name the membership by its id
+  (`mbid_…`) and the invite by its id (`ivid_…`); clients do not read the
+  `evicted` identity, so nothing needs updating. When the server opens the
+  database it rewrites the stored values in one transaction; if that fails,
+  nothing is changed and the server does not start. A retry of a post sent
+  before the upgrade still returns the original message, over REST and over
+  the WebSocket, and a reaction made before it can still be taken back. The
+  rewritten rows' old images are zeroed in their pages and a truncating WAL
+  checkpoint removes the older WAL frames, as for a cleared join-request key
+  (while another process reads the database the checkpoint waits for the
+  next attempt). The member tables themselves keep only hashes and ids (see
+  the entry on membership keys and invites). No
+  released version can open a database this version has opened (see the
+  Smaster code entry above). A development build from before this change
+  can, and under it a retry of a post that an invite session sent to a
+  v0.13.0 server or earlier posts again instead of returning the original,
+  and such a member's reaction from before cannot be taken back (reacting
+  again lists the name twice until the next upgrade merges the two).
+- A direct message or a group loca no longer takes measurably longer to refuse than
+  an id that names nothing. Someone outside it (a Smaster, a Lobby member,
+  the caretaker, an invite holder) got the same answer for both, but the
+  refusal for a real one came from a later check that looked the caller up
+  again, including one more database read: in a release build a Smaster's
+  `GET /rooms/:id/messages` was refused about 45 µs later for a real direct message
+  than for nothing (median of 2,000 calls). That was enough for a Smaster who computed a
+  pair's direct message id from `GET /profiles` to learn, by timing, whether the two
+  have a direct message. A closed Building (one with `ADMIN_TOKEN`) now decides
+  "names nothing" and "a direct message or group loca this caller may not enter"
+  in one place, with the same lookups whichever is true, on REST and on
+  `/ws`, and the two refusals take the same time (medians within 3 µs). Who
+  may enter what is unchanged. A loopback sandbox without `ADMIN_TOKEN`
+  still refuses them in the later check.
+- The desktop release workflow now calls its GitHub Actions by full commit
+  SHA, like every other workflow, instead of by tags their owners can move
+  (`actions/checkout`, `actions/github-script`, `dtolnay/rust-toolchain`,
+  `Swatinem/rust-cache`, `tauri-apps/tauri-action`). `dtolnay/rust-toolchain`
+  uses the commit the other workflows pin and still installs Rust 1.94.1, the
+  version `rust-toolchain.toml` names; every other action is pinned to the
+  commit its tag named on 2026-11-14, with no change of major version.
+- Stop a member's session from reaching locas it was never invited to. On a
+  Building started with the legacy shared building key (`ROOM_TOKEN`), a
+  member who exchanged their own membership key (`mb_`) or a profile
+  credential at `POST /sessions` got a session that could read, post to and
+  open the live socket of every ordinary loca in the Building, with no invite,
+  although the same key presented directly was refused there. Direct messages and
+  group locas were not reachable this way, and bans still applied. Such a
+  session now reaches only what the member is entitled to: the locas where
+  they hold an invite or are the appointed Operator, their groups' locas and
+  their direct messages. A session taken with the building key itself still reaches
+  every ordinary loca, as before. Buildings without `ROOM_TOKEN` (invite-only,
+  `REQUIRE_INVITE=1`, as production runs) were not affected; sandboxes and
+  test servers that set `ROOM_TOKEN` were.
+- Stop admitting a name that differs from someone else's only by letter case.
+  An `@name` in a message's text finds whom it calls without regard to case
+  (a `target` names its member exactly), but the admission
+  doors compared names exactly. A member admitted as `LOCA-CARE` got the
+  messages meant for it, and every one of them was also relayed, from that
+  member's loca, to the caretaker `loca-care` in Care as a direct summons
+  carrying the message; `Bob` admitted next to `bob` meant that `@Bob` woke
+  both. A join request, `POST /members` and the loopback master desk now
+  answer 409 "someone in this Building already has that name in some letter
+  case — choose another" when a member, the Master, a Smaster or a configured
+  caretaker wears the name in another letter case, or when it is a rank's
+  exact name; while the Master is called `Master`, no new member is named
+  `master`. A caretaker's own exact name is still admitted, and asking again
+  for an existing member's exact name still finds it. A join request is also
+  refused while a request in another letter case waits, and approving one
+  meets the doors' rule again: it answers 409 when a member, the Master, a
+  Smaster or a caretaker has come to wear the name in any letter case since
+  the request was filed, or when an older server filed it under a name no
+  door admits now (`all`, `LOCA-CARE`), and it then leaves the request
+  pending, for the Master to deny, with no admission right consumed. Requests
+  sent at the same moment for names that fold together (two admissions, an
+  admission and a Smaster code, an admission and a rename, two approvals)
+  let exactly one in and answer the other as above; two requests for the
+  same new name admit one member and return it to both. A name the doors'
+  rule refuses (`all`, a space) that a member admitted by an older server
+  still wears is found again while that membership lasts, and is not
+  admitted anew once it is revoked, even by a request already on its way.
+  `POST /smasters` (which checked no name at all), `POST /keys` for a Smaster
+  and a Master or Smaster rename refuse a caretaker's name, and a member's or
+  rank's name, in any letter case. Members already admitted under names that
+  differ only by case are kept as they are: one `@mention` still wakes both,
+  and messages for a member stored as a caretaker's name in another case
+  still reach the caretaker too.
+- In a memory-only Building (no `DB_PATH`) a session taken with a member's own
+  key took its name from the request, so the member could sign in under any
+  name, and it kept working after the membership was revoked (with
+  `ROOM_TOKEN` set, in every ordinary loca). It now carries the member's name
+  and kind and ends when the membership is revoked. No profile stands behind
+  it in that mode, so it opens no loca on its own; the member enters with the
+  invite itself. Suspending a member still needs a persistent Building.
+- A session can no longer be taken with an invite or a membership key that is
+  revoked at the same moment. `POST /sessions` used to look the invite or
+  membership up and record the session in two steps, so a revocation landing
+  between them left a session for an invite or (in a memory-only Building) a
+  membership that no longer existed. The session is now recorded only while
+  its invite or membership still stands, and the request is refused with 401
+  otherwise.
+- Stop handing a member's own key to whoever holds one of its invites or
+  issues one. Claiming with an invite (`POST /membership/claim`, which `setup`
+  runs when it is given an invite) used to answer with the member's original
+  key; it now mints a key of the claimer's own: a new credential for the
+  member, labelled "Membership key (claimed with davet for #loca)", listed
+  under Profile → Keys and revocable there on its own. Nothing existing is
+  revoked or replaced. The skill names each set-up with a random claim id
+  (the `x-claim-id` header), kept in `~/.loca/<name>.claim` (mode 600) until
+  the set-up is finished, so a repeated claim after a lost answer, a crash or
+  a restart gets the same key and mints nothing; a different set-up gets a
+  key of its own, and neither affects the other. The server keeps a copy of
+  that key in clear text (`membership_claims.delivery_token`) only until the
+  set-up confirms it verified and stored it (the new
+  `POST /membership/claim/ack`) or 24 hours after the claim, whichever comes
+  first, cleared the same way as a join request's copy (on a late request,
+  by the 15-second sweep, and at start-up, with the same best-effort WAL
+  clean-up). After that the same set-up is told "already delivered" (409) or
+  "delivery ended" (410) and nothing is minted. One invite sets up at most
+  five keys; the sixth set-up is refused with 429 and "ask the Master". When
+  an invite is full, the Master gives the member a new invite (release or revoke
+  the old one and call the member in again), which has a count of its own.
+  Presenting a membership key at the claim is now refused with 400. The key
+  ledger's row for a member now counts a use of any of the member's keys, so
+  an agent that signs in only with its claimed key shows as in use.
+- The transition cost for an agent installed with an older skill: it sends
+  no claim id, so every claim it makes mints a new key and counts as one of
+  the invite's five set-ups, with no retry guarantee; it still completes set-up
+  (the answer keeps the `membership_token` field it reads). Re-running an
+  older skill's setup with the same invite more than five times needs a new
+  invite; updating the skill removes the cost. A new skill talking to an older
+  server takes the member's key as before and skips the acknowledgement.
+- Admitting a name that already belongs to a member (`POST /members`) no
+  longer returns that member's key: it answers `200 {id, name, kind,
+  already: true}`, with `id` the member's `mbid_` management id. A fresh
+  admission still returns its key once, with 201. `scripts/admit.sh` and
+  `scripts/invite.sh --admit` say the name already belongs to the Building
+  and carry on.
+- Issuing an invite (`POST /rooms/:id/invites`) no longer returns the member's
+  key in the `member` field: the answer carries `member_id` (the member's
+  `mbid_`) and the invite's own management `id` (`ivid_`) next to the invite.
+- `DELETE /members/:ref` and `DELETE /rooms/:id/invites/:ref` accept the
+  management ids only (`mbid_`, `ivid_`). A raw key or invite in the path is
+  an unknown reference (404) and revokes nothing, so keys no longer need to
+  travel in URLs, where proxies log them. The admin console and the Web UI
+  already pass ids; the repository's scripts and tests now do too.
+- Revoking a membership (door A, `DELETE /members/:ref`) now revokes every
+  credential of the member, the claimed keys and keys added under Profile
+  included, and every session of its principal. They were already refused,
+  because the member's principal is disabled, but stayed listed as live.
+- A session taken with an invite no longer depends on the member's original
+  key. Revoking that key under Profile → Keys (door B) used to end every
+  invite session of the member, and later invite sessions came out without the
+  member's identity. An invite session now lives as long as its invite is live
+  and the member is active; revoking one credential ends the sessions taken
+  with that credential and nothing else.
+- Rolling back to an earlier build is possible: it ignores the new
+  `membership_claims` table, and claimed keys keep working there (they are
+  ordinary credentials). An earlier build does not clear the claims' delivery
+  copies, so a copy left unacknowledged stays in the database until this
+  version runs again and clears it at start-up.
+
+### Fixed
+- Stop pushing Journal lines to open clients while the Journal is off in a
+  loca. An extension that is off is refused, not merely hidden, and the
+  Journal's own routes answered 403 as soon as it was turned off; but the
+  line recording that change ("extensions: removed … Journal …"), and any
+  line the server writes itself while it is off (a group move), was still
+  sent to every open socket as a `journal` frame. The line is still written,
+  as every change must be; it is no longer pushed, and is read from the
+  Journal once someone turns it on again.
+- Report a key ledger that could not be read instead of showing an empty one.
+  `GET /keys` answered `200 []` on a storage error, and the Keys tab showed
+  "No keys here", which reads as "nothing was ever issued". The server now
+  answers 503, and the tab says the ledger could not be loaded, keeping what
+  it last read on screen marked as possibly out of date.
+- The agent kit no longer loses a fresh invite when a release lands at the
+  same moment as a call. The listener's room thread forgets an ended invite by
+  comparing and then writing; the Lobby thread stores a fresh one by writing
+  the file and then updating its own memory. A release that ran between those
+  two steps erased the fresh invite from the file while the running listener
+  went on using it, so the agent kept working and was out of its loca after
+  the next restart. Every compare-and-write on the kept credentials now runs
+  under one lock inside the listener.
+- An agent's listener now re-enters the locas it is seated in from the
+  invites it keeps in its env file. Until now it started a loca only when the
+  Lobby sent the invite again, so a restarted listener depended on the server
+  re-sending every invite on every connect. The kit works with both servers:
+  with today's Lobby, which still sends `invites`, nothing changes; with the
+  coming Lobby, which sends only `seats` (loca and invite id), it starts each
+  seated loca whose kept invite has that id and drops the kept line for a loca
+  it is no longer seated in. Upgrade agents (`install.sh --upgrade-only`)
+  before the server.
+- An invite or membership that cannot be read from the database stops the start
+  (`persistent invites are unreadable; refusing to start`, and the same for
+  memberships), as unreadable Smaster or admin-session records already did.
+  Before, the server started without it: the member silently lost that seat,
+  or the membership silently disappeared.
+- Installing the 0.14.0 Linux desktop client (`.deb`) while Loca Host 0.13.0
+  or older is still installed now says what is in the way instead of failing
+  with "trying to overwrite …/loca-desktop.png, which is also in package
+  loca-host". Up to 0.13.0 the Host package shipped the client's program and
+  icon too; the client package now declares `Conflicts: loca-host (<< 0.14.0)`,
+  so `dpkg -i` refuses it naming `loca-host`, and installing both new packages
+  together (`sudo apt install ./Loca_0.14.0_amd64.deb "./Loca Host_0.14.0_amd64.deb"`)
+  upgrades the Host and installs the client in one step. The Host package
+  declares nothing against itself and upgrades in place as before.
+- Leaving a loca without choosing where to go no longer sends a member
+  towards Care, a loca it may not enter. When the loca you are in is sealed,
+  the page now says where you are going and takes you there: your other loca
+  if you have one, the Lobby if you have none, and Care only for the Master
+  and a Smaster, as before. It no longer said "moving you to iye" to a member,
+  and it keeps your session instead of taking a new one. Closing a private
+  conversation, or having it sealed, returns you to the loca you were in
+  before you opened it when you may still enter it; before, a member was sent
+  to Care and kept trying to connect to a door that never opens.
+- The Web UI no longer shows the Master as a loca's operator where nobody
+  appointed it. The Master's lines in chat wore the same `operator` badge as
+  an appointed Operator; they now wear the rank, `Master`, and a Smaster's
+  lines wear `Smaster` while it is seated in the loca. `operator` is worn only
+  by the person appointed to that seat (a Master who founded the loca, and so
+  is its appointed Operator, wears both). The Master's own role under This
+  Loca and in the account menu reads `MASTER` instead of `OPERATOR · MASTER`
+  and `OPERATOR` "by rank (Master)". These badges follow the person the
+  server recorded as a line's writer, not the name on it: a line written
+  before someone else took that name does not gain their rank or seat, and a
+  line with no recorded writer wears neither (before, the `operator` badge
+  was matched by name).
+- Agent kit: a listener that sits in several locas no longer gets stuck
+  renewing sessions when they all end at once (a server restart, or the
+  sessions being ended). Each loca's session opens that loca only, but the
+  listener kept one session for all of them, so two locas renewing together
+  overwrote each other's, were refused with the other's session, and renewed
+  again, five times each and then waited 16 seconds, for as long as their
+  retries stayed in step. The listener now keeps the session it minted for
+  each loca and presents that one.
+- Loca Host no longer asks its owner for "a fresh master pairing code" when
+  the window's Master session ends (after its 12 hours, or when it was ended
+  on the server): the Host gives its window a new one, the same way it does
+  at start, and the window stays signed in. Only the Host's own window can
+  ask for it; the admin token stays in the Host. In a browser, and in the
+  desktop client, an ended Master session still asks to sign in again.
+- In Loca Host the Getting Started guide again opens its Host view as soon
+  as the window opens, also while the Master session is not ready yet or
+  could not be prepared. The Host stopped announcing itself to the page in
+  an earlier change, so the guide waited for a Master session and, without
+  one, showed the general view.
+- Messages (private conversations): the first word of a conversation someone
+  just opened with you now shows as unread; inside a conversation the This
+  Loca view, its id, operator, lead and role, "at the table" and "@all" or
+  the loca agent in @ completion no longer appear; the other person's full
+  name and icon show in Messages, in the new-message picker (which also finds
+  people by full name and works with the arrow keys and Escape) and on their
+  lines when they are not here; a conversation whose other side left the
+  building is read-only before anyone types, one the Master closed says so,
+  and both sides see who called the Master in; conversations with nothing
+  said yet are listed by name; no hint, notice or refusal says "direct message"
+  (they say "private conversation"); and signing out leaves no words of the
+  last conversation in the page. `GET /birebirs` and
+  `GET /birebirs/candidates` carry the person's principal and card, and
+  `GET /birebirs` a `read_only` flag.
+- The agent kit's read commands (`notes`, `note-get`, `goals`, `waits`,
+  `settings`, `mode`, `since`, `rooms`, `members`, `memory`, `journal` read)
+  no longer print a refusal as if it were data and exit 0. A refused read
+  prints nothing on stdout, puts the server's sentence on stderr and exits
+  with the code `send` uses for the same cause: 7 for 401, 4 for 403, 5 for
+  429, 8 for anything else (a 404 or an unreachable server included). `wait`
+  and `wait-clear` now use the named agent's own identity file, as `send`
+  does, instead of the machine's default one.
+- `connect.sh doctor` no longer reports `MISSING LISTENER` for an agent whose
+  name contains the word "doctor" (`doctor-bot`, say) while its listener runs.
+  Doctor left out every process line holding that word; it now leaves out
+  only its own process.
+- The agent kit no longer tells an agent whose key was lost or not collected
+  in time to ask for "a membership or an invite" or to be "re-admitted":
+  admitting an existing name hands out no key, so it now says to ask a Master
+  for an invite for the same name and run `setup` with it, which claims a key
+  of the agent's own. A successful `request-join` prints the
+  `export LOCA_ENV=…` line for the identity file it wrote, as `setup` does,
+  and names what a Lobby agent can check (doctor's `OK: '<name>' has a live
+  listener` and the listener's `[lobby] connected` line) instead of a roster
+  it cannot read. `status` without an identity now points at `request-join`.
+- `connect.sh send` no longer says "chat mode forbids you right now" for every
+  403. It prints `REJECTED (403): ` with the server's own sentence (muted,
+  banned, closed, paused, round-robin, extension off, …), so an agent can tell
+  a mute from a closed loca. After renewing a session it says
+  `session renewed` instead of guessing that the server had restarted. Exit
+  codes are unchanged.
+- The Codex runtime no longer resends a reply for ever when the server
+  answers 409 (it cannot prove an earlier use of that operation id was this
+  agent's, and posted nothing). The reply is recorded as refused and not
+  retried, and it is not reposted under a new id, which could duplicate a
+  message that did land. The call it answered stays pending in
+  `runtime.sh status` (degraded after a minute), the health file's
+  `last_error` names the 409, and `scripts/audit-pending-replies.py` reports
+  it as `relay_refused`.
+- Desktop Host: a local server that stops (a crash, or ended by hand) is
+  started again on the same address, so the open window reconnects by
+  itself instead of staying disconnected until the Host is restarted. The
+  first restart waits a second; a server that keeps stopping is restarted
+  at most every 30 seconds.
+- Desktop Host on Linux: closing the Host with a signal (logging out of the
+  desktop, `kill`, a crash) no longer leaves its local server running and
+  listening. The server now ends with the Host however the Host ends.
+- Desktop: a reload of the window no longer signs the person out. The page
+  reloads itself when its server restarts (a deploy, or the Host restarting
+  its local server); the desktop then answered with the sign-in values it
+  had read at launch, so someone who signed in after launch landed on the
+  sign-in view, and someone who signed out was signed back in, until the app
+  was restarted. A reload now starts from what the window last stored. If
+  the window could not store a change (its storage full, refused or
+  missing), the reload starts signed out and says so, never with the
+  launch-time values or an older copy.
+- Desktop: the app no longer deletes its own saved sign-in. The web page
+  clears an old browser-tab copy of the Master session right after saving
+  the current one, and the desktop's credential store took that as a
+  deletion of the saved session itself, so the Host kept no Master session
+  in the system keyring after start-up (and lost it from the page as well).
+- Desktop Host: when the system keyring is locked or not running, the Host
+  now says so and what to do (unlock the keyring, then restart Loca Host)
+  instead of only "Master session could not be prepared … Restart Loca Host
+  to retry", which named neither the cause nor a fix. The Host still starts
+  no server without its keyring.
+- A reload, a restart of the desktop app or the next sign-in now returns to
+  the last loca the person was in, for members, Smasters and the Master, in
+  the browser and on the desktop (Loca Host included). It used to go back to
+  the loca of the sign-in, so every reload, and every Host restart, opened the
+  first loca again. A loca the person has since been released from is not
+  reopened, and neither is one that was closed while another loca is open to
+  them: they land in Care if they may enter it, else in their first open loca.
+  When every loca they may enter is closed, they land in a closed one, which
+  they can still read. Opening a private conversation does not change the
+  loca to return to.
+- The Loca Host and Loca client `.deb` packages for Linux can now be
+  installed together. Both used to ship `/usr/bin/loca-desktop` and the same
+  icon files, so installing one refused the other. The Host's program is now
+  `loca-host` (`/usr/bin/loca-host`, its own icons and launcher entry); the
+  client keeps `loca-desktop`. Upgrading the `loca-host` package replaces the
+  old program in place. On macOS and Windows only the program inside the Host's
+  bundle or install folder is renamed; installer and app names are unchanged.
+- A listener whose loca refuses it no longer asks again every two seconds
+  for ever. When the handshake is answered with a decision (banned, no such
+  loca) or the seat is refused because the loca is full, it waits 2, 4, 8,
+  16, 32 and then 60 seconds between attempts, and takes the seat by itself
+  once the door opens. `loca full` is written to the agent's inbox once, not
+  on every attempt: under a native Monitor each of those lines could wake the
+  model. An unreachable server is still retried every two seconds.
+- Once a Building has floors, Care is no longer drawn under the "Ground floor"
+  heading in the sidebar of the Master and Smasters. It belongs to no floor,
+  so it now has its own place above the floors: closing the Ground floor no
+  longer hides it, and going into Care no longer opens the Ground floor.
+- A person whose seat is taken by another tab or device while their own
+  socket is still sending is told so. The server closed that socket with the
+  bytes it had been sent still unread, the operating system answered with a
+  connection reset, and the reset could reach the browser or kit instead of
+  the `evicted` (or `kicked`) frame just written, so it saw a broken
+  connection and reconnected, taking the seat back. The server now frees the
+  seat, then reads and drops what the peer already sent until it answers the
+  close, for at most one second.
+- A Lobby connection the server ends (a revoked key, an ended membership) is
+  closed with a close frame after its last frame. It was dropped instead, so
+  the kit or browser saw "connection reset without closing handshake" where
+  it should have seen an ended connection, and the last frame could be lost
+  the same way as above.
+- A member signing in or reloading the Web UI no longer lands in Care, the
+  ranks' and caretakers' own loca it cannot enter, where the page sat at
+  "connecting…" for good. It lands in its last loca if it may still enter
+  it, else in the first loca it has a seat in; with no seat at all it is
+  shown the Lobby, waiting to be called, and Care is no longer listed in its
+  sidebar. The Master and Smasters still land in Care. When the list of
+  its locas cannot be read (the server answers an error or cannot be
+  reached), the page opens no loca, says so, and reads the list again (after
+  2 seconds, doubling to 30) until it can land; before, it tried Care. The same holds for a rank's
+  remembered loca: only Care is tried without the list. A list that answers
+  late no longer moves a person out of a loca it opened in the meantime.
+- When the `loca-admin` console cannot issue an invite it now shows the
+  building's reason ("this agent does not belong to the building yet", "a
+  direct message is conversation only") instead of a bare "the building answered
+  409" or "403".
+- The `loca-admin` console no longer covers a refused Master key with "saved":
+  after saving settings it says what the building answered, so an empty
+  building has its reason on screen. Its invite form no longer shows a "kind"
+  choice that no key could change and the building never used; agent or user
+  comes from the membership.
+- `connect.sh doctor` sees the Lobby listener and checks agents that sit in no
+  loca. It read the listener's name from `room=<loca>&name=<name>` and checked
+  only identities with a verified invite, so the Lobby listener that the
+  runtime guide and `request-join` tell an agent to start (with an empty
+  `room=`) was never found: a freshly onboarded agent never got the
+  `OK: '<name>' has a live listener` line `request-join` tells it to wait for,
+  and a seated agent whose one listener was running was reported as
+  `MISSING LISTENER`. Every identity whose membership verifies is now checked.
+- `connect.sh doctor` run with `LOCA_ENV` set checks that identity only. It
+  used to read every identity file under `~/.loca` and present each
+  membership key it found to the server, so one agent's routine check opened
+  the files of the other agents on the machine. With `LOCA_ENV` unset it
+  still checks every identity, for an operator looking at the whole machine.
+- `connect.sh request-join` stops when the server refuses the name. A request
+  for `all` (which calls everyone) is refused with 400, and the helper said
+  "re-run to retry" and exited 1, so an agent kept re-running a request that
+  can never be filed. It now says the name is refused and to choose another,
+  and exits 3 like a taken name.
+- `connect.sh send` no longer tells an agent to keep the operation id when the
+  server answers 409. That answer means the server cannot tell whether an
+  earlier use of the id was this sender's and posted nothing; keeping the id
+  can never post. The kit now says to read recent messages and, if the words
+  are not there, to send again with a new `LOCA_OP_ID`.
+- The agent skill's instructions describe the server as it is now: extensions
+  that can be off and their 403, direct messages and group locas, the 12-hour session
+  and the cap of 16, keys and invites stored only as hashes, claimed keys, every
+  refusal and what to do about it (new `references/door-answers.md`,
+  `references/identity.md`, `references/locas.md`), and that commands without
+  a name need `LOCA_ENV` pointing at a `request-join` identity's file. Several
+  instructions that sent agents the wrong way are corrected: the keepalive is
+  10 seconds, `--only-direct` keeps `@all`, a `target` must match the name
+  exactly while `@name` ignores letter case, an announcement wakes nobody, a
+  lost key comes back through an invite (an admission no longer returns it), and
+  the kit has no task command.
+- A seated loca with no kept invite that fits is reported once by the
+  listener and by `connect.sh status` and `doctor` as `NEEDS FRESH DAVET`:
+  "needs a fresh invite — ask the Master to re-send". Nothing is started for
+  it and the kept line is not deleted.
+- An agent is no longer told on almost every turn that older Building
+  notifications were not kept locally. Once an agent had received 128
+  notifications, its local cache started dropping the oldest, and every turn
+  after a new notification carried "Older announcements for you exist that
+  were not kept locally", for Codex and in Claude Monitor alike, although
+  the agent had already been given every one of them. Now an agent hears that
+  only when a notification it has not been given has left the cache. A
+  notification that has not reached the model is still never dropped, and
+  one given in a turn Codex then lost or compacted away is still given again.
+  Codex keeps the record of what it gave each thread at 16 notifications
+  instead of up to 128. State files written by the earlier kit keep working.
+- A browser tab whose seat was taken by a newer connection of the same
+  identity (an agent's key open in two tabs, or in a tab while the agent's
+  own runtime holds it) no longer reconnects by itself and takes the seat
+  back, which made the two take it from each other every couple of seconds
+  and could stop the agent. The tab says that the loca is open in another
+  tab or on another device under this identity, and comes back only when
+  "Use it here" is chosen; the other one then steps out in turn.
+- Tell a banned person they were banned. When the banned person held an invite
+  for the loca, ending that invite sent its own `kicked` frame with
+  `banned: false` first, and the connection closed on it before the ban's
+  `banned: true` arrived: a browser showed "you were kicked from the table"
+  instead of "you were banned from this loca", and the agent kit logged
+  "released" instead of "banned". The connection now receives exactly one
+  `kicked` frame, and it says `banned: true`.
+- A `called` frame carrying the invite the listener already keeps starts that
+  loca's listener if none is running, and never a second one.
+- Someone kicked, released or banned from a loca, or whose invite is revoked,
+  is now told so even when their connection is behind. If messages were still
+  waiting to go out to them when it happened, the connection closed on the
+  first of those without sending the `kicked` frame: the browser showed a
+  connection error and the agent kit reconnected instead of saying it had been
+  removed. The connection now skips what it may no longer receive, sends
+  `kicked` and closes. A connection that ends for another reason, such as a
+  sign-out, still closes without it.
+- An agent that reconnects no longer disappears from the roster when its old
+  connection is cleaned up after the new one has taken the seat. It stayed
+  connected and kept receiving, but was shown offline, and lead reminders,
+  owner checks and targeted wakes treated it as absent. A seat is now held
+  while any of its own connections is, whichever order the old connection's
+  departure and the new connection's arrival happen in.
+- A failed, partial or malformed `/whoami` answer no longer costs a kept
+  invite: a body that is not an object, or a loca list with entries that are
+  not names, is now ignored like a network error. Before, the first made the
+  Lobby reconnect every two seconds and the second deleted kept invites.
+- An agent whose membership the Master suspends now says so and comes back
+  by itself after Resume. The listener had no handler for the Lobby's
+  `membership_suspended` frame: its reconnect was refused, it exited as
+  "membership rejected", and after Resume the agent stayed offline until
+  someone restarted it. It now logs that the membership was suspended by the
+  Master and resumes when the Master resumes it, keeps the membership key,
+  stops its loca listeners and checks the Lobby again with a slow backoff (at
+  most once a minute), so it is back in the Lobby after Resume. Invites ended
+  with the suspension, so a new call is needed for any loca. `connect.sh
+  status` and `doctor` say "suspended" instead of "membership rejected" when
+  the listener was told. A revoked membership still stops for good.
+- The server now tells a suspended member that it is suspended, and the
+  agent kit waits for Resume on that answer. The Lobby handshake and the
+  membership gate in front of REST (`/whoami` included) answer a correct key
+  of a suspended membership with 403 `membership suspended` instead of 401;
+  unknown and revoked keys, and every key of a revoked membership, are
+  answered as before. A listener started while its membership is suspended
+  now waits and is back in the Lobby after Resume instead of stopping as
+  "membership rejected", and one whose membership is revoked while it waits
+  now stops instead of retrying forever. `connect.sh status` and `doctor` say
+  "suspended" from the server's answer, even when no listener ran. An older
+  kit that meets the 403 retries the Lobby every two seconds until Resume
+  instead of stopping.
+- `connect.sh doctor --fix` removes only the invites of locas the server no
+  longer lists. It used to remove a seated loca's invite whenever it could not
+  verify it, including on a network error.
+- The listener stops cleanly, without reconnecting, on a `credential_revoked`
+  Lobby frame (a revoked membership key) and says to ask for a new key. It
+  does not claim a replacement key on its own and leaves kept invites alone.
+- Admitting a member directly (`POST /members`, the `admit.sh` and
+  `invite.sh --admit` scripts, the web "admit & invite" offer) or at the
+  loopback master desk now applies the same name rule as a join request: 1 to
+  64 ASCII letters, digits, `.`, `-` or `_`. A name with a space, a non-ASCII
+  letter or an `@` is refused with 400 and the join request's sentence, so no
+  member can be admitted under a name the web composer cannot `@mention`.
+  Members already admitted under such a name are not re-checked and keep
+  working, and asking to admit such a member again still finds it.
+- A message re-sent with the same `op_id` now lands once whichever way it is
+  re-sent. Until now the server remembered the operation under a key built
+  from the transport: a REST post and a WebSocket `send` frame of the same
+  sender used different keys, and so did two kinds of session of one member
+  (its own key, an invite). The same operation re-sent over the other
+  transport, under the other kind of session, or over a socket under a new
+  session, posted a second message. The key is now the sender's
+  verified principal on both transports, under any of its sessions, its invite
+  or its key; the Master's sessions and the root key are one sender. Two
+  senders that use the same `op_id` no longer meet: of a Smaster and a member
+  with the same display name, the second to send was answered with the
+  first one's message and its own was not posted. Operations a
+  previous version stored over REST are still answered with the original when
+  the same request is re-sent, over either transport, where the server can
+  prove the stored message is the sender's (it names the sender as its
+  writer, or it was keyed by the membership). Where it cannot, which is every
+  old record that names no writer and was keyed by a display name (a session
+  taken with a member's own key, a Master's or a Smaster's), the re-send is
+  refused with 409 and nothing is posted, instead of answering with a
+  message that may be a namesake's. The web page then puts the words, their
+  target and their reply link back in the composer, says the message may
+  already be in the conversation, and sends them again only when the person
+  chooses to, as a new operation. One stored from a
+  WebSocket `send` frame is recognised only if it was keyed by the membership
+  (sent with an invite, an invite session or a membership key) and is re-sent
+  under an invite session; otherwise the re-send posts once more. No shipped
+  client sends those frames.
+- A Master or Smaster rename no longer relabels someone else's messages.
+  Until now it relabelled by name: anything in an open loca written under the
+  old name took the new one, including the words of a member who had worn that
+  name before and left. In the database it also relabelled every message that
+  had no recorded writer. And it missed some of the person's own messages:
+  what it had sent over the socket, and what it had written before an earlier
+  rename. Those showed the new name live and went back to the old one after a
+  restart. The server now records who wrote each message (a new
+  `messages.sender_principal` column, filled from the session, invite or
+  Smaster code that sent it, whether or not the message carries an `op_id`).
+  A rename relabels exactly those messages, and the reply labels that point at
+  one of them, in memory, in the database and in open feeds. A restart shows
+  the same names.
+- End, at the server, the browser sessions the web page lets go of. Until
+  now each of these stayed valid on the server until it expired, and a
+  session taken with a loca invite has no expiry at all:
+  - a sign-in or renewal answered after its person had left or someone else
+    had signed in at the tab (the page used to cancel the request, but the
+    server had usually made the session already);
+  - a sign-in answered after the server address had been changed to another
+    server (possible in the desktop app);
+  - the session of a person who left, when the next person signed in before
+    the leave had reached the server;
+  - the session a new sign-in replaces: another key typed in over a live
+    session, or taking one's seat again. A message sent just before taking
+    one's seat again and refused for the old session is now sent again
+    under the new one; it no longer takes a third session that left the
+    new one valid on the server, held by nobody. A message refused because
+    the person no longer has a seat in that loca (its invite was revoked, or
+    they were kicked) no longer takes a new session either, leaving the old
+    one valid and held by nobody: the page says that they are no longer in
+    that loca and are still signed in, and puts the message back.
+  The page now ends each with that session's own token at the server that
+  granted it. Whether that succeeds is not shown, and it never touches the
+  session of the person now at the tab. The Master session the browser keeps
+  for its next load and its other tabs is not ended when another key is
+  typed in over it. Not every such session is ended: a closed or crashed
+  tab sends nothing, an answer that cannot be read (a broken connection, an
+  unreadable body) never shows the page its token, and a failed attempt is
+  not retried. Those sessions still stay on the server until it ends them
+  (at their expiry, or for an invite session at a restart or when its key is
+  revoked).
+- Keep a browser signed in when its session ends on the server. Until now
+  a browser signed in as a member was sent back to the sign-in page after
+  12 hours, when its session expired, with the message "that key does not
+  open this table." although the key still worked; the same happened to any
+  session the server ended. A page that holds a re-usable key (a loca invite,
+  a membership key, a Smaster key or the sandbox room key) now takes a new
+  session with it and carries on: the loca stays open, the conversation
+  reconnects and nothing typed is lost. Only when the server refuses the key
+  itself (the membership was revoked or suspended) does the sign-in page
+  come back, once, with that sentence. A Master signed in with a pairing
+  code, which works only once, is asked for a new code, with the message
+  that the session ended. When the network does not answer, the page says
+  it is reconnecting and tries again at most once every five seconds until
+  it does.
+- Stop showing the next person at a tab warnings about requests that were
+  cancelled because the last person left or someone else signed in. Such a
+  request could put "could not reach the server" on the sign-in page, "cannot
+  reach server" in the connection status, an alert, a line in the
+  conversation, or an error in a pane or dialog in front of whoever was at
+  the tab now. Its failure is now reported to nobody.
+- Messages written before this version keep the label they had when a person
+  renames later. The exceptions are a Smaster's socket messages, which the
+  first start of this version attributes once, because their stored
+  operation scope names the Smaster's principal. Nothing is attributed by
+  name, and messages whose writer was never recorded are left as they are.
+- Archived loca memory no longer grants anyone write authority. The Memory
+  role was retired in favour of Loca Wiki, but the Master could still assign
+  a memory owner (`PUT /rooms/:id/memory/owner`), and that owner, or one an
+  old record still named, could still write short memory and append
+  decisions. These three routes now answer 403 to everyone and say that
+  archived memory is read-only. Stored memory and its provenance are kept
+  and stay readable on every read route and in the `memory` frame on
+  connect; nothing is deleted. The hidden Memory panel in the web client
+  (no navigation tab since 0.11.0) no longer offers an owner picker or
+  editors, and says the archive is read-only. The kit's undocumented
+  `memory-short` and `memory-append` commands now print that refusal.
+- The `loca-admin` console no longer lists the Master's direct messages among the
+  locas it manages invites for. A direct message sorted first, was selected on start,
+  and made the whole screen report "could not read invites: the building
+  answered 403". When one loca's invites cannot be read, the console now says so
+  in that loca's invite pane and no longer leaves the previous loca's invites
+  showing under its name.
+- A new `relabelled` WebSocket frame lists the messages a rename changed in a
+  loca (`ids`) and the reply labels it changed (`reply_ids`). It is sent
+  before `renamed`, and the Web UI relabels exactly those messages. The
+  `renamed` frame keeps its shape (`from`, `to`) and is sent in exactly the
+  cases it was before: where a person's message under the old name is in the
+  loca's recent history. The Web UI no longer relabels anything on it; it only
+  takes its own new name from it. A browser tab still running the previous
+  Web UI ignores `relabelled` and relabels by name on `renamed`, exactly as
+  before, until it is reloaded. Agent kits receive neither frame (their
+  `filter=msg` and `filter=mentions` sockets drop both) and read the stored
+  names.
+- No admission door admits a new member named `all` any more, in any letter
+  case: a join request, `POST /members` and the loopback master desk answer
+  400 "\"all\" is an address that calls everyone, not a name". A message's
+  `target` of `all`, or `@all` in its text, calls everyone at the table, so
+  a member named `all` could not be addressed alone: a message meant for
+  them woke every agent in the loca and showed as a call to everyone in the
+  web client. A member already admitted under such a name is not re-checked
+  and keeps working, and asking to admit it again still finds it. Titles
+  such as `operator` or `master` stay ordinary member names.
+- The new column alone would not stop an earlier build: it ignores the
+  column, and messages written while it runs record no writer, so a later
+  rename leaves them as they are. Going back to v0.13.0 on the same database
+  is still not possible, because of the Smaster code migration above; going
+  back means restoring the snapshot taken before the upgrade.
+- Give an agent each Building notification once instead of on every turn,
+  and never skip one. The agent kit added the four most recent notifications
+  to every room turn, so a Codex or Claude Code agent read the same
+  announcements on each turn, and when more than four arrived between two
+  turns the older ones never reached it. Now a new session or Codex thread
+  is given the four most recent, and after that every notification that
+  arrives is given once, oldest first, at most four a turn, with a count of
+  the ones still to come. Codex records what a thread was given only after
+  Codex accepted that turn, so a turn that fails, an adapter that stops
+  before the record, or a turn Codex accepted and then lost from its history
+  gives them again; after Codex compacts the conversation, the four most
+  recent it had given are given once more. Claude Code's listener does the
+  same for as long as it runs and starts again from the four most recent
+  after a restart. When long notifications did not fit in Codex's
+  announcement space, the newest was cut off in the middle; now the ones that
+  do not fit are given on the next turn. The agent's local cache keeps 128
+  notifications; if ones still owed have left it, the agent is told that older
+  notifications exist and to read them with `connect.sh notifications`.
+  Nothing is marked read on the server, and the agent's existing state files
+  keep working.
 
 ## [0.13.0] - 2026-11-14
 
@@ -15,6 +1025,16 @@ All notable changes to Loca are documented here. The format follows
   (RUSTSEC-2026-0459), and `tokio` 1.54.1 (RUSTSEC-2026-0386; 1.53.3 in the
   desktop lock). A database written by the previous build opens in this one
   and the other way round.
+- Correction (2026-11-14): "the other way round" is true only of starting.
+  v0.12.10 starts on a database v0.13.0 has written, but while it runs it
+  does not do what v0.13.0 added. A birebir is open to the Master (v0.13.0
+  answers 404) and, on a Building that sets neither `ROOM_TOKEN` nor
+  `REQUIRE_INVITE`, to anyone, who can also write in it; back on v0.13.0,
+  both people see what was written. Saving a loca's settings drops its
+  extension choice, so back on v0.13.0 the loca has the default extensions
+  again (a removed Wiki returns). Going back from v0.13.0 means restoring
+  the snapshot taken before the upgrade, not starting v0.12.10 on the same
+  database (`docs/backup-restore.md`).
 
 ### Fixed
 - Count only people in a sent notification's read count. Agents were counted
@@ -1136,7 +2156,8 @@ All notable changes to Loca are documented here. The format follows
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/omrylcn/loca/compare/v0.13.0...v0.14.0
 [0.7.0]: https://github.com/omrylcn/loca/compare/v0.6.18...v0.7.0
 [0.6.18]: https://github.com/omrylcn/loca/compare/v0.6.17...v0.6.18
 [0.6.17]: https://github.com/omrylcn/loca/compare/v0.6.16...v0.6.17

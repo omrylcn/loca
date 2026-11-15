@@ -68,7 +68,7 @@ impl Hub {
                         let mut names: Vec<String> = room
                             .members
                             .values()
-                            .filter(|(_, _, count)| *count > 0)
+                            .filter(|(_, _, count)| !count.is_empty())
                             .map(|(name, _, _)| name.clone())
                             .collect();
                         names.sort();
@@ -194,15 +194,15 @@ impl Hub {
     pub fn tick_care(&self) {
         let now = (self.now_ms)();
         // A group loca keeps its in-room reminders, but none that would be
-        // relayed to İye (loca-care's home), where every rank reads and the
+        // relayed to Care (loca-care's home), where every rank reads and the
         // group's words would leak. Taken before `rooms` (lock order).
         let group_locas = self.group_locas();
         let mut rooms = self.rooms.lock_or_recover();
-        // A birebir raises no care: nothing it says may travel to İye.
-        let birebirs = self.birebirs.lock_or_recover().clone();
+        // A direct message raises no care: nothing it says may travel to Care.
+        let dms = self.dms.lock_or_recover().clone();
         let room_names: Vec<String> = rooms
             .keys()
-            .filter(|name| !birebirs.contains_key(*name))
+            .filter(|name| !dms.contains_key(*name))
             .cloned()
             .collect();
         let mut pending = Vec::new();
@@ -493,7 +493,7 @@ impl Hub {
                         // snapshot; on a retry the generation's own open
                         // attentions ARE the snapshot, so a member who joined
                         // after the reminder started is never added. Each member
-                        // is re-checked at delivery time so a davet/membership
+                        // is re-checked at delivery time so an invite/membership
                         // revoked after the snapshot is not delivered. The
                         // per-member attention id carries the safe principal id
                         // (never a secret token); the owner is the display name.
@@ -544,7 +544,7 @@ impl Hub {
                                     owner_principal_id: Some(principal_id.clone()),
                                     // Generation id shared by every per-member
                                     // signal of this reminder — secret-free and
-                                    // server-derived (no member/davet token).
+                                    // server-derived (no member/invite token).
                                     group: Some(format!("attention:{room_name}:{attention_key}")),
                                     reason,
                                     target: target.clone(),

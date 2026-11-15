@@ -1,8 +1,8 @@
-//! Birebir: a private loca for exactly two people (PRINCIPLES "Birebir").
+//! Direct message: a private loca for exactly two people (PRINCIPLES "Birebir").
 //!
-//! A birebir is an ordinary loca underneath — history, attachments, reactions
+//! A direct message is an ordinary loca underneath — history, attachments, reactions
 //! and live delivery travel the same path — but its door belongs to the pair:
-//! `enter_decision` admits only the two principals (or the davet minted for an
+//! `enter_decision` admits only the two principals (or the invite minted for an
 //! agent side), never a rank. The Master learns only that it exists, and reads
 //! it only after one side calls the Master in.
 
@@ -10,55 +10,55 @@ use protocol::{Message, SenderType, ServerFrame};
 use std::sync::atomic::Ordering;
 
 use super::{Hub, Room, SessionIdentity};
-use crate::store::Birebir;
+use crate::store::Dm;
 use crate::sync::RecoverMutex;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BirebirError {
-    /// Only a human opens a birebir; an agent answers in one.
+pub enum DmError {
+    /// Only a human opens a direct message; an agent answers in one.
     NotHuman,
-    /// The caller has no stable identity to bind the birebir to.
+    /// The caller has no stable identity to bind the direct message to.
     NoIdentity,
     /// No active person carries that name.
     PeerNotFound,
-    /// One cannot open a birebir with oneself.
+    /// One cannot open a direct message with oneself.
     SelfPair,
     /// A member may open one only with someone at a shared table.
     NoSharedTable,
-    /// The Master sealed this pair's birebir; it does not come back.
+    /// The Master sealed this pair's direct message; it does not come back.
     Sealed,
     /// The caller is not one of the two.
     NotParty,
     /// Only the side that called the Master in may send the Master out.
     NotCaller,
-    /// The Master is not in this birebir.
+    /// The Master is not in this direct message.
     MasterNotIn,
     Storage,
 }
 
-impl BirebirError {
+impl DmError {
+    /// What a person reads: a direct message is a "private conversation" on screen
+    /// (the code keeps the word).
     pub fn message(self) -> &'static str {
         match self {
-            Self::NotHuman => "only a person opens a birebir",
-            Self::NoIdentity => "sign in with your own identity to open a birebir",
+            Self::NotHuman => "only a person opens a private conversation",
+            Self::NoIdentity => "sign in with your own identity to write privately",
             Self::PeerNotFound => "nobody by that name is in the building",
-            Self::SelfPair => "a birebir needs two people",
-            Self::NoSharedTable => {
-                "you can open a birebir only with someone you sit with in a loca"
-            }
-            Self::Sealed => "this birebir was sealed and cannot be reopened",
+            Self::SelfPair => "a private conversation needs two people",
+            Self::NoSharedTable => "you can write privately only to someone you sit with in a loca",
+            Self::Sealed => "this conversation was sealed and cannot be reopened",
             Self::NotParty => "not found",
             Self::NotCaller => "only the one who called the Master in can send the Master out",
-            Self::MasterNotIn => "the Master is not in this birebir",
+            Self::MasterNotIn => "the Master is not in this conversation",
             Self::Storage => "could not save — try again",
         }
     }
 }
 
-/// What the Master may know about a birebir: that it exists, between whom,
+/// What the Master may know about a direct message: that it exists, between whom,
 /// and when it was last active. Never its words.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct BirebirOverview {
+pub struct DmOverview {
     pub room: String,
     pub between: [String; 2],
     pub opened_at: u64,
@@ -68,20 +68,36 @@ pub struct BirebirOverview {
     pub history_open: bool,
 }
 
-/// Someone the caller may write to privately.
+/// Someone the caller may write to privately, with the card they show
+/// beside their `@name` (display only).
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct BirebirCandidate {
+pub struct DmCandidate {
     pub name: String,
     pub kind: SenderType,
     pub role: &'static str,
+    pub principal_id: String,
+    #[serde(flatten)]
+    pub card: crate::store::ProfileCard,
 }
 
-/// What a party sees about its own birebir.
+/// What a party sees about its own direct message.
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct BirebirView {
+pub struct DmView {
     pub room: String,
     pub peer: String,
     pub peer_kind: SenderType,
+    /// The other side's principal, so a client shows the card of exactly
+    /// that person on the lines it wrote (`sender_principal`).
+    pub peer_principal: String,
+    /// The other side's full name and icon, display only; none once that
+    /// side has left the building.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_full_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_icon: Option<String>,
+    /// A side has left the building (or is suspended): nothing more can be
+    /// said here (PRINCIPLES "Birebir", lifecycle).
+    pub read_only: bool,
     pub master_in: bool,
     pub master_called_by_me: bool,
     pub master_since: Option<u64>,
@@ -89,8 +105,8 @@ pub struct BirebirView {
     pub history_open: bool,
 }
 
-/// The part of a birebir a called-in Master may read, fixed at the moment the
-/// permission was checked (see `Hub::birebir_witness_window`).
+/// The part of a direct message a called-in Master may read, fixed at the moment the
+/// permission was checked (see `Hub::dm_witness_window`).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct WitnessWindow {
     /// Nothing stamped before this time.
@@ -100,22 +116,22 @@ pub(super) struct WitnessWindow {
 }
 
 impl Hub {
-    /// Every birebir room id starts with this; no ordinary loca may.
-    pub const BIREBIR_PREFIX: &'static str = "bb-";
+    /// Every direct message room id starts with this; no ordinary loca may.
+    pub const DM_PREFIX: &'static str = "bb-";
 
-    pub fn birebir(&self, room: &str) -> Option<Birebir> {
-        self.birebirs.lock_or_recover().get(room).cloned()
+    pub fn dm(&self, room: &str) -> Option<Dm> {
+        self.dms.lock_or_recover().get(room).cloned()
     }
 
-    pub fn is_birebir(&self, room: &str) -> bool {
-        self.birebirs.lock_or_recover().contains_key(room)
+    pub fn is_dm(&self, room: &str) -> bool {
+        self.dms.lock_or_recover().contains_key(room)
     }
 
     /// The pair's room id. It carries no name, so a rename never moves it and
     /// a URL never reveals who talks to whom.
-    pub fn birebir_room_id(a: &str, b: &str) -> String {
+    pub fn dm_room_id(a: &str, b: &str) -> String {
         let (a, b) = if a <= b { (a, b) } else { (b, a) };
-        crate::store::hashed_id(Self::BIREBIR_PREFIX, &format!("{a}|{b}"))
+        crate::store::hashed_id(Self::DM_PREFIX, &format!("{a}|{b}"))
     }
 
     fn principal_name(&self, principal: &str) -> Option<(String, SenderType)> {
@@ -124,10 +140,10 @@ impl Hub {
             .map(|p| (p.display_name, p.kind))
     }
 
-    /// Names seated at a table: live seats plus held davets (a davet is a
-    /// seat, PRINCIPLES "Model A"). Birebirs and İye are not shared tables.
+    /// Names seated at a table: live seats plus held invites (an invite is a
+    /// seat, PRINCIPLES "Model A"). Direct messages and Care are not shared tables.
     fn shares_a_table(&self, a: &str, b: &str) -> bool {
-        let birebirs = self.birebirs.lock_or_recover().clone();
+        let dms = self.dms.lock_or_recover().clone();
         let mut seated: std::collections::HashMap<String, std::collections::HashSet<String>> =
             std::collections::HashMap::new();
         for inv in self.invites.lock_or_recover().values() {
@@ -142,17 +158,17 @@ impl Hub {
             }
         }
         seated.iter().any(|(room, names)| {
-            !birebirs.contains_key(room)
+            !dms.contains_key(room)
                 && !self.is_deleted(room)
                 && names.contains(a)
                 && names.contains(b)
         })
     }
 
-    /// Everyone the caller may open a birebir with, by the same rule as
-    /// `open_birebir`: a rank reaches anyone (ranks included), a member only
+    /// Everyone the caller may open a direct message with, by the same rule as
+    /// `open_dm`: a rank reaches anyone (ranks included), a member only
     /// someone at a shared table; an agent opens none.
-    pub fn birebir_candidates(&self, opener: &SessionIdentity) -> Vec<BirebirCandidate> {
+    pub fn dm_candidates(&self, opener: &SessionIdentity) -> Vec<DmCandidate> {
         if opener.kind != SenderType::User || opener.loca.is_some() {
             return Vec::new();
         }
@@ -163,13 +179,16 @@ impl Hub {
             opener.building_role,
             crate::store::BuildingRole::Master | crate::store::BuildingRole::Smaster
         );
-        let mut out: Vec<BirebirCandidate> = self
+        let cards = self.profile_cards();
+        let mut out: Vec<DmCandidate> = self
             .store
             .active_principals()
             .into_iter()
             .filter(|p| p.id != me)
             .filter(|p| rank || self.shares_a_table(&opener.name, &p.display_name))
-            .map(|p| BirebirCandidate {
+            .map(|p| DmCandidate {
+                card: cards.get(&p.id).cloned().unwrap_or_default(),
+                principal_id: p.id,
                 name: p.display_name,
                 kind: p.kind,
                 role: match p.role {
@@ -183,41 +202,38 @@ impl Hub {
         out
     }
 
-    /// Open (or return) the birebir between the caller and `peer_name`.
-    /// Returns the birebir and whether it was created now.
-    pub fn open_birebir(
+    /// Open (or return) the direct message between the caller and `peer_name`.
+    /// Returns the direct message and whether it was created now.
+    pub fn open_dm(
         &self,
         opener: &SessionIdentity,
         peer_name: &str,
-    ) -> Result<(Birebir, bool), BirebirError> {
+    ) -> Result<(Dm, bool), DmError> {
         if opener.kind != SenderType::User || opener.loca.is_some() {
-            return Err(BirebirError::NotHuman);
+            return Err(DmError::NotHuman);
         }
-        let me = opener
-            .principal_id
-            .clone()
-            .ok_or(BirebirError::NoIdentity)?;
+        let me = opener.principal_id.clone().ok_or(DmError::NoIdentity)?;
         let peers = self
             .store
             .active_principals_named(peer_name.trim())
-            .map_err(|_| BirebirError::Storage)?;
+            .map_err(|_| DmError::Storage)?;
         let [peer] = peers.as_slice() else {
-            return Err(BirebirError::PeerNotFound);
+            return Err(DmError::PeerNotFound);
         };
         if peer.id == me {
-            return Err(BirebirError::SelfPair);
+            return Err(DmError::SelfPair);
         }
-        let room = Self::birebir_room_id(&me, &peer.id);
+        let room = Self::dm_room_id(&me, &peer.id);
         if self.is_deleted(&room) {
-            return Err(BirebirError::Sealed);
+            return Err(DmError::Sealed);
         }
-        if let Some(existing) = self.birebir(&room) {
-            self.ensure_agent_davet(&existing, peer);
+        if let Some(existing) = self.dm(&room) {
+            self.ensure_agent_invite(&existing, peer);
             return Ok((existing, false));
         }
         // Never adopt a room that already exists as something else.
         if self.rooms.lock_or_recover().contains_key(&room) {
-            return Err(BirebirError::Storage);
+            return Err(DmError::Storage);
         }
         // A rank may open one with anyone it could already call; a member
         // only with someone at a shared table. Checked on opening only.
@@ -226,7 +242,7 @@ impl Hub {
             crate::store::BuildingRole::Master | crate::store::BuildingRole::Smaster
         );
         if !rank && !self.shares_a_table(&opener.name, &peer.display_name) {
-            return Err(BirebirError::NoSharedTable);
+            return Err(DmError::NoSharedTable);
         }
         let (a, b) = if me <= peer.id {
             (me.clone(), peer.id.clone())
@@ -234,18 +250,18 @@ impl Hub {
             (peer.id.clone(), me.clone())
         };
         let mut settings = self.default_settings.clone();
-        // Nothing leaves a birebir: no care reminders, no live broadcast.
+        // Nothing leaves a direct message: no care reminders, no live broadcast.
         settings.care_goal_secs = 0;
         settings.care_task_secs = 0;
         settings.care_silence_secs = 0;
         settings.live = false;
         settings.lead = None;
         settings.operators = Vec::new();
-        // A birebir is conversation: it has no extensions (PRINCIPLES "Loca
+        // A direct message is conversation: it has no extensions (PRINCIPLES "Loca
         // extensions"). `Hub::extension_enabled` also refuses by room kind, so
-        // a birebir saved before this field existed has none either.
+        // a direct message saved before this field existed has none either.
         settings.extensions = Some(Vec::new());
-        let fresh = Birebir {
+        let fresh = Dm {
             room: room.clone(),
             a,
             b,
@@ -259,35 +275,35 @@ impl Hub {
         };
         let saved = self
             .store
-            .create_birebir(&fresh, &settings)
-            .map_err(|_| BirebirError::Storage)?;
+            .create_dm(&fresh, &settings)
+            .map_err(|_| DmError::Storage)?;
         self.rooms
             .lock_or_recover()
             .entry(saved.room.clone())
             .or_insert_with(|| Room::with(protocol::ChatMode::Free, settings.clone(), 1));
-        self.birebirs
+        self.dms
             .lock_or_recover()
             .insert(saved.room.clone(), saved.clone());
-        self.ensure_agent_davet(&saved, peer);
+        self.ensure_agent_invite(&saved, peer);
         Ok((saved, true))
     }
 
-    /// An agent side reaches a birebir with a davet delivered over its Lobby
+    /// An agent side reaches a direct message with an invite delivered over its Lobby
     /// line, exactly like a call. A human side needs none: its own session
     /// identity opens the door.
-    fn ensure_agent_davet(&self, b: &Birebir, peer: &crate::store::PrincipalIdentity) {
+    fn ensure_agent_invite(&self, b: &Dm, peer: &crate::store::PrincipalIdentity) {
         if peer.kind != SenderType::Agent {
             return;
         }
         if let Some(member) = self.member_by_name(&peer.display_name) {
-            if !self.has_active_invite(&b.room, &member.token) {
-                let _ = self.invite_member_to_room_inner(&member.token, &b.room, "birebir", true);
+            if !self.has_active_invite(&b.room, &member.id) {
+                let _ = self.invite_member_to_room_inner(&member.id, &b.room, "birebir", true);
             }
         }
     }
 
-    /// The two names of a birebir, as they are worn now.
-    pub fn birebir_names(&self, b: &Birebir) -> [String; 2] {
+    /// The two names of a direct message, as they are worn now.
+    pub fn dm_names(&self, b: &Dm) -> [String; 2] {
         let name = |p: &str| {
             self.principal_name(p)
                 .map(|(n, _)| n)
@@ -296,16 +312,16 @@ impl Hub {
         [name(&b.a), name(&b.b)]
     }
 
-    /// Is either side gone? A birebir whose side left the building is
+    /// Is either side gone? A direct message whose side left the building is
     /// read-only (PRINCIPLES "Birebir", lifecycle).
-    pub fn birebir_read_only(&self, b: &Birebir) -> bool {
+    pub fn dm_read_only(&self, b: &Dm) -> bool {
         self.principal_name(&b.a).is_none() || self.principal_name(&b.b).is_none()
     }
 
     /// The other side's current name, for a message posted by `sender`.
-    pub(super) fn birebir_peer_of(&self, room: &str, sender: &str) -> Option<String> {
-        let b = self.birebir(room)?;
-        let [a, bn] = self.birebir_names(&b);
+    pub(super) fn dm_peer_of(&self, room: &str, sender: &str) -> Option<String> {
+        let b = self.dm(room)?;
+        let [a, bn] = self.dm_names(&b);
         if a == sender {
             Some(bn)
         } else if bn == sender {
@@ -315,17 +331,26 @@ impl Hub {
         }
     }
 
-    pub fn birebir_view(&self, room: &str, principal: &str) -> Option<BirebirView> {
-        let b = self.birebir(room)?;
+    pub fn dm_view(&self, room: &str, principal: &str) -> Option<DmView> {
+        let b = self.dm(room)?;
         let other = b.other(principal)?.to_string();
-        let (peer, peer_kind) = self
-            .principal_name(&other)
-            .unwrap_or_else(|| ("former member".into(), SenderType::User));
+        let active = self.principal_name(&other);
+        let card = if active.is_some() {
+            self.profile_card(&other)
+        } else {
+            crate::store::ProfileCard::default()
+        };
+        let (peer, peer_kind) =
+            active.unwrap_or_else(|| ("former member".into(), SenderType::User));
         let mine_is_a = b.a == principal;
-        Some(BirebirView {
+        Some(DmView {
             room: b.room.clone(),
             peer,
             peer_kind,
+            peer_principal: other,
+            peer_full_name: card.full_name,
+            peer_icon: card.icon,
+            read_only: self.dm_read_only(&b),
             master_in: b.master_since.is_some(),
             master_called_by_me: b.master_called_by.as_deref() == Some(principal),
             master_since: b.master_since,
@@ -334,10 +359,10 @@ impl Hub {
         })
     }
 
-    /// The birebirs this principal is one side of.
-    pub fn birebirs_of(&self, principal: &str) -> Vec<BirebirView> {
+    /// The direct messages this principal is one side of.
+    pub fn dms_of(&self, principal: &str) -> Vec<DmView> {
         let rooms: Vec<String> = self
-            .birebirs
+            .dms
             .lock_or_recover()
             .values()
             .filter(|b| b.has(principal))
@@ -346,26 +371,26 @@ impl Hub {
         rooms
             .iter()
             .filter(|room| !self.is_deleted(room))
-            .filter_map(|room| self.birebir_view(room, principal))
+            .filter_map(|room| self.dm_view(room, principal))
             .collect()
     }
 
-    fn update_birebir(
+    fn update_dm(
         &self,
         room: &str,
         principal: &str,
-        change: impl FnOnce(&mut Birebir) -> Result<(), BirebirError>,
-    ) -> Result<Birebir, BirebirError> {
-        let mut map = self.birebirs.lock_or_recover();
-        let current = map.get(room).ok_or(BirebirError::NotParty)?;
+        change: impl FnOnce(&mut Dm) -> Result<(), DmError>,
+    ) -> Result<Dm, DmError> {
+        let mut map = self.dms.lock_or_recover();
+        let current = map.get(room).ok_or(DmError::NotParty)?;
         if !current.has(principal) || self.is_deleted(room) {
-            return Err(BirebirError::NotParty);
+            return Err(DmError::NotParty);
         }
         let mut next = current.clone();
         change(&mut next)?;
         self.store
-            .save_birebir_access(&next)
-            .map_err(|_| BirebirError::Storage)?;
+            .save_dm_access(&next)
+            .map_err(|_| DmError::Storage)?;
         map.insert(room.to_string(), next.clone());
         drop(map);
         if let Some(r) = self.rooms.lock_or_recover().get(room) {
@@ -378,18 +403,14 @@ impl Hub {
 
     /// One side calls the Master in. No consent from the other side is
     /// needed; both see it. The Master reads from this moment on.
-    pub fn birebir_call_master(
-        &self,
-        room: &str,
-        principal: &str,
-    ) -> Result<Birebir, BirebirError> {
+    pub fn dm_call_master(&self, room: &str, principal: &str) -> Result<Dm, DmError> {
         // The boundary comes from the sequence that stamps every message, not
         // from the wall clock. Message times can run ahead of the clock, and
         // a word said before the call must never fall on the Master's side:
         // this value is above every time already issued and below every later
         // one.
         let now = self.next_condition_generation(self.now(), 0);
-        self.update_birebir(room, principal, |b| {
+        self.update_dm(room, principal, |b| {
             if b.master_since.is_none() {
                 b.master_called_by = Some(principal.to_string());
                 b.master_since = Some(now);
@@ -401,17 +422,13 @@ impl Hub {
 
     /// The side that called the Master in sends the Master out. Any history
     /// permission ends with the visit.
-    pub fn birebir_dismiss_master(
-        &self,
-        room: &str,
-        principal: &str,
-    ) -> Result<Birebir, BirebirError> {
-        self.update_birebir(room, principal, |b| {
+    pub fn dm_dismiss_master(&self, room: &str, principal: &str) -> Result<Dm, DmError> {
+        self.update_dm(room, principal, |b| {
             if b.master_since.is_none() {
-                return Err(BirebirError::MasterNotIn);
+                return Err(DmError::MasterNotIn);
             }
             if b.master_called_by.as_deref() != Some(principal) {
-                return Err(BirebirError::NotCaller);
+                return Err(DmError::NotCaller);
             }
             b.master_called_by = None;
             b.master_since = None;
@@ -424,14 +441,10 @@ impl Hub {
 
     /// One side allows the called-in Master to read earlier history. It opens
     /// only when both sides have allowed it.
-    pub fn birebir_allow_history(
-        &self,
-        room: &str,
-        principal: &str,
-    ) -> Result<Birebir, BirebirError> {
-        self.update_birebir(room, principal, |b| {
+    pub fn dm_allow_history(&self, room: &str, principal: &str) -> Result<Dm, DmError> {
+        self.update_dm(room, principal, |b| {
             if b.master_since.is_none() {
-                return Err(BirebirError::MasterNotIn);
+                return Err(DmError::MasterNotIn);
             }
             if b.a == principal {
                 b.history_a = true;
@@ -444,9 +457,9 @@ impl Hub {
 
     /// The Master's existence-only view (PRINCIPLES: so the Building does not
     /// turn into a dump). Names, times, state — never words.
-    pub fn birebir_overview(&self) -> Vec<BirebirOverview> {
-        let all: Vec<Birebir> = self.birebirs.lock_or_recover().values().cloned().collect();
-        let mut list: Vec<BirebirOverview> = all
+    pub fn dm_overview(&self) -> Vec<DmOverview> {
+        let all: Vec<Dm> = self.dms.lock_or_recover().values().cloned().collect();
+        let mut list: Vec<DmOverview> = all
             .into_iter()
             .filter(|b| !self.is_deleted(&b.room))
             .map(|b| {
@@ -456,8 +469,8 @@ impl Hub {
                     .get(&b.room)
                     .map(|r| (r.last_msg_ms, r.settings.archived))
                     .unwrap_or((0, false));
-                BirebirOverview {
-                    between: self.birebir_names(&b),
+                DmOverview {
+                    between: self.dm_names(&b),
                     room: b.room.clone(),
                     opened_at: b.opened_at,
                     last_at,
@@ -474,16 +487,16 @@ impl Hub {
     /// What a called-in Master may read at this instant: nothing said before
     /// `floor` (the call, or the very start once both sides allowed history)
     /// and nothing with an id above `through_id`. `None` when the Master is
-    /// not in, or the birebir is sealed.
+    /// not in, or the direct message is sealed.
     ///
     /// `through_id` is the last message id issued BEFORE the permission is
     /// read. A read that is already under way when the Master is sent out
     /// therefore cannot return what the two say afterwards: those messages
     /// get higher ids. If the Master was sent out and called back in between,
     /// the new call's floor lies above every message the ceiling admits.
-    pub(super) fn birebir_witness_window(&self, room: &str) -> Option<WitnessWindow> {
+    pub(super) fn dm_witness_window(&self, room: &str) -> Option<WitnessWindow> {
         let through_id = self.next_id.load(Ordering::SeqCst).saturating_sub(1);
-        let b = self.birebir(room)?;
+        let b = self.dm(room)?;
         let since = b.master_since?;
         if !self.rooms.lock_or_recover().contains_key(room) {
             return None;
@@ -496,9 +509,9 @@ impl Hub {
 
     /// What a called-in Master may read: from the call on, or everything once
     /// both sides allowed it. `None` when the Master is not in. This is the
-    /// bounded hot tail; [`Hub::birebir_witness_messages_after`] pages all of it.
-    pub fn birebir_witness_messages(&self, room: &str) -> Option<Vec<Message>> {
-        let window = self.birebir_witness_window(room)?;
+    /// bounded hot tail; [`Hub::dm_witness_messages_after`] pages all of it.
+    pub fn dm_witness_messages(&self, room: &str) -> Option<Vec<Message>> {
+        let window = self.dm_witness_window(room)?;
         let rooms = self.rooms.lock_or_recover();
         let r = rooms.get(room)?;
         Some(
@@ -511,20 +524,20 @@ impl Hub {
     }
 
     /// One ordered page of that same view after `since` (exclusive), read
-    /// from the durable archive so a long birebir is not cut at the hot tail.
-    pub fn birebir_witness_messages_after(
+    /// from the durable archive so a long direct message is not cut at the hot tail.
+    pub fn dm_witness_messages_after(
         &self,
         room: &str,
         since: u64,
         limit: usize,
     ) -> Option<rusqlite::Result<Vec<Message>>> {
-        let window = self.birebir_witness_window(room)?;
-        Some(self.birebir_witness_page(room, &window, since, limit))
+        let window = self.dm_witness_window(room)?;
+        Some(self.dm_witness_page(room, &window, since, limit))
     }
 
     /// Read one page inside a window that was granted earlier. The window,
     /// not the state at reading time, bounds what comes back.
-    pub(super) fn birebir_witness_page(
+    pub(super) fn dm_witness_page(
         &self,
         room: &str,
         window: &WitnessWindow,

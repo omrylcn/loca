@@ -2094,10 +2094,11 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
 name = "loca-desktop"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "getrandom 0.3.4",
  "keyring",
+ "libc",
  "muda",
  "serde",
  "serde_json",
@@ -3487,7 +3488,7 @@ checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
 
 [[package]]
 name = "skill-bundles"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "serde_json",
  "sha2",

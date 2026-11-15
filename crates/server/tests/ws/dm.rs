@@ -1,4 +1,4 @@
-//! Birebir: a private loca for exactly two people (PRINCIPLES "Birebir").
+//! Direct message: a private loca for exactly two people (PRINCIPLES "Birebir").
 use super::*;
 
 const MASTER: &str = "bb-master-key";
@@ -92,9 +92,9 @@ fn texts(v: &Value) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn a_birebir_belongs_to_its_two_people_and_the_master_sees_only_that_it_exists() {
+async fn a_dm_belongs_to_its_two_people_and_the_master_sees_only_that_it_exists() {
     let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("birebir.db");
+    let db = dir.path().join("dm.db");
     let (port, _guard) = spawn_server_env(
         MASTER,
         &[
@@ -170,12 +170,12 @@ async fn a_birebir_belongs_to_its_two_people_and_the_master_sees_only_that_it_ex
     assert_eq!(
         open(helper.clone(), "ayse").await.0,
         403,
-        "an agent never opens a birebir"
+        "an agent never opens a direct message"
     );
     assert_eq!(
         open(outsider.clone(), "ayse").await.0,
         403,
-        "no shared table, no birebir"
+        "no shared table, no direct message"
     );
     assert_eq!(
         open(ayse.clone(), "ayse").await.0,
@@ -188,7 +188,10 @@ async fn a_birebir_belongs_to_its_two_people_and_the_master_sees_only_that_it_ex
     assert!(room.starts_with("bb-") && !room.contains("ayse") && !room.contains("mehmet"));
     assert_eq!(opened["birebir"]["peer"], "mehmet");
     let (again, reopened) = open(mehmet.clone(), "ayse").await;
-    assert_eq!(again, 200, "the same pair returns to the same birebir");
+    assert_eq!(
+        again, 200,
+        "the same pair returns to the same direct message"
+    );
     assert_eq!(reopened["birebir"]["room"], room.as_str());
 
     // The two talk; a word is addressed to the other side without an @.
@@ -203,7 +206,7 @@ async fn a_birebir_belongs_to_its_two_people_and_the_master_sees_only_that_it_ex
     .await;
     assert_eq!(
         widened["target"], "mehmet",
-        "an @all cannot widen a birebir"
+        "an @all cannot widen a direct message"
     );
     let (status, seen) = call(
         get.clone(),
@@ -230,7 +233,7 @@ async fn a_birebir_belongs_to_its_two_people_and_the_master_sees_only_that_it_ex
             None,
         )
         .await;
-        assert_eq!(status, 404, "{who} must not read a birebir");
+        assert_eq!(status, 404, "{who} must not read a direct message");
         let (status, _) = call(
             get.clone(),
             format!("{base}/rooms/{room}/search?q=secret"),
@@ -238,7 +241,7 @@ async fn a_birebir_belongs_to_its_two_people_and_the_master_sees_only_that_it_ex
             None,
         )
         .await;
-        assert_eq!(status, 404, "{who} must not search a birebir");
+        assert_eq!(status, 404, "{who} must not search a direct message");
     }
     assert_eq!(
         rest_can(&base, &room, &[("x-admin-token", MASTER)]).await,
@@ -251,7 +254,7 @@ async fn a_birebir_belongs_to_its_two_people_and_the_master_sees_only_that_it_ex
         let (_, rooms) = call(get.clone(), format!("{base}/rooms"), s, None).await;
         assert!(
             !rooms.to_string().contains(&room),
-            "a rank's loca list never names a birebir"
+            "a rank's loca list never names a direct message"
         );
     }
     let (_, ranks) = call(get.clone(), format!("{base}/building/ranks"), &master, None).await;
@@ -261,7 +264,7 @@ async fn a_birebir_belongs_to_its_two_people_and_the_master_sees_only_that_it_ex
     let (_, mine) = call(get.clone(), format!("{base}/rooms"), &mehmet, None).await;
     assert!(
         mine.to_string().contains(&room),
-        "the two see their birebir"
+        "the two see their direct message"
     );
 
     // The Master — only the Master — sees that it exists, never a word.
@@ -397,7 +400,7 @@ async fn a_birebir_belongs_to_its_two_people_and_the_master_sees_only_that_it_ex
         .unwrap();
     assert!(
         !squat.status().is_success(),
-        "an ordinary loca never takes a birebir id"
+        "an ordinary loca never takes a direct message id"
     );
     assert!(!ws_can(port, "bb-0000squat", &format!("token={MASTER}")).await);
 
@@ -471,9 +474,9 @@ async fn witness_pages(witness: &str, master: &str) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn a_called_in_master_reads_a_long_birebir_whole_but_never_before_the_call() {
+async fn a_called_in_master_reads_a_long_dm_whole_but_never_before_the_call() {
     let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("birebir.db");
+    let db = dir.path().join("dm.db");
     let (port, _guard) = spawn_server_env(
         MASTER,
         &[
@@ -557,7 +560,7 @@ async fn a_called_in_master_reads_a_long_birebir_whole_but_never_before_the_call
     // One side allowing history opens nothing.
     master_action(ayse.clone(), "history").await;
     assert_eq!(witness_pages(&witness, &master).await, after);
-    // Both allowed: the whole birebir, from its first word.
+    // Both allowed: the whole direct message, from its first word.
     master_action(mehmet.clone(), "history").await;
     let whole: Vec<String> = before.iter().chain(&after).cloned().collect();
     assert_eq!(witness_pages(&witness, &master).await, whole);
@@ -581,15 +584,15 @@ async fn a_called_in_master_reads_a_long_birebir_whole_but_never_before_the_call
     assert_eq!(
         call(get.clone(), paged.clone(), &master, None).await.0,
         403,
-        "a sealed birebir is read by nobody"
+        "a sealed direct message is read by nobody"
     );
     assert_eq!(call(get, witness, &master, None).await.0, 403);
 }
 
 #[tokio::test]
-async fn a_birebir_with_an_agent_reaches_it_by_davet_and_survives_a_restart() {
+async fn a_dm_with_an_agent_reaches_it_by_invite_and_survives_a_restart() {
     let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("birebir-agent.db");
+    let db = dir.path().join("dm-agent.db");
     let env = [
         ("DB_PATH", db.to_str().unwrap().to_string()),
         ("REQUIRE_SESSIONS", "1".to_string()),
@@ -623,7 +626,7 @@ async fn a_birebir_with_an_agent_reaches_it_by_davet_and_survives_a_restart() {
     .await;
     assert_eq!(status, 201, "{opened}");
     let room = opened["birebir"]["room"].as_str().unwrap().to_string();
-    // The agent side got a davet for exactly this room — the call path.
+    // The agent side got an invite for exactly this room — the call path.
     let invites: Vec<Value> = reqwest::Client::new()
         .get(format!("{base}/residents"))
         .header("x-admin-token", MASTER)
@@ -634,7 +637,7 @@ async fn a_birebir_with_an_agent_reaches_it_by_davet_and_survives_a_restart() {
         .await
         .unwrap();
     assert!(!serde_json::to_string(&invites).unwrap().contains(&room));
-    // The Master is a party here, so it reads its own birebir by session.
+    // The Master is a party here, so it reads its own direct message by session.
     say(&base, &room, &master, "hello worker").await;
     let (status, read) = call(
         reqwest::Method::GET,
@@ -646,7 +649,7 @@ async fn a_birebir_with_an_agent_reaches_it_by_davet_and_survives_a_restart() {
     assert_eq!(status, 200);
     assert!(texts(&read).contains(&"hello worker".to_string()));
 
-    // Restart: the birebir, its door and its words come back.
+    // Restart: the direct message, its door and its words come back.
     drop(guard);
     wait_for_server_shutdown(port).await;
     let (port, _guard) = spawn_server_env(MASTER, &env).await;
@@ -665,7 +668,7 @@ async fn a_birebir_with_an_agent_reaches_it_by_davet_and_survives_a_restart() {
 #[tokio::test]
 async fn ranks_write_to_each_other_and_members_only_to_tablemates() {
     let dir = tempfile::tempdir().unwrap();
-    let db = dir.path().join("birebir-candidates.db");
+    let db = dir.path().join("dm-candidates.db");
     let (port, _guard) = spawn_server_env(
         MASTER,
         &[
@@ -812,6 +815,391 @@ async fn ranks_write_to_each_other_and_members_only_to_tablemates() {
     assert_eq!(
         mine.as_array().unwrap().len(),
         1,
-        "the Master sees the birebir it is part of"
+        "the Master sees the direct message it is part of"
     );
+}
+
+/// A Building with a Master, a Smaster, and three members at one table:
+/// `ayse` and `mehmet` who open a direct message, and `neighbour`, who sits with both.
+struct Cast {
+    base: String,
+    port: u16,
+    master: String,
+    deputy: String,
+    ayse: String,
+    mehmet: String,
+    neighbour: String,
+    mehmet_member_id: String,
+}
+
+async fn cast(db: &std::path::Path) -> (Cast, ServerGuard) {
+    let (port, guard) = spawn_server_env(
+        MASTER,
+        &[
+            ("DB_PATH", db.to_str().unwrap().into()),
+            ("REQUIRE_SESSIONS", "1".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let pairing: Value = reqwest::Client::new()
+        .post(format!("{base}/pairings?ttl_hours=1"))
+        .header("x-admin-token", MASTER)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let master = session(
+        &base,
+        ("x-pairing-code", pairing["pairing_code"].as_str().unwrap()),
+        "",
+        "user",
+    )
+    .await;
+    let deputy_key: Value = reqwest::Client::new()
+        .post(format!("{base}/smasters"))
+        .header("x-admin-token", MASTER)
+        .json(&serde_json::json!({ "name": "deputy" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let deputy = session(
+        &base,
+        ("x-admin-token", deputy_key["token"].as_str().unwrap()),
+        "deputy",
+        "user",
+    )
+    .await;
+    create_test_room(port, MASTER, "team").await;
+    let mut sessions = Vec::new();
+    for name in ["ayse", "mehmet", "neighbour"] {
+        let key = member(&base, name, "user").await;
+        seat(&base, "team", name).await;
+        sessions.push(session(&base, ("x-room-token", &key), name, "user").await);
+    }
+    let members: Value = reqwest::Client::new()
+        .get(format!("{base}/members"))
+        .header("x-admin-token", MASTER)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let mehmet_member_id = members
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["name"] == "mehmet")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let neighbour = sessions.pop().unwrap();
+    let mehmet = sessions.pop().unwrap();
+    let ayse = sessions.pop().unwrap();
+    (
+        Cast {
+            base,
+            port,
+            master,
+            deputy,
+            ayse,
+            mehmet,
+            neighbour,
+            mehmet_member_id,
+        },
+        guard,
+    )
+}
+
+/// The Messages list and the "new message" picker name a person as everyone
+/// else does: the `@name` with the card beside it. A side that left the
+/// building leaves the direct message read-only, and its view says so.
+#[tokio::test]
+async fn a_dm_describes_the_other_side_and_says_when_it_is_read_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _guard) = cast(&dir.path().join("dm-view.db")).await;
+    let (status, card) = call(
+        reqwest::Method::PUT,
+        format!("{}/profile/card", c.base),
+        &c.mehmet,
+        Some(serde_json::json!({ "full_name": "Mehmet Öztürk", "icon": "leaf" })),
+    )
+    .await;
+    assert_eq!(status, 200, "{card}");
+
+    // The picker: the card of whom one may write to, beside the @name.
+    let (_, candidates) = call(
+        reqwest::Method::GET,
+        format!("{}/birebirs/candidates", c.base),
+        &c.ayse,
+        None,
+    )
+    .await;
+    let mehmet = candidates
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "mehmet")
+        .unwrap();
+    assert_eq!(mehmet["full_name"], "Mehmet Öztürk");
+    assert_eq!(mehmet["icon"], "leaf");
+    assert!(mehmet["principal_id"].as_str().unwrap().starts_with("pr_"));
+
+    // The list: the other side's card and principal (what its lines carry).
+    let (status, opened) = call(
+        reqwest::Method::POST,
+        format!("{}/birebirs", c.base),
+        &c.ayse,
+        Some(serde_json::json!({ "name": "mehmet" })),
+    )
+    .await;
+    assert_eq!(status, 201, "{opened}");
+    let room = opened["birebir"]["room"].as_str().unwrap().to_string();
+    let posted = say(&c.base, &room, &c.mehmet, "from mehmet").await;
+    let (_, mine) = call(
+        reqwest::Method::GET,
+        format!("{}/birebirs", c.base),
+        &c.ayse,
+        None,
+    )
+    .await;
+    let view = &mine[0];
+    assert_eq!(view["peer"], "mehmet");
+    assert_eq!(view["peer_full_name"], "Mehmet Öztürk");
+    assert_eq!(view["peer_icon"], "leaf");
+    assert_eq!(view["peer_principal"], posted["sender_principal"]);
+    assert_eq!(view["read_only"], false);
+    // My own card is not described as the other side's.
+    let (_, theirs) = call(
+        reqwest::Method::GET,
+        format!("{}/birebirs", c.base),
+        &c.mehmet,
+        None,
+    )
+    .await;
+    assert_eq!(theirs[0]["peer"], "ayse");
+    assert!(theirs[0].get("peer_full_name").is_none(), "{theirs}");
+
+    // Mehmet leaves the building: read-only, said before anyone types.
+    let revoked = reqwest::Client::new()
+        .delete(format!("{}/members/{}", c.base, c.mehmet_member_id))
+        .header("x-admin-token", MASTER)
+        .send()
+        .await
+        .unwrap();
+    assert!(revoked.status().is_success());
+    let (_, mine) = call(
+        reqwest::Method::GET,
+        format!("{}/birebirs", c.base),
+        &c.ayse,
+        None,
+    )
+    .await;
+    assert_eq!(mine[0]["read_only"], true, "{mine}");
+    assert!(mine[0].get("peer_full_name").is_none(), "{mine}");
+    let (status, _) = call(
+        reqwest::Method::POST,
+        format!("{}/rooms/{room}/messages", c.base),
+        &c.ayse,
+        Some(serde_json::json!({ "sender": "x", "sender_type": "user", "text": "still there?" })),
+    )
+    .await;
+    assert!(
+        status >= 400,
+        "nothing more is said in a read-only direct message"
+    );
+}
+
+/// What a person reads calls it a private conversation; the word "birebir"
+/// stays in the code.
+#[tokio::test]
+async fn no_answer_a_person_reads_calls_it_a_dm() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _guard) = cast(&dir.path().join("dm-words.db")).await;
+    member(&c.base, "lone", "user").await;
+    let open = |who: String, name: &'static str| {
+        let url = format!("{}/birebirs", c.base);
+        async move {
+            call(
+                reqwest::Method::POST,
+                url,
+                &who,
+                Some(serde_json::json!({ "name": name })),
+            )
+            .await
+        }
+    };
+    let mut answers = vec![
+        open(c.ayse.clone(), "lone").await,
+        open(c.ayse.clone(), "ayse").await,
+    ];
+    let (_, opened) = open(c.ayse.clone(), "mehmet").await;
+    let room = opened["birebir"]["room"].as_str().unwrap().to_string();
+    answers.push(
+        call(
+            reqwest::Method::GET,
+            format!("{}/building/birebirs/{room}/messages", c.base),
+            &c.master,
+            None,
+        )
+        .await,
+    );
+    answers.push(
+        call(
+            reqwest::Method::POST,
+            format!("{}/birebirs/{room}/master", c.base),
+            &c.ayse,
+            Some(serde_json::json!({ "action": "dismiss" })),
+        )
+        .await,
+    );
+    answers.push(
+        call(
+            reqwest::Method::POST,
+            format!("{}/building/birebirs/{room}/seal", c.base),
+            &c.master,
+            None,
+        )
+        .await,
+    );
+    answers.push(
+        call(
+            reqwest::Method::POST,
+            format!("{}/rooms/{room}/tasks", c.base),
+            &c.ayse,
+            Some(serde_json::json!({ "title": "x" })),
+        )
+        .await,
+    );
+    for (status, body) in answers {
+        assert!(status >= 400, "{status} {body}");
+        let text = body.as_str().unwrap_or_default().to_lowercase();
+        assert!(!text.is_empty(), "{status}: a refusal says why");
+        assert!(!text.contains("birebir"), "{status}: {text}");
+    }
+}
+
+async fn ws_refusal(port: u16, room: &str, session: &str) -> Option<u16> {
+    let url = format!("ws://127.0.0.1:{port}/ws?room={room}&name=probe&type=user");
+    let mut request = url.into_client_request().unwrap();
+    request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("loca.v1, loca.session.{session}")).unwrap(),
+    );
+    match tokio_tungstenite::connect_async(request).await {
+        Ok(_) => None,
+        Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+            Some(response.status().as_u16())
+        }
+        // Only an HTTP answer is a refusal. A connection that broke for any
+        // other reason proves nothing, and two sockets broken the same way
+        // must not compare equal.
+        Err(other) => panic!("the handshake did not get an HTTP answer: {other}"),
+    }
+}
+
+/// The privacy probes the first test does not make: a member who sits with
+/// both, a Smaster and the Master (not called in) learn nothing of someone
+/// else's direct message by any other route. Every answer is exactly the answer for
+/// an id that names nothing.
+#[tokio::test]
+async fn nobody_else_learns_a_dm_by_any_route() {
+    let dir = tempfile::tempdir().unwrap();
+    let (c, _guard) = cast(&dir.path().join("dm-probes.db")).await;
+    let (_, opened) = call(
+        reqwest::Method::POST,
+        format!("{}/birebirs", c.base),
+        &c.ayse,
+        Some(serde_json::json!({ "name": "mehmet" })),
+    )
+    .await;
+    let room = opened["birebir"]["room"].as_str().unwrap().to_string();
+    let uploaded: Value = reqwest::Client::new()
+        .post(format!("{}/rooms/{room}/attachments", c.base))
+        .header("x-session-token", &c.ayse)
+        .header("x-filename", "plan.txt")
+        .header("content-type", "text/plain")
+        .body("private file")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let attachment = uploaded["id"].as_str().unwrap().to_string();
+    let message = say(&c.base, &room, &c.ayse, "private words").await;
+    let id = message["id"].as_u64().unwrap();
+    let missing = "bb-00000000000000000000000000000000";
+    let get = reqwest::Method::GET;
+    let post = reqwest::Method::POST;
+    let routes = |r: &str| {
+        vec![
+            (get.clone(), format!("/rooms/{r}"), None),
+            (get.clone(), format!("/rooms/{r}/members"), None),
+            (get.clone(), format!("/rooms/{r}/settings"), None),
+            (get.clone(), format!("/rooms/{r}/reactions"), None),
+            (
+                get.clone(),
+                format!("/rooms/{r}/attachments/{attachment}"),
+                None,
+            ),
+            (
+                post.clone(),
+                format!("/rooms/{r}/messages"),
+                Some(serde_json::json!({ "sender": "x", "sender_type": "user", "text": "in" })),
+            ),
+            (
+                post.clone(),
+                format!("/rooms/{r}/messages/{id}/reactions"),
+                Some(serde_json::json!({ "emoji": "✓", "active": true })),
+            ),
+            (
+                post.clone(),
+                format!("/birebirs/{r}/master"),
+                Some(serde_json::json!({ "action": "call" })),
+            ),
+            (
+                post.clone(),
+                format!("/birebirs/{r}/master"),
+                Some(serde_json::json!({ "action": "history" })),
+            ),
+        ]
+    };
+    for (who, s) in [
+        ("tablemate", &c.neighbour),
+        ("smaster", &c.deputy),
+        ("master", &c.master),
+    ] {
+        for ((method, path, body), (_, missing_path, missing_body)) in
+            routes(&room).into_iter().zip(routes(missing))
+        {
+            let seen = call(method.clone(), format!("{}{path}", c.base), s, body).await;
+            let none = call(method, format!("{}{missing_path}", c.base), s, missing_body).await;
+            assert_eq!(seen, none, "{who} {path}");
+        }
+        let (_, listed) = call(get.clone(), format!("{}/birebirs", c.base), s, None).await;
+        assert!(!listed.to_string().contains(&room), "{who}: {listed}");
+        assert_eq!(
+            ws_refusal(c.port, &room, s).await,
+            ws_refusal(c.port, missing, s).await,
+            "{who} over the socket"
+        );
+        assert!(ws_refusal(c.port, &room, s).await.is_some(), "{who}");
+    }
+    // The words were never touched.
+    let (_, read) = call(
+        get.clone(),
+        format!("{}/rooms/{room}/messages", c.base),
+        &c.mehmet,
+        None,
+    )
+    .await;
+    assert_eq!(texts(&read), vec!["private words".to_string()]);
 }

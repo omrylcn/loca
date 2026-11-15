@@ -8,7 +8,7 @@
 >    shared hosted server** (no URL to type — see the baked `LOCA_DEFAULT_SERVER`
 >    below), plus native OS notifications and OS-keychain credentials. Same
 >    shared rooms as web, just as a real app. For non-developer users who want a
->    a downloadable, unsigned installer (see Faz 4).
+>    a downloadable, unsigned installer (see Phase 4).
 > 3. **Desktop (full / standalone)** — the same app, but the `room-server` binary
 >    is **bundled inside it** (Tauri sidecar) and booted locally on launch, so it
 >    has **no dependency on an external server**. For solo / offline / LAN use.
@@ -45,16 +45,16 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
 
 ## Phases
 
-- **Faz 0 — Setup** (this commit): `desktop/` crate + Tauri scaffold that bundles
+- **Phase 0 — Setup** (this commit): `desktop/` crate + Tauri scaffold that bundles
   `web/` as the frontend. No workspace change (self-contained crate).
-- **Faz 1 — Thin wrapper (MVP):** window loads the bundled web UI; persist the
+- **Phase 1 — Thin wrapper (MVP):** window loads the bundled web UI; persist the
   server URL, and — for the public build — **bake a default server** so the app
   opens already connected instead of showing an empty box. The compile-time
   `LOCA_DEFAULT_SERVER` (see `main.rs`) seeds the `#server` field when nothing is
   saved; `#server` becomes an advanced override rather than a first-run chore.
-- **Faz 2 — Credential storage (SECURITY-CRITICAL, loca-dev review gate):**
+- **Phase 2 — Credential storage (SECURITY-CRITICAL, loca-dev review gate):**
   *code written, pending loca-dev build/review.* The two credential-bearing
-  localStorage keys the web UI actually uses — `loca-seat` (davet/roomToken) and
+  localStorage keys the web UI actually uses — `loca-seat` (invite/roomToken) and
   `loca-admin-session` (token) — are moved into the **OS keychain** (macOS
   Keychain / Windows Credential Manager / Linux Secret Service via `keyring`),
   never the webview's on-disk localStorage. A document-start Storage proxy
@@ -65,7 +65,7 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
   running keyring daemon (gnome-keyring/KWallet) — present on real desktops,
   possibly absent on a headless CI/build box, where a keychain read just returns
   empty and the user re-enters the seat once (the app still launches).
-- **Faz 3 — Native notifications:** *code written, cargo-checked both flavors +
+- **Phase 3 — Native notifications:** *code written, cargo-checked both flavors +
   a Playwright event spec; pending loca-dev runtime/privacy review.* Native OS
   notifications for the three notifiable events only — a **mention** (message
   addressed to me), a **directed attention**, and an **actionable reminder**;
@@ -87,11 +87,11 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
   `show()` is fire-and-forget (`notify_rust`, no click callback), so per-
   notification routing isn't available through the plugin. Options: `notify-rust`
   directly with an action handler (Linux-only today) or a future plugin
-  capability — deferred and revisited with the per-OS work in Faz 4; the payload
+  capability — deferred and revisited with the per-OS work in Phase 4; the payload
   already carries `loca`/`id` so it can be wired later.
   *Runtime-pending (loca-dev):* the actual notification display/permission
   (Linux works without a prompt; macOS needs one).
-- **Faz 5 — Standalone flavor (option 3), CLOSED-door:** ✅ **Linux GO** (loca-dev
+- **Phase 5 — Standalone flavor (option 3), CLOSED-door:** ✅ **Linux GO** (loca-dev
   run-review, 2026-08-24): the Host opened, auto-connected to its private `iye` loca as `you`,
   booted its sidecar on a dynamic `127.0.0.1` port (no `0.0.0.0`), used separate
   standalone app-data/SQLite, and cleaned up the child process + port on close —
@@ -100,15 +100,15 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
   `bundled-server` Cargo feature boots a local `room-server` at launch and points
   the UI at it, all behind `#[cfg(feature = "bundled-server")]` so the client
   flavor stays byte-for-byte unchanged. It is **closed by default** (loca-dev's
-  Faz 5a review correctly rejected the earlier open-mode plan):
+  Phase 5a review correctly rejected the earlier open-mode plan):
   - **Dynamic port** — bind `127.0.0.1:0` for a free port; never a fixed,
     occupiable one (so the UI can't be pointed at a stranger's service).
   - **Readiness probe** — poll `/health` before the UI uses the server.
-  - **Closed door** — random `ADMIN_TOKEN` in the OS keychain (reuses Faz 2, never
+  - **Closed door** — random `ADMIN_TOKEN` in the OS keychain (reuses Phase 2, never
     reaches the webview) + `REQUIRE_INVITE=1` + `REQUIRE_SESSIONS=1`. This closes
     the loopback-CSWSH hole: a malicious browser page can open a WS to
-    `127.0.0.1` but has no session/davet, so it's rejected.
-  - **First-run provisioning** — admit the local user + issue a davet, store the
+    `127.0.0.1` but has no session/invite, so it's rejected.
+  - **First-run provisioning** — admit the local user + issue an invite, store the
     seat exactly as the web UI reads it (`loca-seat = {name, roomToken, room}`),
     so it auto-connects. Idempotent by the seat's presence. Verified flow:
     `POST /members` → `POST /rooms/iye/invites` → UI does `POST /sessions`.
@@ -127,14 +127,31 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
     the resource path identical across OSes. **One thing to confirm on the
     target:** the exact `Origin` the webview sends (to finalize the
     `CORS_ALLOW_ORIGIN` allowlist — currently `tauri://localhost,http://tauri.localhost`).
-  - **Faz 5b (later):** exposing the standalone beyond localhost (LAN/internet)
+  - **Phase 5b (later):** exposing the standalone beyond localhost (LAN/internet)
     stays a separate step; the honest default scope is local/offline (Scope caveat).
-- **Faz 4 — Community distribution:** `.github/workflows/desktop-release.yml`
+- **Phase 4 — Community distribution:** `.github/workflows/desktop-release.yml`
   builds both flavors on Linux, Windows, and macOS when a `desktop-v*` tag is
   pushed. It publishes unsigned `.msi`/`.exe`, `.dmg`, `.AppImage`, and `.deb`
   artifacts. No signing certificates, notarization accounts, updater keys, or
   repository secrets are required. Operating systems may display an unverified
   developer warning; users may alternatively build or sign the source locally.
+  The Host's executable is named `loca-host` (`mainBinaryName` in
+  `tauri.standalone.conf.json`); the client keeps the crate's `loca-desktop`.
+  So the two Linux packages (`loca-host` and `loca`) share no file:
+  `/usr/bin/loca-host` and `loca-host.png` icons against `/usr/bin/loca-desktop`
+  and `loca-desktop.png`, and they install side by side. Up to 0.13.0 the Host
+  package shipped `/usr/bin/loca-desktop` and its icons as well, so the client's
+  `.deb` declares `Conflicts: loca-host (<< 0.14.0)` (`bundle.linux.deb` in
+  `tauri.conf.json`; `tauri.standalone.conf.json` empties the list again, since
+  JSON merge patch replaces arrays, so the Host does not conflict with its own
+  older versions). Keep that version at 0.14.0, the first Host without those
+  files: `apt install` of both new packages upgrades an old Host and installs
+  the client together, and `dpkg -i` of the client alone names `loca-host`.
+  The installer and
+  bundle names come from `productName` and do not change (`Loca Host_<version>_…`,
+  `Loca Host.app`); inside them the Host's executable is
+  `Loca Host.app/Contents/MacOS/loca-host` on macOS and `loca-host.exe` in its
+  install folder on Windows.
 
 ## Build (loca-dev)
 
@@ -148,7 +165,7 @@ sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
 cargo install tauri-cli --version '^2'   # provides `cargo tauri ...`
 ```
 
-`libdbus-1-dev` is required by the Faz 2 keychain: keyring v3's
+`libdbus-1-dev` is required by the Phase 2 keychain: keyring v3's
 `sync-secret-service` backend links the system libdbus (via `dbus-secret-service`)
 to reach the Linux Secret Service. Without it the build fails at link (an
 isolated `cargo check` of the keyring API passes, since check does not link — so
@@ -178,8 +195,8 @@ time; this scaffold targets Tauri v2 and marks anything build-sensitive.
 
 ## Security notes (loca-care's gate on this branch)
 
-1. **Credential storage** (Faz 2): OS keychain only, no plaintext secret on disk.
-2. **Native notifications** (Faz 3): must not put raw message bodies/credentials
+1. **Credential storage** (Phase 2): OS keychain only, no plaintext secret on disk.
+2. **Native notifications** (Phase 3): must not put raw message bodies/credentials
    into OS notification payloads beyond what the room already shows.
-3. The shared auth model (principal / credential / davet) is **unchanged** — the
+3. The shared auth model (principal / credential / invite) is **unchanged** — the
    desktop introduces no new auth surface, only a new local credential store.

@@ -508,7 +508,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
     def test_archived_snapshot_never_consumes_the_prompt_budget(self):
         base = {
             "status": "ready",
-            "owner": "İye sahibi",
+            "owner": "Care owner",
             "short_updated_at": 10,
             "long_updated_at": 20,
             "version": 3,
@@ -523,7 +523,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
             "ascii": ("s" * (4 * 1024), "l" * (8 * 1024)),
             "multiline": (
                 ("short-line\n" * 400)[: 4 * 1024],
-                ("long karar\n\n" * 700)[: 8 * 1024],
+                ("long decision\n\n" * 700)[: 8 * 1024],
             ),
             "escaping_ceiling": ("\n" * (4 * 1024), "\n" * (8 * 1024)),
         }
@@ -536,7 +536,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
                          "attempts": 0, "event_json": json.dumps(event)}
             rendered = attention_prompt("reviewer", attention, [])
             with self.subTest(name=name):
-                self.assertNotIn("İye sahibi", rendered)
+                self.assertNotIn("Care owner", rendered)
                 self.assertIn("Loca Wiki is the only room knowledge surface", rendered)
                 self.assertIn("ping", rendered)
                 self.assertNotIn('"owner"', rendered)
@@ -1163,7 +1163,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
                                 "id": "final-ten",
                                 "type": "agentMessage",
                                 "phase": "final_answer",
-                                "text": "On çağrı birlikte işlendi.",
+                                "text": "Ten calls handled together.",
                             },
                         },
                     },
@@ -1229,7 +1229,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
                                 "id": "comment-1",
                                 "type": "agentMessage",
                                 "phase": "commentary",
-                                "text": "Aldım, inceliyorum.",
+                                "text": "Got it — reviewing.",
                             },
                         },
                     },
@@ -1242,7 +1242,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
                                 "id": "comment-2",
                                 "type": "agentMessage",
                                 "phase": "commentary",
-                                "text": "Test koşuyor.",
+                                "text": "Running the tests.",
                             },
                         },
                     },
@@ -1255,7 +1255,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
                                 "id": "final-1",
                                 "type": "agentMessage",
                                 "phase": "final_answer",
-                                "text": "Tamamlandı.",
+                                "text": "Done.",
                             },
                         },
                     },
@@ -1273,7 +1273,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
 
             self.assertEqual(
                 [call["text"] for call in fixture.relay.calls],
-                ["Aldım, inceliyorum.", "Tamamlandı."],
+                ["Got it — reviewing.", "Done."],
             )
             attention = fixture.store.snapshot("reviewer")["attentions"][0]
             self.assertIsNotNone(attention["first_response_at_ms"])
@@ -1291,15 +1291,15 @@ class CodexAdapterV2Tests(unittest.TestCase):
                     "id": item_id, "type": "agentMessage",
                     "phase": "commentary", "text": text,
                 })
-            comment("first", "İlk çağrıyı aldım.")
+            comment("first", "Got the first call.")
             fixture.adapter.process_relays()
             fixture.ingest(delivery(153975))
             fixture.adapter.dispatch_one()
-            comment("late", "Evet, bu son mesajın bana ulaştı.")
-            comment("progress", "Hâlâ çalışıyorum.")
+            comment("late", "Yes, your last message reached me.")
+            comment("progress", "Still working.")
             fixture.adapter.process_relays()
             self.assertEqual([r["text"] for r in fixture.relay.calls], [
-                "İlk çağrıyı aldım.", "Evet, bu son mesajın bana ulaştı.",
+                "Got the first call.", "Yes, your last message reached me.",
             ])
             rows = fixture.store.snapshot("reviewer")["attentions"]
             self.assertTrue(all(r["first_response_at_ms"] for r in rows))
@@ -1484,7 +1484,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
                                 "id": "unknown-1",
                                 "type": "agentMessage",
                                 "phase": None,
-                                "text": "Phase olmadan sonuç.",
+                                "text": "Result without a phase.",
                             },
                         },
                     },
@@ -1500,7 +1500,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
             fixture.adapter.drain_messages()
             fixture.adapter.process_relays()
             self.assertEqual(len(fixture.relay.calls), 1)
-            self.assertEqual(fixture.relay.calls[0]["text"], "Phase olmadan sonuç.")
+            self.assertEqual(fixture.relay.calls[0]["text"], "Result without a phase.")
             attention = fixture.store.snapshot("reviewer")["attentions"][0]
             self.assertIsNotNone(attention["final_response_at_ms"])
             fixture.adapter.close()
@@ -1566,7 +1566,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
         # must not let a broadcast silence an operator's direct question.
         with tempfile.TemporaryDirectory() as tmp:
             fixture = AdapterFixture(Path(tmp))
-            fixture.ingest(delivery(136, text="@reviewer cevap ver!"))
+            fixture.ingest(delivery(136, text="@reviewer reply!"))
             fixture.adapter.dispatch_one()
             required = fixture.store.snapshot("reviewer")["attentions"][0]
             prompt = attention_prompt("reviewer", required, [])
@@ -1624,7 +1624,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
             fixture = AdapterFixture(Path(tmp))
             record = LISTENER.make_delivery("sb-dev", {
                 "id": 145433, "room": "sb-dev", "sender": "another-agent",
-                "sender_type": "agent", "text": "@reviewer neredesin?",
+                "sender_type": "agent", "text": "@reviewer where are you?",
             }, "reviewer", "https://loca.example", is_lead=True)
             fixture.ingest(record)
             self.assertTrue(fixture.adapter.dispatch_one())
@@ -1661,7 +1661,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
                                 "id": "final-retry",
                                 "type": "agentMessage",
                                 "phase": "final_answer",
-                                "text": "Retry sonucu.",
+                                "text": "Retry result.",
                             },
                         },
                     },
@@ -1702,7 +1702,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
                             "id": "final-shadow",
                             "type": "agentMessage",
                             "phase": "final_answer",
-                            "text": "Shadow sonucu.",
+                            "text": "Shadow result.",
                         },
                     },
                 }
@@ -2201,7 +2201,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
                             "id": "recovered-item",
                             "type": "agentMessage",
                             "phase": None,
-                            "text": "Restart sonrası sonuç.",
+                            "text": "Result after the restart.",
                         }
                     ],
                 }
@@ -2220,7 +2220,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
             )
             adapter.initialize()
             self.assertEqual(adapter.process_relays(), 1)
-            self.assertEqual(relay.calls[0]["text"], "Restart sonrası sonuç.")
+            self.assertEqual(relay.calls[0]["text"], "Result after the restart.")
             row = store.snapshot("reviewer")["attentions"][0]
             self.assertIsNotNone(row["turn_completed_at_ms"])
             self.assertIsNotNone(row["final_response_at_ms"])
@@ -2242,7 +2242,7 @@ class CodexAdapterV2Tests(unittest.TestCase):
                             "id": "old-output",
                             "type": "agentMessage",
                             "phase": "commentary",
-                            "text": "İlk çağrıyı aldım.",
+                            "text": "Got the first call.",
                         },
                     },
                 }

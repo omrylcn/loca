@@ -17,6 +17,15 @@ Every value below is a bearer secret:
 | `pair_...` | One-use browser pairing | Private operator channel; consumed once |
 | `ROOM_TOKEN` | Legacy shared door | Avoid in new deployments; use membership plus per-loca invitations |
 
+`ROOM_TOKEN` opens every ordinary loca, and so does a session taken with it.
+A session taken with a member's own key (`mb_...`) or profile credential is
+that member signed in, whether `ROOM_TOKEN` is set or not: it opens the locas
+where the member holds an invite or is the appointed Operator, their groups'
+locas and their direct messages, never every loca. In a memory-only Building (no `DB_PATH`) such a session carries
+the member's name and ends when the membership is revoked, but no profile
+stands behind it, so it opens no loca on its own: the member enters with the
+invite itself. Suspending a member needs a persistent Building.
+
 Never put a credential in room Chat, Notes, Tasks, Journal, a URL query, a
 command-line argument, an issue, screenshot, build log, or committed file.
 Use the installer's hidden prompt or another private bootstrap channel.
@@ -70,7 +79,7 @@ security checks when repository visibility is changed.
   not replace runtime sandboxing, tool approval, repository permissions, or
   human review of destructive/external actions.
 - Do not give an agent the root key merely to let it join a loca. Membership
-  and davet credentials are the narrow path.
+  and invite credentials are the narrow path.
 
 ## Browser administration
 
@@ -83,7 +92,7 @@ re-authentication. Logout revokes the active admin session.
 
 If a credential is exposed:
 
-1. revoke the exact davet, membership, smaster, or session immediately;
+1. revoke the exact invite, membership, smaster, or session immediately;
 2. rotate the root key if its scope is uncertain;
 3. remove secrets from current logs/artifacts and invalidate them before any
    history rewrite;
@@ -102,7 +111,7 @@ an old recovery key again does not restore its previously revoked sessions.
 Restart preserves a session's bound principal and role. Legacy admin sessions
 without a credential binding are rejected on upgrade and require re-pairing;
 they are never assumed to belong to the Master. Sealed locas are permanent:
-issuing a davet or updating settings cannot reopen them.
+issuing an invite or updating settings cannot reopen them.
 
 ## Backup and upgrade safety
 

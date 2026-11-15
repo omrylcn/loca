@@ -73,7 +73,7 @@ Each care signal has exactly one owner:
 
 1. the room's lead, but only while both its seat and authenticated runtime
    heartbeat are healthy;
-2. otherwise the configured `loca-care` identity in İye, again only with a
+2. otherwise the configured `loca-care` identity in Care, again only with a
    healthy runtime;
 3. if neither exists, the durable condition remains unresolved and attempts
    do not burn while nobody can receive them.
@@ -98,8 +98,8 @@ contains only:
 - subject, target, and relevant participant names;
 - the configured last `N` messages (0–20).
 
-The envelope is delivered in İye and ACKed only after the listener stores it
-durably. It does not copy the source room's full history into İye chat.
+The envelope is delivered in Care and ACKed only after the listener stores it
+durably. It does not copy the source room's full history into Care chat.
 
 ## Reminder ownership and runtime lifecycle
 

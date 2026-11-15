@@ -19,7 +19,7 @@ which document is authoritative.
   identity, session, presence, wake, queue, and duplicate failures.
 - [`security.md`](security.md) — operator-facing token, host, browser, runtime,
   rotation, and upgrade rules.
-- [`giris.md`](giris.md) — Turkish membership, davet, session, Lobby, release,
+- [`giris.md`](giris.md) — Turkish membership, invite, session, Lobby, release,
   and terminal-admin reference.
 - [`self-host.md`](self-host.md) — fail-closed production install, remote-agent
   onboarding, upgrade, rollback, backup, and uninstall.
@@ -30,11 +30,16 @@ which document is authoritative.
 
 ## Product contract
 
-- [`PRINCIPLES.md`](../PRINCIPLES.md) — binding Turkish product constitution.
-- [`PRINCIPLES.en.md`](../PRINCIPLES.en.md) — binding English translation; it
-  must change with the Turkish source.
+- [`PRINCIPLES.md`](../PRINCIPLES.md) — binding product constitution (English).
+- [`PRINCIPLES.tr.md`](../PRINCIPLES.tr.md) — Turkish translation; it
+  must change with the English source.
 - [`DESIGN.md`](../DESIGN.md) — current architecture, authority boundaries,
   message semantics, and design rationale.
+- [`protocol.md`](protocol.md) — the wire protocol for a second server or
+  client (identity, door, speech, delivery, extensions), with the
+  test-enforced frame list [`protocol-frames.json`](protocol-frames.json).
+- [ADR 0003](adr/0003-recorded-decisions.md) — why existing decisions are the
+  way they are, and which server records are kept apart from the Journal.
 
 These are living documents and must describe shipped behavior. Planned work
 belongs in explicit GitHub issues, not in a permanent speculative roadmap.
@@ -73,6 +78,8 @@ belongs in explicit GitHub issues, not in a permanent speculative roadmap.
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — dev-to-master contribution flow
   and required checks.
+- [Contributions to the public repository](public-contributions.md) — how an
+  outside pull request or issue is taken in.
 - [`CODE_OF_CONDUCT.md`](../CODE_OF_CONDUCT.md) — community behavior.
 - [Pull request template](../.github/PULL_REQUEST_TEMPLATE.md) and
   [issue templates](../.github/ISSUE_TEMPLATE) — reproducible changes and

@@ -194,3 +194,136 @@ test("settings that could not be read turn no extension on: no tabs, no extensio
   }
   await page.close();
 });
+
+test("an extension switched off under an open tab closes its tab, returns the reader to Chat and stops asking", async ({ browser, request }) => {
+  const room = "ext-under-tab";
+  const created = await request.post("/rooms", { headers: MASTER, data: { name: room, extensions: ["notes", "journal"] } });
+  expect([201, 409]).toContain(created.status());
+  const name = "ext-tab-reader";
+  expect((await request.post("/members", { headers: MASTER, data: { name, kind: "user" } })).ok()).toBeTruthy();
+  const invite = await (await request.post(`/rooms/${room}/invites`, { headers: MASTER, data: { name } })).json();
+  const reader = await browser.newPage();
+  await reader.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
+  await reader.goto("/");
+  await reader.locator("#name").fill(name);
+  await reader.locator("#roomToken").fill(invite.token);
+  await reader.evaluate((room) => window.doConnect(room), room);
+  await expect.poll(() => reader.evaluate(() => state.ws?.readyState)).toBe(1);
+  await expect.poll(() => visibleTabs(reader)).toEqual(["Chat", "Notes", "Journal"]);
+  await reader.locator(".tabs [role=tab]", { hasText: "Notes" }).click();
+  await expect.poll(() => reader.evaluate(() => state.tab)).toBe("notes");
+
+  const asked = [];
+  const record = (req) => {
+    if (new URL(req.url()).pathname.startsWith(`/rooms/${room}/notes`)) asked.push(req.url());
+  };
+  reader.on("request", record);
+  // Someone else turns Notes off while the reader is looking at it.
+  expect((await request.delete(`/rooms/${room}/extensions/notes`, { headers: MASTER })).ok()).toBeTruthy();
+  await expect.poll(() => visibleTabs(reader)).toEqual(["Chat", "Journal"]);
+  await expect.poll(() => reader.evaluate(() => state.tab)).toBe("chat");
+  await expect(reader.locator("#tabChat")).toHaveClass(/active/);
+  expect(asked).toEqual([]);
+
+  // Back on: the tab returns, the reader is not moved, and only now are the
+  // notes asked for again.
+  expect((await request.put(`/rooms/${room}/extensions/notes`, { headers: MASTER })).ok()).toBeTruthy();
+  await expect.poll(() => visibleTabs(reader)).toEqual(["Chat", "Notes", "Journal"]);
+  expect(await reader.evaluate(() => state.tab)).toBe("chat");
+  await expect.poll(() => asked.length).toBeGreaterThan(0);
+  reader.off("request", record);
+  await reader.close();
+});
+
+test("the tabs come from the server's catalog, even when it arrives after the loca's settings", async ({ browser, request }) => {
+  const room = "ext-late-catalog";
+  const created = await request.post("/rooms", { headers: MASTER, data: { name: room, extensions: ["notes", "focus"] } });
+  expect([201, 409]).toContain(created.status());
+  const page = await masterPage(browser, request);
+  // Hold the catalog (GET /extensions and the loca's view, which carries it
+  // too) until the settings have been applied.
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  await page.route("**/extensions", async route => { await held; await route.continue(); });
+  await page.evaluate((room) => joinRoom(room), room);
+  await expect.poll(() => page.evaluate(() => isLocaContextReady("settings"))).toBe(true);
+  expect(await page.evaluate(() => currentExtensions())).toEqual(["notes", "focus"]);
+  // Until the catalog says which tab is whose, the page does not guess.
+  expect(await visibleTabs(page)).toEqual(["Chat"]);
+  await page.locator("#sideLocaTab").click();
+  await expect(page.locator("#locaSummary .extnone")).toHaveText("Loading…");
+
+  release();
+  await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Notes", "Focus"]);
+  await expect(page.locator("#locaSummary .extchip")).toHaveText(["Notes", "Focus"]);
+  expect(await page.evaluate(() => extensionOfTab("tasks")?.id)).toBe("focus");
+  await page.unroute("**/extensions");
+  await page.close();
+});
+
+// Both catalog reads: GET /extensions and the loca's view, which carries it.
+const CATALOG_READS = "**/extensions";
+
+test("a catalog that could not be read is asked for again, and the tabs appear without any action", async ({ browser, request }) => {
+  const room = "ext-catalog-retry";
+  const created = await request.post("/rooms", { headers: MASTER, data: { name: room, extensions: ["notes", "focus"] } });
+  expect([201, 409]).toContain(created.status());
+  const page = await masterPage(browser, request);
+  let failing = true;
+  let reads = 0;
+  await page.route(CATALOG_READS, route => {
+    reads += 1;
+    return failing ? route.fulfill({ status: 503, body: "catalog unavailable" }) : route.continue();
+  });
+  await page.evaluate((room) => joinRoom(room), room);
+  await expect.poll(() => page.evaluate(() => isLocaContextReady("settings"))).toBe(true);
+  // The first attempt has failed: no tab is guessed, and This Loca waits.
+  await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
+  expect(await visibleTabs(page)).toEqual(["Chat"]);
+  await page.locator("#sideLocaTab").click();
+  await expect(page.locator("#locaSummary .extnone")).toHaveText("Loading…");
+
+  // The server answers again: the page asks on its own, with no navigation.
+  failing = false;
+  await expect.poll(() => visibleTabs(page), { timeout: 10_000 }).toEqual(["Chat", "Notes", "Focus"]);
+  await expect(page.locator("#locaSummary .extchip")).toHaveText(["Notes", "Focus"]);
+  expect(await page.evaluate(() => state.room)).toBe(room);
+  await page.unroute(CATALOG_READS);
+  await page.close();
+});
+
+test("a catalog that stays unreadable is asked for a few times, then This Loca says so and tries again on request", async ({ browser, request }) => {
+  const room = "ext-catalog-down";
+  const created = await request.post("/rooms", { headers: MASTER, data: { name: room, extensions: ["notes"] } });
+  expect([201, 409]).toContain(created.status());
+  const page = await masterPage(browser, request);
+  let reads = 0;
+  let open = 0;
+  let mostOpen = 0;
+  await page.route(CATALOG_READS, async route => {
+    reads += 1;
+    open += 1;
+    mostOpen = Math.max(mostOpen, open);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    open -= 1;
+    await route.abort();
+  });
+  await page.evaluate((room) => joinRoom(room), room);
+  await page.locator("#sideLocaTab").click();
+  const unavailable = page.locator("#locaSummary #extUnavailable");
+  await expect(unavailable).toHaveText("Could not load the extension list.", { timeout: 15_000 });
+  // The first attempt and three more, each the catalog and the loca's view
+  // read together, never two attempts at once; then nothing more.
+  expect(reads).toBe(8);
+  expect(mostOpen).toBe(2);
+  await page.waitForTimeout(5_000);
+  expect(reads).toBe(8);
+  expect(await visibleTabs(page)).toEqual(["Chat"]);
+
+  // Try again, with the server back: the tabs and chips come.
+  await page.unroute(CATALOG_READS);
+  await page.locator("#locaSummary #extRetry").click();
+  await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Notes"]);
+  await expect(page.locator("#locaSummary .extchip")).toHaveText(["Notes"]);
+  await page.close();
+});

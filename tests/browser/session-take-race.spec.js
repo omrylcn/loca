@@ -1,4 +1,5 @@
 const { test, expect } = require("@playwright/test");
+const { openSignInForm, signOut } = require("./support/switch");
 
 // A session being taken or renewed belongs to the person it was started for.
 // These tests hold that one `/sessions` answer while that person leaves and
@@ -15,7 +16,7 @@ async function smasterKey(request, name) {
 }
 
 async function signInWithKey(page, key) {
-  if (await page.locator("#connBox").isHidden()) await page.locator("#connGear").click();
+  await openSignInForm(page);
   await page.locator("#entryKind").selectOption("smaster");
   await page.locator("#roomToken").fill(key);
   await page.locator("#connectBtn").click();
@@ -104,8 +105,8 @@ test(`a session renewal held at the ${c.hold} and ending in ${c.outcome} leaves 
   await expectSignedInAs(page, `${tag}-old`);
   // The key stays in memory for this page: that is what a renewal exchanges.
   expect(await page.evaluate(() => !!state.roomToken)).toBe(true);
-  await page.evaluate(peer => openBirebir(peer), `${tag}-peer`);
-  await expect.poll(() => page.evaluate(() => isBirebir(state.room))).toBe(true);
+  await page.evaluate(peer => openDm(peer), `${tag}-peer`);
+  await expect.poll(() => page.evaluate(() => isDm(state.room))).toBe(true);
   await expect.poll(() => page.evaluate(() => state.ws && state.ws.readyState)).toBe(1);
 
   // Their next message is answered 401 once, as after a server restart; the
@@ -128,12 +129,7 @@ test(`a session renewal held at the ${c.hold} and ending in ${c.outcome} leaves 
   expect(await page.evaluate(() => state.authStatus)).toBe("unknown");
 
   // They leave (or are typed over), and the next person signs in.
-  if (c.end === "sign-out") {
-    if (await page.locator("#connBox").isHidden()) await page.locator("#connGear").click();
-    await page.locator("#leaveBtn").click();
-    await page.locator("#leaveYes").click();
-    await expect(page.locator("#doorline")).toContainText("you left loca.");
-  }
+  if (c.end === "sign-out") await signOut(page);
   await signInWithKey(page, nextKey);
   await expectSignedInAs(page, `${tag}-next`);
   const mine = await page.evaluate(() => ({ session: state.session, name: state.name }));

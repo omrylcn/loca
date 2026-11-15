@@ -30,10 +30,10 @@ async fn wiki_http_editor_revision_and_private_room_boundaries() {
             .unwrap()
             .error_for_status()
             .unwrap();
-        let davet = davet_for(&base, "MASTER", "general", name).await;
+        let invite = invite_for(&base, "MASTER", "general", name).await;
         let response: Value = client
             .post(format!("{base}/sessions"))
-            .header("x-room-token", davet)
+            .header("x-room-token", invite)
             .json(&serde_json::json!({"name":name,"kind":"agent","loca":"general"}))
             .send()
             .await
@@ -508,10 +508,15 @@ async fn wiki_http_editor_revision_and_private_room_boundaries() {
     );
 }
 
+/// PRINCIPLES "Wiki editor": "there is no separate Memory role or second
+/// owner assignment. Old records are archives, not new authority." An
+/// upgraded Building still holds a memory record that names an owner bound to
+/// its principal. That owner writes nothing, the Master assigns nobody, and
+/// the archived record stays readable on every read surface, unchanged.
 #[tokio::test]
-async fn memory_ownership_does_not_transfer_to_a_reused_name() {
+async fn archived_memory_owner_grants_nothing_and_its_record_stays_readable() {
     let directory = tempfile::tempdir().unwrap();
-    let db = directory.path().join("principal-owner.db");
+    let db = directory.path().join("archived-owner.db");
     let (port, _guard) = spawn_server_env(
         "MASTER",
         &[
@@ -524,10 +529,11 @@ async fn memory_ownership_does_not_transfer_to_a_reused_name() {
     create_test_room(port, "MASTER", "general").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    let admitted: Value = client
-        .post(format!("{base}/members"))
+    let invite = invite_for(&base, "MASTER", "general", "alice").await;
+    let session = session_with(&base, ("x-room-token", &invite), "alice", Some("general")).await;
+    let profiles: Value = client
+        .get(format!("{base}/profiles"))
         .header("x-admin-token", "MASTER")
-        .json(&serde_json::json!({"name":"alice","kind":"agent"}))
         .send()
         .await
         .unwrap()
@@ -536,92 +542,137 @@ async fn memory_ownership_does_not_transfer_to_a_reused_name() {
         .json()
         .await
         .unwrap();
-    let davet = davet_for(&base, "MASTER", "general", "alice").await;
-    let session = |davet: String| {
-        let client = client.clone();
-        let base = base.clone();
-        async move {
-            client
-                .post(format!("{base}/sessions"))
-                .header("x-room-token", davet)
-                .json(&serde_json::json!({"name":"alice","kind":"agent","loca":"general"}))
-                .send()
-                .await
-                .unwrap()
-                .error_for_status()
-                .unwrap()
-                .json::<Value>()
-                .await
-                .unwrap()["session_token"]
-                .as_str()
-                .unwrap()
-                .to_string()
-        }
+    let alice_id = profiles
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["display_name"] == "alice")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    conn.execute(
+        "INSERT INTO loca_memory
+         (room, owner, owner_principal_id, short, long, short_updated_at, long_updated_at, version)
+         VALUES ('general', 'alice', ?1, 'archived state', 'archived decision',
+                 1700000000000, 1700000100000, 3)",
+        [&alice_id],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
+         VALUES ('general', 'archived decision', 'alice', 1700000100000)",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    let stored = |db: &std::path::Path| {
+        let conn = rusqlite::Connection::open(db).unwrap();
+        let row: (Option<String>, String, String, u64) = conn
+            .query_row(
+                "SELECT owner, short, long, version FROM loca_memory WHERE room = 'general'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        let entries: i64 = conn
+            .query_row("SELECT count(*) FROM loca_memory_entries", [], |r| r.get(0))
+            .unwrap();
+        (row, entries)
     };
-    let old_session = session(davet).await;
-    client
-        .put(format!("{base}/rooms/general/memory/owner"))
-        .header("x-admin-token", "MASTER")
-        .json(&serde_json::json!({"owner":"alice"}))
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap();
-    assert_eq!(
-        client
-            .put(format!("{base}/rooms/general/memory/short"))
-            .header("x-session-token", &old_session)
-            .json(&serde_json::json!({"text":"original"}))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        200
-    );
-    client
-        .delete(format!(
-            "{base}/members/{}",
-            admitted["token"].as_str().unwrap()
-        ))
-        .header("x-admin-token", "MASTER")
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap();
-    let new_davet = davet_for(&base, "MASTER", "general", "alice").await;
-    let new_session = session(new_davet).await;
-    for (token, expected) in [(&old_session, 401), (&new_session, 403)] {
-        let response = client
-            .put(format!("{base}/rooms/general/memory/short"))
-            .header("x-session-token", token)
-            .json(&serde_json::json!({"text":"stolen"}))
+    let before = stored(&db);
+
+    // The archived owner, seated with its own invite, writes nothing.
+    for (method, path) in [("PUT", "memory/short"), ("POST", "memory/entries")] {
+        let url = format!("{base}/rooms/general/{path}");
+        let request = match method {
+            "PUT" => client.put(url),
+            _ => client.post(url),
+        };
+        let response = request
+            .header("x-session-token", &session)
+            .json(&serde_json::json!({"text": "new authority"}))
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), expected);
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::FORBIDDEN,
+            "the archived memory owner must not write {path}"
+        );
+        assert!(
+            response.text().await.unwrap().contains("read-only"),
+            "the refusal says plainly that archived memory is read-only"
+        );
     }
-    client
-        .put(format!("{base}/rooms/general/memory/owner"))
-        .header("x-admin-token", "MASTER")
-        .json(&serde_json::json!({"owner":"alice"}))
+    // Nobody assigns an owner, the Master included; clearing is no exception.
+    for owner in [serde_json::json!("alice"), Value::Null] {
+        let response = client
+            .put(format!("{base}/rooms/general/memory/owner"))
+            .header("x-admin-token", "MASTER")
+            .json(&serde_json::json!({ "owner": owner }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::FORBIDDEN,
+            "there is no Memory owner to assign (owner {owner})"
+        );
+    }
+    assert_eq!(stored(&db), before, "the archived record must not change");
+
+    // Every read surface still serves the archive.
+    let memory: Value = client
+        .get(format!("{base}/rooms/general/memory"))
+        .header("x-session-token", &session)
         .send()
         .await
         .unwrap()
         .error_for_status()
+        .unwrap()
+        .json()
+        .await
         .unwrap();
-    assert_eq!(
-        client
-            .put(format!("{base}/rooms/general/memory/short"))
-            .header("x-session-token", new_session)
-            .json(&serde_json::json!({"text":"explicitly reassigned"}))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        200
-    );
+    assert_eq!(memory["short"], "archived state");
+    assert_eq!(memory["long"], "archived decision");
+    assert_eq!(memory["owner"], "alice");
+    let entries: Value = client
+        .get(format!("{base}/rooms/general/memory/entries"))
+        .header("x-session-token", &session)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(entries["entries"][0]["text"], "archived decision");
+    assert_eq!(entries["entries"][0]["decided_by"], "alice");
+    let snapshot: Value = client
+        .get(format!("{base}/rooms/general/memory/snapshot"))
+        .header("x-session-token", &session)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(snapshot["status"], "ready");
+    assert_eq!(snapshot["short"], "archived state");
+    let mut ws = connect_ws_protocols(
+        format!("ws://127.0.0.1:{port}/ws?room=general&name=alice&type=agent"),
+        &["loca.v1".into(), format!("loca.room.{invite}")],
+    )
+    .await;
+    let frame = wait_for(&mut ws, |frame| frame["t"] == "memory").await;
+    assert_eq!(frame["status"], "ready");
+    assert_eq!(frame["short"], "archived state");
+    assert_eq!(frame["version"], 3);
 }
 
 #[tokio::test]
@@ -846,7 +897,7 @@ async fn note_history_and_room_memory_search() {
 
     // Search the room's memory: matches an old message AND the note.
     client.post(format!("{base}/rooms/general/messages"))
-        .json(&serde_json::json!({ "sender": "a", "sender_type": "user", "text": "auth kararini verdik: session-bound" }))
+        .json(&serde_json::json!({ "sender": "a", "sender_type": "user", "text": "we settled auth: session-bound" }))
         .send().await.unwrap();
     let res: Value = client
         .get(format!("{base}/rooms/general/search?q=session-bound"))
@@ -860,7 +911,7 @@ async fn note_history_and_room_memory_search() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|m| m["text"].as_str().unwrap().contains("kararini")));
+        .any(|m| m["text"].as_str().unwrap().contains("settled")));
     assert!(res["notes"]
         .as_array()
         .unwrap()
@@ -949,7 +1000,7 @@ async fn session_identity_is_canonical_for_notes_and_whoami() {
 }
 
 #[tokio::test]
-async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
+async fn loca_memory_has_no_delete_surface_and_its_archive_stays_readable() {
     let directory = tempfile::tempdir().unwrap();
     let db = directory.path().join("memory-fences.db");
     let (port, _guard) =
@@ -981,16 +1032,19 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
     let _bob_seat = connect_ws(port, "general", "bob", "agent").await;
 
     // The server must create the production schema. The fixture only seeds
-    // owners after boot, so removing either production DDL makes this fail.
+    // the archive after boot, so removing either production DDL makes this
+    // fail. Memory is no longer written through the server: an archived
+    // record, as an upgraded Building holds one, is seeded directly.
     let conn = rusqlite::Connection::open(&db).unwrap();
-    conn.execute(
-        "INSERT INTO loca_memory (room, owner) VALUES ('general', 'alice')",
-        [],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO loca_memory (room, owner) VALUES ('ownerless', NULL)",
-        [],
+    conn.execute_batch(
+        "INSERT INTO loca_memory (room, owner, short, long, short_updated_at, long_updated_at, version)
+         VALUES ('general', 'alice', 'current context',
+                 'we chose durable provenance\n\nand retained every decision',
+                 1700000000000, 1700000100000, 3);
+         INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
+         VALUES ('general', 'we chose durable provenance', 'alice', 1700000050000),
+                ('general', 'and retained every decision', 'alice', 1700000100000);
+         INSERT INTO loca_memory (room, owner) VALUES ('ownerless', NULL);",
     )
     .unwrap();
     drop(conn);
@@ -1011,58 +1065,6 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
         );
     }
 
-    // A2(a): the assigned owner writes.
-    let owner_write = client
-        .put(format!("{base}/rooms/general/memory/short"))
-        .header("x-session-token", &alice)
-        .json(&serde_json::json!({"text": "current context"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(owner_write.status(), reqwest::StatusCode::OK);
-    let short_before: Value = owner_write.json().await.unwrap();
-    let short_updated_at = short_before["short_updated_at"].as_u64().unwrap();
-    tokio::time::sleep(Duration::from_millis(2)).await;
-
-    let long_entry: Value = client
-        .post(format!("{base}/rooms/general/memory/entries"))
-        .header("x-session-token", &alice)
-        .json(&serde_json::json!({"text": "we chose durable provenance"}))
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(long_entry["decided_by"], "alice");
-    assert_eq!(long_entry["text"], "we chose durable provenance");
-    let after_long: Value = client
-        .get(format!("{base}/rooms/general/memory"))
-        .header("x-session-token", &alice)
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(
-        after_long["short_updated_at"].as_u64(),
-        Some(short_updated_at),
-        "A6 fence: a long write must not refresh short memory"
-    );
-    client
-        .post(format!("{base}/rooms/general/memory/entries"))
-        .header("x-session-token", &alice)
-        .json(&serde_json::json!({"text": "and retained every decision"}))
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap();
     let memory: Value = client
         .get(format!("{base}/rooms/general/memory"))
         .header("x-session-token", &alice)
@@ -1161,52 +1163,34 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
         "memory is not configured for this loca"
     );
 
-    // A2(b): another seated identity in the same loca is rejected.
-    let other_write = client
-        .put(format!("{base}/rooms/general/memory/short"))
-        .header("x-session-token", &bob)
-        .json(&serde_json::json!({"text": "overwrite"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        other_write.status(),
-        reqwest::StatusCode::FORBIDDEN,
-        "A2 fence: a seated non-owner must not write loca memory"
-    );
-    assert_eq!(
-        other_write.text().await.unwrap(),
-        "only the memory owner may write"
-    );
-    let oversized_other = client
-        .put(format!("{base}/rooms/general/memory/short"))
-        .header("x-session-token", &bob)
-        .json(&serde_json::json!({"text": "x".repeat(4097)}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        oversized_other.status(),
-        reqwest::StatusCode::FORBIDDEN,
-        "A2 precedence fence: ownership must be checked before short-memory size"
-    );
+    // A2: nobody writes the archive, neither the owner it names, another
+    // seated identity, nor anyone in a loca whose record names no owner.
+    for (token, room) in [
+        (&alice, "general"),
+        (&bob, "general"),
+        (&alice, "ownerless"),
+    ] {
+        for (method, path) in [("PUT", "memory/short"), ("POST", "memory/entries")] {
+            let url = format!("{base}/rooms/{room}/{path}");
+            let request = match method {
+                "PUT" => client.put(url),
+                _ => client.post(url),
+            };
+            let response = request
+                .header("x-session-token", token)
+                .json(&serde_json::json!({"text": "overwrite"}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                reqwest::StatusCode::FORBIDDEN,
+                "A2 fence: {room} {path} must not be written"
+            );
+        }
+    }
 
-    // A2(c): absence of an owner is explicit, never a swallowed no-op.
-    let ownerless = client
-        .put(format!("{base}/rooms/ownerless/memory/short"))
-        .header("x-session-token", &alice)
-        .json(&serde_json::json!({"text": "lost"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(ownerless.status(), reqwest::StatusCode::CONFLICT);
-    assert_eq!(
-        ownerless.text().await.unwrap(),
-        "memory owner is not assigned for this loca"
-    );
-
-    // A2-EK: archiving freezes both write surfaces while the existing memory
-    // remains readable.
+    // A2-EK: an archived loca's memory remains readable.
     client
         .put(format!("{base}/rooms/general/settings"))
         .json(&serde_json::json!({"archived": true}))
@@ -1215,23 +1199,6 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
         .unwrap()
         .error_for_status()
         .unwrap();
-    for (method, path) in [("PUT", "memory/short"), ("POST", "memory/entries")] {
-        let request = match method {
-            "PUT" => client.put(format!("{base}/rooms/general/{path}")),
-            _ => client.post(format!("{base}/rooms/general/{path}")),
-        };
-        let response = request
-            .header("x-session-token", &alice)
-            .json(&serde_json::json!({"text": "must stay frozen"}))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(
-            response.status(),
-            reqwest::StatusCode::CONFLICT,
-            "A2-EK fence: archived {path} write must be rejected"
-        );
-    }
     assert_eq!(
         client
             .get(format!("{base}/rooms/general/memory"))
@@ -1274,8 +1241,10 @@ async fn loca_memory_has_no_delete_surface_and_only_its_owner_can_write() {
     assert!(divergent.text().await.unwrap().contains("inconsistent"));
 }
 
+/// The 32 KiB warning of an archived ledger stays visible, the whole ledger
+/// stays readable, and a refused write changes nothing.
 #[tokio::test]
-async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history() {
+async fn archived_memory_budget_stays_visible_and_the_ledger_never_changes() {
     let directory = tempfile::tempdir().unwrap();
     let db = directory.path().join("memory-budget.db");
     let (port, _guard) =
@@ -1294,118 +1263,38 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         .await
         .unwrap();
     let session = session["session_token"].as_str().unwrap();
+    // A full archived ledger: eight 8 KiB decisions, 64 KiB with separators.
+    let entries: Vec<String> = (0..8u8)
+        .map(|i| char::from(b'a' + i).to_string().repeat(8190))
+        .collect();
+    let long = entries.join("\n\n");
+    assert_eq!(long.len(), 64 * 1024 - 2);
     let conn = rusqlite::Connection::open(&db).unwrap();
     conn.execute(
-        "INSERT INTO loca_memory (room, owner) VALUES ('budget', 'owner')",
-        [],
+        "INSERT INTO loca_memory (room, owner, long, long_updated_at, version)
+         VALUES ('budget', 'owner', ?1, 1700000000000, 8)",
+        [&long],
     )
     .unwrap();
-    conn.execute(
-        "INSERT INTO loca_memory (room, owner) VALUES ('entry-budget', 'owner')",
-        [],
-    )
-    .unwrap();
+    for text in &entries {
+        conn.execute(
+            "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
+             VALUES ('budget', ?1, 'owner', 1700000000000)",
+            [text],
+        )
+        .unwrap();
+    }
     drop(conn);
-
-    let short_at_limit = "ş".repeat(2 * 1024); // 4096 UTF-8 bytes.
-    let short_ok = client
-        .put(format!("{base}/rooms/budget/memory/short"))
-        .header("x-session-token", session)
-        .json(&serde_json::json!({"text": short_at_limit}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(short_ok.status(), reqwest::StatusCode::OK);
-    let short_too_large = client
-        .put(format!("{base}/rooms/budget/memory/short"))
-        .header("x-session-token", session)
-        .json(&serde_json::json!({"text": format!("{}x", "ş".repeat(2 * 1024))}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        short_too_large.status(),
-        reqwest::StatusCode::PAYLOAD_TOO_LARGE,
-        "A9 short fence: UTF-8 byte length beyond 4096 must be rejected"
-    );
-
-    let at_entry_limit = client
-        .post(format!("{base}/rooms/entry-budget/memory/entries"))
-        .header("x-session-token", session)
-        .json(&serde_json::json!({"text": "ğ".repeat(4 * 1024)}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        at_entry_limit.status(),
-        reqwest::StatusCode::CREATED,
-        "K10(a): exactly 8192 UTF-8 bytes must remain writable"
-    );
-    let over_entry_limit = client
-        .post(format!("{base}/rooms/entry-budget/memory/entries"))
-        .header("x-session-token", session)
-        .json(&serde_json::json!({"text": format!("{}x", "ğ".repeat(4 * 1024))}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        over_entry_limit.status(),
-        reqwest::StatusCode::PAYLOAD_TOO_LARGE,
-        "K10(b): 8193 UTF-8 bytes must be rejected"
-    );
-    assert!(over_entry_limit
-        .text()
-        .await
-        .unwrap()
-        .contains("wake-injection budget"));
-
-    let mut at_soft = Value::Null;
-    for bytes in [8192, 8192, 8192, 8186] {
-        at_soft = client
-            .post(format!("{base}/rooms/budget/memory/entries"))
-            .header("x-session-token", session)
-            .json(&serde_json::json!({"text": "a".repeat(bytes)}))
-            .send()
-            .await
+    let count = |db: &std::path::Path| -> i64 {
+        rusqlite::Connection::open(db)
             .unwrap()
-            .error_for_status()
+            .query_row(
+                "SELECT count(*) FROM loca_memory_entries WHERE room = 'budget'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap()
-            .json()
-            .await
-            .unwrap();
-    }
-    assert_eq!(at_soft["over_budget"], false);
-
-    let over_soft: Value = client
-        .post(format!("{base}/rooms/budget/memory/entries"))
-        .header("x-session-token", session)
-        .json(&serde_json::json!({"text": "b"}))
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(
-        over_soft["over_budget"], true,
-        "A9 soft fence: crossing 32 KiB must be visible while the write succeeds"
-    );
-
-    // Reach the 64 KiB aggregate limit using individually injectable entries.
-    // Separators count only between entries, never before the first entry.
-    for bytes in [8192, 8192, 8192, 8181] {
-        client
-            .post(format!("{base}/rooms/budget/memory/entries"))
-            .header("x-session-token", session)
-            .json(&serde_json::json!({"text": "c".repeat(bytes)}))
-            .send()
-            .await
-            .unwrap()
-            .error_for_status()
-            .unwrap();
-    }
+    };
 
     let before: Value = client
         .get(format!("{base}/rooms/budget/memory"))
@@ -1419,35 +1308,28 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         .await
         .unwrap();
     assert_eq!(before["over_budget"], true);
-    let before_long = before["long"].as_str().unwrap().to_string();
-    assert_eq!(before_long.len(), 64 * 1024);
-    let before_entries: i64 = rusqlite::Connection::open(&db)
+    assert_eq!(before["long"], long.as_str());
+    let page: Value = client
+        .get(format!("{base}/rooms/budget/memory/entries?limit=200"))
+        .header("x-session-token", session)
+        .send()
+        .await
         .unwrap()
-        .query_row(
-            "SELECT count(*) FROM loca_memory_entries WHERE room = 'budget'",
-            [],
-            |row| row.get(0),
-        )
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
         .unwrap();
+    assert_eq!(page["entries"].as_array().unwrap().len(), 8);
 
-    let hard = client
+    let refused = client
         .post(format!("{base}/rooms/budget/memory/entries"))
         .header("x-session-token", session)
         .json(&serde_json::json!({"text": "x"}))
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        hard.status(),
-        reqwest::StatusCode::PAYLOAD_TOO_LARGE,
-        "A9 hard fence: a write beyond 64 KiB must be rejected"
-    );
-    let error = hard.text().await.unwrap();
-    assert!(error.contains("finite append-only ledger (64 KiB)"));
-    assert!(
-        !error.contains("consolidate"),
-        "never recommend an unavailable recovery command"
-    );
+    assert_eq!(refused.status(), reqwest::StatusCode::FORBIDDEN);
 
     let after: Value = client
         .get(format!("{base}/rooms/budget/memory"))
@@ -1460,22 +1342,12 @@ async fn loca_memory_budget_is_visible_hard_bounded_and_never_discards_history()
         .json()
         .await
         .unwrap();
-    let after_long = after["long"].as_str().unwrap();
     assert_eq!(
-        after_long.len(),
-        before_long.len(),
-        "A9 retention fence: rejection must not change old memory length"
+        after["long"], before["long"],
+        "A9 retention fence: a refused write must not change the ledger"
     );
-    assert_eq!(after_long, before_long);
-    let after_entries: i64 = rusqlite::Connection::open(&db)
-        .unwrap()
-        .query_row(
-            "SELECT count(*) FROM loca_memory_entries WHERE room = 'budget'",
-            [],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert_eq!(after_entries, before_entries);
+    assert_eq!(after["version"], before["version"]);
+    assert_eq!(count(&db), 8);
 }
 
 async fn assert_cross_loca_memory_denied(method: &str, path: &str) {
@@ -1493,9 +1365,14 @@ async fn assert_cross_loca_memory_denied(method: &str, path: &str) {
     create_test_room(port, "MASTER", "loca-b").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    let b_davet = davet_for(&base, "MASTER", "loca-b", "agent-b").await;
-    let b_session =
-        session_with(&base, ("x-room-token", &b_davet), "agent-b", Some("loca-b")).await;
+    let b_invite = invite_for(&base, "MASTER", "loca-b", "agent-b").await;
+    let b_session = session_with(
+        &base,
+        ("x-room-token", &b_invite),
+        "agent-b",
+        Some("loca-b"),
+    )
+    .await;
     let conn = rusqlite::Connection::open(&db).unwrap();
     conn.execute(
         "INSERT INTO loca_memory (room, owner, short) VALUES ('loca-a', 'agent-b', 'secret-a')",
@@ -1556,12 +1433,11 @@ async fn memory_only_deployment_reports_permanent_unavailability() {
         .await
         .unwrap();
     let response = client
-        .put(format!("{base}/rooms/general/memory/short"))
+        .get(format!("{base}/rooms/general/memory"))
         .header(
             "x-session-token",
             session["session_token"].as_str().unwrap(),
         )
-        .json(&serde_json::json!({"text": "cannot persist"}))
         .send()
         .await
         .unwrap();
@@ -1614,38 +1490,10 @@ async fn fresh_connection_automatically_receives_ready_memory() {
     assert_eq!(frame["long"], "long decision");
     assert_eq!(frame["version"], 2);
 
+    // The archive is no longer written; each delivered message is still
+    // preceded by its version checkpoint.
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    let session: Value = client
-        .post(format!("{base}/sessions"))
-        .json(&serde_json::json!({"name": "owner", "kind": "agent"}))
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    client
-        .post(format!("{base}/rooms/remembered/memory/entries"))
-        .header(
-            "x-session-token",
-            session["session_token"].as_str().unwrap(),
-        )
-        .json(&serde_json::json!({"text": "new decision"}))
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap();
-    let updated = wait_for(&mut ws, |frame| {
-        frame["t"] == "memory" && frame["version"] == 3
-    })
-    .await;
-    assert_eq!(updated["long"], "long decision\n\nnew decision");
-    assert!(updated["long_updated_at"].as_u64().is_some());
-
     client
         .post(format!("{base}/rooms/remembered/messages"))
         .json(&serde_json::json!({
@@ -1661,30 +1509,9 @@ async fn fresh_connection_automatically_receives_ready_memory() {
         .unwrap();
     let checkpoint = wait_for(&mut ws, |frame| frame["t"] == "memoryversion").await;
     assert_eq!(checkpoint["room"], "remembered");
-    assert_eq!(checkpoint["version"], 3);
+    assert_eq!(checkpoint["version"], 2);
     let message = wait_for(&mut ws, |frame| frame["t"] == "msg").await;
     assert_eq!(message["message"]["text"], "wake");
-
-    let prior_long_clock = updated["long_updated_at"].clone();
-    client
-        .put(format!("{base}/rooms/remembered/memory/short"))
-        .header(
-            "x-session-token",
-            session["session_token"].as_str().unwrap(),
-        )
-        .json(&serde_json::json!({"text": "new short"}))
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap();
-    let short_only = wait_for(&mut ws, |frame| {
-        frame["t"] == "memory" && frame["version"] == 4
-    })
-    .await;
-    assert_eq!(short_only["short"], "new short");
-    assert_ne!(short_only["short_updated_at"], 10);
-    assert_eq!(short_only["long_updated_at"], prior_long_clock);
 }
 
 #[tokio::test]
@@ -1851,7 +1678,7 @@ async fn absent_memory_is_an_explicit_frame_not_silence() {
 }
 
 #[tokio::test]
-async fn caretaker_memory_is_metadata_only_and_owner_assignment_is_master_only() {
+async fn caretaker_memory_is_metadata_only_and_nobody_assigns_an_owner() {
     let directory = tempfile::tempdir().unwrap();
     let db = directory.path().join("memory-care.db");
     let (port, _guard) = spawn_server_env(
@@ -1886,37 +1713,36 @@ async fn caretaker_memory_is_metadata_only_and_owner_assignment_is_master_only()
     let caretaker = admit("loca-care").await;
     let ordinary = admit("ordinary").await;
 
-    let denied = client
-        .put(format!("{base}/rooms/general/memory/owner"))
-        .header("x-room-token", ordinary["token"].as_str().unwrap())
-        .json(&serde_json::json!({"owner": "ordinary"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        denied.status(),
-        reqwest::StatusCode::FORBIDDEN,
-        "A2 owner fence: an ordinary seat must not assign memory ownership"
-    );
+    for (header, credential) in [
+        ("x-room-token", ordinary["token"].as_str().unwrap()),
+        ("x-admin-token", "MASTER"),
+    ] {
+        let denied = client
+            .put(format!("{base}/rooms/general/memory/owner"))
+            .header(header, credential)
+            .json(&serde_json::json!({"owner": "ordinary"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            denied.status(),
+            reqwest::StatusCode::FORBIDDEN,
+            "A2 owner fence: there is no Memory owner to assign ({header})"
+        );
+    }
 
-    let assigned = client
-        .put(format!("{base}/rooms/general/memory/owner"))
-        .header("x-admin-token", "MASTER")
-        .json(&serde_json::json!({"owner": "ordinary"}))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(assigned.status(), reqwest::StatusCode::NO_CONTENT);
     let conn = rusqlite::Connection::open(&db).unwrap();
     conn.execute(
-        "UPDATE loca_memory SET short='PRIVATE SHORT', long='PRIVATE LONG',
-         short_updated_at=10, long_updated_at=20 WHERE room='general'",
+        "INSERT INTO loca_memory
+         (room, owner, short, long, short_updated_at, long_updated_at, version)
+         VALUES ('general', 'ordinary', 'PRIVATE SHORT', 'PRIVATE LONG',
+                 1700000000000, 1700000100000, 2)",
         [],
     )
     .unwrap();
     conn.execute(
         "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
-         VALUES ('general', 'legacy decision', '', 30)",
+         VALUES ('general', 'legacy decision', '', 1700000200000)",
         [],
     )
     .unwrap();

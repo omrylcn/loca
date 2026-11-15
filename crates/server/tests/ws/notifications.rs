@@ -866,3 +866,268 @@ async fn read_counts_are_people_only_and_agents_are_reported_apart() {
     assert_eq!(mine[0]["title"], "Context for the bots");
     assert_eq!(counts(&mine[0]), (1.into(), 0.into(), 1.into(), 0.into()));
 }
+
+// ---------------------------------------------------------------------------
+// The sending limit: six notifications per sender in any ten minutes. These
+// run with the server's default count.
+// ---------------------------------------------------------------------------
+
+/// Send one to everyone with explicit headers; (status, Retry-After, body).
+async fn notify_raw(
+    base: &str,
+    headers: &[(&str, &str)],
+    title: &str,
+) -> (u16, Option<String>, String) {
+    let mut req = reqwest::Client::new()
+        .post(format!("{base}/notifications"))
+        .json(&serde_json::json!({ "title": title, "body": "", "audience": { "all": true } }));
+    for (k, v) in headers {
+        req = req.header(*k, *v);
+    }
+    let r = req.send().await.unwrap();
+    let status = r.status().as_u16();
+    let retry_after = r
+        .headers()
+        .get("retry-after")
+        .map(|v| v.to_str().unwrap().to_string());
+    (status, retry_after, r.text().await.unwrap_or_default())
+}
+
+#[tokio::test]
+async fn the_seventh_notification_in_ten_minutes_is_refused_with_retry_after() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("ntf-rate.db");
+    let (port, _guard) = building(&db).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let master = master_session(&base).await;
+    let ali_key = member(&base, "ali", "user").await;
+    let lead = smaster(&base, "deniz").await;
+    found_group(&base, &lead, "ops", &["ali"]).await;
+
+    for i in 0..6 {
+        let (status, _, body) =
+            notify_raw(&base, &[("x-session-token", &master)], &format!("n{i}")).await;
+        assert_eq!(status, 201, "send {} of six: {body}", i + 1);
+    }
+    let before = inbox(&base, Who::Key(&ali_key)).await;
+    assert_eq!(before.0.len(), 6);
+
+    let (status, retry_after, body) =
+        notify_raw(&base, &[("x-session-token", &master)], "seventh").await;
+    assert_eq!(status, 429, "{body}");
+    let retry_after: u64 = retry_after
+        .expect("a Retry-After header")
+        .parse()
+        .expect("Retry-After in seconds");
+    // The oldest of the six was sent moments ago: it leaves the window in
+    // just under ten minutes.
+    assert!(
+        (540..=600).contains(&retry_after),
+        "Retry-After {retry_after}"
+    );
+    assert!(
+        body.starts_with("You have sent 6 notifications in the last 10 minutes"),
+        "{body}"
+    );
+    assert!(body.contains("minutes."), "{body}");
+
+    // Nothing was written: the recipient's list and unread count, and the
+    // sender's Sent list, are as they were.
+    assert_eq!(inbox(&base, Who::Key(&ali_key)).await, before);
+    let (_, sent) = get(format!("{base}/notifications/sent"), Who::Key(MASTER)).await;
+    assert_eq!(sent.as_array().unwrap().len(), 6);
+
+    // Another sender has its own count.
+    let (status, _) = notify(
+        &base,
+        Who::Session(&lead),
+        "From the lead",
+        serde_json::json!({ "groups": [group_id(&base, &lead).await] }),
+    )
+    .await;
+    assert_eq!(status, 201);
+}
+
+async fn group_id(base: &str, by: &str) -> String {
+    let (_, groups) = get(format!("{base}/groups"), Who::Session(by)).await;
+    let groups = groups
+        .get("groups")
+        .and_then(|g| g.as_array())
+        .or_else(|| groups.as_array())
+        .cloned()
+        .unwrap();
+    groups[0]["id"].as_str().unwrap().to_string()
+}
+
+/// A Master browser session: paired with a one-use code where the Building
+/// has a Master key; with no `ADMIN_TOKEN` there is no pairing, and any caller
+/// opens a Master session.
+async fn any_master_session(base: &str, admin: &str) -> String {
+    if admin.is_empty() {
+        session(base, ("x-admin-token", "open-building"), "operator", "user").await
+    } else {
+        master_session(base).await
+    }
+}
+
+/// However the Master signs in, it is one sender with one count: its raw key
+/// and its browser sessions, in a Building with a Master principal
+/// (`ADMIN_TOKEN` set) and in one without (no `ADMIN_TOKEN`).
+#[tokio::test]
+async fn the_master_has_one_count_through_its_key_and_its_sessions() {
+    for admin in [MASTER, ""] {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("ntf-master-count.db");
+        let (port, _guard) =
+            spawn_server_env(admin, &[("DB_PATH", db.to_str().unwrap().into())]).await;
+        let base = format!("http://127.0.0.1:{port}");
+        member(&base, "ali", "user").await;
+        let raw: Vec<(&str, &str)> = if admin.is_empty() {
+            Vec::new()
+        } else {
+            vec![("x-admin-token", admin)]
+        };
+        let first = any_master_session(&base, admin).await;
+        for i in 0..3 {
+            let (status, _, body) = notify_raw(&base, &raw, &format!("key {i}")).await;
+            assert_eq!(status, 201, "admin {admin:?}, key send {i}: {body}");
+            let (status, _, body) = notify_raw(
+                &base,
+                &[("x-session-token", &first)],
+                &format!("session {i}"),
+            )
+            .await;
+            assert_eq!(status, 201, "admin {admin:?}, session send {i}: {body}");
+        }
+        let second = any_master_session(&base, admin).await;
+        for headers in [
+            raw.clone(),
+            vec![("x-session-token", first.as_str())],
+            vec![("x-session-token", second.as_str())],
+        ] {
+            let (status, retry_after, body) = notify_raw(&base, &headers, "seventh").await;
+            assert_eq!(status, 429, "admin {admin:?}: {body}");
+            assert!(retry_after.is_some());
+        }
+    }
+}
+
+/// A Smaster's count is its principal's: renaming itself, signing in again,
+/// or sending with a second credential of its own does not start a new one.
+#[tokio::test]
+async fn a_new_name_session_or_credential_does_not_reset_the_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("ntf-same-sender.db");
+    let (port, _guard) = building(&db).await;
+    let base = format!("http://127.0.0.1:{port}");
+    member(&base, "ali", "user").await;
+    let (status, v) = send(
+        reqwest::Method::POST,
+        format!("{base}/smasters"),
+        &[("x-admin-token", MASTER)],
+        Some(serde_json::json!({ "name": "deniz" })),
+    )
+    .await;
+    assert!(status < 300, "{v}");
+    let key = v["token"].as_str().unwrap().to_string();
+    let first = session(&base, ("x-admin-token", &key), "deniz", "user").await;
+    let gid = found_group(&base, &first, "ops", &["ali"]).await;
+    let groups = serde_json::json!({ "groups": [gid] });
+
+    for i in 0..2 {
+        let (status, v) = notify(
+            &base,
+            Who::Session(&first),
+            &format!("a{i}"),
+            groups.clone(),
+        )
+        .await;
+        assert_eq!(status, 201, "{v}");
+    }
+    // Rename mid-window.
+    let (status, v) = send(
+        reqwest::Method::PUT,
+        format!("{base}/profile"),
+        &[("x-session-token", &first)],
+        Some(serde_json::json!({ "display_name": "derya" })),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    for i in 0..2 {
+        let (status, v) = notify(
+            &base,
+            Who::Session(&first),
+            &format!("b{i}"),
+            groups.clone(),
+        )
+        .await;
+        assert_eq!(status, 201, "{v}");
+    }
+    // A second session, then a second credential of the same principal.
+    let second = session(&base, ("x-admin-token", &key), "derya", "user").await;
+    let (status, v) = notify(&base, Who::Session(&second), "c0", groups.clone()).await;
+    assert_eq!(status, 201, "{v}");
+    let (status, v) = send(
+        reqwest::Method::POST,
+        format!("{base}/profile/credentials"),
+        &[("x-session-token", &first)],
+        Some(serde_json::json!({ "label": "second device" })),
+    )
+    .await;
+    assert_eq!(status, 201, "{v}");
+    let device = v["secret"].as_str().unwrap().to_string();
+    let (status, v) = notify(&base, Who::Key(&device), "d0", groups.clone()).await;
+    assert_eq!(status, 201, "{v}");
+
+    for who in [
+        Who::Session(&first),
+        Who::Session(&second),
+        Who::Key(&key),
+        Who::Key(&device),
+    ] {
+        let (status, v) = notify(&base, who, "seventh", groups.clone()).await;
+        assert_eq!(status, 429, "{v}");
+    }
+}
+
+/// `NOTIFICATION_RATE_LIMIT` sets the count at start-up; the window does not
+/// change. A value that is not a number leaves the default, as every other
+/// numeric setting does.
+#[tokio::test]
+async fn the_count_is_set_at_start_up() {
+    for (raw, expected) in [("2", 2), ("0", 1), ("lots", 6)] {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("ntf-configured.db");
+        let (port, _guard) = spawn_server_env(
+            MASTER,
+            &[
+                ("DB_PATH", db.to_str().unwrap().into()),
+                ("NOTIFICATION_RATE_LIMIT", raw.into()),
+            ],
+        )
+        .await;
+        let base = format!("http://127.0.0.1:{port}");
+        member(&base, "ali", "user").await;
+        for i in 0..expected {
+            let (status, _, body) =
+                notify_raw(&base, &[("x-admin-token", MASTER)], &format!("n{i}")).await;
+            assert_eq!(
+                status, 201,
+                "NOTIFICATION_RATE_LIMIT={raw}, send {i}: {body}"
+            );
+        }
+        let (status, _, body) = notify_raw(&base, &[("x-admin-token", MASTER)], "over").await;
+        assert_eq!(status, 429, "NOTIFICATION_RATE_LIMIT={raw}: {body}");
+        assert!(
+            body.starts_with(&format!(
+                "You have sent {}",
+                if expected == 1 {
+                    "1 notification ".to_string()
+                } else {
+                    format!("{expected} notifications ")
+                }
+            )),
+            "{body}"
+        );
+    }
+}

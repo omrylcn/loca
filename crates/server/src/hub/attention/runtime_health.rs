@@ -111,7 +111,7 @@ impl Hub {
         let mut hidden = self.group_locas_hidden_from(viewer);
         // A rank may know a pair exists, but its operational activity is not
         // part of another person's public Building presence.
-        hidden.extend(self.birebirs.lock_or_recover().keys().cloned());
+        hidden.extend(self.dms.lock_or_recover().keys().cloned());
         let mut residents = self.residents();
         if !hidden.is_empty() {
             for resident in &mut residents {
@@ -139,30 +139,31 @@ impl Hub {
         let mut by_name: BTreeMap<String, protocol::Resident> = BTreeMap::new();
 
         // Membership IS residency — the list starts here and nothing below
-        // adds a name to it. A davet or a live connection can decorate a
+        // adds a name to it. An invite or a live connection can decorate a
         // member with locas/online, but it cannot make someone a resident;
         // that used to happen and it blurred "known to the building" into
         // "was once handed a token", which is how ghosts were born.
         for m in self.members.lock_or_recover().values() {
+            let membership_id = m.id.clone();
             by_name.insert(
                 m.name.clone(),
                 protocol::Resident {
-                    suspended: self.member_suspended(&m.token),
-                    membership_id: Some(self.member_management_id(&m.token)),
+                    suspended: self.member_suspended(&m.id),
+                    online: self.lobby_is_online(&membership_id),
+                    membership_id: Some(membership_id),
                     name: m.name.clone(),
                     kind: m.kind.clone(),
                     locas: Vec::new(),
-                    online: self.lobby_is_online(&m.token),
                     runtime: self.runtime_health_for(&m.name),
                 },
             );
         }
 
-        // Davets say where a member currently sits.
-        // A birebir is nobody else's business: it never shows as "where".
-        let birebirs = self.birebirs.lock_or_recover().clone();
+        // Invites say where a member currently sits.
+        // A direct message is nobody else's business: it never shows as "where".
+        let dms = self.dms.lock_or_recover().clone();
         for inv in self.invites.lock_or_recover().values() {
-            if birebirs.contains_key(&inv.room) {
+            if dms.contains_key(&inv.room) {
                 continue;
             }
             if let Some(e) = by_name.get_mut(&inv.name) {
@@ -176,7 +177,7 @@ impl Hub {
         // watchers are the building's own, not residents.
         let rooms = self.rooms.lock_or_recover();
         for (room, r) in rooms.iter() {
-            let private = birebirs.contains_key(room);
+            let private = dms.contains_key(room);
             for (name, _, _) in r.members.values() {
                 if let Some(e) = by_name.get_mut(name) {
                     e.online = true;

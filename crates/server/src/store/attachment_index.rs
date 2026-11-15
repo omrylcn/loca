@@ -356,6 +356,7 @@ mod tests {
             text: "hi".into(),
             reply_to: None,
             reply_to_sender: None,
+            sender_principal: None,
             ts: 1000,
             kind: MessageKind::Say,
             attachments: atts.to_vec(),

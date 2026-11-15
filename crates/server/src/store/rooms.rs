@@ -35,9 +35,9 @@ pub(super) const ROOM_KEYED_TABLES: &[&str] = &[
     "wiki_native_runtime",
 ];
 
-/// Tables with a `room` column that a rename must not carry. A birebir's id
+/// Tables with a `room` column that a rename must not carry. A direct message's id
 /// is derived from its two people and its `bb-` id space is reserved, so a
-/// birebir is never renamed and no loca is renamed into that space.
+/// direct message is never renamed and no loca is renamed into that space.
 pub(super) const ROOM_TABLES_NEVER_RENAMED: &[&str] = &["birebirs"];
 
 /// `attention:{from}:…` → `attention:{to}:…`; `None` when `id` does not name
@@ -94,7 +94,7 @@ impl Store {
             return Ok(false);
         };
         const TABLES: &[&str] = ROOM_KEYED_TABLES;
-        // A loca recorded in a never-renamed table (a birebir) is neither the
+        // A loca recorded in a never-renamed table (a direct message) is neither the
         // source nor the target of a rename, and its id space is reserved.
         let mut never = from.starts_with("bb-") || to.starts_with("bb-");
         for table in ROOM_TABLES_NEVER_RENAMED {
@@ -133,7 +133,7 @@ impl Store {
         // (`source_room`), the attention id and group that embed the origin
         // loca, and the context messages it carries. The outbox row repeats
         // the delivery room and the attention id beside the JSON. All of them
-        // move together and independently — a relay delivered in İye about
+        // move together and independently — a relay delivered in Care about
         // the renamed loca, and a relay delivered in the renamed loca about
         // another one, both stay whole. The delivery id is never changed, so
         // a late ACK remains valid.
@@ -385,7 +385,7 @@ impl Store {
             }
         }
 
-        // Older Buildings could issue a davet before any other room state was
+        // Older Buildings could issue an invite before any other room state was
         // written. Preserve those existing locas at boot; a new HTTP/WS entry
         // must still use explicit creation. This does not appoint an Operator.
         let mut stmt = c.prepare("SELECT DISTINCT room FROM invites WHERE revoked_at IS NULL")?;
@@ -418,7 +418,8 @@ impl Store {
         // Hot context only: the archive can be huge, memory holds the tail.
         {
             let mut stmt = c.prepare(
-                "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments FROM
+                "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments,
+                        sender_principal FROM
                (SELECT * FROM messages WHERE room = ?1 ORDER BY id DESC LIMIT 200)
              ORDER BY id",
             )?;
@@ -435,6 +436,7 @@ impl Store {
                     reply_to_sender: None,
                     ts: r.get(6)?,
                     kind: parse_kind(&r.get::<_, String>(7)?),
+                    sender_principal: r.get(9)?,
                 })
             })?;
             for m in rows {

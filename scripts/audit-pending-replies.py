@@ -41,6 +41,8 @@ def audit(path: Path, identities: list[str], limit: int = 50) -> dict:
                     reason = "relay_retry_pending"
                 elif ("final", "shadow") in own:
                     reason = "shadow_not_sent"
+                elif ("final", "refused") in own:
+                    reason = "relay_refused"
                 elif ("final_suppressed", "suppressed") in own:
                     reason = "final_suppressed"
                 elif ("no_reply", "suppressed") in own:

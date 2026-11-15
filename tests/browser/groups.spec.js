@@ -31,17 +31,13 @@ async function openGroupsTab(page) {
   await expect(page.locator("#groupsPane")).toBeVisible();
 }
 
-/// The names of the locas listed right under a group's sidebar header.
+/// The names of the locas listed on a group's floor in the sidebar.
 async function sidebarGroup(page, group) {
   return page.evaluate((group) => {
-    const heads = [...document.querySelectorAll("#roomList .rgrouphead")];
-    const head = heads.find(h => h.querySelector(".rgroupname")?.textContent === group);
-    if (!head) return null;
-    const rooms = [];
-    for (let el = head.nextElementSibling; el && el.classList.contains("roomitem"); el = el.nextElementSibling) {
-      rooms.push(el.querySelector(".rname")?.textContent);
-    }
-    return rooms;
+    const floors = [...document.querySelectorAll("#roomList details.floor")];
+    const floor = floors.find(f => f.querySelector(":scope > summary .rgroupname")?.textContent === group);
+    if (!floor) return null;
+    return [...floor.querySelectorAll(":scope > .roomitem .rname")].map(r => r.textContent);
   }, group);
 }
 
@@ -175,7 +171,7 @@ test("the Master moves a default loca into a group from This Loca, after seeing 
   await page.evaluate(() => joinRoom("gm-room"));
   await page.evaluate(() => setSidebarView("loca"));
   const summary = page.locator("#locaSummary");
-  await expect(summary).toContainText("Default");
+  await expect(summary).toContainText("Ground floor");
   await summary.locator("[data-loca-group-change]").click();
   await summary.locator("[data-loca-group-target]").selectOption(group.id);
   await expect(summary.locator(".groupmove")).toContainText("1 will lose access:");
@@ -183,7 +179,7 @@ test("the Master moves a default loca into a group from This Loca, after seeing 
   await page.screenshot({ path: test.info().outputPath("group-move-1280.png") });
   // Cancel changes nothing.
   await summary.locator("[data-loca-group-cancel]").click();
-  await expect(summary).toContainText("Default");
+  await expect(summary).toContainText("Ground floor");
   // Move for real.
   await summary.locator("[data-loca-group-change]").click();
   await summary.locator("[data-loca-group-target]").selectOption(group.id);

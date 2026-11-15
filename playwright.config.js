@@ -26,6 +26,9 @@ module.exports = defineConfig({
       "ROOM_TOKEN=building",
       "REQUIRE_SESSIONS=1",
       "LEGACY_WS_QUERY_AUTH=0",
+      // One server for the whole suite: its notification senders must not
+      // meet the default six-per-10-minutes limit (the 429 test fulfils it).
+      "NOTIFICATION_RATE_LIMIT=1000",
       "cargo run --quiet -p server",
     ].join(" "),
     url: `http://127.0.0.1:${port}/health`,

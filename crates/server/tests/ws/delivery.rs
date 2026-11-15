@@ -77,6 +77,9 @@ async fn reply_to_and_typing_flow() {
     let client = reqwest::Client::new();
 
     let mut watcher = connect_ws(port, "general", "watcher", "user").await;
+    // The handshake answers before the server seats the watcher; a reply
+    // posted before then is only in its history, never a live frame.
+    wait_for_member(&client, &base, "general", "watcher", None).await;
 
     // Post a root message, then a reply pointing at it.
     let root: Value = client
@@ -124,6 +127,10 @@ async fn reactions_are_whitelisted_persisted_and_directed_to_message_owner() {
     let client = reqwest::Client::new();
     let mut owner = connect_ws(port, "general", "author", "agent").await;
     let mut reader = connect_ws(port, "general", "reader", "user").await;
+    // Both must be seated (and so subscribed) before the reaction is
+    // broadcast; the handshake alone does not prove it.
+    wait_for_member(&client, &base, "general", "author", None).await;
+    wait_for_member(&client, &base, "general", "reader", None).await;
 
     let message: Value = client
         .post(format!("{base}/rooms/general/messages"))
@@ -436,6 +443,8 @@ async fn a_reply_to_an_unknown_or_cross_room_id_addresses_nobody() {
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let mut watcher = connect_ws(port, "general", "watcher", "user").await;
+    // Seated before anything is posted, so the replies arrive as live frames.
+    wait_for_member(&client, &base, "general", "watcher", None).await;
 
     // A real message, but in ANOTHER room.
     let elsewhere: Value = client
@@ -860,6 +869,10 @@ async fn live_mode_overrides_mention_filter() {
          &filter=mentions&turn_max=1"
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    // The handshake only proves the transport is up. Without waiting for the
+    // room to register bob, the post below can be broadcast before he is
+    // subscribed, and he never receives it: this test then timed out in CI.
+    wait_for_member(&client, &base, "general", "bob", None).await;
 
     // Operator flips the room to live mode.
     let s = client
@@ -899,10 +912,26 @@ async fn live_mode_overrides_mention_filter() {
     client.post(format!("{base}/rooms/general/messages"))
         .json(&serde_json::json!({ "sender": "x", "sender_type": "agent", "target": "bob", "text": "hey bob back to async" }))
         .send().await.unwrap();
-    let addressed = |v: &Value| v["t"] == "msg" && v["message"]["text"] == "hey bob back to async";
-    let f = wait_for(&mut ws, addressed).await;
-    // The frame right before must not have been "async chatter".
-    assert_ne!(f["message"]["text"], "async chatter");
+    // Read every message frame up to the addressed one: the unaddressed
+    // "async chatter" sent before it must not be among them. (Comparing only
+    // the addressed frame's own text proved nothing.)
+    let mut texts = Vec::new();
+    loop {
+        let frame = wait_for(&mut ws, |v: &Value| v["t"] == "msg").await;
+        let text = frame["message"]["text"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let done = text == "hey bob back to async";
+        texts.push(text);
+        if done {
+            break;
+        }
+    }
+    assert!(
+        !texts.iter().any(|text| text == "async chatter"),
+        "with live off, an unaddressed message reached a mentions-only socket: {texts:?}"
+    );
 }
 
 /// The exactly-once promise is not a production-DB accident: local and test
@@ -1082,7 +1111,7 @@ async fn an_announcement_stays_an_announcement() {
             .post(format!("{base}/rooms/general/messages"))
             .json(&serde_json::json!({
                 "sender": "loca-dev", "sender_type": "agent",
-                "text": "skill güncellendi", "kind": "announce"
+                "text": "skill updated", "kind": "announce"
             }))
             .send()
             .await
@@ -1123,7 +1152,7 @@ async fn an_announcement_stays_an_announcement() {
 #[tokio::test]
 async fn a_reconnect_leaves_no_ghost() {
     let (port, _guard) = spawn_server_env("MASTER", &[]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -1132,8 +1161,15 @@ async fn a_reconnect_leaves_no_ghost() {
     // — but if its reader is dead it never does, so the count leaked and the
     // name stuck in the roster forever. Now join() resets the count to one, so
     // no ghost forms in the first place.
-    let a = connect_ws(port, "oda", "reconnector", "agent").await;
-    let mut b = connect_ws(port, "oda", "reconnector", "agent").await;
+    let a = connect_ws(port, "parlor", "reconnector", "agent").await;
+    // The handshake answers before the server seats the connection. Without
+    // this wait the two joins can land in either order: when `a` joins last
+    // it is the live seat, `b` is the evicted one, and forgetting `a` below
+    // leaves the name seated for ever (the test then times out waiting for
+    // it to leave). The first connection must be seated before the second
+    // arrives for "the second evicts the first" to be what is tested.
+    wait_for_member(&client, &base, "parlor", "reconnector", None).await;
+    let mut b = connect_ws(port, "parlor", "reconnector", "agent").await;
     let _ = wait_for(&mut b, |frame| frame["t"] == "history").await;
 
     // The evicted first connection never sends a clean leave (forget its Drop).
@@ -1143,20 +1179,323 @@ async fn a_reconnect_leaves_no_ghost() {
     // Closing the socket schedules cleanup asynchronously. Under a loaded CI
     // runner a fixed sleep races that cleanup, so poll the externally visible
     // invariant within a bounded deadline instead of asserting scheduler speed.
-    wait_for_member_absent(&client, &base, "oda", "reconnector").await;
+    wait_for_member_absent(&client, &base, "parlor", "reconnector").await;
 
     // And kick still removes an entry outright, even a stale one.
-    let mut c = connect_ws(port, "oda", "leftover", "agent").await;
+    let mut c = connect_ws(port, "parlor", "leftover", "agent").await;
     let _ = wait_for(&mut c, |frame| frame["t"] == "history").await;
     std::mem::forget(c); // reader dies without a clean leave
     client
-        .post(format!("{base}/rooms/oda/moderate"))
+        .post(format!("{base}/rooms/parlor/moderate"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "action": "kick", "name": "leftover" }))
         .send()
         .await
         .unwrap();
-    wait_for_member_absent(&client, &base, "oda", "leftover").await;
+    wait_for_member_absent(&client, &base, "parlor", "leftover").await;
+}
+
+/// Frames posted to a loca to put a reader behind: each one is large, and
+/// together they are more than the server can push into one socket whose
+/// client reads nothing, yet fewer than the loca bus holds (256), so none is
+/// dropped as lag.
+const BACKLOG_FRAMES: usize = 200;
+
+/// Open a loca socket whose client keeps a small receive buffer and reads
+/// nothing until the test does. Once a few frames are in flight the server's
+/// writes to it stall, and later frames stay queued on the loca bus for it.
+async fn slow_reader(
+    port: u16,
+    query: &str,
+    credential: &str,
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+    let socket = tokio::net::TcpSocket::new_v4().unwrap();
+    socket.set_recv_buffer_size(4096).unwrap();
+    let stream = socket.connect(([127, 0, 0, 1], port).into()).await.unwrap();
+    let mut request = format!("ws://127.0.0.1:{port}/ws?{query}")
+        .into_client_request()
+        .unwrap();
+    request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("loca.v1, {credential}")).unwrap(),
+    );
+    let (ws, _) =
+        tokio_tungstenite::client_async(request, tokio_tungstenite::MaybeTlsStream::Plain(stream))
+            .await
+            .unwrap();
+    ws
+}
+
+/// Post `BACKLOG_FRAMES` large messages as the master (not rate-limited).
+async fn post_backlog(client: &reqwest::Client, base: &str, room: &str, master: &str) {
+    let filler = "x".repeat(40_000);
+    for i in 0..BACKLOG_FRAMES {
+        client
+            .post(format!("{base}/rooms/{room}/messages"))
+            .header("x-admin-token", master)
+            .json(&serde_json::json!({
+                "sender": "backlog", "sender_type": "agent", "text": format!("{i} {filler}")
+            }))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    }
+}
+
+/// A person taken out of a loca is told so, even when their socket is behind.
+/// Kick, release and invite revocation end the credential and then broadcast
+/// `kicked`. A socket that still had ordinary frames queued used to reach one
+/// of them first, find its credential gone and close without a word: the
+/// browser showed a connection error and the kit a reconnect instead of
+/// "you were removed". The `kicked` frame must arrive, and be the last frame.
+#[tokio::test]
+async fn a_removed_reader_behind_on_frames_still_hears_kicked() {
+    for action in ["kick", "release", "revoke"] {
+        let master = "backlog-master";
+        let (port, _guard) = spawn_server_env(
+            master,
+            &[
+                ("REQUIRE_INVITE", "1".into()),
+                ("LEGACY_WS_QUERY_AUTH", "0".into()),
+            ],
+        )
+        .await;
+        create_test_room(port, master, "backlog-room").await;
+        let base = format!("http://127.0.0.1:{port}");
+        let client = reqwest::Client::new();
+        let invite = invite_for(&base, master, "backlog-room", "behind").await;
+        let mut seat = slow_reader(
+            port,
+            "room=backlog-room&name=behind&type=agent",
+            &format!("loca.room.{invite}"),
+        )
+        .await;
+        wait_for(&mut seat, |v| v["t"] == "history").await;
+
+        post_backlog(&client, &base, "backlog-room", master).await;
+        let response = if action == "revoke" {
+            client
+                .delete(format!(
+                    "{base}/rooms/backlog-room/invites/{}",
+                    invite_ref(&invite)
+                ))
+                .header("x-admin-token", master)
+                .send()
+                .await
+                .unwrap()
+        } else {
+            client
+                .post(format!("{base}/rooms/backlog-room/moderate"))
+                .header("x-admin-token", master)
+                .json(&serde_json::json!({ "action": action, "name": "behind" }))
+                .send()
+                .await
+                .unwrap()
+        };
+        assert!(
+            response.status().is_success(),
+            "{action}: {}",
+            response.status()
+        );
+
+        let heard = read_until_close(&mut seat, action).await;
+        let delivered = heard.iter().filter(|v| v["t"] == "msg").count();
+        assert!(
+            delivered < BACKLOG_FRAMES,
+            "{action}: the socket was never behind, so nothing was tested"
+        );
+        let last = heard.last().map(|v| (&v["t"], &v["name"], &v["banned"]));
+        assert_eq!(
+            last,
+            Some((
+                &Value::from("kicked"),
+                &Value::from("behind"),
+                &Value::from(false)
+            )),
+            "{action}: the last frame must say the person was removed; \
+             {delivered} of {BACKLOG_FRAMES} messages delivered, last frame types: {:?}",
+            heard
+                .iter()
+                .rev()
+                .take(3)
+                .map(|v| v["t"].clone())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            heard.iter().filter(|v| v["t"] == "kicked").count(),
+            1,
+            "{action}: told once"
+        );
+    }
+}
+
+/// Every text frame a socket reads before it closes.
+async fn read_until_close(
+    ws: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    label: &str,
+) -> Vec<Value> {
+    let mut heard = Vec::new();
+    tokio::time::timeout(ASYNC_STATE_HANG_GUARD, async {
+        loop {
+            match ws.next().await {
+                Some(Ok(WsMessage::Text(text))) => {
+                    let value: Value = serde_json::from_str(&text).unwrap();
+                    assert_listed_frame(&value);
+                    heard.push(value);
+                }
+                Some(Ok(WsMessage::Close(_))) | None | Some(Err(_)) => return,
+                Some(Ok(_)) => {}
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{label} must close the loca socket"));
+    heard
+}
+
+/// The other side of the test above: a credential that ends without a
+/// removal (here a session sign-out) still closes a socket that is behind,
+/// before the backlog is through, and tells it of no removal.
+#[tokio::test]
+async fn a_signed_out_reader_behind_on_frames_closes_without_kicked() {
+    let master = "backlog-master";
+    let (port, _guard) = spawn_server_env(master, &[("LEGACY_WS_QUERY_AUTH", "0".into())]).await;
+    create_test_room(port, master, "backlog-room").await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let session = session_with(&base, ("x-admin-token", master), "operator", None).await;
+    let mut seat = slow_reader(
+        port,
+        "room=backlog-room&name=operator&type=user",
+        &format!("loca.session.{session}"),
+    )
+    .await;
+    wait_for(&mut seat, |v| v["t"] == "history").await;
+
+    post_backlog(&client, &base, "backlog-room", master).await;
+    client
+        .delete(format!("{base}/sessions"))
+        .header("x-session-token", &session)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+
+    let heard = read_until_close(&mut seat, "sign-out").await;
+    let delivered = heard.iter().filter(|v| v["t"] == "msg").count();
+    assert!(
+        delivered < BACKLOG_FRAMES,
+        "the socket was never behind, so nothing was tested"
+    );
+    assert!(
+        !heard.iter().any(|v| v["t"] == "kicked"),
+        "a sign-out is not a removal"
+    );
+}
+
+/// An agent that reconnects keeps its seat when the old connection only
+/// notices its end afterwards. Here the old connection is behind on frames
+/// when the new one joins, so the eviction aimed at it waits in its queue; its
+/// client then drops, the server's next write to it fails and it leaves
+/// without ever reading the eviction. That leave used to free the seat the
+/// new connection had just taken: connected and receiving, but missing from
+/// the roster. When the new connection closes the seat is freed (no ghost).
+#[tokio::test]
+async fn a_late_leave_of_the_old_connection_keeps_the_reconnected_seat() {
+    let master = "backlog-master";
+    let (port, _guard) = spawn_server_env(
+        master,
+        &[
+            ("REQUIRE_INVITE", "1".into()),
+            ("LEGACY_WS_QUERY_AUTH", "0".into()),
+        ],
+    )
+    .await;
+    create_test_room(port, master, "backlog-room").await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let invite = invite_for(&base, master, "backlog-room", "reconnector").await;
+    let query = "room=backlog-room&name=reconnector&type=agent";
+    let mut old = slow_reader(port, query, &format!("loca.room.{invite}")).await;
+    wait_for(&mut old, |v| v["t"] == "history").await;
+    post_backlog(&client, &base, "backlog-room", master).await;
+
+    let mut new = connect_ws_protocols(
+        format!("ws://127.0.0.1:{port}/ws?{query}"),
+        &["loca.v1".into(), format!("loca.room.{invite}")],
+    )
+    .await;
+    wait_for(&mut new, |v| v["t"] == "history").await;
+    // Read the new connection past its own join: after this marker the next
+    // roster it hears is the one the old connection's leave sends.
+    client
+        .post(format!("{base}/rooms/backlog-room/messages"))
+        .header("x-admin-token", master)
+        .json(&serde_json::json!({
+            "sender": "backlog", "sender_type": "agent", "text": "marker"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    wait_for(&mut new, |v| {
+        v["t"] == "msg" && v["message"]["text"] == "marker"
+    })
+    .await;
+
+    // The old client goes away with frames still unread: its socket is reset.
+    drop(old);
+    let roster = wait_for(&mut new, |v| v["t"] == "members").await;
+    let seated: Vec<&str> = roster["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["name"].as_str())
+        .collect();
+    assert!(
+        seated.contains(&"reconnector"),
+        "the live connection lost its seat to the old one's leave: {seated:?}"
+    );
+    let members: Vec<Value> = client
+        .get(format!("{base}/rooms/backlog-room/members"))
+        .header("x-room-token", &invite)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        members.iter().any(|m| m["name"] == "reconnector"),
+        "{members:?}"
+    );
+
+    drop(new);
+    tokio::time::timeout(ASYNC_STATE_HANG_GUARD, async {
+        loop {
+            let members: Vec<Value> = client
+                .get(format!("{base}/rooms/backlog-room/members"))
+                .header("x-admin-token", master)
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            if !members.iter().any(|m| m["name"] == "reconnector") {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the seat is freed once its last connection closes");
 }
 
 /// A human may keep the same operator identity open on a laptop and a phone.
@@ -1165,7 +1504,7 @@ async fn a_reconnect_leaves_no_ghost() {
 #[tokio::test]
 async fn the_same_user_can_read_from_two_web_clients_without_reconnect_ping_pong() {
     let (port, _guard) = spawn_server_env("MASTER", &[("LEGACY_WS_QUERY_AUTH", "0".into())]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -1188,7 +1527,7 @@ async fn the_same_user_can_read_from_two_web_clients_without_reconnect_ping_pong
     };
     let laptop_session = new_browser_session().await;
     let phone_session = new_browser_session().await;
-    let url = format!("ws://127.0.0.1:{port}/ws?room=oda&name=operator&type=user");
+    let url = format!("ws://127.0.0.1:{port}/ws?room=parlor&name=operator&type=user");
     let mut laptop = connect_ws_protocols(
         url.clone(),
         &["loca.v1".into(), format!("loca.session.{laptop_session}")],
@@ -1208,7 +1547,7 @@ async fn the_same_user_can_read_from_two_web_clients_without_reconnect_ping_pong
     }
 
     let posted: Value = client
-        .post(format!("{base}/rooms/oda/messages"))
+        .post(format!("{base}/rooms/parlor/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({
             "sender": "debug",
@@ -1236,7 +1575,7 @@ async fn the_same_user_can_read_from_two_web_clients_without_reconnect_ping_pong
 
     drop(laptop);
     let while_phone_remains: Value = client
-        .get(format!("{base}/rooms/oda/members"))
+        .get(format!("{base}/rooms/parlor/members"))
         .send()
         .await
         .unwrap()
@@ -1253,5 +1592,5 @@ async fn the_same_user_can_read_from_two_web_clients_without_reconnect_ping_pong
     );
 
     drop(phone);
-    wait_for_member_absent(&client, &base, "oda", "operator").await;
+    wait_for_member_absent(&client, &base, "parlor", "operator").await;
 }

@@ -16,6 +16,58 @@ pub(super) async fn decoded_room_request(
     ))
 }
 
+/// The one answer for a loca id that names nothing. A direct message or a group loca
+/// the caller may not enter answers exactly this too, at every door (REST and
+/// WebSocket), so neither one's existence leaks (PRINCIPLES "Birebir",
+/// "Groups"). A person who mistyped a loca name learns that it is not there.
+pub(crate) fn no_such_loca() -> axum::response::Response {
+    (
+        StatusCode::NOT_FOUND,
+        "loca does not exist; create it first",
+    )
+        .into_response()
+}
+
+/// Does a closed Building's REST door tell this caller that `room` does not
+/// exist? Either it names nothing (and was never sealed), or it names a
+/// direct message or a group loca the caller may not enter. Both are decided here,
+/// together, after the same work whichever is true: every lookup runs
+/// whatever the id names, so neither the answer nor the time it takes tells
+/// a hidden loca from nothing, and the direct message and group fences behind this
+/// gate have no hidden loca left to refuse.
+pub(crate) fn rest_sees_nothing(
+    hub: &Hub,
+    room: &str,
+    headers: &HeaderMap,
+    session: Option<&hub::SessionIdentity>,
+) -> bool {
+    let private = hub.private_loca_decision(
+        room,
+        admin_token_of(headers),
+        member_token_of(headers),
+        session,
+    );
+    let exists = hub.room_exists(room);
+    let sealed = hub.is_deleted(room);
+    (!exists && !sealed) || private.is_some_and(|decision| !decision.is_allowed())
+}
+
+/// The same question at the WebSocket door, asked before anything else
+/// there reads the loca id: the id names nothing, or a direct message or group
+/// loca the caller may not enter. (A group member the loca banned is still
+/// answered 403 by the door decision after it, as before.)
+pub(crate) fn socket_sees_nothing(
+    hub: &Hub,
+    room: &str,
+    admin_tok: Option<&str>,
+    invite_tok: Option<&str>,
+    session: Option<&hub::SessionIdentity>,
+) -> bool {
+    let private = hub.private_loca_decision(room, admin_tok, invite_tok, session);
+    let exists = hub.room_exists(room);
+    !exists || private == Some(hub::EnterDecision::Denied)
+}
+
 pub(crate) fn valid_identity_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     !bytes.is_empty()
@@ -79,7 +131,7 @@ pub(crate) fn member_token_of(headers: &HeaderMap) -> Option<&str> {
 /// a handler that takes `RoomAccess` only runs when the caller may enter this
 /// loca, so a route can never forget its gate (the copied `may_enter_room`
 /// `if`s were exactly that failure — six read routes had none, leaking one
-/// loca's mode/settings/bans/notes/tasks to any other loca's davet holder).
+/// loca's mode/settings/bans/notes/tasks to any other loca's invite holder).
 ///
 /// It runs the same single decision (`enter_decision`) and adds the tombstone
 /// check, so a sealed loca is never reached through the front door either.
@@ -145,6 +197,7 @@ pub(crate) fn is_public_path(path: &str) -> bool {
     path == "/"
         || path.starts_with("/assets/")
         || path == "/PRINCIPLES.md"
+        || path == "/PRINCIPLES.tr.md"
         || path == "/PRINCIPLES.en.md"
         // The Getting Started guide links this one doc for the full setup
         // walkthrough, so it must be publicly readable like PRINCIPLES (it is
@@ -161,6 +214,8 @@ pub(crate) fn is_public_path(path: &str) -> bool {
         || path.starts_with("/downloads/skills/")
         || path == "/sessions"
         || path == "/membership/claim"
+        // The claim's ACK carries the same invite and claim id as the claim.
+        || path == "/membership/claim/ack"
         // Join requests are authless BY DESIGN: an outsider creates one, polls it,
         // and bootstraps the issued mb_ with only the per-request secret — none of
         // which is a Building credential. The admin-only sub-routes (GET list,
@@ -198,16 +253,17 @@ pub(crate) async fn require_membership(
         return (StatusCode::UNAUTHORIZED, "credential revoked").into_response();
     }
     // A session token also proves membership (it was issued against one).
-    let has_session = headers
+    // Kept: the loca door below decides with this same identity.
+    let session = headers
         .get(SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
-        .map(|t| hub.session_identity(Some(t)).is_some())
-        .unwrap_or(false);
-    // A davet is loca-scoped, so this blanket gate cannot judge it — it only
+        .and_then(|t| hub.session_identity(Some(t)));
+    let has_session = session.is_some();
+    // An invite is loca-scoped, so this blanket gate cannot judge it — it only
     // waves the holder through to the handler, whose `RoomAccess` extractor
-    // knows which loca is being entered. Holding *some* davet gets you off the
+    // knows which loca is being entered. Holding *some* invite gets you off the
     // street; it does not get you into any particular loca.
-    let holds_davet = hub.is_invite_token(member_token_of(headers));
+    let holds_invite = hub.is_invite_token(member_token_of(headers));
     // A smaster acts with the master's reach, so the building key is not their
     // door — their own key is. Without this they are turned away at the street
     // before any handler can recognise them.
@@ -218,7 +274,7 @@ pub(crate) async fn require_membership(
     let is_legacy_smaster = hub.smaster_name(admin_token_of(headers)).is_some();
     // A permanent mb_ credential is a building membership too. `is_member`
     // below is the legacy building-key check; using only that check made
-    // `/whoami` reject a perfectly healthy lobby-only agent in davet mode,
+    // `/whoami` reject a perfectly healthy lobby-only agent in invite mode,
     // even though the handler itself knows how to describe that member.
     let holds_membership = hub
         .member_for_credential(member_token_of(headers))
@@ -226,7 +282,7 @@ pub(crate) async fn require_membership(
     if holds_membership
         || hub.is_member(member_token_of(headers))
         || has_session
-        || holds_davet
+        || holds_invite
         || has_principal_authority
         || is_legacy_smaster
     {
@@ -241,13 +297,9 @@ pub(crate) async fn require_membership(
             };
             if params
                 .get("id")
-                .is_some_and(|room| !hub.room_exists(room) && !hub.is_deleted(room))
+                .is_some_and(|room| rest_sees_nothing(&hub, room, &parts.headers, session.as_ref()))
             {
-                return (
-                    StatusCode::NOT_FOUND,
-                    "loca does not exist; create it first",
-                )
-                    .into_response();
+                return no_such_loca();
             }
             return next
                 .run(axum::extract::Request::from_parts(parts, body))
@@ -255,8 +307,16 @@ pub(crate) async fn require_membership(
         }
         return next.run(req).await;
     }
+    // The member's own live key, refused only because the Master suspended
+    // the membership: say so (`/whoami` included), as the Lobby door does.
+    if hub.credential_of_suspended_member(member_token_of(headers)) {
+        return (StatusCode::FORBIDDEN, "membership suspended").into_response();
+    }
     (StatusCode::UNAUTHORIZED, "davet required").into_response()
 }
+
+#[cfg(test)]
+mod same_work;
 
 #[cfg(test)]
 mod tests {

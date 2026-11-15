@@ -60,11 +60,13 @@ async function pollNotifications() {
     const query = n.loaded
       ? `?since=${n.newest}${n.catchup ? `&before=${n.catchup.before}` : ""}`
       : "?limit=30";
+    const session = state.session;
     const r = await fetch(`${serverBase()}/notifications${query}`, { headers: adminHeaders({}) });
     if (stale()) return;
     if (!r.ok) {
-      // No person behind this credential (a bare davet, a dev door): no bell.
-      if (r.status === 401) { n.loaded = false; n.unread = 0; n.denied = true; renderNotifBell(); }
+      // No person behind this credential (a bare invite, a dev door): no bell.
+      // A 401 for a session replaced since says nothing about the new one.
+      if (r.status === 401 && session === state.session) { n.loaded = false; n.unread = 0; n.denied = true; renderNotifBell(); }
       return;
     }
     n.denied = false;
@@ -108,8 +110,8 @@ function renderNotifBell() {
   badge.classList.toggle("hidden", unread === 0);
   bell.setAttribute("aria-label", unread ? `Notifications, ${unread} unread` : "Notifications");
   bell.dataset.tipDetail = unread
-    ? `${unread} unread. Announcements from the Master and your groups' Smasters.`
-    : "Announcements from the Master and your groups' Smasters.";
+    ? `${unread} unread. Announcements from the Master and your floors' Smasters.`
+    : "Announcements from the Master and your floors' Smasters.";
   // The phone's closed drawer hides the bell; a dot on the menu toggle says
   // there is something to read without adding a button to the top bar.
   document.body.classList.toggle("notif-unread", unread > 0);
@@ -128,7 +130,7 @@ function notifAudienceLabel(a) {
   if (!a) return "";
   if (a.all) return "everyone";
   const groups = (a.groups || []).map(g => typeof g === "string" ? g : g.name).filter(Boolean);
-  return groups.length ? groups.join(", ") : "your group";
+  return groups.length ? groups.join(", ") : "your floor";
 }
 
 function ensureNotifPanel() {

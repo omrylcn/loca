@@ -309,8 +309,8 @@ function addMsg(m) {
     quote = `<div class="quote" data-goto="${m.reply_to}">↩ ${esc(q.sender)}: ${esc(q.text.slice(0, 70))}</div>`;
   }
   let source = m.text;
-  // In a birebir every word is to the other side; saying so on each line is noise.
-  if (m.target && m.target !== "all" && !isBirebir(m.room) && !m.text.includes("@" + m.target)) {
+  // In a direct message every word is to the other side; saying so on each line is noise.
+  if (m.target && m.target !== "all" && !isDm(m.room) && !m.text.includes("@" + m.target)) {
     source = `@${m.target} ${source}`;
   }
   const txt = renderChatMarkdown(source);
@@ -326,7 +326,7 @@ function addMsg(m) {
     <div class="bubble${mentionsMe && !mine ? " mentioned" : ""}">
       <div class="line">
         <span class="glyph ${m.sender_type}">${glyph}</span>
-        <span class="sender ${m.sender_type}">${esc(m.sender)}</span><span class="roletags" data-sender="${esc(m.sender)}">${roleTagsFor(m.sender)}</span>
+        <span class="sendercard" data-writer="${esc(m.sender_principal || "")}">${senderCardHtml(m.sender_principal)}</span><span class="sender ${m.sender_type}">${esc(m.sender)}</span><span class="roletags" data-sender="${esc(m.sender)}" data-writer="${esc(m.sender_principal || "")}">${roleTagsFor(m.sender, m.sender_principal)}</span>
         <span class="time" title="${esc(fmtFull(m.ts))}">${time}</span>
       </div>${quote}
       <div class="body markdown chatmarkdown">${txt}</div>
@@ -383,12 +383,13 @@ async function fetchAttachmentBlob(room, id) {
 // Open an attachment in a new tab, then revoke its URL after the tab has had
 // time to load it, so an opened file is never held for the process lifetime.
 function openAttachment(room, a) {
+  const gen = state.buildingGen;
   fetchAttachmentBlob(room, a.id)
     .then((url) => {
       window.open(url, "_blank", "noopener");
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     })
-    .catch(() => addSys(`could not open ${a.name || "attachment"}`));
+    .catch(() => { if (!buildingStale(gen)) addSys(`could not open ${a.name || "attachment"}`); });
 }
 function attachmentChip(room, a) {
   const btn = document.createElement("button");
@@ -399,6 +400,7 @@ function attachmentChip(room, a) {
   btn.setAttribute("aria-label", `Download ${a.name || "attachment"}`);
   btn.addEventListener("click", async () => {
     btn.disabled = true;
+    const gen = state.buildingGen;
     try {
       const url = await fetchAttachmentBlob(room, a.id);
       const link = document.createElement("a");
@@ -409,7 +411,7 @@ function attachmentChip(room, a) {
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (_) {
-      addSys(`could not download ${a.name || "attachment"}`);
+      if (!buildingStale(gen)) addSys(`could not download ${a.name || "attachment"}`);
     } finally {
       btn.disabled = false;
     }
@@ -497,21 +499,53 @@ function scrollFeed(force) {
   if (force) { setTimeout(toBottom, 60); setTimeout(toBottom, 250); }
 }
 // The titles a sender wears at this table, shown on every line they write:
-// operator (appointed, or the Master by rank) and lead. A birebir has none.
-function roleTagsFor(name) {
-  if (!name || isBirebir(state.room)) return "";
+// Building rank, operator and lead. Operator is a seat a person is appointed
+// to here; the Master holds its authority everywhere by rank, not by
+// appointment (PRINCIPLES), so the Master's lines wear "Master", and
+// "operator" only where the Master is the one appointed. A direct message has none.
+//
+// A rank is tied to the writer the server recorded on the line
+// (`sender_principal`), never to the name: a name can be worn by someone else
+// later, and a line by whoever wore it before must not gain that person's
+// rank or seat. A line nobody verified wears neither. The Master is the
+// principal the operators answer names; a Smaster is known while it is seated
+// here (the roster carries its principal and rank); the Operator is the
+// principal appointed. Lead is a name in the loca's settings, and is matched
+// as one.
+function roleTagsFor(name, writer) {
+  if (!name || isDm(state.room)) return "";
   const op = state.locaOperator;
-  const isOperator = name === op?.appointed?.display_name || name === op?.building_master?.display_name;
+  const rank = !writer ? undefined
+    : writer === op?.building_master?.principal_id ? "master"
+    : (state.members || []).find(m => m.principal_id === writer)?.role;
+  const isOperator = !!writer && writer === op?.appointed?.principal_id;
   const isLead = state.settings?.lead === name;
-  return (isOperator ? `<span class="optag" title="loca operator">operator</span>` : "")
+  return rankBadge(rank)
+    + (isOperator ? `<span class="optag" title="appointed loca operator">operator</span>` : "")
     + (isLead ? `<span class="leadtag" title="loca lead">lead</span>` : "");
 }
 
-// Titles change after lines were drawn (the operator or the lead loads, or
-// changes): relabel what is already in the feed.
+// The operator and lead of a loca arrive after its history is drawn (and can
+// change while it is open): relabel the lines already on screen.
 function refreshSenderTags() {
   for (const el of document.querySelectorAll("#feed .roletags[data-sender]")) {
-    el.innerHTML = roleTagsFor(el.dataset.sender);
+    el.innerHTML = roleTagsFor(el.dataset.sender, el.dataset.writer || "");
+  }
+}
+
+// A writer's icon and full name, before the @name on every line they wrote.
+// Keyed by the writer the server recorded (`sender_principal`), never by the
+// name: a line nobody verified shows its plain name, whoever wears it now.
+function senderCardHtml(writer) {
+  const card = writer && typeof personCardById === "function" ? personCardById(writer) : null;
+  if (!card) return "";
+  return profileIconSvg(card.icon) + (card.full_name ? `<bdi class="fullname">${esc(card.full_name)}</bdi>` : "");
+}
+
+// The roster or a directory changed: redraw the cards already in the feed.
+function refreshSenderCards() {
+  for (const el of document.querySelectorAll("#feed .sendercard[data-writer]")) {
+    el.innerHTML = senderCardHtml(el.dataset.writer);
   }
 }
 

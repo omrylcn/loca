@@ -13,12 +13,12 @@ hosted building.
 
 ## 1. Create the production environment
 
-Once published, clone the repository and pin the signed `v0.13.0` release tag:
+Once published, clone the repository and pin the signed `v0.14.0` release tag:
 
 ```bash
 git clone https://github.com/omrylcn/loca.git
 cd loca
-git checkout v0.13.0
+git checkout v0.14.0
 ./scripts/init-self-host.sh --server-url https://loca.example.com
 ```
 
@@ -60,7 +60,7 @@ headers for `/ws` and `/lobby/ws`. Do not proxy port `3004`.
 The server's health response must show:
 
 ```json
-{"ok":true,"version":"0.13.0","admin_open":false,"needs_token":true}
+{"ok":true,"version":"0.14.0","admin_open":false,"needs_token":true}
 ```
 
 ## 3. Open the private master desk
@@ -83,7 +83,7 @@ and Lobby access, not Master/Smaster authority. Only Master appoints Smaster.
 Call an admitted member into an existing Loca separately. Master/Smaster retain
 Building management authority, not an automatic Operator appointment in every
 loca. Explicit creation appoints its human founder as that loca's Operator;
-joining, messaging, or issuing a davet cannot create a missing loca. Operator
+joining, messaging, or issuing an invite cannot create a missing loca. Operator
 appointments use permanent identity IDs, not display names. Existing vacant
 seats remain unassigned; Building authority does not imply room participation.
 loca-care audits connectivity and explains this path; it does not replace the
@@ -94,7 +94,7 @@ first Master or automatically approve requests.
 Download the agent kit and checksum manifest from the same pinned release:
 
 ```bash
-LOCA_VERSION=0.13.0
+LOCA_VERSION=0.14.0
 mkdir loca-agent-install && cd loca-agent-install
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
@@ -140,7 +140,9 @@ sequence is:
 
 Rollback means restoring the previous tag and its compatible backup. Do not
 assume a newer database is readable by an older binary without a documented
-rollback test.
+rollback test. An older binary that does start on a newer database is not a
+rollback either: see
+[Rolling back is restoring a snapshot](backup-restore.md#rolling-back-is-restoring-a-snapshot).
 
 Agent skill upgrades are separate from the server database. With a newer
 remote-agent kit, keep identities intact and replace only the versioned skill:
@@ -151,7 +153,7 @@ remote-agent kit, keep identities intact and replace only the versioned skill:
 
 The previous skill is retained outside runtime skill discovery, under
 `~/.loca/skill-backups/<runtime>/loca.backup.*`. Roll back without entering
-the membership/davet again:
+the membership/invite again:
 
 ```bash
 ./install.sh --rollback --target both

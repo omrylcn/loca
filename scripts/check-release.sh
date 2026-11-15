@@ -91,6 +91,27 @@ if [ -f "$RELEASE_WORKFLOW" ]; then
   fi
 fi
 
+# The desktop test build (no release) must build the packages exactly as the
+# release does: the marked build steps, the tauri-action pin, the baked server
+# and the flavor arguments are compared line for line.
+DESKTOP_RELEASE="$ROOT/.github/workflows/desktop-release.yml"
+DESKTOP_TEST_BUILD="$ROOT/.github/workflows/desktop-test-build.yml"
+if [ -f "$DESKTOP_TEST_BUILD" ]; then
+  desktop_build_steps() {
+    awk '/# >>> desktop build steps/ { on = 1 } on { print } /# <<< desktop build steps/ { on = 0 }' "$1"
+    grep -E 'uses: tauri-apps/tauri-action@|LOCA_DEFAULT_SERVER:' "$1"
+    awk '/^[[:space:]]+args: >-[[:space:]]*$/ { left = 4 } left > 0 { print; left-- }' "$1"
+  }
+  release_steps=$(desktop_build_steps "$DESKTOP_RELEASE")
+  test_steps=$(desktop_build_steps "$DESKTOP_TEST_BUILD")
+  if ! grep -q '# <<< desktop build steps' <<<"$release_steps" \
+    || [ "$release_steps" != "$test_steps" ]; then
+    echo "desktop-test-build.yml must build exactly as desktop-release.yml (marked steps, tauri-action, LOCA_DEFAULT_SERVER, args):" >&2
+    diff <(printf '%s\n' "$release_steps") <(printf '%s\n' "$test_steps") >&2 || true
+    exit 1
+  fi
+fi
+
 if [ -n "$TAG" ] && [ "$TAG" != "v$VERSION" ]; then
   echo "tag $TAG does not match canonical version v$VERSION" >&2
   exit 1

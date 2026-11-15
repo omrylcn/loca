@@ -99,6 +99,7 @@
      Started "?" reachable there so the guide can be reopened before connecting. */
   body.locked .side h1 #helpBtn { display: inline-block; }
   body.locked .conn { border-bottom: 0; padding: 14px 18px 18px; }
+  .signintitle { margin: 2px 0 4px; font-size: 15px; font-weight: 700; color: var(--txt); letter-spacing: .2px; }
   .doorline { padding: 0 18px 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
   body:not(.locked) .doorline { display: none; }
   a { color: var(--accent2); }
@@ -174,7 +175,8 @@
   .profilemenu > summary:hover, .profilemenu > summary:focus-visible { background: color-mix(in srgb, var(--panel) 72%, transparent); outline: none; }
   .profilechevron { margin-left: auto; color: var(--dim); font-size: 18px; line-height: 1; transition: transform .15s ease; }
   .profilemenu[open] .profilechevron { transform: rotate(90deg); color: var(--accent2); }
-  .profilepanel { position: absolute; top: calc(100% + 7px); left: 10px; right: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); box-shadow: 0 14px 40px rgba(0,0,0,.42); }
+  .profilepanel { position: absolute; top: calc(100% + 7px); left: 10px; right: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); box-shadow: 0 14px 40px rgba(0,0,0,.42);
+    max-height: calc(100vh - 130px); overflow-y: auto; }
   .profilepanelhead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   .profilepanelhead > span { color: var(--text); font-weight: 700; }
   .profilepanelhead small, .profileconnected, .profileempty { color: var(--dim); font-size: 9px; }
@@ -212,16 +214,19 @@
   .credentialsecret b { display: block; color: var(--warn); font-size: 9px; }
   .credentialsecret code { display: block; margin: 4px 0; color: var(--text); font-size: 8px; overflow-wrap: anywhere; user-select: all; }
   .credentialsecret button { padding: 2px 6px; font-size: 8px; }
-  .conn .leavebtn { margin-top: 14px; padding: 7px 10px; background: transparent;
+  /* Sign out, at the foot of the account menu (profile.js). */
+  .profilesignout { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .profilesignout .leavebtn { width: 100%; padding: 7px 10px; background: transparent;
     border: 1px solid rgba(255,107,107,.35); color: var(--muted);
     border-radius: 7px; font: 11px var(--mono); cursor: pointer; }
-  .conn .leavebtn:hover { color: var(--bad); border-color: var(--bad); }
+  .profilesignout .leavebtn:hover { color: var(--bad); border-color: var(--bad); }
   .leaveconfirm { margin-top: 8px; padding: 9px; border: 1px solid rgba(255,107,107,.35);
-    border-radius: 7px; color: var(--txt); font-size: 11px; text-align: center; }
+    border-radius: 7px; color: var(--txt); font-size: 10px; line-height: 1.45; text-align: center; }
   .leaveconfirm .choices { display: flex; gap: 7px; margin-top: 7px; }
-  .conn .leaveconfirm button { margin: 0; padding: 6px; flex: 1; font: 700 10px var(--mono); }
-  .conn .leaveconfirm .no { background: var(--panel2); color: var(--txt); border: 1px solid var(--line); }
-  .conn .leaveconfirm .yes { background: var(--bad); color: #2a0e0e; }
+  .leaveconfirm button { margin: 0; padding: 6px; flex: 1; border-radius: 6px; cursor: pointer; font: 700 10px var(--mono); }
+  .leaveconfirm .no { background: var(--panel2); color: var(--txt); border: 1px solid var(--line); }
+  .leaveconfirm .yes { background: var(--bad); color: #2a0e0e; border: 0; }
+  .profileserver span { overflow-wrap: anywhere; }
   body.locked .leavebtn { display: none; }
   /* An announcement is not a turn in the conversation — give it a shape that
      survives a fast-scrolling room. */
@@ -457,24 +462,24 @@
   .substatus .typ { color: var(--accent); }
   .tabs { display: flex; align-items: center; gap: 3px; margin-left: auto; background: var(--panel2);
     border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
-  /* Sekme etiketi ve nokta FLEX cocugu olarak ortalanir; satir kutusuna
-     (baseline/strut) hic bagli degil. Onceki halde Chat'te nokta YOKTU,
-     otekilerde vardi: satir ici bir inline-block'un baseline'a gore
-     hizalanmasi motordan motora degisir, bu yuzden Chromium'da hizali
-     gorunen sekmeler WebKit tabanli masaustu (Tauri) surumde kayabiliyordu.
-     `font` kisayolu line-height'i `normal`e sifirladigi icin yukseklik de
-     yazi tipinin metriklerine kaliyordu. 14px, Chromium'un bu yazi tipi
-     icin `normal`den urettigi degerin AYNISI: gorunum degismiyor, yalniz
-     motora gore degismesi engelleniyor. */
+  /* The tab label and the dot are centred as FLEX children; they do not depend
+     on the line box (baseline/strut) at all. Before, Chat had NO dot,
+     the others did: how an inline inline-block aligns to the baseline
+     differs from engine to engine, which is why tabs that looked aligned in Chromium
+     could shift in the WebKit-based desktop (Tauri) build.
+     Because the `font` shorthand reset line-height to `normal`, the height too
+     was left to the font's metrics. 14px is EXACTLY the value Chromium derives
+     from `normal` for this font: nothing looks different, only
+     the engine-to-engine difference is prevented. */
   .tab { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 4px 12px;
     white-space: nowrap;
     border-radius: 6px; font: 12px var(--mono); line-height: 14px;
     display: inline-flex; align-items: center; justify-content: center; }
   .tab.active { background: var(--panel); color: var(--txt); box-shadow: inset 0 0 0 1px var(--line); }
-  /* Flex cocugu oldugu icin flex: 0 0 auto — aksi halde daralan sekmede
-     kuculup noktayi ovalligini kaybettirebilir. visibility:hidden korunur:
-     nokta gorunmezken de YER TUTAR, boylece nokta yandiginda sekme
-     genisligi ZIPLAMAZ. */
+  /* Being a flex child it gets flex: 0 0 auto — otherwise in a narrowing tab
+     it could shrink and lose its roundness. visibility:hidden is kept:
+     the hidden dot STILL KEEPS ITS PLACE, so when the dot lights up the tab's
+     width does NOT JUMP. */
   .tab .dot { flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
     margin-left: 5px; visibility: hidden; }
   .tab .dot.on { visibility: visible; }
@@ -1014,6 +1019,28 @@
 .gsmore summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .gsmore[open] summary { color: var(--txt); }
 .gsmore p { margin-top: 6px; }
+/* The map in Getting Started (index.html #gsMap). The block between the two
+   "concepts map" lines is the style element of docs/concepts-at-a-glance.svg,
+   character for character (test_concepts_figure.py). */
+/* concepts map: begin */
+.locamap .lm-bg { fill: var(--panel, #ffffff); }
+.locamap text { font-family: var(--mono, ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace); font-size: 11px; fill: var(--txt, #1a1f27); }
+.locamap .lm-h { font-weight: 700; fill: var(--accent, #00766b); }
+.locamap .lm-b { font-weight: 700; }
+.locamap .lm-box { fill: none; stroke: var(--muted, #4a5568); stroke-width: 1; }
+.locamap .lm-building { stroke-width: 2; }
+.locamap .lm-lobby { stroke-dasharray: 2 3; }
+.locamap .lm-floor { stroke-dasharray: 7 4; }
+.locamap .lm-loca { stroke-width: 1.5; }
+.locamap .lm-arrow { fill: none; stroke: var(--muted, #4a5568); stroke-width: 1.5; }
+.locamap .lm-tip { fill: var(--muted, #4a5568); }
+/* concepts map: end */
+.gsmap { margin: 0 0 12px; }
+.gsmap svg { display: block; width: 100%; max-width: 360px; height: auto; margin: 0 auto; }
+.gsmap figcaption { margin-top: 8px; color: var(--muted); font-size: 12px; text-align: center; }
+.gsmapwords ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+.gsmapwords li { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.gsmapwords li b { color: var(--txt); font-weight: 600; }
 .gspath { margin: 8px 0; padding: 7px 9px; font-family: var(--mono); font-size: 11px; color: var(--accent2); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; white-space: nowrap; }
 .gspath.hidden { display: none; }
 .gserror { margin: 8px 0; padding: 7px 9px; font-size: 11px; color: #ffb4a2; background: rgba(255,107,107,.08); border: 1px solid rgba(255,107,107,.3); border-radius: 6px; }
@@ -1060,7 +1087,7 @@
     outline: 1px solid var(--accent); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { .tip { animation: none; } .livebadge { animation: none; } }
 
-  /* Birebir (birebir.js): Messages in the sidebar, the privacy bar above the
+  /* Direct message (dm.js): Messages in the sidebar, the privacy bar above the
      composer, and the Master's existence-only list in the Building view. */
   .dmsection { margin-top: 14px; }
   .buildingview .rooms.dmsection { flex: 0 0 auto; max-height: 32vh; min-height: 0; }
@@ -1072,19 +1099,19 @@
     padding: 0; margin-left: 4px; background: none; border: 1px solid transparent; border-radius: 6px;
     color: var(--muted); cursor: pointer; flex: 0 0 auto; }
   .dmbtn:hover, .dmbtn:focus-visible { color: var(--accent); border-color: var(--line); }
-  .birebirbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  .dmbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
     margin: 0 16px 8px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 9px;
     background: var(--panel2); color: var(--muted); font-size: 12px; }
-  .birebirbar b { color: var(--txt); font-weight: 600; }
-  .birebirbar .bbacts { display: flex; gap: 6px; flex-wrap: wrap; }
-  .main.birebir .tabs, .main.birebir .roomprops, .main.birebir #liveToggle,
-  .main.birebir #adminToggle, .main.birebir #leadKey, .main.birebir #leadSelect,
-  .main.birebir #seatToggle, .main.birebir #target, .main.birebir #hint,
-  .main.birebir #stopBtn { display: none !important; }
-  .main.birebir .top .rname::before { content: "@ "; }
-  .main.global .birebirbar { display: none !important; }
-  .birebiroverview { margin: 18px 0 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); }
-  .birebiroverview.hidden { display: none; }
+  .dmbar b { color: var(--txt); font-weight: 600; }
+  .dmbar .bbacts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .main.dm .tabs, .main.dm .roomprops, .main.dm #liveToggle,
+  .main.dm #adminToggle, .main.dm #leadKey, .main.dm #leadSelect,
+  .main.dm #seatToggle, .main.dm #target, .main.dm #hint,
+  .main.dm #stopBtn { display: none !important; }
+  .main.dm .top .rname::before { content: "@ "; }
+  .main.global .dmbar { display: none !important; }
+  .dmoverview { margin: 18px 0 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--panel); }
+  .dmoverview.hidden { display: none; }
   .bbhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-bottom: 6px; }
   .bbhead span { color: var(--muted); }
   .bbhead small { flex-basis: 100%; color: var(--muted); font-size: 11px; }
@@ -1246,9 +1273,9 @@
 .wikiprimary { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .profileroles b.building-master { color: var(--master); }
 .profileroles b.building-smaster { color: var(--smaster); }
-.conn .leavebtn { border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+.profilesignout .leavebtn { border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
 .leaveconfirm { border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
-.conn .leaveconfirm .yes { color: var(--on-bad); }
+.leaveconfirm .yes { color: var(--on-bad); }
 .leadtag { background: color-mix(in srgb, var(--gold) 18%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 62%, transparent); color: var(--gold-txt); }
 .leadtag::before { color: var(--gold); }
 .omem.is-lead { background: linear-gradient(90deg, color-mix(in srgb, var(--gold) 22%, transparent), color-mix(in srgb, var(--gold) 4%, transparent) 82%); box-shadow: inset 3px 0 var(--gold); }
@@ -1339,8 +1366,41 @@
 :root[data-font-size="large"] .line .sender { font-size: 13px; }
 :root[data-font-size="large"] .note .nbody { font-size: 14px; }
 :root[data-font-size="large"] .wikibody { font-size: 17px; }
+/* Small and larger text: the same reading surfaces, one step either side. */
+:root[data-font-size="small"] .body, :root[data-font-size="small"] .row .txt,
+:root[data-font-size="small"] .composer textarea#msg { font-size: 12px; }
+:root[data-font-size="small"] .line .sender { font-size: 11px; }
+:root[data-font-size="small"] .note .nbody { font-size: 11px; }
+:root[data-font-size="small"] .wikibody { font-size: 14px; }
+:root[data-font-size="larger"] .body, :root[data-font-size="larger"] .row .txt,
+:root[data-font-size="larger"] .composer textarea#msg { font-size: 17px; }
+:root[data-font-size="larger"] .line .sender { font-size: 15px; }
+:root[data-font-size="larger"] .note .nbody { font-size: 16px; }
+:root[data-font-size="larger"] .wikibody { font-size: 19px; }
+/* Spacious density: the compact rules' mirror, more air in the same places. */
+:root[data-density="spacious"] .rooms { padding: 12px 0; }
+:root[data-density="spacious"] .roomitem { min-height: 56px; }
+:root[data-density="spacious"] .room { padding: 14px 12px 14px 13px; }
+:root[data-density="spacious"] .rlabel { padding: 9px 16px; }
+:root[data-density="spacious"] .omem { padding: 6px 16px; }
+:root[data-density="spacious"] .feed { padding: 20px 28px 12px; gap: 12px; }
+:root[data-density="spacious"] .bubble { padding: 10px 15px 9px; }
+:root[data-density="spacious"] .composer { padding: 13px 15px; }
+/* Font family. --mono is the app's one type token (the name predates the
+   choice); a choice swaps its face. Every face is already on the device:
+   no download, no external request (the CSP allows none). */
+:root {
+  --font-mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+}
+:root[data-font-family="sans"] { --mono: var(--font-sans); }
+:root[data-font-family="serif"] { --mono: var(--font-serif); }
+/* Commands and paths stay monospace whatever the face. */
+.gscard code, .gspath { font-family: var(--font-mono); }
 @media (max-width: 760px) {
   :root[data-density="compact"] .feed { padding-inline: 10px; }
+  :root[data-density="spacious"] .feed { padding-inline: 12px; }
 }
 /* Appearance block in the profile menu: real radios, styled as chips. */
 .profileappearance { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); display: grid; gap: 5px; }
@@ -1367,6 +1427,12 @@
 :root[data-theme="light"] .swatch.rose { --sw: #c02460; }
 .visuallyhidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
   overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.appearanceopt > span.fontface.mono { font-family: var(--font-mono); }
+.appearanceopt > span.fontface.sans { font-family: var(--font-sans); }
+.appearanceopt > span.fontface.serif { font-family: var(--font-serif); }
+/* The sample uses the chat's own rules; only its frame is fitted here. */
+.appearancepreview { font-size: 13px; line-height: 1.6; min-width: 0; }
+.appearancepreview .bubble { max-width: 100%; }
 .appearancestatus { color: var(--bad); font-size: 9px; min-height: 0; }
 .appearancestatus:empty { display: none; }
 /* The closed off-canvas sidebar keeps no shadow: on the light theme it would
@@ -1377,7 +1443,7 @@
 /* The sign-in card floats on a light page: a softer shadow keeps its edge. */
 :root[data-theme="light"] body.locked .side { box-shadow: 0 16px 48px rgba(16,24,40,.14); }
 
-  /* New private message (birebir.js): + beside MESSAGES and a person picker. */
+  /* New private message (dm.js): + beside MESSAGES and a person picker. */
   .rlabel.dmhead { display: flex; align-items: center; justify-content: space-between; }
   .dmnew { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0;
     background: none; border: 1px solid transparent; border-radius: 6px; color: var(--muted); cursor: pointer; }
@@ -1401,7 +1467,7 @@
     color: var(--accent2); border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
     background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .optag::before { content: "▲"; font-size: 7px; }
-  .roletags .leadtag { margin-left: 0; }
+  .roletags .leadtag, .roletags .rankbadge { margin-left: 0; }
 
   /* Groups (groups.js): the Groups tab, the People group column and filter,
      the sidebar group headers, the create choice and a person's card. */
@@ -1441,6 +1507,17 @@
     font-size: 10px; letter-spacing: .1em; text-transform: uppercase; border-top: 1px solid var(--line); }
   .rgroupname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rgroupcount { color: var(--dim); letter-spacing: 0; }
+  /* A floor of "Your Locas": its heading opens and closes it. */
+  .floor > summary.rgrouphead { list-style: none; cursor: pointer; user-select: none; }
+  .floor > summary.rgrouphead::-webkit-details-marker { display: none; }
+  .floor > summary.rgrouphead::before { content: "▸"; color: var(--dim); font-size: 9px; width: 8px;
+    transition: transform .12s ease; }
+  .floor[open] > summary.rgrouphead::before { transform: rotate(90deg); }
+  .floor > summary.rgrouphead:hover { color: var(--txt); }
+  .floor > summary.rgrouphead .unreadbadge { min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex;
+    align-items: center; justify-content: center; border-radius: 9px; background: var(--accent);
+    color: var(--on-accent, #06231d); font: 800 9px/1 var(--mono); letter-spacing: 0; }
+  #roomList > .floor:first-child > summary.rgrouphead { border-top: 0; }
   .extfield select { box-sizing: border-box; width: 100%; background: var(--panel); border: 1px solid var(--line);
     color: var(--txt); border-radius: 7px; padding: 7px 10px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
   .extfield select:focus { outline: none; border-color: var(--accent); }
@@ -1568,3 +1645,94 @@
   @media (prefers-reduced-motion: reduce) { .notiftoast { animation: none; } }
   .notifitem.sent .notiftitle { font-weight: 600; color: var(--txt); }
   .notifitem.sent .notifbody { color: var(--txt); }
+
+  /* A loca's identity (identity.js): its mark (icon in its colour) beside
+     its name, its description, its labels, and the identity fields of the
+     create / Loca identity panel. The palette is Okabe–Ito: a bright shade
+     for the dark theme and a deep one for the light theme, each at least
+     3:1 against the panels; the icon carries the meaning too. */
+  [data-loca-color="orange"] { --loca-c: #e69f00; }
+  [data-loca-color="sky"] { --loca-c: #56b4e9; }
+  [data-loca-color="green"] { --loca-c: #2bb38a; }
+  [data-loca-color="yellow"] { --loca-c: #f0e442; }
+  [data-loca-color="blue"] { --loca-c: #4d8fd1; }
+  [data-loca-color="vermillion"] { --loca-c: #e0712a; }
+  [data-loca-color="purple"] { --loca-c: #cc79a7; }
+  :root[data-theme="light"] [data-loca-color="orange"] { --loca-c: #8f5500; }
+  :root[data-theme="light"] [data-loca-color="sky"] { --loca-c: #1b6fa8; }
+  :root[data-theme="light"] [data-loca-color="green"] { --loca-c: #00704f; }
+  :root[data-theme="light"] [data-loca-color="yellow"] { --loca-c: #6b6200; }
+  :root[data-theme="light"] [data-loca-color="blue"] { --loca-c: #0b3d8c; }
+  :root[data-theme="light"] [data-loca-color="vermillion"] { --loca-c: #a84300; }
+  :root[data-theme="light"] [data-loca-color="purple"] { --loca-c: #8e4577; }
+  .locamark { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; align-self: center;
+    width: 18px; height: 18px; border-radius: 5px; color: var(--loca-c, var(--muted));
+    background: color-mix(in srgb, var(--loca-c, var(--muted)) 16%, transparent);
+    font: 700 11px/1 var(--mono); }
+  .top .locamark { width: 24px; height: 24px; border-radius: 7px; font-size: 13px; }
+  .room .rrow > .locamark + .rname::before, .top .rname.marked::before { content: ""; }
+  .main.global .top .locamark { display: none !important; }
+  .main.global .top .rname.marked::before { content: ""; }
+  /* Shown only where there is room: it gives way before the mode detail. */
+  .roomdesc { flex: 0 1000 auto; min-width: 0; max-width: 360px; color: var(--muted); font-size: 10px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 1360px) { .roomdesc { display: none; } }
+  .locaident { margin-top: 8px; padding-top: 7px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .locadesc { margin: 6px 0 0; color: var(--txt); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+  .locadesc.empty { color: var(--dim); font-size: 10px; }
+  .locaseats { display: block; margin-top: 6px; color: var(--dim); font-size: 10px; }
+  /* A label is not a badge: square corners, a dashed outline, plain case,
+     regular weight, no fill. Rank and role badges are rounded, filled or
+     solid, bold and upper-case. */
+  .localabels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .localabel { display: inline-block; max-width: 100%; padding: 0 5px; border: 1px dashed var(--line); border-radius: 2px;
+    color: var(--muted); background: transparent; font: 400 10px/1.6 var(--mono); text-transform: none; letter-spacing: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .identfields { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+  .extfield textarea { box-sizing: border-box; width: 100%; resize: vertical; min-height: 44px; background: var(--panel);
+    border: 1px solid var(--line); color: var(--txt); border-radius: 7px; padding: 8px 10px; font: 12px/1.45 var(--mono); }
+  .extfield textarea:focus { outline: none; border-color: var(--accent); }
+  .extfield input:disabled, .extfield textarea:disabled { opacity: .7; }
+  .identcount { align-self: flex-end; color: var(--dim); font-size: 9px; }
+  .identrow { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; }
+  .identnote { color: var(--dim); font-size: 10px; line-height: 1.4; margin-top: -4px; }
+  .identpick { margin: 0; padding: 0; border: 0; min-width: 0; }
+  .identpick legend { padding: 0; margin-bottom: 5px; color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+  .identopts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .identopt { position: relative; display: inline-flex; cursor: pointer; }
+  .identopt input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+  .identopt .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .identswatch { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; box-sizing: border-box;
+    border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--loca-c, var(--txt));
+    font: 600 12px var(--mono); }
+  .identswatch.none { color: var(--dim); }
+  .identdot { width: 14px; height: 14px; border-radius: 50%; background: var(--loca-c); }
+  .identopt input:checked + .identswatch { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+  .identopt input:focus-visible + .identswatch { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .identopt input:disabled + .identswatch { opacity: .55; cursor: default; }
+  .identopt input:disabled:checked + .identswatch { opacity: 1; }
+  @media (max-width: 520px) { .identswatch { width: 34px; height: 34px; } }
+/* ── full name and profile icon (people.js personLabelHtml) ─────────────
+   The full name leads; the @name stays beside it, quieter but always there.
+   Icons are line glyphs in the text colour, sized to the text. */
+.picon { width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -0.15em; margin-right: 4px;
+  fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+bdi.fullname { unicode-bidi: isolate; font-weight: inherit; }
+.atname { color: var(--dim); font-weight: 400; font-size: .9em; }
+.line .sendercard { display: inline-flex; align-items: baseline; gap: 0; color: inherit; font-weight: 700; }
+.line .sendercard:empty { display: none; }
+.line .sendercard bdi.fullname { color: var(--txt); white-space: nowrap; }
+/* With a full name the @name reads as the address it is. */
+.line .sendercard:has(bdi.fullname) + .sender { font-weight: 400; color: var(--dim); }
+.line .sendercard:has(bdi.fullname) + .sender::before { content: "@"; }
+.mentionpop bdi.fullname { color: inherit; opacity: .8; font-weight: 400; margin-left: 4px; }
+.profileicons { margin-top: 6px; }
+.iconopt > span { min-width: 26px; justify-content: center; }
+.iconopt .picon { margin-right: 0; }
+.profilecardhint { font-size: 9px; color: var(--dim); margin-top: 4px; }
+/* In a narrow row the full name gives way first: the @name is never cut. */
+.omem .oname:has(bdi.fullname), .pnamebtn:has(bdi.fullname) { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; }
+.oname bdi.fullname, .pnamebtn bdi.fullname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oname .atname, .pnamebtn .atname, .oname .picon, .pnamebtn .picon { flex: 0 0 auto; }
+.profilecard label.iconopt { text-transform: none; letter-spacing: 0; color: inherit; font-size: inherit; }

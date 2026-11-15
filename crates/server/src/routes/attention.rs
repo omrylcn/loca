@@ -75,7 +75,7 @@ pub(crate) async fn claim_attention(
     Json(body): Json<AttentionAction>,
 ) -> impl IntoResponse {
     // Attention ownership deliberately crosses the privacy boundary for the
-    // selected caretaker: loca-care receives a bounded envelope in İye and
+    // selected caretaker: loca-care receives a bounded envelope in Care and
     // must be able to claim it without gaining read access to the source loca.
     // The Hub still enforces exact owner identity; no source data is returned.
     if hub.is_deleted(&id) {

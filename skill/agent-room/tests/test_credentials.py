@@ -2,6 +2,7 @@ import importlib.util
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -140,7 +141,7 @@ class CredentialSelectionTests(unittest.TestCase):
             self.assertIn("credential configuration error", result.stderr)
             self.assertNotIn("Traceback", result.stderr)
 
-    def test_revoked_davet_is_distinct_from_a_transient_session_failure(self):
+    def test_revoked_invite_is_distinct_from_a_transient_session_failure(self):
         with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
             write_env(
                 tmp,
@@ -160,6 +161,108 @@ class CredentialSelectionTests(unittest.TestCase):
                     listen.renew_session(
                         "wss://loca.example/ws?room=project&name=worker"
                     )
+
+    def test_each_loca_presents_the_session_minted_for_it(self):
+        # One listener process, two locas. A session minted from a loca's
+        # invite opens that loca only, and the env file has one LOCA_SESSION
+        # slot. When both renew, each must still present its own session:
+        # presenting the other's is refused, which makes it renew again and
+        # overwrite the slot for the other, for as long as the two stay in
+        # step (seen as a 60 s livelock in test_session_expiry_e2e).
+        with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
+            write_env(
+                tmp,
+                "worker.env",
+                ROOM_SERVER_URL="https://loca.example",
+                LOCA_NAME="worker",
+                DAVET_alpha="dv_alpha",
+                DAVET_beta="dv_beta",
+                LOCA_SESSION="sess_from_file",
+            )
+            credentials.load_local_env("worker")
+            self.addCleanup(listen.ROOM_SESSIONS.clear)
+            listen.ROOM_SESSIONS.clear()
+
+            def mint(request, timeout=None):
+                loca = json.loads(request.data.decode())["loca"]
+                self.assertEqual(request.get_header("X-room-token"), f"dv_{loca}")
+                return io.BytesIO(json.dumps({"session_token": f"sess_{loca}"}).encode())
+
+            # Before either has renewed, both present what the file held.
+            self.assertIn("loca.session.sess_from_file", listen.room_protocols("alpha"))
+            with mock.patch.object(listen.urllib.request, "urlopen", side_effect=mint), \
+                    mock.patch.object(listen.sys, "stderr", io.StringIO()):
+                listen.renew_session("wss://loca.example/ws?room=alpha&name=worker")
+                listen.renew_session("wss://loca.example/ws?room=beta&name=worker")
+            self.assertIn("loca.session.sess_alpha", listen.room_protocols("alpha"))
+            self.assertIn("loca.session.sess_beta", listen.room_protocols("beta"))
+            self.assertNotIn("loca.session.sess_beta", listen.room_protocols("alpha"))
+
+            # A fresh invite for a loca discards that loca's session only.
+            with mock.patch.object(listen.sys, "stderr", io.StringIO()):
+                self.assertTrue(listen.store_room_invite("alpha", "dv_alpha_new"))
+            self.assertFalse(
+                any(p.startswith("loca.session.") for p in listen.room_protocols("alpha"))
+            )
+            self.assertIn("loca.session.sess_beta", listen.room_protocols("beta"))
+            # A seat the server no longer lists takes its session with it.
+            with mock.patch.object(listen.sys, "stderr", io.StringIO()):
+                listen.drop_unlisted_room_invites(["alpha"])
+            self.assertFalse(
+                any(p.startswith("loca.session.") for p in listen.room_protocols("beta"))
+            )
+
+    def test_a_renewal_answered_after_the_invite_changed_is_discarded(self):
+        # The invite is replaced, or the seat removed, while POST /sessions is
+        # out. The answer is a session of the seat that is gone: it must not
+        # be kept for the loca nor written to the shared slot or the env file.
+        for change in ("replaced", "removed"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as tmp, \
+                    isolated_environment(tmp):
+                identity = write_env(
+                    tmp,
+                    "worker.env",
+                    ROOM_SERVER_URL="https://loca.example",
+                    LOCA_NAME="worker",
+                    DAVET_alpha="dv_alpha",
+                    DAVET_beta="dv_beta",
+                )
+                credentials.load_local_env("worker")
+                self.addCleanup(listen.ROOM_SESSIONS.clear)
+                listen.ROOM_SESSIONS.clear()
+                stderr = io.StringIO()
+
+                def mint(request, timeout=None):
+                    loca = json.loads(request.data.decode())["loca"]
+                    if loca == "alpha":
+                        if change == "replaced":
+                            self.assertTrue(listen.store_room_invite("alpha", "dv_alpha_new"))
+                        else:
+                            listen.clear_room_invite("alpha", "dv_alpha")
+                    return io.BytesIO(
+                        json.dumps({"session_token": f"sess_{loca}_old_seat"}).encode()
+                    )
+
+                with mock.patch.object(listen.urllib.request, "urlopen", side_effect=mint), \
+                        mock.patch.object(listen.sys, "stderr", stderr):
+                    renewed = listen.renew_session(
+                        "wss://loca.example/ws?room=alpha&name=worker"
+                    )
+                self.assertIsNone(renewed)
+                self.assertIn("discarded", stderr.getvalue())
+                self.assertNotIn(listen.room_env_key("alpha"), listen.ROOM_SESSIONS)
+                self.assertNotIn("LOCA_SESSION", os.environ)
+                self.assertNotIn("sess_alpha_old_seat", identity.read_text(encoding="utf-8"))
+                self.assertFalse(
+                    any(p.startswith("loca.session.") for p in listen.room_protocols("alpha"))
+                )
+                # The other loca is untouched and still renews normally.
+                with mock.patch.object(listen.urllib.request, "urlopen", side_effect=mint), \
+                        mock.patch.object(listen.sys, "stderr", io.StringIO()):
+                    self.assertIsNotNone(
+                        listen.renew_session("wss://loca.example/ws?room=beta&name=worker")
+                    )
+                self.assertIn("loca.session.sess_beta_old_seat", listen.room_protocols("beta"))
 
     def test_shell_metacharacters_in_env_are_literal_and_never_execute(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -227,7 +330,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 ROOM_SERVER_URL="https://loca.example",
                 LOCA_NAME="sb-feature",
                 LOCA_SESSION="session-feature",
-                DAVET_sb_mobile="davet-feature",
+                DAVET_sb_mobile="invite-feature",
             )
             os.environ["LOCA_NAME"] = "inherited-other-agent"
             os.environ["DAVET_general"] = "inherited-wrong"
@@ -240,7 +343,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
             self.assertNotIn("DAVET_general", os.environ)
             self.assertNotIn("LOCA_MEMBERSHIP", os.environ)
             self.assertEqual(
-                credentials.token_for_room("sb-mobile"), "davet-feature"
+                credentials.token_for_room("sb-mobile"), "invite-feature"
             )
 
     def test_default_identity_mismatch_fails_instead_of_impersonating(self):
@@ -262,7 +365,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 "sb-feature.env",
                 ROOM_SERVER_URL="https://loca.example",
                 LOCA_NAME="sb-feature",
-                DAVET_sb_mobile="davet-feature",
+                DAVET_sb_mobile="invite-feature",
             )
             credentials.load_local_env("sb-feature")
             credentials.validate_server_scope("wss://loca.example/ws")
@@ -277,7 +380,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 ROOM_SERVER_URL="https://loca.example",
                 LOCA_NAME="sb-feature",
                 LOCA_SESSION="session-feature",
-                DAVET_sb_mobile="davet-feature",
+                DAVET_sb_mobile="invite-feature",
             )
             clean = (
                 "wss://loca.example/ws?"
@@ -292,7 +395,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 listen.room_protocols("sb-mobile"),
                 [
                     "loca.v1",
-                    "loca.room.davet-feature",
+                    "loca.room.invite-feature",
                     "loca.session.session-feature",
                 ],
             )
@@ -316,7 +419,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
             self.assertNotIn("turn_max", query)
             self.assertNotIn("turn_wait_ms", query)
 
-    def test_listener_rest_helpers_use_local_davet_after_url_auth_removal(self):
+    def test_listener_rest_helpers_use_local_invite_after_url_auth_removal(self):
         with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
             write_env(
                 tmp,
@@ -381,6 +484,30 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
         self.assertIs(delivery["event"], event)
         self.assertEqual(len(delivery["event"]["messages"]), 2)
 
+    @staticmethod
+    def _fake_server(answers, calls):
+        """A stand-in for the server's claim, ACK and /whoami, by URL path.
+        `answers` maps an invite to its claim answer; every call is recorded."""
+        keys = {}
+
+        def http(method, url, headers=None, body=None):
+            headers = headers or {}
+            path = url.split("443", 1)[1]
+            calls.append((method, url, dict(headers)))
+            token = headers.get("x-room-token")
+            if path == "/membership/claim":
+                code, answer = answers[token]
+                if code in (200, 201):
+                    keys[answer["membership_token"]] = answer["name"]
+                return code, json.dumps(answer)
+            if path == "/membership/claim/ack":
+                return 200, json.dumps({"acknowledged": True})
+            if path == "/whoami" and token in keys:
+                return 200, json.dumps({"kind": "member", "name": keys[token]})
+            return 401, "{}"
+
+        return http
+
     def test_listener_claims_and_persists_the_lobby_membership(self):
         with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
             identity = write_env(
@@ -388,29 +515,22 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 "worker.env",
                 ROOM_SERVER_URL="https://loca.example",
                 LOCA_NAME="worker",
-                DAVET_project_x="davet-worker",
+                DAVET_project_x="invite-worker",
             )
             credentials.load_local_env("worker")
+            calls = []
+            answers = {
+                "invite-worker": (
+                    201,
+                    {"membership_token": "mb_worker", "name": "worker",
+                     "kind": "agent", "ack_required": True},
+                ),
+            }
+            import join_request
 
-            class Response(io.BytesIO):
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, *_):
-                    return False
-
-            response = Response(
-                json.dumps(
-                    {
-                        "membership_token": "mb_worker",
-                        "name": "worker",
-                        "kind": "agent",
-                    }
-                ).encode()
-            )
             with mock.patch.object(
-                listen.urllib.request, "urlopen", return_value=response
-            ) as opened:
+                join_request, "http", self._fake_server(answers, calls)
+            ):
                 claimed = listen.claim_membership(
                     "wss://loca.example/ws?room=project-x&name=worker"
                 )
@@ -421,13 +541,18 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 "LOCA_MEMBERSHIP=mb_worker",
                 identity.read_text(encoding="utf-8"),
             )
-            request = opened.call_args.args[0]
+            claim = [c for c in calls if c[1].endswith("/membership/claim")]
+            ack = [c for c in calls if c[1].endswith("/membership/claim/ack")]
             self.assertEqual(
-                request.full_url, "https://loca.example:443/membership/claim"
+                claim[0][1], "https://loca.example:443/membership/claim"
             )
-            self.assertEqual(request.get_header("X-room-token"), "davet-worker")
+            self.assertEqual(claim[0][2]["x-room-token"], "invite-worker")
+            claim_id = claim[0][2]["x-claim-id"]
+            self.assertRegex(claim_id, r"^cl_[A-Za-z0-9_-]{43}$")
+            self.assertEqual([c[2]["x-claim-id"] for c in ack], [claim_id])
+            self.assertFalse((Path(tmp) / ".loca" / "worker.claim").exists())
 
-    def test_listener_skips_a_stale_davet_when_claiming_membership(self):
+    def test_listener_skips_a_stale_invite_when_claiming_membership(self):
         with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
             identity = write_env(
                 tmp,
@@ -438,43 +563,74 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 DAVET_sb_mobile="dv_live",
             )
             credentials.load_local_env("sb-feature")
+            calls = []
+            answers = {
+                "dv_stale": (401, {}),
+                "dv_live": (
+                    201,
+                    {"membership_token": "mb_feature", "name": "sb-feature",
+                     "kind": "agent", "ack_required": True},
+                ),
+            }
+            import join_request
 
-            class Response(io.BytesIO):
-                def __enter__(self):
-                    return self
-
-                def __exit__(self, *_):
-                    return False
-
-            live = Response(
-                json.dumps(
-                    {
-                        "membership_token": "mb_feature",
-                        "name": "sb-feature",
-                        "kind": "agent",
-                    }
-                ).encode()
-            )
             with mock.patch.object(
-                listen.urllib.request,
-                "urlopen",
-                side_effect=[RuntimeError("HTTP 401"), live],
-            ) as opened:
+                join_request, "http", self._fake_server(answers, calls)
+            ):
                 claimed = listen.claim_membership(
                     "wss://loca.example/ws?room=sb-mobile&name=sb-feature"
                 )
 
             self.assertEqual(claimed, "mb_feature")
-            self.assertEqual(opened.call_count, 2)
             attempted = [
-                call.args[0].get_header("X-room-token")
-                for call in opened.call_args_list
+                c[2]["x-room-token"]
+                for c in calls
+                if c[1].endswith("/membership/claim")
             ]
             self.assertEqual(attempted, ["dv_stale", "dv_live"])
             self.assertIn(
                 "LOCA_MEMBERSHIP=mb_feature",
                 identity.read_text(encoding="utf-8"),
             )
+
+    def test_a_listener_restarted_after_a_lost_answer_asks_for_the_same_key(self):
+        with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
+            write_env(
+                tmp,
+                "worker.env",
+                ROOM_SERVER_URL="https://loca.example",
+                LOCA_NAME="worker",
+                DAVET_project_x="invite-worker",
+            )
+            credentials.load_local_env("worker")
+            calls = []
+            answers = {"invite-worker": (502, {})}
+            import join_request
+
+            with mock.patch.object(
+                join_request, "http", self._fake_server(answers, calls)
+            ):
+                self.assertIsNone(
+                    listen.claim_membership(
+                        "wss://loca.example/ws?room=project-x&name=worker"
+                    )
+                )
+                answers["invite-worker"] = (
+                    200,
+                    {"membership_token": "mb_worker", "name": "worker",
+                     "kind": "agent", "ack_required": True},
+                )
+                self.assertEqual(
+                    listen.claim_membership(
+                        "wss://loca.example/ws?room=project-x&name=worker"
+                    ),
+                    "mb_worker",
+                )
+            claim_ids = [
+                c[2]["x-claim-id"] for c in calls if c[1].endswith("/membership/claim")
+            ]
+            self.assertEqual(len(claim_ids), 2)
+            self.assertEqual(len(set(claim_ids)), 1, "the restart resumed the set-up")
 
     def test_a_stale_release_cannot_erase_a_newer_lobby_call(self):
         with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
@@ -501,7 +657,57 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 identity.read_text(encoding="utf-8"),
             )
 
-    def test_lobby_call_replaces_davet_and_discards_old_scoped_session(self):
+    def test_a_release_landing_inside_a_lobby_call_cannot_erase_the_fresh_invite(self):
+        """The room thread forgets the ended invite while the Lobby thread is
+        between writing the fresh one to the file and taking it into
+        ``os.environ``.  The file must still hold the fresh invite: the running
+        process would otherwise go on working and lose its seat on restart."""
+        import threading
+
+        with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
+            identity = write_env(
+                tmp,
+                "worker.env",
+                ROOM_SERVER_URL="https://loca.example",
+                LOCA_NAME="worker",
+                LOCA_MEMBERSHIP="mb_worker",
+                DAVET_project_x="dv_old",
+            )
+            credentials.load_local_env("worker")
+
+            real_update = listen.update_env_values
+            release = []
+
+            def update_then_let_the_release_in(path, updates):
+                real_update(path, updates)
+                if updates.get("DAVET_project_x") == "dv_new" and not release:
+                    # The fresh invite is in the file and not yet in os.environ.
+                    thread = threading.Thread(
+                        target=listen.clear_room_invite,
+                        args=("project-x", "dv_old"),
+                    )
+                    release.append(thread)
+                    thread.start()
+                    # Unguarded code finishes its clear well inside this wait;
+                    # guarded code is still waiting for the Lobby thread.
+                    thread.join(2)
+
+            with mock.patch.object(
+                listen, "update_env_values", update_then_let_the_release_in
+            ):
+                self.assertTrue(listen.store_room_invite("project-x", "dv_new"))
+                self.assertEqual(len(release), 1, "the release never ran")
+                release[0].join(10)
+                self.assertFalse(release[0].is_alive(), "the release never finished")
+
+            self.assertEqual(os.environ.get("DAVET_project_x"), "dv_new")
+            self.assertIn(
+                "DAVET_project_x=dv_new",
+                identity.read_text(encoding="utf-8"),
+                "the release erased the fresh invite from the file",
+            )
+
+    def test_lobby_call_replaces_invite_and_discards_old_scoped_session(self):
         with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
             identity = write_env(
                 tmp,
@@ -522,7 +728,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
             self.assertIn("DAVET_project_x=dv_new", saved)
             self.assertNotIn("LOCA_SESSION=", saved)
 
-    def test_lobby_snapshot_removes_only_server_absent_local_davets(self):
+    def test_lobby_snapshot_removes_only_server_absent_local_invites(self):
         with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
             identity = write_env(
                 tmp,
@@ -598,6 +804,150 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 identity.read_text(encoding="utf-8"),
             )
 
+    def _reconcile_with_whoami(self, tmp, outcome):
+        """Run /whoami reconciliation with one canned outcome.
+
+        Returns ``(removed, kept_intact)``; never exposes an invite value, so
+        a failure message cannot print one.
+        """
+        identity = write_env(
+            tmp,
+            "worker.env",
+            ROOM_SERVER_URL="https://loca.example",
+            LOCA_NAME="worker",
+            LOCA_MEMBERSHIP="mb_synthetic_worker",
+            DAVET_project_x="dv_synthetic_keep_x",
+            DAVET_sb_dev="dv_synthetic_keep_dev",
+        )
+        credentials.load_local_env("worker")
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        if isinstance(outcome, BaseException):
+            patch = {"side_effect": outcome}
+        else:
+            patch = {"return_value": Response(outcome)}
+        stderr = io.StringIO()
+        with mock.patch.object(listen.urllib.request, "urlopen", **patch), \
+                mock.patch.object(listen.sys, "stderr", stderr):
+            removed = listen.reconcile_room_invites(
+                "wss://loca.example/lobby/ws", "mb_synthetic_worker"
+            )
+        saved = identity.read_text(encoding="utf-8")
+        kept_intact = (
+            os.environ.get("DAVET_project_x") == "dv_synthetic_keep_x"
+            and os.environ.get("DAVET_sb_dev") == "dv_synthetic_keep_dev"
+            and "DAVET_project_x=dv_synthetic_keep_x" in saved
+            and "DAVET_sb_dev=dv_synthetic_keep_dev" in saved
+        )
+        self.assertFalse(
+            any(secret in stderr.getvalue() for secret in (
+                "mb_synthetic_worker", "dv_synthetic_keep_x", "dv_synthetic_keep_dev"
+            )),
+            "reconciliation diagnostics must not print a membership or invite",
+        )
+        return removed, kept_intact
+
+    def test_whoami_reconciliation_keeps_invites_through_transport_failures(self):
+        failures = {
+            "timeout": socket.timeout("timed out"),
+            "connection reset": ConnectionResetError("reset by peer"),
+            "5xx": listen.HTTPError(
+                "https://loca.example:443/whoami", 503, "unavailable", {}, None
+            ),
+            "unparsable body": b"<html>bad gateway</html>",
+            "truncated body": b'{"kind": "member", "locas": ["sb-d',
+        }
+        for label, outcome in failures.items():
+            with self.subTest(failure=label), tempfile.TemporaryDirectory() as tmp, \
+                    isolated_environment(tmp):
+                removed, kept_intact = self._reconcile_with_whoami(tmp, outcome)
+                self.assertEqual(removed, [])
+                self.assertTrue(kept_intact, f"{label} deleted a kept invite")
+
+    def test_whoami_reconciliation_keeps_invites_on_incomplete_member_answers(self):
+        answers = {
+            "no locas": {"kind": "member", "name": "worker"},
+            "locas null": {"kind": "member", "name": "worker", "locas": None},
+            "locas object": {"kind": "member", "locas": {"sb-dev": True}},
+            "not a member": {"kind": "session", "locas": []},
+            "no kind": {"locas": []},
+        }
+        for label, answer in answers.items():
+            with self.subTest(answer=label), tempfile.TemporaryDirectory() as tmp, \
+                    isolated_environment(tmp):
+                removed, kept_intact = self._reconcile_with_whoami(
+                    tmp, json.dumps(answer).encode()
+                )
+                self.assertEqual(removed, [])
+                self.assertTrue(kept_intact, f"{label} deleted a kept invite")
+
+    def test_whoami_reconciliation_rejects_a_body_that_is_not_an_object(self):
+        for label, body in {"list": [], "string": "member", "null": None}.items():
+            with self.subTest(body=label), tempfile.TemporaryDirectory() as tmp, \
+                    isolated_environment(tmp):
+                removed, kept_intact = self._reconcile_with_whoami(
+                    tmp, json.dumps(body).encode()
+                )
+                self.assertEqual(removed, [])
+                self.assertTrue(kept_intact, f"{label} body deleted a kept invite")
+
+    def test_whoami_reconciliation_rejects_loca_entries_that_are_not_names(self):
+        answers = {
+            "null entry": [None],
+            "number entry": [7, "sb-dev"],
+            "empty name": ["", "sb-dev"],
+            "object entry": [{"room": "project-x"}, "sb-dev"],
+        }
+        for label, locas in answers.items():
+            with self.subTest(locas=label), tempfile.TemporaryDirectory() as tmp, \
+                    isolated_environment(tmp):
+                removed, kept_intact = self._reconcile_with_whoami(
+                    tmp,
+                    json.dumps({"kind": "member", "locas": locas}).encode(),
+                )
+                self.assertEqual(removed, [])
+                self.assertTrue(kept_intact, f"{label} deleted a kept invite")
+
+    def test_invite_id_matches_the_server_derivation(self):
+        # Expected value computed independently of Python's hashlib:
+        #   printf '%s' 'invite:dv_synthetic_vector_0001' | sha256sum | cut -c1-32
+        # The derivation is the server's `invite_management_id`
+        # (crates/server/src/hub.rs) over `store::hashed_id` (store.rs).
+        self.assertEqual(
+            listen.invite_management_id("dv_synthetic_vector_0001"),
+            "ivid_8f9b089836861ab5924a97e66a895fef",
+        )
+
+    def test_seat_snapshot_accepts_extra_fields_and_rejects_incomplete_lists(self):
+        self.assertEqual(
+            listen.parse_seat_snapshot(
+                [{"room": "sb-dev", "invite_id": "ivid_a", "since": 1}]
+            ),
+            {"sb-dev": "ivid_a"},
+        )
+        self.assertEqual(listen.parse_seat_snapshot([]), {})
+        secret = "dv_synthetic_must_not_echo"
+        for seats in (
+            None,
+            {"sb-dev": "ivid_a"},
+            [secret],
+            [{"room": "sb-dev"}],
+            [{"invite_id": "ivid_a"}],
+            [{"room": "", "invite_id": "ivid_a"}],
+            [{"room": "sb-dev", "invite_id": 7}],
+            [{"room": secret, "invite_id": "ivid_a"},
+             {"room": secret, "invite_id": "ivid_b"}],
+        ):
+            with self.assertRaises(ValueError) as caught:
+                listen.parse_seat_snapshot(seats)
+            self.assertNotIn(secret, str(caught.exception))
+
     def test_lobby_full_snapshot_replaces_same_room_token_and_stale_rooms_atomically(self):
         with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
             identity = write_env(
@@ -640,33 +990,33 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
             self.assertEqual(os.environ["LOCA_SESSION"], "live-session")
             self.assertIn("LOCA_SESSION=live-session", identity.read_text())
 
-    def test_bot_defaults_to_per_loca_davet(self):
+    def test_bot_defaults_to_per_loca_invite(self):
         with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
             write_env(
                 tmp,
                 "sb-feature.env",
                 ROOM_SERVER_URL="https://loca.example",
                 LOCA_NAME="sb-feature",
-                DAVET_sb_mobile="davet-feature",
+                DAVET_sb_mobile="invite-feature",
             )
             bot_args = bot.parse_args(
                 ["--name", "sb-feature", "--room", "sb-mobile"]
             )
             self.assertEqual(bot_args.server, "https://loca.example")
-            self.assertEqual(bot_args.token, "davet-feature")
+            self.assertEqual(bot_args.token, "invite-feature")
 
     @unittest.skipIf(
         AGENTD is None,
         "generic-command adapter is outside the standalone skill installation",
     )
-    def test_generic_adapter_defaults_to_per_loca_davet(self):
+    def test_generic_adapter_defaults_to_per_loca_invite(self):
         with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp):
             write_env(
                 tmp,
                 "sb-feature.env",
                 ROOM_SERVER_URL="https://loca.example",
                 LOCA_NAME="sb-feature",
-                DAVET_sb_mobile="davet-feature",
+                DAVET_sb_mobile="invite-feature",
             )
             adapter_args = AGENTD.parse_args(
                 [
@@ -679,7 +1029,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 ]
             )
             self.assertEqual(adapter_args.server, "https://loca.example")
-            self.assertEqual(adapter_args.token, "davet-feature")
+            self.assertEqual(adapter_args.token, "invite-feature")
 
     def test_connect_sh_uses_named_file_and_never_prints_its_secret(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -695,7 +1045,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 "sb-feature.env",
                 ROOM_SERVER_URL="https://loca.example",
                 LOCA_NAME="sb-feature",
-                DAVET_sb_mobile="TOP-SECRET-DAVET",
+                DAVET_sb_mobile="TOP-SECRET-INVITE",
             )
             env = {
                 "HOME": tmp,
@@ -718,7 +1068,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
             output = result.stdout + result.stderr
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("credential server mismatch", output)
-            self.assertNotIn("TOP-SECRET-DAVET", output)
+            self.assertNotIn("TOP-SECRET-INVITE", output)
 
     def test_connect_sh_refuses_default_file_for_another_named_agent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -755,7 +1105,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 ROOM_SERVER_URL="https://loca.example",
                 LOCA_NAME="worker",
                 LOCA_SESSION="session-worker",
-                DAVET_reviewer="davet-worker",
+                DAVET_reviewer="invite-worker",
             )
             fake_bin = Path(tmp) / "bin"
             fake_bin.mkdir()
@@ -802,7 +1152,7 @@ printf '{"id":1,"room":"reviewer","sender":"worker"}\\n201'
             self.assertEqual(body["reply_to"], 103)
             self.assertEqual(body["text"], "done")
 
-    def test_release_uses_named_davet_and_clears_only_local_seat_credentials(self):
+    def test_release_uses_named_invite_and_clears_only_local_seat_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
             identity = write_env(
                 tmp,
@@ -810,8 +1160,8 @@ printf '{"id":1,"room":"reviewer","sender":"worker"}\\n201'
                 ROOM_SERVER_URL="https://loca.example",
                 LOCA_NAME="worker",
                 LOCA_SESSION="stale-session",
-                DAVET_project_x="TOP-SECRET-DAVET",
-                DAVET_other="keep-this-davet",
+                DAVET_project_x="TOP-SECRET-INVITE",
+                DAVET_other="keep-this-invite",
             )
             fake_bin = Path(tmp) / "bin"
             fake_bin.mkdir()
@@ -844,20 +1194,20 @@ printf '500'
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("membership stays in lobby", result.stdout)
-            self.assertNotIn("TOP-SECRET-DAVET", result.stdout + result.stderr)
+            self.assertNotIn("TOP-SECRET-INVITE", result.stdout + result.stderr)
             saved = identity.read_text(encoding="utf-8")
             self.assertNotIn("DAVET_project_x=", saved)
             self.assertNotIn("LOCA_SESSION=", saved)
-            self.assertIn("DAVET_other=keep-this-davet", saved)
+            self.assertIn("DAVET_other=keep-this-invite", saved)
 
-    def test_setup_rejects_bad_davet_before_writing_named_identity(self):
+    def test_setup_rejects_bad_invite_before_writing_named_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             write_env(
                 tmp,
                 "env",
                 ROOM_SERVER_URL="https://loca.example",
                 LOCA_NAME="cyber",
-                DAVET_general="cyber-davet",
+                DAVET_general="cyber-invite",
             )
             fake_bin = Path(tmp) / "bin"
             fake_bin.mkdir()
@@ -884,7 +1234,7 @@ exit 1
                     "HOME": tmp,
                     "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
                 },
-                input="bad-davet\n",
+                input="bad-invite\n",
                 text=True,
                 capture_output=True,
                 timeout=5,

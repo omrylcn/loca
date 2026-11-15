@@ -106,7 +106,7 @@ async fn moderation_preserves_superior_decisions_across_restart() {
 }
 
 #[tokio::test]
-async fn moderation_and_opaque_revoke_cannot_end_a_superior_davet() {
+async fn moderation_and_opaque_revoke_cannot_end_a_superior_invite() {
     let (_dir, port, _guard) = setup().await;
     let base = format!("http://127.0.0.1:{port}");
     let (smaster, member) = moderation_fixture(&base).await;
@@ -158,7 +158,7 @@ async fn moderation_and_opaque_revoke_cannot_end_a_superior_davet() {
 }
 
 #[tokio::test]
-async fn smaster_session_issues_and_releases_its_own_davet_without_master_provenance() {
+async fn smaster_session_issues_and_releases_its_own_invite_without_master_provenance() {
     let (_dir, port, _guard) = setup().await;
     let base = format!("http://127.0.0.1:{port}");
     let (smaster, _) = moderation_fixture(&base).await;
@@ -469,7 +469,7 @@ async fn scoped_session(base: &str) -> String {
 }
 
 #[tokio::test]
-async fn scoped_davet_does_not_open_other_rooms_or_private_pairs() {
+async fn scoped_invite_does_not_open_other_rooms_or_private_pairs() {
     let (_dir, port, _guard) = setup().await;
     let base = format!("http://127.0.0.1:{port}");
     let (_, room) = private_pair(&base).await;
@@ -505,7 +505,7 @@ async fn scoped_davet_does_not_open_other_rooms_or_private_pairs() {
     ] {
         assert!(
             http("GET", &base, &path, header, Value::Null).await.0 >= 400,
-            "a room davet must not become another room's authority"
+            "a room invite must not become another room's authority"
         );
     }
     let (status, pairs) = http("GET", &base, "/birebirs", header, Value::Null).await;
@@ -524,7 +524,7 @@ async fn scoped_davet_does_not_open_other_rooms_or_private_pairs() {
 }
 
 #[tokio::test]
-async fn scoped_davet_cannot_mint_or_manage_identity_credentials() {
+async fn scoped_invite_cannot_mint_or_manage_identity_credentials() {
     let (_dir, port, _guard) = setup().await;
     let base = format!("http://127.0.0.1:{port}");
     private_pair(&base).await;
@@ -571,7 +571,7 @@ async fn encoded_private_room_cannot_be_invited_or_managed_by_an_outside_rank() 
                 )
                 .await
                 .0 >= 400,
-                "a third person must not receive a private pair's davet"
+                "a third person must not receive a private pair's invite"
             );
         }
         assert!(
@@ -617,7 +617,8 @@ async fn disabled_extensions_are_fenced_under_the_decoded_room_name() {
             .0,
             201
         );
-        for suffix in ["notes", "goals", "tasks", "wiki", "journal"] {
+        // Every route segment an extension owns, from the registry.
+        for suffix in protocol::EXTENSIONS.iter().flat_map(|spec| spec.routes) {
             assert_eq!(
                 http(
                     "GET",
@@ -902,7 +903,7 @@ async fn console_cannot_bypass_private_pair_admission() {
 }
 
 #[tokio::test]
-async fn legacy_third_party_davet_and_derived_session_cannot_open_a_private_pair() {
+async fn legacy_third_party_invite_and_derived_session_cannot_open_a_private_pair() {
     let (dir, port, guard) = setup().await;
     let base = format!("http://127.0.0.1:{port}");
     let (_, room) = private_pair(&base).await;
@@ -917,12 +918,12 @@ async fn legacy_third_party_davet_and_derived_session_cannot_open_a_private_pair
     .await;
     let token = invitation["token"].as_str().unwrap();
     drop(guard);
-    // Model a davet persisted by the old, vulnerable admission path.
+    // Model an invite persisted by the old, vulnerable admission path.
     let connection = rusqlite::Connection::open(dir.path().join("review.db")).unwrap();
     connection
         .execute(
-            "UPDATE invites SET room = ?1 WHERE token = ?2",
-            rusqlite::params![room, token],
+            "UPDATE invites SET room = ?1 WHERE id = ?2",
+            rusqlite::params![room, invite_ref(token)],
         )
         .unwrap();
     drop(connection);

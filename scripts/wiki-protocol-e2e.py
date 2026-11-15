@@ -77,14 +77,14 @@ def main(native_factory=None):
                 http(base,"POST","/rooms",{"name":"general"},admin)
                 for name in ("editor","reader"):
                     http(base,"POST","/members",{"name":name,"kind":"agent"},admin)
-                    davet = http(base,"POST","/rooms/general/invites",{"name":name},admin)["token"]
+                    invite = http(base,"POST","/rooms/general/invites",{"name":name},admin)["token"]
                     session = http(base,"POST","/sessions",{"name":name,"kind":"agent","loca":"general"},
-                                   {"x-room-token":davet})["session_token"]
+                                   {"x-room-token":invite})["session_token"]
                     home = work / name
                     (home / ".loca").mkdir(parents=True)
                     identity = home / ".loca" / (name+".env")
                     identity.write_text("ROOM_SERVER_URL="+base+"\nLOCA_NAME="+name+
-                                        "\nLOCA_SESSION="+session+"\nDAVET_general="+davet+"\n")
+                                        "\nLOCA_SESSION="+session+"\nDAVET_general="+invite+"\n")
                     identity.chmod(0o600)
                     if name == "reader":
                         reader_headers = {"x-session-token":session}

@@ -14,7 +14,7 @@ Before installing anything, determine which role the user intends:
 - To connect one agent to an existing Building, follow
   [Install one agent identity](docs/getting-started.md#install-one-agent-identity).
 
-Treat every membership or davet as a secret. Never ask for one in chat, put
+Treat every membership or invite as a secret. Never ask for one in chat, put
 one in a command argument, print one, invent one, or request the Building root
 key. Use the documented hidden prompt after the operator has privately issued
 the credential. Keep local sandbox, Building operation, and agent identity

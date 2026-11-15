@@ -3,11 +3,11 @@
 use super::*;
 
 #[tokio::test]
-async fn gorev_lifecycle_and_operator_authority() {
+async fn task_lifecycle_and_operator_authority() {
     // Admin token set -> authority is real, not dev-open.
-    let (port, _guard) = spawn_server_with("buyuk").await;
-    create_test_room(port, "buyuk", "proj").await;
-    create_test_room(port, "buyuk", "other").await;
+    let (port, _guard) = spawn_server_with("bigmaster").await;
+    create_test_room(port, "bigmaster", "proj").await;
+    create_test_room(port, "bigmaster", "other").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -23,13 +23,13 @@ async fn gorev_lifecycle_and_operator_authority() {
     // The grand operator appoints a loca operator for this loca only.
     client
         .put(format!("{base}/rooms/proj/settings"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "operators": ["alt-op"] }))
         .send()
         .await
         .unwrap();
 
-    // The loca operator declares a görev, assigned to an agent.
+    // The loca operator declares a task, assigned to an agent.
     let t: Value = client
         .post(format!("{base}/rooms/proj/tasks"))
         .json(
@@ -118,20 +118,20 @@ async fn gorev_lifecycle_and_operator_authority() {
 
 #[tokio::test]
 async fn one_active_goal_can_close_when_its_explicit_task_set_is_done() {
-    let (port, _guard) = spawn_server_with("buyuk").await;
-    create_test_room(port, "buyuk", "proj").await;
+    let (port, _guard) = spawn_server_with("bigmaster").await;
+    create_test_room(port, "bigmaster", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
         .put(format!("{base}/rooms/proj/settings"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "operators": ["alt-op"] }))
         .send()
         .await
         .unwrap();
     client
         .post(format!("{base}/rooms/proj/lead"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "lead": "alt-op" }))
         .send()
         .await
@@ -244,7 +244,7 @@ async fn journal_records_work_and_survives_restart() {
         create_test_room(port, "master", "general").await;
         let base = format!("http://127.0.0.1:{port}");
         let e: Value = client.post(format!("{base}/rooms/general/journal"))
-            .json(&serde_json::json!({ "text": "davet sistemi prod'a çıktı", "by": "loca-dev", "by_type": "agent" }))
+            .json(&serde_json::json!({ "text": "the invite system went to prod", "by": "loca-dev", "by_type": "agent" }))
             .send().await.unwrap().json().await.unwrap();
         assert_eq!(e["by"], "loca-dev");
         assert_eq!(e["id"], 1, "entries are numbered from one, per loca");
@@ -300,7 +300,7 @@ async fn work_state_only_rooms_survive_restart() {
             .post(format!("{base}/rooms/task-only/tasks"))
             .header("x-admin-token", "MASTER")
             .json(&serde_json::json!({
-                "title": "restart güvenini doğrula",
+                "title": "verify that restart is safe",
                 "by": "operator"
             }))
             .send()
@@ -343,7 +343,7 @@ async fn work_state_only_rooms_survive_restart() {
         let journal = client
             .post(format!("{base}/rooms/journal-only/journal"))
             .json(&serde_json::json!({
-                "text": "ilk kayıt konuşmadan önce yazıldı",
+                "text": "the first entry was written before anyone spoke",
                 "by": "loca-dev",
                 "by_type": "agent"
             }))
@@ -828,11 +828,11 @@ async fn goal_stale_override_can_inherit_set_disable_and_clear() {
 #[tokio::test]
 async fn require_sessions_blocks_task_spoof() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_SESSIONS", "1".into())]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     // No session token, claiming to be "operator".
     let r = reqwest::Client::new()
-        .post(format!("{base}/rooms/oda/tasks"))
+        .post(format!("{base}/rooms/parlor/tasks"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "title": "do this", "by": "operator" }))
         .send()

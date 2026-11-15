@@ -11,18 +11,6 @@
 use super::rooms::is_room_operator_req;
 use crate::*;
 
-/// The `/rooms/:id/<first segment>` that belongs to each extension. `live`
-/// has no routes of its own; `PUT /settings` refuses to turn it on.
-fn extension_of_segment(first: &str) -> Option<&'static str> {
-    match first {
-        "tasks" | "goals" => Some("focus"),
-        "notes" => Some("notes"),
-        "journal" => Some("journal"),
-        "wiki" => Some("wiki"),
-        _ => None,
-    }
-}
-
 /// The one refusal every disabled extension gives, reads and writes alike.
 pub(crate) fn extension_off(id: &str) -> axum::response::Response {
     let name = protocol::extension_spec(id)
@@ -58,8 +46,11 @@ pub(crate) async fn extension_fence(
     let Some(room) = room else {
         return next.run(req).await;
     };
+    // The registry (`protocol::EXTENSIONS`) says which extension owns the
+    // first segment after the loca. `live` owns none; `PUT /settings`
+    // refuses to turn it on.
     let first = req.uri().path().split('/').nth(3).unwrap_or("");
-    let Some(extension) = extension_of_segment(first) else {
+    let Some(extension) = protocol::extension_of_segment(first).map(|spec| spec.id) else {
         return next.run(req).await;
     };
     if hub.extension_enabled(&room, extension) {
@@ -75,9 +66,11 @@ pub(crate) async fn extension_fence(
 }
 
 /// Who may change a loca's extensions: its appointed Operator, the Master
-/// and Smasters (`is_room_operator_req`). Everyone else reads them.
-fn may_manage(hub: &Hub, room: &str, headers: &HeaderMap) -> bool {
-    !hub.is_birebir(room) && is_room_operator_req(hub, room, headers)
+/// and Smasters (`is_room_operator_req`). Everyone else reads them. The
+/// loca's identity (description, seats, icon, colour, labels) uses the same
+/// check.
+pub(crate) fn may_manage(hub: &Hub, room: &str, headers: &HeaderMap) -> bool {
+    !hub.is_dm(room) && is_room_operator_req(hub, room, headers)
 }
 
 fn room_view(hub: &Hub, room: &str, headers: &HeaderMap) -> serde_json::Value {
@@ -86,7 +79,7 @@ fn room_view(hub: &Hub, room: &str, headers: &HeaderMap) -> serde_json::Value {
         "enabled": hub.enabled_extensions(room),
         "catalog": protocol::EXTENSIONS,
         "can_manage": may_manage(hub, room, headers),
-        "birebir": hub.is_birebir(room),
+        "birebir": hub.is_dm(room),
     })
 }
 
@@ -112,7 +105,7 @@ pub(crate) struct SetExtensions {
     enabled: Vec<String>,
 }
 
-fn journal_actor(hub: &Hub, headers: &HeaderMap) -> (String, SenderType) {
+pub(crate) fn journal_actor(hub: &Hub, headers: &HeaderMap) -> (String, SenderType) {
     let authority = hub.resolve_authority(admin_token_of(headers), session_of(headers));
     if let Some(name) = authority.display_name {
         return (name, authority.kind.unwrap_or(SenderType::User));
@@ -129,7 +122,7 @@ fn apply(
     headers: &HeaderMap,
     edit: hub::ExtensionEdit<'_>,
 ) -> axum::response::Response {
-    if hub.is_birebir(room) {
+    if hub.is_dm(room) {
         return (StatusCode::FORBIDDEN, "a birebir has no extensions").into_response();
     }
     if !may_manage(hub, room, headers) {
@@ -150,7 +143,7 @@ fn apply(
         Err(error) => {
             let status = match error {
                 hub::ExtensionError::Unknown(_) => StatusCode::BAD_REQUEST,
-                hub::ExtensionError::Birebir => StatusCode::FORBIDDEN,
+                hub::ExtensionError::Dm => StatusCode::FORBIDDEN,
                 hub::ExtensionError::NotWritable => StatusCode::CONFLICT,
                 hub::ExtensionError::Storage => StatusCode::SERVICE_UNAVAILABLE,
             };

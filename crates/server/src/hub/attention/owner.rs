@@ -9,14 +9,14 @@ use crate::sync::RecoverMutex;
 
 impl Hub {
     /// The canonical recipient set for an `Everyone` reminder: `(principal_id,
-    /// display_name)` derived from the room's ACTIVE davets (invites) whose
+    /// display_name)` derived from the room's ACTIVE invites (invites) whose
     /// building membership is still live. This is the persistent roster — it
     /// includes members who are currently offline (they are absent from the
     /// in-memory seat map, which `leave` clears at zero connections). Rules
-    /// (see the multi-recipient spec): only davets for THIS room; a davet is
+    /// (see the multi-recipient spec): only invites for THIS room; an invite is
     /// skipped when its building membership is gone (revoked); the set is
     /// deduped by the safe canonical `principal_id`, never by display name (two
-    /// principals may share a name) nor by a secret davet/member token. The
+    /// principals may share a name) nor by a secret invite/member token. The
     /// `principal_id` is a stable non-secret id used internally (e.g. in the
     /// per-member attention id); the display name is what the UI shows.
     /// `Some(roster)` only when EVERY active member resolves to a principal;
@@ -25,34 +25,33 @@ impl Hub {
     /// the care mark untouched so the scheduler retries — never a partial
     /// "Everyone" that looks complete to the operator.
     pub(in crate::hub) fn everyone_recipients(&self, room: &str) -> Option<Vec<(String, String)>> {
-        // Collect (member_token, display_name) under the invite/member locks,
-        // then release them BEFORE the per-member store lookup — the store has
-        // its own lock and this keeps the invites→members ordering short and
-        // never nested with a store or rooms lock.
-        let pairs: Vec<(String, String)> = {
+        // Collect (principal, display_name) under the invite/member locks:
+        // the membership record holds the principal it was bound to. The
+        // invites→members ordering stays short and is never nested with a
+        // store or rooms lock.
+        let pairs: Vec<(Option<String>, String)> = {
             let invites = self.invites.lock_or_recover();
             let members = self.members.lock_or_recover();
             invites
                 .values()
-                .filter(|invite| invite.room == room && !invite.member.is_empty())
+                .filter(|invite| invite.room == room && !invite.member_id.is_empty())
                 .filter_map(|invite| {
-                    members
-                        .get(&invite.member)
-                        .map(|membership| (invite.member.clone(), membership.name.clone()))
+                    members.get(&invite.member_id).map(|membership| {
+                        (membership.principal_id.clone(), membership.name.clone())
+                    })
                 })
                 .collect()
         };
         let mut seen = HashSet::new();
         let mut out = Vec::new();
-        for (member_token, display_name) in pairs {
-            let Some(principal_id) = self.store.principal_id_for_member_record(&member_token)
-            else {
-                // An active davet backed by a live membership must resolve to a
+        for (principal_id, display_name) in pairs {
+            let Some(principal_id) = principal_id else {
+                // An active invite backed by a live membership must resolve to a
                 // principal (add_member mints one at admission). If it does not,
                 // the roster is inconsistent: abort the whole generation rather
                 // than shrink "Everyone" to a partial audience that looks
-                // complete, and never fabricate a name/token identity. The secret
-                // member token is never logged — only the public display name.
+                // complete, and never fabricate a name/token identity. Only the
+                // public display name is logged.
                 tracing::error!(
                     room = %room,
                     member = %display_name,
@@ -69,24 +68,18 @@ impl Hub {
         Some(out)
     }
 
-    /// True while `principal_id` still holds an active davet for `room` backed by
+    /// True while `principal_id` still holds an active invite for `room` backed by
     /// a live building membership — the delivery-time re-check so a reminder
-    /// pending for someone whose davet/membership was revoked after the snapshot
+    /// pending for someone whose invite/membership was revoked after the snapshot
     /// is never delivered.
     pub(in crate::hub) fn everyone_recipient_active(&self, room: &str, principal_id: &str) -> bool {
-        let member_tokens: Vec<String> = {
-            let invites = self.invites.lock_or_recover();
-            let members = self.members.lock_or_recover();
-            invites
-                .values()
-                .filter(|invite| invite.room == room && !invite.member.is_empty())
-                .filter(|invite| members.contains_key(&invite.member))
-                .map(|invite| invite.member.clone())
-                .collect()
-        };
-        member_tokens.iter().any(|token| {
-            self.store.principal_id_for_member_record(token).as_deref() == Some(principal_id)
-        })
+        let invites = self.invites.lock_or_recover();
+        let members = self.members.lock_or_recover();
+        invites
+            .values()
+            .filter(|invite| invite.room == room && !invite.member_id.is_empty())
+            .filter_map(|invite| members.get(&invite.member_id))
+            .any(|member| member.principal_id.as_deref() == Some(principal_id))
     }
 
     pub(in crate::hub) fn care_owner(
@@ -107,7 +100,7 @@ impl Hub {
                 let mut names: Vec<String> = room
                     .members
                     .values()
-                    .filter(|(_, _, count)| *count > 0)
+                    .filter(|(_, _, count)| !count.is_empty())
                     .map(|(name, _, _)| name.clone())
                     .collect();
                 names.sort();
@@ -123,7 +116,7 @@ impl Hub {
             if room
                 .members
                 .values()
-                .any(|(name, _, count)| name == &recipient && *count > 0)
+                .any(|(name, _, count)| name == &recipient && !count.is_empty())
                 && self
                     .runtime_health_for(&recipient)
                     .is_some_and(|runtime| runtime.ready)
@@ -137,7 +130,7 @@ impl Hub {
         rooms.get(self.home_room.as_str()).and_then(|home| {
             home.members
                 .values()
-                .any(|(name, _, count)| name == "loca-care" && *count > 0)
+                .any(|(name, _, count)| name == "loca-care" && !count.is_empty())
                 .then(|| self.runtime_health_for("loca-care"))
                 .flatten()
                 .filter(|runtime| runtime.ready)
@@ -154,7 +147,7 @@ impl Hub {
         signal: &mut CareSignal,
         source_room: &str,
     ) {
-        // A group loca's words never travel to İye, where every rank reads.
+        // A group loca's words never travel to Care, where every rank reads.
         if signal.owner.as_deref() == Some("loca-care")
             && source_room != self.home_room.as_str()
             && !self.is_group_loca(source_room)
@@ -198,10 +191,9 @@ impl Hub {
                 let owner = names
                     .iter()
                     .find(|name| {
-                        let seated = room
-                            .members
-                            .values()
-                            .any(|(member, _, connections)| member == *name && *connections > 0);
+                        let seated = room.members.values().any(|(member, _, connections)| {
+                            member == *name && !connections.is_empty()
+                        });
                         seated
                             && self
                                 .runtime_health_for(name)

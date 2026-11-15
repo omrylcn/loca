@@ -115,7 +115,7 @@ class OrchestratorQueueTests(unittest.TestCase):
                             "sender": "assistant-dev",
                             "sender_type": "agent",
                             "target": "all",
-                            "text": "@lead-engineer eski durum",
+                            "text": "@lead-engineer old status",
                         },
                     },
                 )
@@ -144,7 +144,7 @@ class OrchestratorQueueTests(unittest.TestCase):
             root = Path(tmp)
             inbox = root / "inbox.jsonl"
             cursor = root / "cursor.json"
-            for message_id, text in ((10, "hey"), (11, "durum?")):
+            for message_id, text in ((10, "hey"), (11, "status?")):
                 append(
                     inbox,
                     {
@@ -177,7 +177,7 @@ class OrchestratorQueueTests(unittest.TestCase):
                 "sender": "operator",
                 "sender_type": "user",
                 "target": "all",
-                "text": "@all durum?",
+                "text": "@all status?",
             },
         }
         self.assertEqual(

@@ -147,6 +147,18 @@ Ayrıntı ve Docker volume yolu: [Backup and restore](docs/backup-restore.md).
 Session ve kalıcı domain state SQLite'tan yüklenir. Runtime listener'ları
 session yenileyebilir; Lobby membership ve davetler yeni session'ı üretir.
 
+**v0.13.0'dan sonraki sürüme geçiş tek yönlüdür.** Yeni sürüm ilk açılışta
+`smasters` tablosunu yeniden kurar: Smaster kodları artık açık metin olarak
+saklanmaz, yalnız hash'leri ve onlardan türetilmiş kimlikler kalır. Bu
+açılıştan sonra v0.13.0 aynı veritabanını hiç açamaz. Bu yüzden 1. adımdaki
+backup `scripts/storage_snapshot.py` ile alınmış ve `verify` edilmiş olmalıdır.
+Geri dönüş: sunucuyu durdur, o snapshot'ı ayrı bir dizine `restore` et,
+doğrula ve eski binary'yi onunla çalıştır; upgrade'den sonra yazılan her şey
+kaybolur. Upgrade öncesi snapshot'lar Smaster kodlarını hâlâ açık metin
+içerir; `members` tablosu da membership anahtarlarını açık metin tutmaya devam
+eder. Eski ve yeni snapshot'lar aynı korumayı ister. Ayrıntı:
+[Backup and restore](docs/backup-restore.md#upgrading-past-v0130-a-one-way-migration).
+
 `ROOM_RENAME=old:new` tek açılışlık atomik migration'dır. Merge yapmaz;
 hedef room zaten varsa başlangıç başarısız olur. Başarılı migration sonrası
 environment'tan kaldırılır. Loca'nın bütün kayıtları adıyla birlikte taşınır:

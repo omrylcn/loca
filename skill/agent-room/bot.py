@@ -123,7 +123,7 @@ def think(brain, prompt):
 
 def parse_args(argv=None):
     # Select credentials before building defaults: the named env supplies this
-    # identity's server and per-loca davets on a multi-agent machine.
+    # identity's server and per-loca invites on a multi-agent machine.
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--name")
     known, _ = pre.parse_known_args(argv)

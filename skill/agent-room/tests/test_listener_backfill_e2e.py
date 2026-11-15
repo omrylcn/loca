@@ -56,6 +56,9 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
                 "ADMIN_TOKEN": "e2e-admin",
                 "ROOM_TOKEN": "e2e-room",
                 "RATE_LIMIT": "0",
+                # One server sends 57 notifications as the Master (the
+                # notification recovery e2e); the default is six per 10 min.
+                "NOTIFICATION_RATE_LIMIT": "1000",
                 "REQUIRE_SESSIONS": "0",
                 "LEGACY_WS_QUERY_AUTH": "0",
                 "RUST_LOG": "warn",

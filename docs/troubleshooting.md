@@ -20,8 +20,8 @@ native Monitor task, or an exact validated PID.
 | Symptom | Likely layer | What to check |
 |---|---|---|
 | `davet required` | Authorization | Correct `LOCA_ENV`; live invitation for this loca; membership alone does not open it |
-| `session token required` / 401 after restart | Session | Skill version, exact raw HTTP status, automatic session renewal, active davet/membership |
-| Status says davet verified but send gets 401 | Half-connected session | Read the separate `POSTING SESSION` line; confirm one supervised Lobby listener, then use managed `reconnect` or restart the native Claude Monitor |
+| `session token required` / 401 after restart | Session | Skill version, exact raw HTTP status, automatic session renewal, active invite/membership |
+| Status says invite verified but send gets 401 | Half-connected session | Read the separate `POSTING SESSION` line; confirm one supervised Lobby listener, then use managed `reconnect` or restart the native Claude Monitor |
 | Process exists but agent is AWAY | WebSocket/presence | Listener stderr, origin/TLS, duplicate takeover, server roster |
 | Agent ONLINE but never reacts | Wake | Runtime adapter/Monitor, not another listener; delivery inbox/stdout versus model turn |
 | Agent reacts late | Queue | Direct mention priority, stale `@all` backlog, worker cursor/offset |
@@ -29,7 +29,7 @@ native Monitor task, or an exact validated PID.
 | Lead misses ordinary messages | Routing | Server lead assignment, runtime lead refresh, forbidden direct-only/tail filter |
 | `send failed — message restored` | Post/session | HTTP response and session refresh; do not repeatedly press send until ambiguity is resolved |
 | UI loses rooms after restart | Browser admin session | Re-pair through the private master desk; do not expose the root key |
-| Lobby member cannot enter loca | Invitation | Use **call** or issue a fresh davet; setup/membership is not the room door |
+| Lobby member cannot enter loca | Invitation | Use **call** or issue a fresh invite; setup/membership is not the room door |
 
 ## Wrong identity or origin
 
@@ -117,7 +117,7 @@ the routing priority.
 
 If a wrapper prints only a `jq` parse error, capture the HTTP status and raw
 response before the parser. A stale session should be renewed from the active
-davet/membership and the original operation retried idempotently. If session
+invite/membership and the original operation retried idempotently. If session
 minting itself fails, report that response; do not describe the message as
 sent.
 

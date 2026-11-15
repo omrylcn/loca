@@ -29,8 +29,15 @@ async function freshDoor(browser) {
   return { context, page, dialogs, answer };
 }
 
+// Signed in, the page shows no sign-in form: another identity starts with
+// Sign out. A test that types a key in over a live session opens the form the
+// page keeps hidden, so what doConnect does then stays guarded.
+async function openSignInForm(page) {
+  if (await page.locator("#connBox").isHidden()) await page.evaluate(() => setConnOpen(true));
+}
+
 async function signInWithKey(page, key) {
-  if (await page.locator("#connBox").isHidden()) await page.locator("#connGear").click();
+  await openSignInForm(page);
   await page.locator("#entryKind").selectOption("smaster");
   // A name typed at a Smaster's door is the name it asks to be called.
   await page.locator("#name").fill("");
@@ -44,11 +51,18 @@ async function expectSignedInAs(page, name) {
   await expect.poll(() => page.evaluate(() => state.profile?.building_role)).toBe("smaster");
 }
 
+// Sign out through the account menu. The menu is redrawn (and so closed)
+// whenever the profile is read again; open it again and repeat until the
+// confirmation is taken.
 async function signOut(page) {
-  if (await page.locator("#connBox").isHidden()) await page.locator("#connGear").click();
-  await page.locator("#leaveBtn").click();
-  await page.locator("#leaveYes").click();
-  await expect(page.locator("#doorline")).toContainText("you left loca.");
+  await expect(async () => {
+    if (!(await page.locator("#whoami details.profilemenu").evaluate(menu => menu.open))) {
+      await page.locator("#whoami .profilemenu > summary").click({ timeout: 2000 });
+    }
+    await page.locator("#leaveBtn").click({ timeout: 2000 });
+    await page.locator("#leaveYes").click({ timeout: 2000 });
+  }).toPass({ timeout: 15_000 });
+  await expect(page.locator("#doorline")).toContainText("you signed out.");
 }
 
 // The first person leaves and the second signs in; resolves with the second
@@ -83,4 +97,4 @@ async function expectStill(page, mine) {
   expect(await page.evaluate(async () => (await fetch("/profile", { headers: adminHeaders({}) })).status)).toBe(200);
 }
 
-module.exports = { MASTER, smasterKey, freshDoor, signInWithKey, expectSignedInAs, signOut, switchTo, settle, expectStill };
+module.exports = { MASTER, smasterKey, freshDoor, openSignInForm, signInWithKey, expectSignedInAs, signOut, switchTo, settle, expectStill };

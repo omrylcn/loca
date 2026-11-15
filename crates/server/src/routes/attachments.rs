@@ -27,8 +27,9 @@ pub(crate) async fn upload_attachment(
         )
             .into_response();
     }
-    // Identity: with a session the uploader is that principal; otherwise it is
-    // required only when the building requires sessions (dev servers don't).
+    // Identity: with a session the uploader is that principal (a membership
+    // by its id, `mb:<mbid_>`, never its key); otherwise it is required only
+    // when the building requires sessions (dev servers don't).
     let session = headers.get(SESSION_HEADER).and_then(|v| v.to_str().ok());
     let identity = hub.session_identity(session);
     let uploader = match identity.as_ref() {

@@ -7,15 +7,15 @@ const { MASTER, smasterKey, freshDoor, signInWithKey, expectSignedInAs, switchTo
 // session, show them what it fetched, end their session or touch what they
 // have typed or staged.
 
-async function firstPersonInABirebir(browser, request, tag) {
+async function firstPersonInADm(browser, request, tag) {
   const oldKey = await smasterKey(request, `${tag}-old`);
   await smasterKey(request, `${tag}-peer`);
   const nextKey = await smasterKey(request, `${tag}-next`);
   const door = await freshDoor(browser);
   await signInWithKey(door.page, oldKey);
   await expectSignedInAs(door.page, `${tag}-old`);
-  await door.page.evaluate(peer => openBirebir(peer), `${tag}-peer`);
-  await expect.poll(() => door.page.evaluate(() => isBirebir(state.room))).toBe(true);
+  await door.page.evaluate(peer => openDm(peer), `${tag}-peer`);
+  await expect.poll(() => door.page.evaluate(() => isDm(state.room))).toBe(true);
   await expect.poll(() => door.page.evaluate(() => state.ws && state.ws.readyState)).toBe(1);
   return { ...door, nextKey, next: `${tag}-next` };
 }
@@ -24,7 +24,7 @@ for (const [index, first] of ["503", "broken connection"].entries()) {
 test(`a send's one retry after ${first} is not made once its writer has left`, async ({ browser, request }) => {
   const tag = `ovr${index}`;
   const OLD_TEXT = `${tag}-unsent-line-9b2d`;
-  const { context, page, dialogs, nextKey, next } = await firstPersonInABirebir(browser, request, tag);
+  const { context, page, dialogs, nextKey, next } = await firstPersonInADm(browser, request, tag);
 
   const posts = [];
   await page.route("**/rooms/*/messages", async route => {
@@ -163,7 +163,7 @@ test("revoking one's own key, answered after the next person signed in, does not
 test("a renewed send answered late does not clear the next person's staged attachments", async ({ browser, request }) => {
   const tag = "ova";
   const OLD_TEXT = `${tag}-renewed-line-51c7`;
-  const { context, page, dialogs, nextKey, next } = await firstPersonInABirebir(browser, request, tag);
+  const { context, page, dialogs, nextKey, next } = await firstPersonInADm(browser, request, tag);
   expect(await page.evaluate(() => !!state.roomToken)).toBe(true);
 
   // First try: 401, as after a restart. The page renews and sends again; that

@@ -25,7 +25,7 @@ function renderTopStatus() {
     el.innerHTML = `<span class="typ">${typers.map(esc).join(", ")} typing…</span>`;
     return;
   }
-  if (!connOn) { el.textContent = "connecting…"; return; }
+  if (!connOn) { el.textContent = steppedDown() ? "open in another tab" : "connecting…"; return; }
   const agents = state.members.filter(m => m.type === "agent").length;
   const users = state.members.length - agents;
   const m = state.mode || { mode: "free" };
@@ -33,6 +33,13 @@ function renderTopStatus() {
     m.mode === "paused" ? " · ⏸ paused" :
     m.mode === "restricted" ? " · 🔒 restricted" :
     m.mode === "roundrobin" ? ` · 🔁 turn: ${esc((m.order||[])[m.turn] || "?")}` : "";
+  if (isDm(state.room)) {
+    // Two seats: say whether the other person is here, not a head count.
+    const peer = roomLabel(state.room);
+    const here = state.members.some(member => member.name !== state.name);
+    el.innerHTML = here ? `<span class="live">${esc(peer)} is here</span>` : `${esc(peer)} is not here now`;
+    return;
+  }
   el.innerHTML = `<span class="live">${state.members.length} at the table</span> · <span style="color:var(--human)">.${users}</span> <span style="color:var(--agent)">*${agents}</span>${modeTxt}`;
 }
 
@@ -144,12 +151,15 @@ function goalChatReceipt(previous, goal) {
 }
 
 function joinRoom(room) {
+  cancelLandingRetry();   // opening a loca replaces a landing still being decided (api.js)
   captureNoteDraft();
+  if (room !== state.room) closeLocaIdentityOnRoomChange();
   state.editing = null;
   $("noteList").innerHTML = "";
   $("notesError").classList.add("hidden");
   if (state.tab === "people") switchTab("chat");
   state.room = room;
+  if (!isDm(room)) { rememberLoca(room); rememberLastLoca(room); }
   joinedRoomNeedsBottom = true;
   resetLocaContext(room);
   state.locaOperator = null;
@@ -162,6 +172,8 @@ function joinRoom(room) {
   // Loca is chat-first. Keep the room switcher visible after joining so
   // moving between locas never requires a detour through a detail tab.
   setSidebarView("building");
+  // The loca one goes into is never behind a closed floor.
+  revealRoomFloor(room);
   renderLocaSidebar();
   renderProfile();
   renderSettings();
@@ -183,8 +195,6 @@ function joinRoom(room) {
   state.memoryError = "";
   state.memoryLoading = false;
   resetWikiForRoom();
-  $("memoryShortInput").value = "";
-  $("memoryDecisionInput").value = "";
   $("notesDot").classList.remove("on");
   refreshRooms();
   fetchMemory();
@@ -200,21 +210,20 @@ function joinRoom(room) {
   openWs();
 }
 
-// A Building rank renamed its profile: what it said under the old name now
-// reads the new one. Relabel the messages already shown and repaint the feed
-// in place. If the rename is ours, adopt the name and reconnect so this
-// socket routes @mentions to the new name too.
-function onRenamed(from, to) {
-  if (!from || !to || from === to) return;
+// A Building rank renamed its profile. The server names exactly the messages
+// that person wrote (`ids`) and the replies that answer one of them
+// (`reply_ids`); relabel those and repaint the feed in place. A label is never
+// evidence of who wrote a message, so nothing else changes.
+function onRelabelled(to, ids, replyIds) {
+  if (!to || !Array.isArray(ids) || !Array.isArray(replyIds)) return;
+  const written = new Set(ids);
+  const answering = new Set(replyIds);
+  let changed = false;
   for (const m of state.msgs) {
-    if (m.sender_type === "user" && m.sender === from) m.sender = to;
-    if (m.reply_to_sender === from) m.reply_to_sender = to;
+    if (written.has(m.id) && m.sender !== to) { m.sender = to; changed = true; }
+    if (answering.has(m.id) && m.reply_to_sender !== to) { m.reply_to_sender = to; changed = true; }
   }
-  if (state.name === from) {
-    adoptOwnName(to);
-    openWs();
-    return;
-  }
+  if (!changed) return;
   const feed = $("feed");
   const keep = nearBottom() ? null : feed.scrollTop;
   const msgs = state.msgs.slice();
@@ -228,6 +237,17 @@ function onRenamed(from, to) {
   rebuildReminderChatProjection();
   fetchReactions().catch(() => {});
   if (keep !== null) feed.scrollTop = keep; else scrollFeed(true);
+}
+
+// The by-name rename notice older pages relabel with. The messages were
+// already relabelled by `relabelled`; if the rename is ours, adopt the name
+// and reconnect so this socket routes @mentions to the new name too.
+function onRenamed(from, to) {
+  if (!from || !to || from === to) return;
+  if (state.name === from) {
+    adoptOwnName(to);
+    openWs();
+  }
 }
 
 // One name everywhere this browser keeps it: state, the name field and the
@@ -244,9 +264,37 @@ function adoptOwnName(name) {
   } catch (e) { /* storage unavailable: the server still knows the name */ }
 }
 
+// The server closes a socket whose session has ended, and reconnecting with
+// that session fails every time. Ask whether the session is still accepted;
+// if it is not, take a new one (renewRefusedSession, joined with the poll's).
+async function confirmSession() {
+  const session = state.session;
+  const gen = state.buildingGen;
+  if (!session || !state.roomToken || (sessionRenewal && sessionRenewal.key === renewalKey())) return;
+  let r;
+  try {
+    r = await fetch(serverBase() + "/whoami", { headers: { "x-session-token": session } });
+  } catch (e) { return; }
+  if (r.status === 401 && !buildingStale(gen) && state.session === session) renewRefusedSession(session);
+}
+
+// The one reconnect a lost connection has pending, if any. It belongs to the
+// socket that was lost: opening a socket any other way (a renewal, a room
+// switch, "Use it here") and stepping down both end it, so a reconnect that
+// was scheduled for an earlier socket never opens one that nobody asked for.
+let reconnectTimer = null;
+function cancelReconnect() {
+  if (reconnectTimer !== null) clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+}
 function openWs() {
+  cancelReconnect();
   if (state.ws) { state.ws.onclose = null; state.ws.close(); }
+  // Connecting is how this tab comes back after it stepped down (onEvicted).
+  state.evicted = null;
+  renderEvicted();
   if (!state.room) return;
+  const gen = state.buildingGen;
   const protocols = ["loca.v1"];
   if (state.session) protocols.push(`loca.session.${state.session}`);
   else if (state.roomToken) protocols.push(`loca.room.${state.roomToken}`);
@@ -276,11 +324,61 @@ function openWs() {
     $("feed").innerHTML = "";
     resetReminderChatProjection();
   };
-  ws.onclose = () => { setStatus("connection lost — pulling your chair back…", false); if (state.room) setTimeout(openWs, 1500); };
+  ws.onclose = () => {
+    setStatus("connection lost — pulling your chair back…", false);
+    if (!state.room) return;
+    cancelReconnect();
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      // Only for the socket that was lost, and only for the person it was
+      // lost for: a socket opened since, or a sign-out or another sign-in
+      // at this tab, has taken over.
+      if (state.ws !== ws || buildingStale(gen) || steppedDown()) return;
+      openWs();
+    }, 1500);
+    confirmSession();
+  };
   ws.onmessage = (ev) => {
     if (state.ws !== ws) return;
-    onFrame(JSON.parse(ev.data));
+    onFrame(JSON.parse(ev.data), { ws, gen });
   };
+}
+
+// The server gave this tab's seat to a newer connection of the same identity:
+// another tab or device, or the agent runtime holding the same key (last
+// writer wins, PRINCIPLES). Reconnecting by itself would take the seat back
+// and the two would take it from each other forever, so this tab steps down,
+// says why, and comes back only when asked ("Use it here"). The eviction
+// belongs to the socket and the person it arrived for: one that lands after
+// that socket was replaced, or after a sign-out or another sign-in at this
+// tab, is shown to nobody.
+function onEvicted(f, from) {
+  if (!from || from.ws !== state.ws || buildingStale(from.gen) || !state.room) return;
+  cancelReconnect();
+  from.ws.onclose = null;
+  from.ws.close();
+  state.evicted = { gen: from.gen, room: state.room, name: typeof f.name === "string" ? f.name : "" };
+  setStatus("open in another tab", false);
+  renderEvicted();
+}
+function steppedDown() {
+  return !!state.evicted && !buildingStale(state.evicted.gen) && state.evicted.room === state.room;
+}
+function renderEvicted() {
+  const bar = $("evictedBar");
+  if (!bar) return;
+  const shown = steppedDown();
+  bar.classList.toggle("hidden", !shown);
+  if (!shown) return;
+  const as = state.evicted.name ? `, as ${state.evicted.name}` : "";
+  $("evictedText").textContent = `Another tab or device is now in this loca under this identity${as}. `
+    + "This tab stepped out so the two do not keep taking the seat from each other.";
+}
+// The one way back after stepping down: on purpose, and the other one then
+// steps down in turn.
+function useItHere() {
+  if (!steppedDown()) return;
+  openWs();
 }
 
 // A host that wraps this UI (the desktop shell) can set window.__LOCA_NOTIFY__
@@ -316,13 +414,38 @@ function isMentionOfMe(m, myName) {
   return !!(m.text && m.text.includes("@" + myName));
 }
 
-function onFrame(f) {
+// What the browser does with every server frame in docs/protocol-frames.json
+// (docs/protocol.md). "handled" means onFrame dispatches on it; any other value
+// says why it is deliberately ignored. tests/browser/protocol-frames.spec.js
+// fails on a frame type missing here: none may fall through unexamined.
+const NO_LOBBY_SOCKET = "ignored: the browser opens no Lobby socket";
+const WEB_FRAME_HANDLING = {
+  history: "handled", msg: "handled", reaction: "handled", members: "handled",
+  renamed: "handled", relabelled: "handled", control: "handled", note: "handled", memory: "handled",
+  notewarn: "handled", mode: "handled", settings: "handled", typing: "handled",
+  task: "handled", goal: "handled", attention: "handled", wait: "handled",
+  care: "handled", journal: "handled", mod: "handled", kicked: "handled", evicted: "handled",
+  memoryversion: "ignored: a freshness checkpoint for runtimes that inject memory into a model",
+  turn: "ignored: sent only on filter=mentions; the browser opens filter=all",
+  caretaker: "ignored: never on the wire; the server delivers it as msg",
+  lobby_ready: NO_LOBBY_SOCKET,
+  called: NO_LOBBY_SOCKET + "; new locas appear through GET /rooms",
+  membership_revoked: NO_LOBBY_SOCKET + "; the server ends the browser's session instead",
+  membership_suspended: NO_LOBBY_SOCKET + "; the server ends the browser's session instead",
+  credential_revoked: NO_LOBBY_SOCKET + "; a revoked key's sessions end with it",
+  seats: NO_LOBBY_SOCKET + "; seats appear through GET /rooms",
+  notification: NO_LOBBY_SOCKET + "; notifications.js polls GET /notifications",
+};
+
+function onFrame(f, from) {
   if (f.t === "history") {
     for (const m of f.messages) addMsg(m);
     rebuildReminderChatProjection();
     renderReminderHistory();
     markRoomRead(state.room, state.lastId);
-    if (!f.messages.length) addSys("an empty table — nobody has spoken here yet. words wait.");
+    if (!f.messages.length) addSys(isDm(state.room)
+      ? "nothing said yet — only the two of you will see what is said here."
+      : "an empty table — nobody has spoken here yet. words wait.");
     if (keepScroll !== null) { $("feed").scrollTop = keepScroll; keepScroll = null; }
     else scrollFeed(true);
     joinedRoomNeedsBottom = false;
@@ -358,13 +481,17 @@ function onFrame(f) {
       flashTitle(f.reaction.reactor);
     }
   }
-  else if (f.t === "members") { state.members = f.members; renderMembers(); fetchSeated(); fetchLobby(); }
+  else if (f.t === "members") { state.members = f.members; renderMembers(); refreshSenderTags(); fetchSeated(); fetchLobby(); }
+  else if (f.t === "relabelled") { onRelabelled(f.to, f.ids, f.reply_ids); }
   else if (f.t === "renamed") { onRenamed(f.from, f.to); }
   else if (f.t === "control") {
     if (f.cmd && f.cmd.startsWith("note-deleted:")) { const k = f.cmd.slice("note-deleted:".length); delete state.notes[k]; if (state.tab === "notes") renderNotes(); }
     else if (f.cmd && f.cmd.startsWith("live-expired:")) { addSys(`⏱ live mode auto-disabled after ${f.cmd.split(":")[1]}s of silence`); }
-    else if (f.cmd === "birebir-access") { fetchBirebirs(); }
-    else if (f.cmd === "room-closed") { addSys(`this loca was closed — moving you to ${state.homeRoom}`); setTimeout(() => doConnect(state.homeRoom), 800); }
+    else if (f.cmd === "birebir-access") { fetchDms(); }
+    else if (f.cmd === "room-closed") {
+      const left = state.room, what = isDm(left) ? "this conversation" : "this loca";
+      leaveFor(left, locaToReturnTo(left), where => `${what} was closed — ${where}`);
+    }
     else { addSys("control: /" + f.cmd); scrollFeed(); }
   }
   else if (f.t === "note") { onNoteFrame(f.note); }
@@ -435,6 +562,7 @@ function onFrame(f) {
   if (state.tab === "people") fetchPeople(); else $("journalDot").classList.add("on");
   }
   else if (f.t === "mod") { state.mod = f.state; renderMembers(); }
+  else if (f.t === "evicted") { onEvicted(f, from); }
   else if (f.t === "kicked") {
     if (f.name === state.name) {
       addSys(f.banned ? "you were banned from this loca" : "you were kicked from the table");

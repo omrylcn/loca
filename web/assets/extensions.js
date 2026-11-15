@@ -3,18 +3,24 @@
 // is chosen per loca: on the create screen (`+`) and under This Loca ›
 // Extensions. The server refuses what is off — this file only stops offering
 // it: tabs and the live toggle follow the loca's set, and data for an
-// extension that is off is never fetched.
+// extension that is off is never fetched. Which extensions exist, their names
+// and which tab each one shows (`tab_key`, the tab's `data-tab`) come from
+// the server's catalog; this file keeps no list of its own.
 
 // A loca saved before extensions existed has no `extensions` field and keeps
 // every one it already had. Frozen, like the server's LEGACY_EXTENSIONS.
 const LEGACY_EXTENSIONS = ["notes", "focus", "journal", "wiki", "live"];
-const EXTENSION_TABS = { notes: "tabNotes", focus: "tabTasks", journal: "tabJournal", wiki: "tabWiki" };
-const EXTENSION_TAB_NAMES = { notes: "notes", focus: "tasks", journal: "journal", wiki: "wiki" };
 const EXT_CHECK_ICON = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
 const EXT_PLUS_ICON = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
 
 let extensionCatalogCache = null;
 let extensionRoomFetchSequence = 0;
+// A catalog that could not be read is asked for again on its own: after
+// these pauses, for the loca it was asked for, one attempt at a time (an
+// attempt is the catalog and the loca's view, read together). Then This Loca
+// says so and offers to try again.
+const EXTENSION_CATALOG_RETRY_MS = [1000, 2000, 4000];
+let extensionCatalogRetry = { timer: null, exhausted: false };
 let extensionsAppliedFor = { room: null, enabled: null };
 
 async function extensionCatalog() {
@@ -28,7 +34,7 @@ async function extensionCatalog() {
 /// The enabled set of the current loca, or null while its settings load.
 function currentExtensions() {
   if (!state.room) return [];
-  if (isBirebir(state.room)) return [];
+  if (isDm(state.room)) return [];
   if (!isLocaContextReady("settings")) return null;
   const list = state.settings?.extensions;
   return Array.isArray(list) ? list : LEGACY_EXTENSIONS;
@@ -41,25 +47,43 @@ function extensionOn(id) {
   return !!list && list.includes(id);
 }
 
+/// The server's catalog, or null until it has been read.
+function extensionCatalogList() {
+  return extensionCatalogCache?.catalog || state.locaExtensions?.catalog || null;
+}
+
+/// The catalog entry for `id`, or null while the catalog is unknown.
+function extensionSpec(id) {
+  return extensionCatalogList()?.find(entry => entry.id === id) || null;
+}
+
+/// The extension whose tab is `.tabs [data-tab=key]`, from the catalog.
+function extensionOfTab(key) {
+  return extensionCatalogList()?.find(entry => entry.tab_key && entry.tab_key === key) || null;
+}
+
 function extensionName(id) {
-  const spec = extensionCatalogCache?.catalog?.find(entry => entry.id === id);
-  return spec?.name || { notes: "Notes", focus: "Focus", journal: "Journal", wiki: "Loca Wiki", live: "Live" }[id] || id;
+  return extensionSpec(id)?.name || id;
 }
 
 /// Tabs, the live toggle and the This Loca block follow the set. Called from
 /// renderSettings, so every settings frame (a change by someone else too)
-/// lands here.
+/// lands here, and again when the catalog arrives.
 function applyLocaExtensions() {
   const list = currentExtensions();
-  for (const [id, tabId] of Object.entries(EXTENSION_TABS)) {
-    $(tabId).classList.toggle("hidden", !list || !list.includes(id));
+  // Every loca tab but Chat belongs to the extension whose `tab_key` names
+  // it. It shows only once both the catalog and this loca's set say it is on.
+  for (const tab of document.querySelectorAll(".tabs [role=tab]")) {
+    if (tab.dataset.tab === "chat") continue;
+    const spec = extensionOfTab(tab.dataset.tab);
+    tab.classList.toggle("hidden", !list || !spec || !list.includes(spec.id));
   }
   if (list && !list.includes("live")) {
     $("liveToggle").classList.add("hidden");
     $("liveBadge").classList.add("hidden");
   }
-  const current = Object.entries(EXTENSION_TAB_NAMES).find(([, tab]) => tab === state.tab);
-  if (list && current && !list.includes(current[0])) switchTab("chat");
+  const current = extensionOfTab(state.tab);
+  if (list && current && !list.includes(current.id)) switchTab("chat");
   // An extension switched on while we are here: load what it holds.
   if (list && extensionsAppliedFor.room === state.room && extensionsAppliedFor.enabled) {
     const added = list.filter(id => !extensionsAppliedFor.enabled.includes(id));
@@ -82,11 +106,14 @@ async function fetchExtensionData() {
   if (state.tab === "wiki" && extensionOn("wiki")) fetchWiki();
 }
 
-async function fetchLocaExtensions() {
+async function fetchLocaExtensions(attempt = 0) {
   const room = state.room;
   const sequence = ++extensionRoomFetchSequence;
+  const gen = state.buildingGen;
+  clearTimeout(extensionCatalogRetry.timer);
+  extensionCatalogRetry = { timer: null, exhausted: false };
   state.locaExtensions = null;
-  if (!room || isBirebir(room)) return;
+  if (!room || isDm(room)) return;
   try {
     const [catalog, response] = await Promise.all([
       extensionCatalog().catch(() => null),
@@ -100,6 +127,21 @@ async function fetchLocaExtensions() {
     if (sequence !== extensionRoomFetchSequence || room !== state.room) return;
     state.locaExtensions = null;
   }
+  if (!extensionCatalogList()) {
+    const pause = EXTENSION_CATALOG_RETRY_MS[attempt];
+    if (pause === undefined) {
+      extensionCatalogRetry.exhausted = true;
+    } else {
+      // Not for another loca, another join of this one, or after sign-out.
+      extensionCatalogRetry.timer = setTimeout(() => {
+        if (sequence !== extensionRoomFetchSequence || room !== state.room || buildingStale(gen)) return;
+        fetchLocaExtensions(attempt + 1);
+      }, pause);
+    }
+  }
+  // The tabs may have been laid out from the settings before the catalog
+  // that names them was here.
+  applyLocaExtensions();
   renderLocaSidebar();
   if (!$("extManage").classList.contains("hidden")) renderExtensionManage();
 }
@@ -107,9 +149,13 @@ async function fetchLocaExtensions() {
 /// The EXTENSIONS block under This Loca: chips for what is on, and a link to
 /// the list (Manage for those who may change it, View for everyone else).
 function locaExtensionsBlock() {
-  if (!state.room || isBirebir(state.room)) return "";
+  if (!state.room || isDm(state.room)) return "";
   const list = currentExtensions();
-  const chips = !list ? `<span class="extnone">Loading…</span>`
+  const unknown = !list || (list.length && !extensionCatalogList());
+  const chips = unknown && list && extensionCatalogRetry.exhausted
+    ? `<span class="extnone" id="extUnavailable">Could not load the extension list.</span>` +
+      `<button type="button" class="extlink" id="extRetry">Try again</button>`
+    : unknown ? `<span class="extnone">Loading…</span>`
     : list.length ? list.map(id => `<span class="extchip">${esc(extensionName(id))}</span>`).join("")
     : `<span class="extnone">Chat only</span>`;
   const canManage = !!state.locaExtensions?.can_manage;
@@ -154,7 +200,7 @@ async function renderCreateGroupChoice(preferred = "") {
   const select = $("extCreateGroup");
   if (isAdmin() && typeof fetchGroups === "function") await fetchGroups(false);
   const open = (state.groups || []).filter(g => g.can_create_loca);
-  select.innerHTML = `<option value="">Default — by invitation</option>` +
+  select.innerHTML = `<option value="">Ground floor — by invitation</option>` +
     open.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("");
   if (open.some(g => g.id === preferred)) select.value = preferred;
   field.classList.toggle("hidden", !open.length);
@@ -173,8 +219,10 @@ async function openCreateLoca(name = "", group = "") {
   $("extCreateName").value = name;
   $("extCreateError").textContent = "";
   $("extCreateSubmit").disabled = false;
+  resetIdentityForCreate();
   openExtDialog("extCreate", name ? "extCreateSubmit" : "extCreateName");
   renderCreateGroupChoice(group);
+  const gen = state.buildingGen;
   try {
     const { catalog, defaults } = await extensionCatalog();
     $("extCreateDefault").innerHTML =
@@ -185,12 +233,14 @@ async function openCreateLoca(name = "", group = "") {
       catalog.filter(spec => !defaults.includes(spec.id)).map(spec => extensionRow(spec, false)).join("");
     renderCreateTabsLine();
   } catch (error) {
-    $("extCreateError").textContent = `Could not load the extension list: ${error.message}`;
+    if (!buildingStale(gen)) $("extCreateError").textContent = `Could not load the extension list: ${error.message}`;
   }
 }
 
 async function submitCreateLoca(event) {
   event?.preventDefault();
+  // The same panel edits an existing loca's identity (identity.js).
+  if (locaPanelMode === "identity") return submitLocaIdentity();
   const name = $("extCreateName").value.trim();
   if (!name) { $("extCreateError").textContent = "A loca needs a name."; $("extCreateName").focus(); return; }
   const extensions = [...document.querySelectorAll("#extCreateDefault input:checked:not(:disabled), #extCreateAdd input:checked")]
@@ -198,8 +248,9 @@ async function submitCreateLoca(event) {
   const group = $("extCreateGroupField").classList.contains("hidden") ? "" : $("extCreateGroup").value;
   $("extCreateSubmit").disabled = true;
   $("extCreateError").textContent = "";
+  const gen = state.buildingGen;
   try {
-    const body = group ? { name, extensions, group } : { name, extensions };
+    const body = { ...(group ? { name, extensions, group } : { name, extensions }), ...identityCreateFields() };
     const response = await fetch(`${serverBase()}/rooms`, {
       method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
       body: JSON.stringify(body),
@@ -210,8 +261,9 @@ async function submitCreateLoca(event) {
       return;
     }
   } catch (error) {
-    $("extCreateError").textContent = "Loca creation could not be confirmed. Refresh Your Locas before retrying.";
     $("extCreateSubmit").disabled = false;
+    if (buildingStale(gen)) return;
+    $("extCreateError").textContent = "Loca creation could not be confirmed. Refresh Your Locas before retrying.";
     return;
   }
   closeExtDialog("extCreate");
@@ -253,6 +305,7 @@ async function changeExtension(id, add) {
   const room = state.room;
   $("extManageError").textContent = "";
   for (const button of document.querySelectorAll("#extManageList button")) button.disabled = true;
+  const gen = state.buildingGen;
   try {
     const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/extensions/${encodeURIComponent(id)}`, {
       method: add ? "PUT" : "DELETE", headers: adminHeaders({}),
@@ -268,7 +321,7 @@ async function changeExtension(id, add) {
       renderSettings();
     }
   } catch (error) {
-    $("extManageError").textContent = "Could not reach the server. Nothing was changed.";
+    if (!buildingStale(gen)) $("extManageError").textContent = "Could not reach the server. Nothing was changed.";
   }
   if (room === state.room) renderExtensionManage();
 }
@@ -288,7 +341,10 @@ $("extManageList").onclick = (e) => {
   if (add) changeExtension(add.dataset.extAdd, true);
   else if (remove) changeExtension(remove.dataset.extRemove, false);
 };
-$("locaSummary").addEventListener("click", (e) => { if (e.target.closest("#extManageOpen")) openManageExtensions(); });
+$("locaSummary").addEventListener("click", (e) => {
+  if (e.target.closest("#extManageOpen")) openManageExtensions();
+  else if (e.target.closest("#extRetry")) fetchLocaExtensions();
+});
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (!$("extCreate").classList.contains("hidden")) closeExtDialog("extCreate");

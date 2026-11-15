@@ -16,12 +16,17 @@ import importlib.util
 import os
 import subprocess
 import sys
-import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
+
+# stop_listener.py looks at every process on the machine, and this suite may
+# run in several checkouts at once on one host. A name of its own per run
+# keeps another run's stop from taking this run's fake listeners.
+RUN = "t%d" % os.getpid()
+DEADLINE_SECONDS = 15.0
 
 
 def _load():
@@ -98,16 +103,18 @@ class RealProcessTest(unittest.TestCase):
         )
 
     def test_stop_signals_only_the_named_identity(self):
-        alpha = self._fake_listener("alpha")
-        beta = self._fake_listener("beta")
-        alpha2 = self._fake_listener("alpha-2")
-        time.sleep(0.5)
-        result = self._stop("alpha")
-        time.sleep(0.6)
-        self.assertIsNotNone(alpha.poll(), "alpha must be stopped\n%s" % result.stdout)
+        # Popen returns after exec, so each command line is already in /proc.
+        alpha = self._fake_listener("alpha-" + RUN)
+        beta = self._fake_listener("beta-" + RUN)
+        alpha2 = self._fake_listener("alpha-" + RUN + "-2")
+        result = self._stop("alpha-" + RUN)
+        self.assertIn("stopped pid=%d" % alpha.pid, result.stdout)
+        try:
+            alpha.wait(timeout=DEADLINE_SECONDS)
+        except subprocess.TimeoutExpired:
+            self.fail("alpha must be stopped\n%s" % result.stdout)
         self.assertIsNone(beta.poll(), "beta must keep running (isolation)")
         self.assertIsNone(alpha2.poll(), "alpha-2 must keep running (exact-name boundary)")
-        self.assertIn("stopped pid=%d" % alpha.pid, result.stdout)
 
     def test_stop_with_nothing_to_signal_is_a_clean_noop(self):
         result = self._stop("no-such-identity-here")
@@ -115,14 +122,13 @@ class RealProcessTest(unittest.TestCase):
         self.assertIn("nothing to stop", result.stdout)
 
     def test_exited_pid_is_skipped_not_signalled(self):
-        victim = self._fake_listener("ghost")
-        time.sleep(0.4)
+        victim = self._fake_listener("ghost-" + RUN)
         mod = _load()
-        cands = mod.candidates("127.0.0.1", "ghost")
+        cands = mod.candidates("127.0.0.1", "ghost-" + RUN)
         self.assertTrue(any(pid == victim.pid for pid, _ in cands))
         victim.terminate()
-        victim.wait(timeout=5)
-        result = self._stop("ghost")
+        victim.wait(timeout=DEADLINE_SECONDS)
+        result = self._stop("ghost-" + RUN)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("nothing to stop", result.stdout)
 
@@ -131,8 +137,7 @@ class RealProcessTest(unittest.TestCase):
         # candidate selection no longer matches the start-time seen just before
         # signalling, os.kill must NOT be called and the process must survive.
         mod = _load()
-        victim = self._fake_listener("phantom")
-        time.sleep(0.4)
+        victim = self._fake_listener("phantom-" + RUN)
         real = mod.starttime(victim.pid)
         self.assertIsNotNone(real)
         # Simulate reuse: candidates() reports a DIFFERENT start-time than the
@@ -140,7 +145,7 @@ class RealProcessTest(unittest.TestCase):
         stale = str(int(real) + 999)
         with mock.patch.object(mod, "candidates", return_value=[(victim.pid, stale)]), \
                 mock.patch.object(mod.os, "kill") as killed:
-            rc = mod.main(["stop_listener.py", "127.0.0.1", "phantom"])
+            rc = mod.main(["stop_listener.py", "127.0.0.1", "phantom-" + RUN])
         killed.assert_not_called()
         self.assertEqual(rc, 0)
         self.assertIsNone(victim.poll(), "an unmatched start-time must never be signalled")

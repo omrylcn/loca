@@ -26,7 +26,7 @@ Options:
   --no-start         Install and onboard, but do not start the lobby listener
   -h, --help         Show this help
 
-The membership/davet is read from a hidden prompt; it is never accepted as a
+The membership/invite is read from a hidden prompt; it is never accepted as a
 command-line argument. Choose exactly one of --server or --hosted; the
 installer never contacts a remote host by default. Upgrade and rollback are
 local-only and never ask for or change credentials.
@@ -283,11 +283,11 @@ if [ -n "$missing" ]; then
   fi
 fi
 
-printf 'membership or davet for %s (input hidden): ' "$SERVER" >&2
+printf 'membership or invite for %s (input hidden): ' "$SERVER" >&2
 IFS= read -r -s BOOTSTRAP_TOKEN
 printf '\n' >&2
 case "$BOOTSTRAP_TOKEN" in mb_*|dv_*) ;; *)
-  echo "expected an mb_... membership or dv_... davet; nothing was changed" >&2
+  echo "expected an mb_... membership or dv_... invite; nothing was changed" >&2
   exit 2
 esac
 if ! curl -fsS -m 10 "$SERVER/health" >/dev/null; then
@@ -299,7 +299,7 @@ credential_kind=$(
     jq -r '.kind // empty'
 ) || true
 if [ -z "$credential_kind" ]; then
-  echo "membership/davet was rejected; nothing was changed" >&2
+  echo "membership/invite was rejected; nothing was changed" >&2
   exit 1
 fi
 

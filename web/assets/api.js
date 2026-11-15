@@ -42,6 +42,7 @@ async function pollHealth() {
         if (state.room) joinRoom(state.room);
       }
     }
+    retryOwedRenewal();
     if (!document.body.classList.contains("locked")) refreshRooms();
     // Notifications ride the same tick (notifications.js, loaded later).
     if (typeof pollNotifications === "function") pollNotifications();
@@ -61,19 +62,30 @@ function updateMentionPop() {
   // to call it — so it's offered here even when it isn't in the roster.
   const names = state.members.map(x => x.name);
   const cands = ["all", ...names.filter(n => n !== state.name)];
-  for (const agent of state.locaAgents) {
+  // A private conversation reaches one person: `@all` cannot widen it and
+  // nothing in it is carried to the loca agent, so neither is offered.
+  if (isDm(state.room)) {
+    const peer = dmOf(state.room)?.peer;
+    cands.splice(0, cands.length, ...(peer && peer !== state.name ? [peer] : []));
+  }
+  for (const agent of isDm(state.room) ? [] : state.locaAgents) {
     if (agent !== state.name && !names.includes(agent) && !cands.includes(agent)) {
       cands.push(agent);
     }
   }
-  mentionMatches = cands.filter(n => n.toLowerCase().startsWith(q)).slice(0, 6);
+  // A full name is never an address: the completion inserts the @name,
+  // and a full name only helps find it (any of its words, accents aside).
+  const fold = text => String(text).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  const byFullName = n => q && fold(personCardFor(n)?.full_name || "").split(" ").some(w => w.startsWith(fold(q)));
+  mentionMatches = cands.filter(n => n.toLowerCase().startsWith(q) || byFullName(n)).slice(0, 6);
   if (!mentionMatches.length) { pop.classList.add("hidden"); return; }
   mentionSel = 0;
   pop.innerHTML = mentionMatches.map((n, i) => {
     const mem = state.members.find(x => x.name === n);
     const tag = n === "all" ? "everyone"
       : (mem ? mem.type : (state.locaAgents.includes(n) ? "loca agent" : ""));
-    return `<div data-i="${i}" class="${i === 0 ? "sel" : ""}"><b>@${esc(n)}</b><span class="mtag">${tag}</span></div>`;
+    const full = personCardFor(n)?.full_name;
+    return `<div data-i="${i}" class="${i === 0 ? "sel" : ""}"><b>@${esc(n)}</b>${full ? ` <bdi class="fullname">${esc(full)}</bdi>` : ""}<span class="mtag">${tag}</span></div>`;
   }).join("");
   pop.classList.remove("hidden");
 }
@@ -125,7 +137,10 @@ function setSendInFlight(on) {
   $("sendBtn").textContent = on ? "sending…" : "send";
   $("composer").classList.toggle("sending", on);
 }
-function restoreSendDraft(room, payload, error) {
+// `newOperation`: the server refused this operation id for good (409), so the
+// same words sent again must go out as a new operation. The draft, its target
+// and its reply link come back as usual; only the operation id is not kept.
+function restoreSendDraft(room, payload, error, { newOperation = false } = {}) {
   if (state.room !== room) {
     alert(`${room}: ${error}`);
     return;
@@ -141,7 +156,7 @@ function restoreSendDraft(room, payload, error) {
     input.value = payload.text;
     $("target").value = payload.target || "";
     if (payload.reply_to) startReply(payload.reply_to);
-    restoredSendOperation = { room, payload: { ...payload } };
+    restoredSendOperation = newOperation ? null : { room, payload: { ...payload } };
   }
   autoGrow();
   addSys(error);
@@ -155,10 +170,16 @@ function sameRestoredOperation(room, text, replyTo, target) {
     && (p?.reply_to ?? null) === (replyTo ?? null)
     && (p?.target ?? null) === (target ?? null);
 }
+// The session each message request went out with: a 401 is about that one,
+// not about whichever session the page holds when the answer arrives.
+const messageSentWith = new WeakMap();
 function postMessageRequest(room, payload) {
+  const headers = adminHeaders({ "content-type": "application/json" });
   return fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/messages`, {
-    method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
-    body: JSON.stringify(payload),
+    method: "POST", headers, body: JSON.stringify(payload),
+  }).then(response => {
+    messageSentWith.set(response, headers["x-session-token"] || null);
+    return response;
   });
 }
 // The retry is the writer's own, like the message. postMessageRequest takes
@@ -350,7 +371,7 @@ async function send() {
   // Easy to send by accident: the first Enter picks the name from the
   // autocomplete, the second fires before you have typed the sentence.
   if (/^@[\w-]+$/.test(text) && !hasAttachments) {
-    addSys(`"${text}" tek başına — ne söyleyeceğini yaz, sonra gönder`);
+    addSys(`"${text}" on its own — write what you want to say, then send`);
     return;
   }
   const room = state.room;
@@ -384,14 +405,71 @@ async function send() {
     const why = await response.text();
     if (!buildingStale(gen)) restoreSendDraft(room, payload, label + why);
   };
+  // What a refused post means, whichever attempt it was (the first, or the
+  // one retried under a renewed session). False when the response is not a
+  // refusal handled here: it succeeded, or it is a 401.
+  const settleRefusal = async (response) => {
+    if (response.status === 403) { await refuse("blocked: ", response); return true; }
+    if (response.status === 429) { await refuse("rate limited: ", response); return true; }
+    if (response.status === 409) {
+      // The server cannot tell whether an operation with this id, stored
+      // before an upgrade, was this person's. Retrying the same id would be
+      // refused for ever, and nothing is sent again by itself: the words go
+      // back to the composer, and sending them again is the person's choice
+      // and a new operation.
+      const why = await response.text();
+      if (!buildingStale(gen)) {
+        restoreSendDraft(
+          room, payload,
+          `not sent: ${why}. Check the conversation: it may already be there. `
+            + "Send again to post it as a new message.",
+          { newOperation: true },
+        );
+      }
+      return true;
+    }
+    if (!response.ok && response.status !== 401) {
+      await refuse(`send failed (${response.status}): `, response);
+      return true;
+    }
+    return false;
+  };
   try {
     // Admin token (if set) is sent so the admin can bypass mode gating.
     const r = await postMessageWithSafeRetry(room, payload, gen);
     if (buildingStale(gen)) return;
     if (r.status === 401) {
-      // A davet session may have died with a restart; renew and retry once.
-      if (!(await takeSession()) || buildingStale(gen)) return;
-      if (state.session) {
+      // An invite session may have died with a restart; renew and retry once.
+      // The 401 is about the session the message went out with. Renew only
+      // when that is still the page's session, or the page has none and is
+      // not taking one: a session taken since (taking one's seat again) is
+      // used, not replaced, and one still being taken is waited for, not
+      // raced. Replacing it would leave it valid on the server, held by
+      // nobody. The retry carries the same op_id either way.
+      const refused = messageSentWith.get(r) ?? null;
+      // The server answers 401 both when a session is no longer valid and
+      // when a valid session may not enter this loca (its invite revoked, a
+      // kick). Only the first is cured by a new session, and the server says
+      // which: a session it no longer accepts is turned away before any loca
+      // is looked at ("davet required", routes/access.rs require_membership),
+      // while "davet required for this loca" comes from the loca's own door
+      // (RoomAccess), which a request reaches only with a session the server
+      // accepted. That session is not replaced: the person is told the truth.
+      if (refused && refused === state.session
+          && (await r.text().catch(() => "")).trim() === "davet required for this loca") {
+        if (buildingStale(gen)) return;
+        restoreSendDraft(room, payload, "you are no longer in this loca — you are still signed in");
+        return;
+      }
+      if (sessionTaking) {
+        if (!(await sessionTaking.promise) || buildingStale(gen)) return;
+      } else if (!state.session || state.session === refused) {
+        // Replaced, it is ended (the server has just said it is gone; this
+        // only makes sure).
+        endUnheldSession(state.server || serverBase(), state.session);
+        if (!(await takeSession()) || buildingStale(gen)) return;
+      }
+      if (state.session && state.session !== refused) {
         const again = await postMessageWithSafeRetry(room, payload, gen);
         if (buildingStale(gen)) return;
         if (again.ok) {
@@ -400,13 +478,14 @@ async function send() {
           if (!buildingStale(gen)) clearPendingAttachments();
           return;
         }
+        // The retry was answered in its own right: say what it said, not
+        // "unauthorized".
+        if (await settleRefusal(again)) return;
       }
       restoreSendDraft(room, payload, "unauthorized — check the loca key");
       return;
     }
-    if (r.status === 403) { await refuse("blocked: ", r); return; }
-    if (r.status === 429) { await refuse("rate limited: ", r); return; }
-    if (!r.ok) { await refuse(`send failed (${r.status}): `, r); return; }
+    if (await settleRefusal(r)) return;
     await acceptPostedMessage(r, room, gen);
     if (buildingStale(gen)) return;
     clearPendingAttachments();
@@ -427,6 +506,7 @@ async function send() {
 // sidebar (no more "joined as the default name before pressing connect").
 async function doConnect(room) {
   setMobileSidebar(false);
+  if (hostWithoutServer()) { showHostWithoutServer(); return; }
   // A connect is the latest word on who is here. An automatic retry still
   // waiting from an earlier failed start would re-read the remembered seat
   // and could put that identity back over this one.
@@ -452,6 +532,13 @@ async function doConnect(room) {
     else clearBuildingData();
     resetRoomPreferenceIdentity();
     state.profile = null;
+  }
+  // Exchanging a credential (below) drops the session this page holds:
+  // takeSessionFor starts by forgetting it. Dropped, nobody holds it, unless
+  // it is the Master session this browser keeps, so it is ended at the server
+  // it came from, taken here before state.server is overwritten.
+  if (state.session && (nextRoomToken || nextPairing) && !storedAdminSession(state.session)) {
+    endUnheldSession(state.server || serverBase(), state.session);
   }
   state.name = nextName;
   state.pairing = nextPairing;
@@ -485,27 +572,195 @@ async function doConnect(room) {
   $("tabPeople").classList.toggle("hidden", !isAdmin());
   $("adminNote").textContent = isAdmin() ? "Admin access · changes apply only to this loca." : "";
   refreshRooms();
-  joinRoom(room || state.room || state.homeRoom);
+  await land(gen, room || state.room || state.homeRoom);
+  if (buildingStale(gen)) return;
   // /stop is a control broadcast — the server drops it without admin
   // authority, so only show the button when it would actually work.
   $("stopBtn").classList.toggle("hidden", !isAdmin());
   $("connectBtn").className = ""; $("connectBtn").textContent = "retake your seat";
-  // Collapse the settings box and show a one-line identity instead, so the
+  // Put the sign-in form away and show the account menu instead, so the
   // room list and ONLINE panel get the sidebar space.
   setConnOpen(false);
   await fetchProfile();
   if (buildingStale(gen)) return;
   if (renameRefused) showRenameRefusal(typedName, renameRefused);
-  $("leaveBtn").classList.remove("hidden");
   // Remember the seat: an auto-reloaded page retakes it without a click. The
   // The one-use master pairing code is deliberately NOT stored. After a reload
   // the master takes the next code from the server terminal; the root key
   // remains in the building's .env throughout.
   try { localStorage.setItem("loca-seat", JSON.stringify({
-    name: state.name, roomToken: state.roomToken, room: state.room,
+    name: state.name, roomToken: state.roomToken, room: state.room || landingPending,
   })); } catch (e) {}
+  // The seat is taken and (if the browser allowed it) remembered. A join
+  // request that handed this key over waits for exactly this before it
+  // tells the server the key arrived (joinrequest.js).
+  document.dispatchEvent(new CustomEvent("loca:seat-taken", { detail: { gen } }));
 }
 $("connectBtn").onclick = () => { doConnect(state.room || state.homeRoom); };
+
+// Where a connect lands. The loca asked for (the remembered seat: the last
+// loca this person was in, rememberLastLoca; else Care, which is the ranks'
+// own) when this person may enter it and it is open; else Care if they may
+// enter it; else the first open loca it has a seat in; else none: it is in
+// the Lobby. GET /rooms lists exactly the locas this person may enter, by the
+// same door decision as the socket, so a member is never sent to knock at a
+// door that will not open (Care is the ranks' and caretakers' only: PRINCIPLES
+// "Care"). A closed loca is kept, read-only, and nobody is sent back into it
+// while another is open.
+//
+// If the list cannot be read (the request fails, the server answers an error,
+// or the answer is not a list) the page does not know which doors open for
+// this person. One door is known without the list: Care opens for every rank.
+// Any other loca is not known to open, for a rank either (a Smaster outside a
+// group is refused at that group's locas; a private pair's loca opens for its
+// two people only), so the answer is `undefined`: no door is tried, and
+// land() reads the list again.
+async function landingRoom(wanted) {
+  let rooms;
+  try {
+    const r = await fetch(serverBase() + "/rooms", { headers: adminHeaders({}) });
+    rooms = r.ok ? await r.json() : null;
+  } catch (e) { rooms = null; }
+  if (!Array.isArray(rooms)) return isAdmin() && isRankHome(wanted) ? wanted : undefined;
+  const open = room => rooms.some(rm => rm.room === room && !rm.archived);
+  if (open(wanted)) return wanted;
+  if (open(state.homeRoom)) return state.homeRoom;
+  const locas = rooms.filter(rm => !isDm(rm.room));
+  const first = orderedSidebarRooms(locas.filter(rm => !rm.archived))[0]
+    || orderedSidebarRooms(locas)[0] || locas[0];
+  return first ? first.room : null;
+}
+
+// The loca a reload, a restart or the next sign-in goes back to is the last
+// one this person was in: for everyone (a member, a Smaster, the Master) and
+// everywhere (the browser and the desktop, where the seat lives in the OS
+// keychain). Only the room of the seat this page remembers for this key
+// changes, never who it is; with no remembered seat nothing is written.
+// landingRoom still decides whether it may be entered: one released or closed
+// since is not used, and the connect that lands elsewhere writes that room
+// over it; while the list cannot be read it is kept (landingPending). A
+// direct message is a conversation, not a loca to land in: being in one leaves the
+// last loca remembered.
+function rememberLastLoca(room) {
+  if (!room || isDm(room)) return;
+  try {
+    const seat = JSON.parse(localStorage.getItem("loca-seat") || "null");
+    if (!seat || typeof seat !== "object" || seat.room === room) return;
+    if ((seat.roomToken || "") !== (state.roomToken || "")) return;
+    seat.room = room;
+    localStorage.setItem("loca-seat", JSON.stringify(seat));
+  } catch (e) { /* storage unavailable: the next load lands as before */ }
+}
+
+// Take the landing: a loca, the Lobby, or, when the list of locas could not be
+// read, wait and read it again (2 s, then doubling to 30 s) without opening a
+// socket. The wait ends when the list is read, when the person opens a loca
+// itself, or when the Building moves on (sign-out, another sign-in).
+//
+// A landing is a decision made for the person, so a later decision replaces
+// it: every land() and every joinRoom() (socket.js) moves landingSeq on, and
+// an answer that comes back for an earlier one is dropped. Without that, a
+// list that answers late would move the person out of the loca it has just
+// opened itself.
+const LANDING_RETRY_MS = 2000, LANDING_RETRY_MAX_MS = 30000;
+let landingTimer = null;
+let landingPending = null;   // the loca asked for while the list is unread
+let landingSeq = 0;
+function cancelLandingRetry() {
+  landingSeq++;
+  if (landingTimer !== null) clearTimeout(landingTimer);
+  landingTimer = null;
+  landingPending = null;
+}
+async function land(gen, wanted, attempt = 0) {
+  cancelLandingRetry();
+  const seq = landingSeq;
+  const landing = await landingRoom(wanted);
+  if (buildingStale(gen) || seq !== landingSeq) return;
+  takeLanding(gen, wanted, landing, attempt);
+}
+function takeLanding(gen, wanted, landing, attempt = 0) {
+  if (landing) { joinRoom(landing); return; }
+  if (landing === null) { showLobbyWait(); return; }
+  showLobbyWait(
+    "the list of your locas could not be read, so no loca is opened yet — trying again.",
+    "could not read your locas — trying again", "no loca open");
+  landingPending = wanted;
+  const delay = Math.min(LANDING_RETRY_MAX_MS, LANDING_RETRY_MS * 2 ** Math.min(attempt, 8));
+  landingTimer = setTimeout(() => {
+    landingTimer = null;
+    // The person is no longer here, or opened a loca itself (which cancels
+    // this timer; the check is for a room set any other way): nothing to land.
+    if (buildingStale(gen) || state.room !== null) { landingPending = null; return; }
+    land(gen, wanted, attempt + 1);
+  }, delay);
+}
+
+// The one loca this person was last in (not a private conversation), so that
+// leaving a private conversation returns there. It belongs to whoever is
+// signed in now: a sign-out or another sign-in starts without it.
+let lastLoca = null;   // { gen, room }
+function rememberLoca(room) { lastLoca = { gen: state.buildingGen, room }; }
+function locaToReturnTo(left) {
+  const room = lastLoca && !buildingStale(lastLoca.gen) ? lastLoca.room : null;
+  return room && room !== left ? room : state.homeRoom;
+}
+
+// Leaving the loca on screen without having picked where to go: it was sealed
+// (room-closed), or a private conversation was closed here. Where to go is
+// the sign-in decision (landingRoom), never Care by default: a member may not
+// enter Care and would wait at a door that never opens. Who is here has not
+// changed, so the session is kept: this is not doConnect, which takes a new
+// one. `say(where)`, when given, is shown first with a moment to read it.
+// It is a landing decision like land(): one made after it (another landing,
+// or the person opening a loca, joinRoom) replaces it, and it then moves
+// nobody.
+async function leaveFor(left, wanted, say) {
+  const gen = state.buildingGen;
+  cancelLandingRetry();
+  const seq = landingSeq;
+  const landing = await landingRoom(wanted);
+  const replaced = () => buildingStale(gen) || seq !== landingSeq || state.room !== left;
+  if (replaced()) return;
+  const go = () => {
+    if (replaced()) return;
+    cancelLandingRetry();
+    takeLanding(gen, wanted, landing);
+  };
+  if (!say) { go(); return; }
+  addSys(say(landing ? `moving you to ${roomLabel(landing)}`
+    : landing === null ? "moving you to the Lobby"
+    : "the list of your locas could not be read, so no loca is opened yet"));
+  setTimeout(go, 800);
+}
+
+// A member no loca has seated waits in the Lobby (PRINCIPLES: admit → Lobby →
+// invite/call → private loca). The Lobby is not a loca: it has no chat and
+// the browser opens no socket for it, so there is nothing to connect to. Say
+// so, instead of "connecting…" to a loca that will never let it in. A call
+// lists its loca in the sidebar on the next room refresh. The same view, with
+// its own words, shows while the list of locas could not be read (land()).
+function showLobbyWait(
+  words = "you are in the Lobby, waiting to be called — no loca has a seat for you yet. When someone calls you in, the loca appears in the list.",
+  status = "in the Lobby — waiting to be called",
+  title = "Lobby",
+) {
+  cancelReconnect();
+  if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
+  state.room = null;
+  state.members = [];
+  setSidebarView("building");
+  renderLocaSidebar();
+  renderMembers();
+  $("curRoom").textContent = title;
+  $("roomAvatar").textContent = title === "Lobby" ? "L" : "…";
+  revokeInlineAttachmentUrls();
+  state.msgs = []; state.seen = new Set(); state.lastId = 0; lastDayKey = null;
+  $("feed").innerHTML = "";
+  addSys(words);
+  setStatus(status, false);
+  $("subStatus").textContent = status.replace(/^in the Lobby — /, "");
+}
 
 // Close/reopen a room (archive): read-only but everything is kept. Reversible,
 // and a room must be closed before it can be deleted.
@@ -530,6 +785,6 @@ async function deleteRoom(room) {
   });
   if (r.status === 401) { alert("admin token required"); return; }
   if (r.status === 409) { alert("Close (🔒) the room first, then delete it."); return; }
-  if (state.room === room) doConnect(state.homeRoom);
+  if (state.room === room) leaveFor(room, state.homeRoom);
   refreshRooms();
 }

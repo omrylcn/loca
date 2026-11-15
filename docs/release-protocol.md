@@ -8,6 +8,10 @@ Passing source tests or checksums alone does not prove installed functionality.
 - Review the diff, compatibility, credential handling and regression tests.
 - Require successful quality, container, browser and secret-scan CI on the
   current PR head. Missing, skipped or stale required results are not passes.
+  GitHub CI runs only in the public repository; in the private repository
+  these are the same gates run locally in Docker, posted on the pull request
+  with the tested SHA (see the pull request rules in
+  [CONTRIBUTING.md](../CONTRIBUTING.md#pull-request-rules)).
 - Run `make check`; it includes `make onboarding-check`. The onboarding gate
   builds the ZIP, installs it in empty Codex and Claude homes and uses a real,
   disposable loopback server to verify approval, idempotent onboarding, Lobby
@@ -30,16 +34,19 @@ These suites hold the boundaries. All of them run in the quality job through
 
 | Boundary | Suite |
 |---|---|
-| Private pair: its two people, and the Master only as a witness one of them called in, with history only when both allow it. Nobody else, by rank, id spelling, console or scoped davet | `crates/server/tests/ws/birebir.rs`, `crates/server/tests/ws/review_regressions.rs` |
+| Private pair: its two people, and the Master only as a witness one of them called in, with history only when both allow it. Nobody else, by rank, id spelling, console or scoped invite | `crates/server/tests/ws/dm.rs`, `crates/server/tests/ws/review_regressions.rs` |
 | Group loca: its members and the Master. Anyone else, a Smaster outside the group included, gets the refusal a missing loca gets. Moves and membership changes keep that boundary | `crates/server/tests/ws/groups.rs`, `crates/server/tests/ws/review_regressions.rs` |
-| Rank over rank: moderation and davet provenance, across a restart | `crates/server/tests/ws/review_regressions.rs`, `crates/server/tests/ws/access.rs` |
+| Rank over rank: moderation and invite provenance, across a restart | `crates/server/tests/ws/review_regressions.rs`, `crates/server/tests/ws/access.rs` |
 | Membership, credentials and keys | `crates/server/tests/ws/membership.rs`, `crates/server/tests/ws/keys.rs` |
 | An extension that is off | `crates/server/tests/ws/extensions.rs` |
 | Notification audience | `crates/server/tests/ws/notifications.rs` |
 | Records that follow a loca through a rename | `crates/server/src/store/tests.rs` |
 | What the browser shows and allows | `tests/browser/` |
 
-The quality, container, browser and secret-scan jobs start by themselves only
+This paragraph is about GitHub CI, which runs in the public repository only;
+in the private repository the same gates run locally in Docker (see "Pull
+request rules" in `CONTRIBUTING.md`). The quality, container, browser and
+secret-scan jobs start by themselves only
 for a pull request into `master` or `dev`. The dependency audit has its own
 triggers: any pull request that changes a Cargo manifest or lockfile, pushes
 to `master`, and a weekly run. A pull request stacked on another branch
@@ -86,6 +93,21 @@ publication of affected runtime functionality.
    version and SHA. A release approval does not automatically authorize deploy.
 5. Re-download published assets, verify checksums and repeat installation
    checks. Report source, artifact, installed code and live service separately.
+
+## Public source export
+
+The public tree is built from one approved private commit by
+`scripts/export-public-tree.py --commit SHA --output DIR`. It copies only the
+files `packaging/public-source-paths.txt` allows, as committed (blob and
+mode), into `DIR/tree`, and writes `DIR/export-manifest.json` with each
+file's git blob id and SHA-256. Every tracked file must be in that list or in
+`packaging/private-source-paths.txt`; any other file stops the export and is
+named, so a new file is classified before it can be published or dropped. A
+file in both lists stays private. `--check` classifies without writing. The
+script reads the local repository only: it does not fetch, push or change
+any repository. Copying `DIR/tree` into the public repository and the leak
+checks on it remain the separate steps the release contract in `AGENTS.md`
+names.
 
 ## Evidence and enforcement
 

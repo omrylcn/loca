@@ -51,7 +51,7 @@ function groupsOfPerson(name) {
 
 function groupChipsHtml(name) {
   const mine = groupsOfPerson(name);
-  if (!mine.length) return `<span class="pnowhere">default</span>`;
+  if (!mine.length) return `<span class="pnowhere">ground floor</span>`;
   return mine.map(g => `<span class="grpchip" title="member of ${esc(g.name)}">${esc(g.name)}</span>`).join("");
 }
 
@@ -67,9 +67,9 @@ function personInGroupFilter(name) {
 function groupFilterHtml() {
   const groups = state.groups || [];
   if (!groups.length) return "";
-  const chips = [["all", "All"], ...groups.map(g => [g.id, g.name]), ["none", "No group"]];
+  const chips = [["all", "All"], ...groups.map(g => [g.id, g.name]), ["none", "Ground floor only"]];
   if (!chips.some(([v]) => v === state.groupFilter)) state.groupFilter = "all";
-  return `<div class="keyfilters grpfilter" role="group" aria-label="Filter people by group">` +
+  return `<div class="keyfilters grpfilter" role="group" aria-label="Filter people by floor">` +
     chips.map(([v, l]) => `<button type="button" class="chip${state.groupFilter === v ? " on" : ""}" data-group-filter="${esc(v)}">${esc(l)}</button>`).join("") +
     `</div>`;
 }
@@ -131,15 +131,15 @@ function renderGroupsPane() {
   const groups = state.groups || [];
   const form = isAdmin()
     ? `<form class="keyform grpform" id="groupForm" autocomplete="off">` +
-        `<input id="groupName" maxlength="64" placeholder="new group name, e.g. backend" aria-label="New group name" />` +
-        `<button type="submit" class="btn primary">Create group</button></form>`
+        `<input id="groupName" maxlength="64" placeholder="new floor name, e.g. backend" aria-label="New floor name" />` +
+        `<button type="submit" class="btn primary">Create floor</button></form>`
     : "";
   const list = groups.length
     ? groups.map(groupCardHtml).join("")
-    : `<div class="bbempty">${state.groupsLoaded ? "No groups yet. Everyone is in the default group." : "Loading groups…"}</div>`;
+    : `<div class="bbempty">${state.groupsLoaded ? "No floors yet. Everyone is on the Ground floor." : "Loading floors…"}</div>`;
   box.innerHTML =
-    `<div class="bbhead"><b>Groups</b>` +
-    `<small>A group's locas open only to its people. Everyone is in the default group; the founder (or the Master) adds and removes people.</small></div>` +
+    `<div class="bbhead"><b>Floors</b>` +
+    `<small>A floor's locas open only to its people. Everyone is on the Ground floor; the founder (or the Master) adds and removes people.</small></div>` +
     form + `<div class="grpnotice" id="groupNotice" role="status">${esc(keepNotice)}</div>` +
     `<div class="grplist">${list}</div>`;
 }
@@ -178,7 +178,7 @@ async function createGroup(event) {
   const gen = state.buildingGen;
   const error = await groupWrite("POST", "/groups", { name });
   if (buildingStale(gen)) return;
-  groupNotice(error || `Group ${name} created.`);
+  groupNotice(error || `Floor ${name} created.`);
   if (!error) $("groupName").value = "";
 }
 
@@ -202,7 +202,7 @@ async function groupsPaneClick(event) {
   const rename = event.target.closest("[data-group-rename]");
   if (rename) {
     const g = groupById(rename.dataset.groupRename);
-    const name = prompt("New name for this group?", g?.name || "");
+    const name = prompt("New name for this floor?", g?.name || "");
     if (!name || name.trim() === g?.name) return;
     const error = await groupWrite("PATCH", `/groups/${encodeURIComponent(rename.dataset.groupRename)}`, { name: name.trim() });
     groupNotice(error || "Renamed.", gen);
@@ -255,7 +255,7 @@ $("peopleList").addEventListener("click", (event) => {
 // ---- A loca's group, under This Loca -----------------------------------
 // The Master moves a loca between the default group and a group (or between
 // groups). Before anything changes, the server says who would lose access,
-// who is carried over by davet, and which titles end; the Master confirms.
+// who is carried over by invite, and which titles end; the Master confirms.
 state.groupMove = null;   // { room, target, preview, error, busy }
 
 function currentLocaGroup() {
@@ -264,19 +264,19 @@ function currentLocaGroup() {
 }
 
 function locaGroupFact() {
-  if (!state.room || isBirebir(state.room) || state.room === state.homeRoom) return "";
+  if (!state.room || isDm(state.room) || state.room === state.homeRoom) return "";
   const g = currentLocaGroup();
   const master = state.profile?.building_role === "master";
   const change = master && !state.groupMove
     ? `<button type="button" class="extlink" data-loca-group-change>Change</button>` : "";
-  return `<div><dt>Group</dt><dd>${esc(g.name || "Default")}${change}</dd></div>`;
+  return `<div><dt>Floor</dt><dd>${esc(g.name || "Ground floor")}${change}</dd></div>`;
 }
 
 function locaGroupMoveHtml() {
   const m = state.groupMove;
   if (!m || m.room !== state.room) return "";
   const current = currentLocaGroup().id;
-  const options = [`<option value="">Default</option>`]
+  const options = [`<option value="">Ground floor</option>`]
     .concat((state.groups || []).filter(g => !g.archived)
       .map(g => `<option value="${esc(g.id)}"${m.target === g.id ? " selected" : ""}>${esc(g.name)}</option>`));
   let body = "";
@@ -286,16 +286,16 @@ function locaGroupMoveHtml() {
     const list = (title, names, cls) => names.length
       ? `<div class="gmline ${cls}"><b>${title}</b> ${names.map(esc).join(", ")}</div>` : "";
     body = list(`${p.losing.length} will lose access:`, p.losing, "bad") +
-      list("Kept by davet:", p.carried_by_davet, "") +
+      list("Kept by invite:", p.carried_by_davet, "") +
       (p.lead_ends ? `<div class="gmline bad"><b>Lead ends:</b> ${esc(p.lead_ends)}</div>` : "") +
       (p.operator_ends ? `<div class="gmline bad"><b>Operator appointment ends:</b> ${esc(p.operator_ends)}</div>` : "") +
-      (p.blocked ? `<div class="gmline bad"><b>Not enough seats:</b> ${Number(p.seats_needed)} people need a davet to stay, ${Number(p.seats_free)} seats are free. Release seats or remove people from the group first.</div>` : "") +
+      (p.blocked ? `<div class="gmline bad"><b>Not enough seats:</b> ${Number(p.seats_needed)} people need an invite to stay, ${Number(p.seats_free)} seats are free. Release seats or remove people from the floor first.</div>` : "") +
       (!p.blocked && !p.losing.length && !p.lead_ends && !p.operator_ends ? `<div class="gmline">Nobody loses access.</div>` : "");
   } else if (m.target !== current) body = `<div class="gmline">checking…</div>`;
   const same = m.target === current;
-  return `<div class="groupmove" role="group" aria-label="Move this loca to a group">` +
+  return `<div class="groupmove" role="group" aria-label="Move this loca to another floor">` +
     `<label class="gmfield"><span>Move to</span><select data-loca-group-target>${options.join("")}</select></label>` +
-    (same ? `<div class="gmline">Choose another group.</div>` : body) +
+    (same ? `<div class="gmline">Choose another floor.</div>` : body) +
     `<div class="gmacts"><button type="button" class="btn" data-loca-group-cancel>Cancel</button>` +
     `<button type="button" class="btn primary" data-loca-group-confirm${same || !m.preview || m.preview.blocked || m.busy ? " disabled" : ""}>Move</button></div></div>`;
 }

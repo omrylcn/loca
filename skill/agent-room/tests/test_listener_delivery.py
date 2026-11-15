@@ -319,6 +319,26 @@ class ListenerDeliveryTests(unittest.TestCase):
         self.assertEqual(LISTENER.runtime_turn_max(base + "&turn_max=0"), 1)
         self.assertEqual(LISTENER.runtime_turn_max(base + "&turn_max=nope"), 4)
 
+    def test_settings_carrying_a_locas_identity_read_as_before(self):
+        # A server that adds the loca's identity (description, seats, icon,
+        # color, labels) to its settings answer changes nothing for this kit:
+        # the lead and the turn size are read as before, and the description
+        # is there for an agent that asks (`connect.sh settings`).
+        body = json.dumps({
+            "lead": "worker", "turn_max_messages": 3, "rate_limit": 10,
+            "rate_window_secs": 30, "description": "Ship release 14.",
+            "seats": 5, "icon": "rocket", "color": "sky", "labels": ["backend"],
+        }).encode()
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = body
+        base = "ws://127.0.0.1:9/ws?room=reviewer&name=worker"
+        with mock.patch.object(LISTENER.urllib.request, "urlopen", return_value=response):
+            settings = LISTENER.fetch_room_settings(base)
+            lead = LISTENER.fetch_room_lead(base)
+        self.assertEqual(lead, "worker")
+        self.assertEqual(LISTENER.runtime_turn_max(base, settings), 3)
+        self.assertEqual(settings["description"], "Ship release 14.")
+
     def test_chunk_messages_preserves_order_and_bounds_every_delivery(self):
         batches = list(LISTENER.chunk_messages(list(range(11)), 4))
         self.assertEqual(batches, [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10]])
@@ -372,22 +392,22 @@ class ListenerDeliveryTests(unittest.TestCase):
         )
         self.assertTrue(
             LISTENER.directly_names(
-                {"target": "", "text": "bak @LEAD-engineer şimdi"}, "lead-engineer"
+                {"target": "", "text": "look @LEAD-engineer now"}, "lead-engineer"
             )
         )
         self.assertFalse(
             LISTENER.directly_names(
-                {"target": "", "text": "@lead-engineer-old bak"}, "lead-engineer"
+                {"target": "", "text": "@lead-engineer-old look"}, "lead-engineer"
             )
         )
         self.assertFalse(
             LISTENER.directly_names(
-                {"target": "all", "text": "@all bak"}, "lead-engineer"
+                {"target": "all", "text": "@all look"}, "lead-engineer"
             )
         )
         self.assertTrue(
             LISTENER.should_deliver_message(
-                {"sender": "operator", "target": "all", "text": "@all bak"},
+                {"sender": "operator", "target": "all", "text": "@all look"},
                 skip_own="lead-engineer",
                 only_direct="lead-engineer",
                 current_lead=False,
@@ -397,7 +417,7 @@ class ListenerDeliveryTests(unittest.TestCase):
             LISTENER.directly_names(
                 {
                     "target": "all",
-                    "text": "@all karar için @lead-engineer bakar mısın?",
+                    "text": "@all can @lead-engineer look at the decision?",
                 },
                 "lead-engineer",
             )
@@ -406,7 +426,7 @@ class ListenerDeliveryTests(unittest.TestCase):
             LISTENER.directly_names(
                 {
                     "target": "assistant-dev",
-                    "text": "@lead-engineer bunu da gözden geçir",
+                    "text": "@lead-engineer review this one too",
                 },
                 "lead-engineer",
             )
@@ -417,7 +437,7 @@ class ListenerDeliveryTests(unittest.TestCase):
             "sender": "debug",
             "sender_type": "agent",
             "target": "assistant-dev",
-            "text": "review sonucu",
+            "text": "review result",
         }
         self.assertFalse(
             LISTENER.should_deliver_message(
@@ -456,7 +476,7 @@ class ListenerDeliveryTests(unittest.TestCase):
                 "sender": "operator",
                 "sender_type": "user",
                 "target": "all",
-                "text": "@all durum",
+                "text": "@all status",
             },
             "lead-engineer",
             "https://loca.example",
@@ -474,7 +494,7 @@ class ListenerDeliveryTests(unittest.TestCase):
                 "sender": "debug",
                 "sender_type": "agent",
                 "target": "assistant-dev",
-                "text": "review sonucu",
+                "text": "review result",
             },
             "lead-engineer",
             "https://loca.example",
@@ -560,8 +580,8 @@ class ListenerDeliveryTests(unittest.TestCase):
 
         # Incident 145433: no target field, exact @lead-engineer in text.
         for as_turn in (False, True):
-            for address in ({"text": "@lead-engineer neredesin?"},
-                            {"text": "neredesin?", "target": "lead-engineer"}):
+            for address in ({"text": "@lead-engineer where are you?"},
+                            {"text": "where are you?", "target": "lead-engineer"}):
                 with self.subTest(as_turn=as_turn, address=address), tempfile.TemporaryDirectory() as tmp:
                     event = {"id": 145433, "room": "sb-dev", "sender": "omnelo-lead",
                              "sender_type": "agent", **address}

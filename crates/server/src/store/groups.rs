@@ -295,11 +295,13 @@ impl Store {
         tx.commit()
     }
 
-    /// Move `room` to `group` and settle its davets in ONE transaction: the
-    /// group relation, the davets that keep carried members seated, and the
-    /// davets the target group no longer admits. Either all of it is written
+    /// Move `room` to `group` and settle its invites in ONE transaction: the
+    /// group relation, the invites that keep carried members seated, and the
+    /// invites the target group no longer admits. Either all of it is written
     /// or none of it is, so a failed move never leaves a loca in its new
-    /// group with only some of its people carried.
+    /// group with only some of its people carried. `carried` pairs each new
+    /// invite's record with the invite itself (for its delivery copy); `ended`
+    /// names the invites that end by their hashes.
     #[allow(clippy::too_many_arguments)]
     pub fn move_room_group(
         &self,
@@ -307,7 +309,7 @@ impl Store {
         group: Option<&str>,
         by: Option<&str>,
         at: u64,
-        carried: &[protocol::Invite],
+        carried: &[(super::InviteRecord, String)],
         ended: &[String],
         ended_at: u64,
     ) -> rusqlite::Result<()> {
@@ -332,34 +334,23 @@ impl Store {
             }
         }
         write_room_group(&tx, room, group, by, at)?;
-        for invite in carried {
+        for (invite, invite_key) in carried {
             let suspended: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM member_suspensions WHERE member_token = ?1)",
-                params![invite.member],
+                "SELECT EXISTS(SELECT 1 FROM member_suspensions WHERE member_id = ?1)",
+                params![invite.member_id],
                 |row| row.get(0),
             )?;
             if suspended {
                 return Err(rusqlite::Error::InvalidQuery);
             }
-            tx.execute(
-                "INSERT INTO invites
-                 (token, room, member, name, kind, issued_at, issued_by, revoked_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL)",
-                params![
-                    invite.token,
-                    invite.room,
-                    invite.member,
-                    invite.name,
-                    invite.kind,
-                    invite.issued_at as i64,
-                    invite.issued_by
-                ],
-            )?;
+            // A carried invite is delivered over the member's Lobby like a
+            // call, so it keeps its delivery copy (`Store::issue_invite`).
+            super::identity::insert_issued_invite(&tx, invite, invite_key)?;
         }
-        for token in ended {
+        for hash in ended {
             tx.execute(
-                "UPDATE invites SET revoked_at = ?2 WHERE token = ?1 AND revoked_at IS NULL",
-                params![token, ended_at as i64],
+                "UPDATE invites SET revoked_at = ?2 WHERE secret_hash = ?1 AND revoked_at IS NULL",
+                params![hash, ended_at as i64],
             )?;
         }
         tx.commit()

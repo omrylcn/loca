@@ -116,8 +116,8 @@ test("a restored session hides what its person hid before any loca is entered", 
   await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
 
   // A conversation is opened and then closed (hidden), and a loca is hidden.
-  await page.evaluate(() => openBirebir("rs-sb"));
-  await expect.poll(() => page.evaluate(() => isBirebir(state.room))).toBe(true);
+  await page.evaluate(() => openDm("rs-sb"));
+  await expect.poll(() => page.evaluate(() => isDm(state.room))).toBe(true);
   await expect(page.locator("#dmList")).toContainText("rs-sb");
   await page.locator("#dmList .roompreftrigger").first().click();
   page.once("dialog", dialog => dialog.accept());
@@ -129,7 +129,7 @@ test("a restored session hides what its person hid before any loca is entered", 
   // Reload. No loca is entered, and what was hidden stays hidden.
   await page.reload();
   await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
-  await expect.poll(() => page.evaluate(() => state.rooms.some(r => r.room === "preference-security") && state.birebirs.length)).toBeTruthy();
+  await expect.poll(() => page.evaluate(() => state.rooms.some(r => r.room === "preference-security") && state.dms.length)).toBeTruthy();
   expect(await page.evaluate(() => state.room)).toBeNull();
   await expect(page.locator("#dmList")).not.toContainText("rs-sb");
   await expect(page.locator("#roomList")).not.toContainText("preference-security");

@@ -64,6 +64,15 @@ pub struct Message {
     /// store). Empty for an ordinary text message; omitted from the wire when so.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Attachment>,
+    /// The verified principal (`pr_…`) that wrote this message, when the
+    /// server knew one: recorded at the door from the writer's session,
+    /// invite, membership or Smaster credential, never from the body. Sent so
+    /// a client can show the writer's full name and icon for exactly this
+    /// person; absent for legacy rows, open doors and the root key, which
+    /// then show only `sender`. Never read from the wire, so a client cannot
+    /// claim it.
+    #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
+    pub sender_principal: Option<String>,
 }
 
 /// A participant currently connected to a room.
@@ -76,6 +85,20 @@ pub struct Member {
     /// for ordinary members and agents; older clients simply ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// The person's optional full name, for display beside `name` only: not
+    /// unique, never an address, never an authority. Absent when unset, and
+    /// on a seat no credential proves; older clients ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_name: Option<String>,
+    /// The principal the server verified for this seat at the door (the one
+    /// its messages carry as `sender_principal`). Absent on a seat taken
+    /// without a verified principal; older clients ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub principal_id: Option<String>,
+    /// The person's optional profile icon, one of a closed list the server
+    /// validates. Absent when unset; older clients ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// Body of `POST /rooms/{id}/messages`. The server fills in `id`/`ts`/`room`.
@@ -182,6 +205,16 @@ pub struct RoomSummary {
     /// The group's id, alongside its name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
+    /// The loca's identity, for the sidebar entry and its tooltip (see
+    /// [`RoomSettings::description`]). Absent when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
 }
 
 /// Body of `PUT /rooms/{id}/mode` (admin-only; requires the admin token).
@@ -219,7 +252,7 @@ pub struct RoomSettings {
     /// This loca's lead, if one has been named.
     ///
     /// A lead advises; it does not command. Work still comes from an operator
-    /// — the lead cannot hand out görevler, override a mode, or moderate. What
+    /// — the lead cannot hand out tasks, override a mode, or moderate. What
     /// it does is see the whole room: it notices two agents on the same file,
     /// says what should probably go first, and reports back what happened here.
     /// Agents weigh its word; they do not obey it. When the lead and the
@@ -300,7 +333,46 @@ pub struct RoomSettings {
     /// [`RoomSettings::extension_enabled`] rather than reading this directly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extensions: Option<Vec<String>>,
+    // ---- The loca's identity (PRINCIPLES "A loca's identity"). Core, not an
+    // extension; all optional, so a loca saved before they existed, and a
+    // client that does not know them, are unaffected. A direct message has none.
+    /// What this loca is for: one short plain-text paragraph.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// This loca's own number of seats. Absent: the Building's number
+    /// (`LOCA_CAPACITY`), exactly as before. Never above that number.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seats: Option<u32>,
+    /// One of [`LOCA_ICONS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    /// One of [`LOCA_COLORS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// Short free-text labels. A label grants nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
 }
+
+/// The icons a loca may wear: a closed list, drawn by the clients. Distinct
+/// from the icons a person wears, so the two cannot be confused.
+pub const LOCA_ICONS: &[&str] = &[
+    "book", "code", "bug", "rocket", "flask", "gear", "chart", "chat", "flag", "globe", "heart",
+    "house", "bulb", "map", "music", "palette", "pen", "puzzle", "anchor", "compass", "camera",
+    "cloud", "cube", "terminal",
+];
+
+/// The colours a loca may wear: a closed palette (Okabe–Ito) that stays
+/// apart for colour-blind readers; the icon carries the meaning too.
+pub const LOCA_COLORS: &[&str] = &[
+    "orange",
+    "sky",
+    "green",
+    "yellow",
+    "blue",
+    "vermillion",
+    "purple",
+];
 
 /// One entry in the extension catalog: a capability written and tested
 /// inside the server that a loca switches on or off. No code is loaded.
@@ -317,11 +389,29 @@ pub struct ExtensionSpec {
     pub summary: &'static str,
     /// Ticked by default on the create screen of a new loca.
     pub default_on_new: bool,
+    /// The key of its tab in the web page (`data-tab` of the tab button), so
+    /// the browser shows and hides that tab from this catalog. Absent when it
+    /// adds no tab.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab_key: Option<&'static str>,
+    /// The `/rooms/:id/<segment>` routes it owns, by first segment. The
+    /// extension fence refuses all of them, reads and writes alike, while the
+    /// extension is off; a test holds every `/rooms/:id/...` route of the
+    /// router to being owned here or being core. Not sent.
+    #[serde(skip)]
+    pub routes: &'static [&'static str],
+    /// The loca-socket frames (`t`) only it sends. They come from its own
+    /// routes, so none is sent while it is off; tests read this list. Not
+    /// sent.
+    #[serde(skip)]
+    pub frames: &'static [&'static str],
 }
 
-/// The extension catalog, in tab order. Future extensions (task board,
-/// AGENT.md, skills, hooks) are new entries here; nothing else in the list
-/// changes.
+/// The extension catalog, in tab order: the one registry of extensions. The
+/// catalog answer (`GET /extensions`), the extension fence, the web's tabs and
+/// the tests that enumerate extensions all read it. Future extensions (task
+/// board, AGENT.md, skills, hooks) are new entries here; nothing else in the
+/// list changes.
 pub const EXTENSIONS: &[ExtensionSpec] = &[
     ExtensionSpec {
         id: "notes",
@@ -329,6 +419,9 @@ pub const EXTENSIONS: &[ExtensionSpec] = &[
         tab: Some("Notes"),
         summary: "Keyed notes: the current state of the work.",
         default_on_new: true,
+        tab_key: Some("notes"),
+        routes: &["notes"],
+        frames: &["note", "notewarn"],
     },
     ExtensionSpec {
         id: "focus",
@@ -336,6 +429,9 @@ pub const EXTENSIONS: &[ExtensionSpec] = &[
         tab: Some("Focus"),
         summary: "The loca's goal and declared tasks.",
         default_on_new: false,
+        tab_key: Some("tasks"),
+        routes: &["tasks", "goals"],
+        frames: &["task", "goal"],
     },
     ExtensionSpec {
         id: "journal",
@@ -343,6 +439,9 @@ pub const EXTENSIONS: &[ExtensionSpec] = &[
         tab: Some("Journal"),
         summary: "What was done here, in the doers' own words.",
         default_on_new: true,
+        tab_key: Some("journal"),
+        routes: &["journal"],
+        frames: &["journal"],
     },
     ExtensionSpec {
         id: "wiki",
@@ -350,6 +449,9 @@ pub const EXTENSIONS: &[ExtensionSpec] = &[
         tab: Some("Loca Wiki"),
         summary: "The loca's shared knowledge, kept by an editor agent.",
         default_on_new: true,
+        tab_key: Some("wiki"),
+        routes: &["wiki"],
+        frames: &[],
     },
     ExtensionSpec {
         id: "live",
@@ -357,6 +459,11 @@ pub const EXTENSIONS: &[ExtensionSpec] = &[
         tab: None,
         summary: "A live-mode toggle: every message reaches everyone.",
         default_on_new: false,
+        tab_key: None,
+        // No route of its own: its one door is `PUT /rooms/:id/settings
+        // {"live": true}`, which the settings route refuses while it is off.
+        routes: &[],
+        frames: &[],
     },
 ];
 
@@ -367,6 +474,13 @@ pub const LEGACY_EXTENSIONS: &[&str] = &["notes", "focus", "journal", "wiki", "l
 /// The catalog entry for `id`, if there is one.
 pub fn extension_spec(id: &str) -> Option<&'static ExtensionSpec> {
     EXTENSIONS.iter().find(|spec| spec.id == id)
+}
+
+/// The extension that owns `/rooms/:id/<segment>`, if one does.
+pub fn extension_of_segment(segment: &str) -> Option<&'static ExtensionSpec> {
+    EXTENSIONS
+        .iter()
+        .find(|spec| spec.routes.contains(&segment))
 }
 
 /// The ticked set on a new loca's create screen.
@@ -451,6 +565,11 @@ impl Default for RoomSettings {
             care_task_secs: 0,
             care_silence_secs: 0,
             extensions: None,
+            description: None,
+            seats: None,
+            icon: None,
+            color: None,
+            labels: Vec::new(),
         }
     }
 }
@@ -499,6 +618,51 @@ pub struct SetSettings {
     pub care_task_secs: Option<u32>,
     #[serde(default)]
     pub care_silence_secs: Option<u32>,
+    /// The loca's identity. Sent on its own (not with the fields above), by
+    /// whoever may change the loca's extensions; `""` (or `[]` for labels)
+    /// clears a field. Journaled like an extension change.
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub seats: Option<u32>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub labels: Option<Vec<String>>,
+}
+
+impl SetSettings {
+    /// Whether the body touches the loca's identity.
+    pub fn has_identity(&self) -> bool {
+        self.description.is_some()
+            || self.seats.is_some()
+            || self.icon.is_some()
+            || self.color.is_some()
+            || self.labels.is_some()
+    }
+
+    /// Whether the body touches anything but the loca's identity.
+    pub fn has_other(&self) -> bool {
+        self.rate_limit.is_some()
+            || self.rate_window_secs.is_some()
+            || self.live.is_some()
+            || self.archived.is_some()
+            || self.live_timeout_secs.is_some()
+            || self.operators.is_some()
+            || self.turn_max_messages.is_some()
+            || self.turn_idle_ms.is_some()
+            || self.turn_max_wait_ms.is_some()
+            || self.care_wait_secs.is_some()
+            || self.care_cooldown_secs.is_some()
+            || self.care_max_attempts.is_some()
+            || self.care_context_messages.is_some()
+            || self.care_recipient.is_some()
+            || self.care_goal_secs.is_some()
+            || self.care_task_secs.is_some()
+            || self.care_silence_secs.is_some()
+    }
 }
 
 /// A living note: a keyed, editable piece of project state. Unlike a chat
@@ -531,7 +695,7 @@ pub struct CreateNote {
     #[serde(default)]
     pub body: String,
     /// Compatibility claim from older clients. Authenticated HTTP routes
-    /// replace it with the actor derived from the session/davet credential.
+    /// replace it with the actor derived from the session/invite credential.
     pub by: String,
     #[serde(default)]
     pub by_type: Option<SenderType>,
@@ -581,7 +745,9 @@ pub struct SessionInfo {
     pub name: String,
     /// Whether this session carries the master's administrative authority.
     pub admin: bool,
-    /// Unix-ms expiry for short-lived sessions; `None` means no expiry.
+    /// Unix-ms expiry. Every session the server issues now has one; the
+    /// field stays optional on the wire for older servers, where `None`
+    /// meant no expiry.
     pub expires_at: Option<u64>,
 }
 
@@ -599,7 +765,7 @@ pub struct PairingInfo {
 /// A task — conversation's GUEST, never its centre (PRINCIPLES #3/#5).
 ///
 /// A task is a DECLARATION: an operator making a piece of work official —
-/// "this is real, it has an owner". The agent then TAKES it (üzerine alır)
+/// "this is real, it has an owner". The agent then TAKES it (takes it on)
 /// and finishes it; the operator may contest/cancel/reassign. Most work
 /// still flows through plain conversation — a task is for work worth
 /// declaring, never the required path for doing things. No queue, no lease.
@@ -681,7 +847,7 @@ pub struct Task {
 pub enum TaskStatus {
     /// Declared by an operator; waiting for its agent to take it.
     Open,
-    /// The agent has taken it upon themselves (üzerine aldı).
+    /// The agent has taken it upon themselves (took it on).
     Taken,
     Done,
     Cancelled,
@@ -1028,11 +1194,11 @@ pub enum ModAction {
     /// cannot speak. The lightest correction.
     Mute,
     Unmute,
-    /// Close their connection now. A nudge, not a verdict — the davet stands
+    /// Close their connection now. A nudge, not a verdict — the invite stands
     /// and they may walk back in.
     Kick,
     /// Shut the door and keep it shut: they cannot re-enter this loca even
-    /// holding a davet. A judgement about conduct.
+    /// holding an invite. A judgement about conduct.
     Ban,
     /// The work here is done. Not a punishment at all — their seat in this
     /// loca is taken back and their connection closed, but they remain a
@@ -1113,11 +1279,23 @@ pub enum ServerFrame {
     Members {
         members: Vec<Member>,
     },
-    /// A Building rank renamed its profile. Past messages it sent under
-    /// `from` now read `to`; clients relabel the feed they already show.
+    /// A Building rank renamed its profile from `from` to `to`. Kept exactly
+    /// as older clients know it, which relabel every message under `from`:
+    /// it is sent only where some person's message under `from` is in the
+    /// loca's in-memory history, as before. Clients that know `Relabelled`
+    /// relabel nothing on this frame; they only adopt their own new name.
     Renamed {
         from: String,
         to: String,
+    },
+    /// The messages a rename changed in this loca, by id, sent before the
+    /// matching `Renamed`: `ids` were written by the renamed person and now
+    /// read `to`; `reply_ids` answer one of that person's messages and now
+    /// name `to` as the replied-to author. Clients relabel exactly these.
+    Relabelled {
+        to: String,
+        ids: Vec<u64>,
+        reply_ids: Vec<u64>,
     },
     /// Out-of-band control, e.g. the operator broadcasting `/stop`.
     Control {
@@ -1219,42 +1397,19 @@ pub enum ClientFrame {
     },
 }
 
-/// A davet (invitation) is how someone enters a loca. Metaphor and mechanism
-/// are the same thing: the invitation IS the key. It opens ONE loca — never
-/// the building, never a second room — and only the master issues it. Revoking
-/// it ends the invitation; the row stays so we can still say who was let in.
-///
-/// This is the rule the whole model rests on: you do not walk into a loca on
-/// your own, the master takes you in.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Invite {
-    pub token: String,
-    /// The one loca this opens — or [`Invite::BUILDING`] when it is a building
-    /// membership rather than a seat in a room.
-    pub room: String,
-    /// The building membership (mb_ token) this davet seats. A davet does not
-    /// create identity — it seats an existing member. Legacy davets (pre-link)
-    /// carry an empty string until migration binds them at load.
-    #[serde(default)]
-    pub member: String,
-    /// Display snapshot of who it was given to, copied from the membership at
-    /// issue time (audit trail — the membership record is the identity).
-    pub name: String,
-    /// "agent" | "user"
-    pub kind: String,
-    pub issued_at: u64,
-    pub issued_by: String,
-}
-
 /// Belonging to the building — a different act from being invited into a loca,
 /// and deliberately a different record.
 ///
 /// Membership creates an identity: this name, this key, this person is one of
 /// ours. It is rare, heavy, and created from an authorized management surface.
-/// A davet does not create anything — it seats an existing member in a room,
+/// An invite does not create anything — it seats an existing member in a room,
 /// and the master does it from the UI a dozen times a day. Collapsing the two
-/// (a davet whose room is "the building") would make the daily act look like
+/// (an invite whose room is "the building") would make the daily act look like
 /// the founding one.
+///
+/// This is the answer to an admission (`POST /members`, 201): `token` is the
+/// new membership key, handed over once there. The server keeps only its
+/// hash and the ids derived from it, so no later answer can carry it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Membership {
     pub token: String,
@@ -1338,7 +1493,7 @@ pub struct RuntimeHealthUpdate {
     pub turn_completed: bool,
 }
 
-/// What the master sends to issue a davet: who it is for, and what they are.
+/// What the master sends to issue an invite: who it is for, and what they are.
 /// The token itself is minted server-side — never supplied by the caller.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateInvite {

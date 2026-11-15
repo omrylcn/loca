@@ -1,5 +1,8 @@
 "use strict";
-// Canonical, room-scoped loca memory. This is deliberately separate from Notes.
+// Archived, room-scoped loca memory, read-only. PRINCIPLES "Wiki editor":
+// there is no Memory role or owner to assign; Loca Wiki is the only shared
+// knowledge surface. The server refuses every write and owner assignment, so
+// this panel offers none.
 const MEMORY_SHORT_MAX = 4 * 1024;
 const MEMORY_ENTRY_MAX = 8 * 1024;
 const MEMORY_LONG_MAX = 64 * 1024;
@@ -11,17 +14,7 @@ function memoryNeedsAttention() {
 }
 
 const MEMORY_STATUSES = new Set(["ready", "absent", "empty", "inconsistent"]);
-const memoryDrafts = new Map();
-const memoryWrites = new Set();
 let memoryRequestSequence = 0;
-
-function editShortMemory() {
-  memoryDrafts.set(state.room, {
-    text: $("memoryShortInput").value,
-    revision: Number(state.memory?.version || 0),
-  });
-  renderMemoryByteCounts();
-}
 
 function applyMemorySnapshot(memory) {
   const incomingVersion = Number(memory?.version || 0);
@@ -60,142 +53,7 @@ function onMemoryFrame(frame) {
   // The frame is the authority for status and the immediate attention dot.
   // Refresh the unbounded HTTP resource and provenance list in the background
   // without replacing that authoritative status with a client-side guess.
-  if (!memoryWrites.has(state.locaContext)) fetchMemory(true);
-}
-
-function renderMemoryByteCounts() {
-  if (!$("memoryShortInput")) return;
-  const shortBytes = memoryBytes($("memoryShortInput").value);
-  const decisionBytes = memoryBytes($("memoryDecisionInput").value);
-  $("memoryShortBytes").textContent = `${shortBytes} / ${MEMORY_SHORT_MAX} bytes`;
-  $("memoryDecisionBytes").textContent = `${decisionBytes} / ${MEMORY_ENTRY_MAX} bytes`;
-  $("memorySaveShort").disabled = memoryWrites.has(state.locaContext) || shortBytes === 0 || shortBytes > MEMORY_SHORT_MAX;
-  $("memoryAddDecision").disabled = memoryWrites.has(state.locaContext) || decisionBytes === 0 || decisionBytes > MEMORY_ENTRY_MAX;
-}
-
-function showMemoryWriteResult(text, error = false) {
-  const result = $("memoryWriteResult");
-  result.textContent = text;
-  result.classList.remove("hidden");
-  result.classList.toggle("memorywarn", error);
-}
-
-async function writeMemory(path, request, text) {
-  if (!state.memory || state.memory.owner !== state.name) {
-    showMemoryWriteResult("Only the memory owner may write.", true);
-    return false;
-  }
-  const room = state.room;
-  const context = state.locaContext;
-  if (memoryWrites.has(context)) return false;
-  memoryWrites.add(context);
-  renderMemoryByteCounts();
-  try {
-    const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/memory/${path}`, {
-      method: request.method,
-      headers: adminHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify({ text }),
-    });
-    if (state.room !== room || state.locaContext !== context) return false;
-    if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
-    let writtenDecision = null;
-    if (path === "entries") {
-      // HTTP acceptance is already real even if its receipt is unreadable.
-      // Without the exact new ID, an older identical decision is not proof.
-      try { writtenDecision = await response.json(); } catch (_) {}
-      if (state.room !== room || state.locaContext !== context) return false;
-    }
-    if (path === "short" && $("memoryShortInput").value.trim() === text) memoryDrafts.delete(room);
-    const readback = await fetchMemory(true);
-    if (state.room !== room || state.locaContext !== context) return false;
-    const verified = readback && (path === "short"
-      ? state.memory?.short === text
-      : Number.isSafeInteger(writtenDecision?.id) && writtenDecision.id > 0
-        && writtenDecision.room === room && writtenDecision.text === text
-        && state.memoryEntries.some(entry => entry.id === writtenDecision.id && entry.text === text));
-    showMemoryWriteResult(verified
-      ? "Saved and verified from the server."
-      : "Saved by the server; verification could not complete. Retry the refresh.", !verified);
-    return true;
-  } catch (error) {
-    if (state.room === room && state.locaContext === context) showMemoryWriteResult(String(error.message || error), true);
-    return false;
-  } finally {
-    memoryWrites.delete(context);
-    if (state.room === room && state.locaContext === context) renderMemoryByteCounts();
-  }
-}
-
-async function saveShortMemory() {
-  const text = $("memoryShortInput").value.trim();
-  if (!text || memoryBytes(text) > MEMORY_SHORT_MAX) return;
-  await writeMemory("short", { method: "PUT" }, text);
-}
-
-async function addMemoryDecision() {
-  const room = state.room;
-  const text = $("memoryDecisionInput").value.trim();
-  if (!text || memoryBytes(text) > MEMORY_ENTRY_MAX) return;
-  if (await writeMemory("entries", { method: "POST" }, text) && state.room === room && $("memoryDecisionInput").value.trim() === text) {
-    $("memoryDecisionInput").value = "";
-    renderMemoryByteCounts();
-  }
-}
-
-function renderMemoryOwnerEditor() {
-  const editor = $("memoryOwnerEditor");
-  if (!editor) return;
-  const allowed = isAdmin() && !!state.room;
-  editor.classList.toggle("hidden", !allowed);
-  if (!allowed) return;
-  const select = $("memoryOwnerSelect");
-  const current = state.memory?.owner || "";
-  const identities = new Set([
-    ...state.members.map(member => member.name),
-    ...(state.seatedAway || []).map(member => member.name),
-  ].filter(Boolean));
-  if (current) identities.add(current);
-  select.innerHTML = `<option value="">not assigned</option>` + [...identities]
-    .sort((a, b) => a.localeCompare(b))
-    .map(name => `<option value="${esc(name)}">${esc(name)}</option>`)
-    .join("");
-  select.value = current;
-  updateMemoryOwnerButton();
-}
-
-function updateMemoryOwnerButton() {
-  $("memorySaveOwner").disabled = $("memoryOwnerSelect").value === (state.memory?.owner || "")
-    || memoryWrites.has(state.locaContext);
-}
-
-async function saveMemoryOwner() {
-  if (!isAdmin() || !state.room) return;
-  const room = state.room;
-  const context = state.locaContext;
-  const owner = $("memoryOwnerSelect").value || null;
-  if (memoryWrites.has(context)) return;
-  memoryWrites.add(context);
-  renderMemoryOwnerEditor();
-  try {
-    const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/memory/owner`, {
-      method: "PUT",
-      headers: adminHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify({ owner }),
-    });
-    if (state.room !== room || state.locaContext !== context) return;
-    if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
-    await fetchMemory(true);
-    if (state.room !== room || state.locaContext !== context) return;
-    const verified = (state.memory?.owner || null) === owner;
-    showMemoryWriteResult(verified
-      ? "Memory owner changed and verified from the server."
-      : "Owner change was accepted; verification could not complete. Refresh and check again.", !verified);
-  } catch (error) {
-    if (state.room === room && state.locaContext === context) showMemoryWriteResult(String(error.message || error), true);
-  } finally {
-    memoryWrites.delete(context);
-    if (state.room === room && state.locaContext === context) renderMemoryOwnerEditor();
-  }
+  fetchMemory(true);
 }
 
 async function fetchMemory(preserveStatus = false) {
@@ -203,6 +61,7 @@ async function fetchMemory(preserveStatus = false) {
   if (!room) return false;
   const sequence = ++memoryRequestSequence;
   const current = () => state.room === room && sequence === memoryRequestSequence;
+  const gen = state.buildingGen;
   state.memoryLoading = true;
   if (state.tab === "memory") renderMemory();
   try {
@@ -246,7 +105,7 @@ async function fetchMemory(preserveStatus = false) {
     if (state.memoryStatus !== "unknown") state.memoryError = "";
     return true;
   } catch (error) {
-    if (!current()) return false;
+    if (!current() || buildingStale(gen)) return false;
     if (!state.memory) state.memoryStatus = "error";
     if (!preserveStatus || state.memoryStatus !== "unknown") state.memoryError = String(error.message || error);
     return false;
@@ -268,35 +127,21 @@ function renderMemory() {
     $("memoryShort").textContent = "";
     $("memoryEntries").innerHTML = "";
     $("memoryHealth").innerHTML = "";
-    $("memoryOwnerEditor").classList.add("hidden");
-    $("memoryShortEditor").classList.add("hidden");
-    $("memoryDecisionEditor").classList.add("hidden");
-    $("memoryWriteResult").classList.add("hidden");
     return;
   }
   const memory = state.memory;
   const status = state.memoryStatus;
-  const canWrite = memory?.owner === state.name;
   const shortBytes = memoryBytes(memory?.short);
   const longBytes = memoryBytes(memory?.long);
-  const stewardship = canWrite
-    ? `<div class="memorysteward"><b>You are this loca's memory owner.</b> Keep the current state and durable decisions up to date.</div>`
-    : !memory?.owner
-      ? `<div class="sysline memorywarn">This loca has no memory owner assigned.</div>`
-      : "";
-  $("memoryOverview").innerHTML = `${stewardship}<div class="memorygrid">
+  const archived = `<div class="sysline">Archived memory is read-only: nobody writes it or is assigned to it. Loca Wiki is the shared knowledge surface.</div>`;
+  $("memoryOverview").innerHTML = `${archived}<div class="memorygrid">
     <div class="memorycard"><small>Status</small><b>${esc(status)}</b></div>
-    <div class="memorycard"><small>Owner</small><b>${esc(memory?.owner || "not assigned")}</b></div>
+    <div class="memorycard"><small>Owner</small><b>${esc(memory?.owner || "none")}</b></div>
     <div class="memorycard"><small>Short updated</small><b>${esc(memoryWhen(memory?.short_updated_at))}</b></div>
     <div class="memorycard"><small>Long updated</small><b>${esc(memoryWhen(memory?.long_updated_at))}</b></div>
     <div class="memorycard"><small>Revision</small><b>${Number(memory?.version || 0)}</b></div>
   </div>`;
-  renderMemoryOwnerEditor();
-  $("memoryShort").textContent = memory?.short || (status === "absent" ? "Memory owner not assigned." : "No current state has been written.");
-  $("memoryShortEditor").classList.toggle("hidden", !canWrite);
-  $("memoryDecisionEditor").classList.toggle("hidden", !canWrite);
-  const draft = memoryDrafts.get(state.room);
-  if (canWrite) $("memoryShortInput").value = draft ? draft.text : memory.short || "";
+  $("memoryShort").textContent = memory?.short || (status === "absent" ? "This loca has no archived memory." : "No current state was written.");
   const entries = state.memoryEntries || [];
   $("memoryEntries").innerHTML = entries.length ? "" : `<div class="sysline">No durable decisions.</div>`;
   for (const entry of entries) {
@@ -311,8 +156,6 @@ function renderMemory() {
     $("memoryEntries").appendChild(row);
   }
   const warnings = [];
-  if (longBytes >= MEMORY_LONG_MAX) warnings.push("Decision ledger is full. Existing decisions remain readable; update short memory or use Notes/Journal for continuing history. No consolidation command is available.");
-  if (draft && draft.revision !== Number(memory?.version || 0)) warnings.push("Memory changed while you were editing. Your draft is preserved; review the current text before saving.");
   if (status === "inconsistent") warnings.push("Long memory and provenance entries disagree.");
   if (memory?.over_budget) warnings.push("Long memory is over the 32 KiB warning threshold.");
   if (state.memoryError) warnings.push(state.memoryError);
@@ -321,7 +164,6 @@ function renderMemory() {
     <div class="memorycard"><small>Short budget</small><b>${shortBytes} / ${MEMORY_SHORT_MAX} bytes</b></div>
     <div class="memorycard"><small>Single decision limit</small><b>${MEMORY_ENTRY_MAX} bytes</b></div>
     <div class="memorycard"><small>Long budget</small><b>${longBytes} / ${MEMORY_LONG_MAX} bytes</b></div>
-    <div class="memorycard"><small>Write access</small><b>${canWrite ? "owner" : "read-only"}</b></div>
+    <div class="memorycard"><small>Write access</small><b>read-only</b></div>
   </div>${warnings.map(w => `<div class="sysline memorywarn">${esc(w)}</div>`).join("")}`;
-  renderMemoryByteCounts();
 }

@@ -8,8 +8,13 @@ use super::*;
 
 pub const PREFERENCE_THEMES: &[&str] = &["dark", "light"];
 pub const PREFERENCE_ACCENTS: &[&str] = &["teal", "blue", "violet", "amber", "rose"];
-pub const PREFERENCE_DENSITIES: &[&str] = &["comfortable", "compact"];
-pub const PREFERENCE_FONT_SIZES: &[&str] = &["normal", "large"];
+// Each list starts with its default. Values are only ever added: a stored
+// value keeps meaning what it meant when it was saved.
+pub const PREFERENCE_DENSITIES: &[&str] = &["comfortable", "compact", "spacious"];
+pub const PREFERENCE_FONT_SIZES: &[&str] = &["normal", "large", "small", "larger"];
+/// Typefaces already on the device (no download, no external request):
+/// the monospace design face, the system UI sans and the system serif.
+pub const PREFERENCE_FONT_FAMILIES: &[&str] = &["mono", "sans", "serif"];
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct Preferences {
@@ -17,6 +22,7 @@ pub struct Preferences {
     pub accent: String,
     pub density: String,
     pub font_size: String,
+    pub font_family: String,
 }
 
 impl Default for Preferences {
@@ -26,6 +32,7 @@ impl Default for Preferences {
             accent: "teal".into(),
             density: "comfortable".into(),
             font_size: "normal".into(),
+            font_family: "mono".into(),
         }
     }
 }
@@ -54,6 +61,7 @@ impl Preferences {
                 "accent" => (PREFERENCE_ACCENTS, &mut next.accent),
                 "density" => (PREFERENCE_DENSITIES, &mut next.density),
                 "font_size" => (PREFERENCE_FONT_SIZES, &mut next.font_size),
+                "font_family" => (PREFERENCE_FONT_FAMILIES, &mut next.font_family),
                 _ => {
                     return Err(PreferenceError::Invalid(format!(
                         "unknown preference `{key}`"

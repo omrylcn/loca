@@ -19,32 +19,35 @@ function setEntryPath(path) {
 $("masterEntryButton").onclick = () => setEntryPath(state.entryPath === "master" ? $("entryKind").value : "master");
 $("entryKind").onchange = () => setEntryPath($("entryKind").value);
 setEntryPath("human");
+// The sign-in form is shown while nobody is signed in and put away once
+// someone is: there is no control that brings it back over a live session.
+// Signing in as someone else, or to another server, starts with Sign out.
 function setConnOpen(open) {
   $("connBox").style.display = open ? "" : "none";
-  $("connGear").textContent = open ? "✕" : "⚙";
 }
-$("connGear").onclick = () => setConnOpen($("connBox").style.display === "none");
 // Signing out does not reload the page, so whatever the Building panes fetched
 // would stay readable by the next person at this tab. Drop it: the state, and
 // the panes back to the empty markup they load with. That takes #keyIssued (a
 // just-issued key in clear text, carried across re-renders in keys.js) and
-// #bbWitness (a birebir the Master read as a called-in witness) with them.
+// #bbWitness (a direct message the Master read as a called-in witness) with them.
 // The generation moves on here too: whatever was asked for before this point
 // is answered into nothing. This is the one way out of a session: sign-out,
 // a session the server ended (401), a revoked own key, and a new identity or
 // server typed in over a live one all come through here.
 function clearBuildingData() {
   moveBuildingOn();
-  state.keyLedger = [];
+  closeLocaPanel();   // a loca's identity on screen, or a new one half typed
+  state.keyLedger = []; state.keyLedgerError = false;
   state.people = []; state.ranks = []; state.bans = {};
   state.joinRequests = null; state.joinRequestsError = false; state.admissionStock = null;
-  state.birebirOverview = []; state.birebirs = []; state.lobby = [];
+  state.dmOverview = []; state.dms = []; state.lobby = [];
   state.groups = []; state.groupsLoaded = false; state.profilesList = null; state.groupMove = null;
   state.buildingTab = "people";
-  for (const pane of ["peopleList", "groupsPane", "keyLedger", "birebirOverview"]) $(pane).innerHTML = "";
+  state.evicted = null; renderEvicted();   // a seat taken from the last person
+  for (const pane of ["peopleList", "groupsPane", "keyLedger", "dmOverview"]) $(pane).innerHTML = "";
   syncBuildingTabs();
   renderLobby();
-  renderBirebirList();
+  renderDmList();
   renderLocaSidebar();   // no loca now: This Loca and its group-move dialog empty
   notifReset();
   state.notif.inflight = false;   // a poll still out belongs to the last person
@@ -52,12 +55,31 @@ function clearBuildingData() {
   for (const id of ["notifPanel", "notifToast"]) { if ($(id)) $(id).innerHTML = ""; }
   renderNotifBell();
 }
-// Leaving the whole Building is materially different from releasing one loca.
-// Ask explicitly; an accidental click must not revoke the browser session.
-$("leaveBtn").onclick = () => $("leaveConfirm").classList.remove("hidden");
-$("leaveNo").onclick = () => $("leaveConfirm").classList.add("hidden");
-$("leaveYes").onclick = async () => {
-  $("leaveConfirm").classList.add("hidden");
+// The words of the last loca or private conversation are that person's: none
+// stay in the page, in the feed or in memory, for whoever sits here next.
+// Called on every way a person's time at this page ends for good: sign-out, a
+// session the server refuses with no key to renew it (lockRefusedSession), and
+// revoking the key behind one's own session. A session that renews keeps its
+// conversation: that path never comes here.
+function clearPersonWords() {
+  revokeInlineAttachmentUrls();
+  state.msgs = []; state.seen = new Set(); state.lastId = 0; lastDayKey = null;
+  $("feed").innerHTML = "";
+  renderDmBar();
+}
+// Signing out is materially different from releasing one loca. Ask
+// explicitly; an accidental click must not end the browser session. It ends
+// this browser's session only: the membership and the key stay, and the key
+// signs the person in again. The button lives in the account menu, which
+// profile.js redraws, so its clicks are taken here at #whoami.
+$("whoami").addEventListener("click", (event) => {
+  if (event.target.closest("#leaveBtn")) $("leaveConfirm")?.classList.remove("hidden");
+  else if (event.target.closest("#leaveNo")) $("leaveConfirm")?.classList.add("hidden");
+  else if (event.target.closest("#leaveYes")) signOutHere();
+});
+async function signOutHere() {
+  $("leaveConfirm")?.classList.add("hidden");
+  const master = state.profile?.building_role === "master";
   try { localStorage.removeItem("loca-seat"); } catch (e) {}
   try {
     localStorage.removeItem("loca-admin-session");
@@ -65,26 +87,27 @@ $("leaveYes").onclick = async () => {
   } catch (e) {}
   if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
   // Leave locally first, then tell the server: nothing asked for while the
-  // DELETE is out still rides the old session.
+  // DELETE is out still rides the old session. The session and the server it
+  // came from are taken before anything is cleared.
   const session = state.session;
+  const server = state.server || serverBase();
   state.session = null; state.roomToken = ""; state.pairing = ""; state.adminSession = false; state.sessionExpires = null; state.room = null;
   state.authStatus = "unauthenticated";
   resetRoomPreferenceIdentity();
   state.profile = null;
   $("roomToken").value = ""; $("pairingCode").value = "";
-  $("leaveBtn").classList.add("hidden");
+  // The sign-in form again says what it signs in as, not "retake your seat".
+  setEntryPath(state.entryPath === "master" ? "master" : $("entryKind").value);
   setLocked(true);
-  $("doorline").innerHTML = "you left loca.<br>the key opens it again.";
+  $("doorline").innerHTML = master
+    ? "you signed out.<br>a fresh pairing code signs you in again."
+    : "you signed out.<br>your key signs you in again.";
   clearBuildingData();
-  if (session) {
-    try {
-      await fetch(serverBase() + "/sessions", {
-        method: "DELETE",
-        headers: { "x-session-token": session },
-      });
-    } catch (e) { /* local logout still completes if the server is unavailable */ }
-  }
-};
+  clearPersonWords();
+  // Sent so that the next person's sign-in cannot cancel it; local logout
+  // still completes if the server is unavailable.
+  endUnheldSession(server, session);
+}
 $("applyMode").onclick = applyMode;
 function closeProperties() {
   $("adminbar").classList.remove("open");
@@ -123,7 +146,7 @@ $("applySettings").onclick = applySettings;
 $("liveToggle").onclick = toggleLive;
 $("peopleList").onclick = async (e) => {
   const dm = e.target.closest("[data-dm]");
-  if (dm) { openBirebir(dm.dataset.dm); return; }
+  if (dm) { openDm(dm.dataset.dm); return; }
   const jrNote = (t) => { const n = $("jrNotice"); if (n) n.textContent = t; };
   // One admission action, transport-safe: a network failure surfaces a notice
   // and re-enables the button instead of an unhandled rejection + stuck button.
@@ -188,6 +211,7 @@ $("peopleList").onclick = async (e) => {
       ? `Suspend ${name}? All current sessions and loca invitations will end. The identity and history will be kept.`
       : `Resume ${name}? They must sign in again and receive new loca invitations. Old sessions will not reopen.`)) return;
     suspension.disabled = true;
+    const gen = state.buildingGen;
     try {
       const response = await fetch(`${serverBase()}/members/${encodeURIComponent(suspension.dataset.suspendMember)}/suspension`, {
         method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
@@ -195,7 +219,7 @@ $("peopleList").onclick = async (e) => {
       });
       if (!response.ok) throw new Error("Membership state could not be saved. Refresh and try again.");
       await fetchPeople();
-    } catch (error) { window.alert(error.message); }
+    } catch (error) { if (!buildingStale(gen)) window.alert(error.message); }
     finally { suspension.disabled = false; }
     return;
   }
@@ -205,6 +229,7 @@ $("peopleList").onclick = async (e) => {
     const name = revoke.dataset.memberName;
     if (!window.confirm(`Revoke ${name}'s Building membership? Access to all locas will end. This does not stop the agent's local process or delete conversation history.`)) return;
     revoke.disabled = true;
+    const gen = state.buildingGen;
     try {
       const response = await fetch(`${serverBase()}/members/${encodeURIComponent(revoke.dataset.revokeMember)}`, {
         method: "DELETE", headers: adminHeaders({}),
@@ -212,7 +237,7 @@ $("peopleList").onclick = async (e) => {
       if (!response.ok) throw new Error("Membership could not be revoked. Refresh and try again.");
       await fetchPeople();
     } catch (error) {
-      window.alert(error.message);
+      if (!buildingStale(gen)) window.alert(error.message);
     } finally {
       revoke.disabled = false;
     }
@@ -233,6 +258,8 @@ $("callBtn").onclick = () => {
 $("callList").onclick = (e) => {
   const ai = e.target.closest("[data-admit-invite]");
   if (ai) { admitAndInvite(ai.dataset.admitInvite); return; }
+  const re = e.target.closest("[data-call-reissue]");
+  if (re) { reissueInvite(re.dataset.callReissue, re.dataset.room); return; }
   const cancel = e.target.closest("[data-call-cancel]");
   if (cancel) { $("callList").classList.add("hidden"); return; }
   const row = e.target.closest("[data-call]");
@@ -383,14 +410,16 @@ $("feed").addEventListener("click", (e) => {
   }
   const reaction = e.target.closest("[data-react][data-emoji]");
   if (reaction) {
-    setReaction(Number(reaction.dataset.react), reaction.dataset.emoji).catch(() => addSys("reaction failed — connection error"));
+    const gen = state.buildingGen;
+    setReaction(Number(reaction.dataset.react), reaction.dataset.emoji)
+      .catch(() => { if (!buildingStale(gen)) addSys("reaction failed — connection error"); });
     reaction.closest(".reactionpicker")?.classList.add("hidden");
     return;
   }
 });
 $("onlineList").addEventListener("click", (e) => {
   const dm = e.target.closest("[data-dm]");
-  if (dm) { openBirebir(dm.dataset.dm); return; }
+  if (dm) { openDm(dm.dataset.dm); return; }
   const b = e.target.closest("[data-mod]");
   if (b) moderate(b.dataset.mod, b.dataset.n);
   const lead = e.target.closest("[data-lead]");
@@ -422,11 +451,12 @@ $("leadSelect").addEventListener("change", async (e) => {
   const before = state.settings?.lead || "";
   const next = e.target.value || null;
   e.target.disabled = true;
+  const gen = state.buildingGen;
   try {
     if (!(await setLead(next))) e.target.value = before;
   } catch (err) {
     e.target.value = before;
-    addSys("could not change lead — connection failed");
+    if (!buildingStale(gen)) addSys("could not change lead — connection failed");
   } finally {
     e.target.disabled = false;
   }
@@ -488,6 +518,7 @@ window.addEventListener("storage", (e) => {
   if (wasWatching !== isWatchingDoor()) openWs(); else renderDoor();
 });
 $("doorTakeSeat").onclick = () => setSeat(true);
+$("evictedUse").onclick = () => useItHere();
 $("stopBtn").onclick = () => { if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify({ t: "control", cmd: "stop" })); };
 $("clearBtn").onclick = () => { revokeInlineAttachmentUrls(); $("feed").innerHTML = ""; };
 
@@ -499,12 +530,6 @@ $("wikiRefresh").onclick = fetchWiki;
 $("wikiEditor").onchange = configureWiki;
 $("wikiSettingsToggle").onclick = () => toggleWikiSettings();
 $("wikiSettingsClose").onclick = () => toggleWikiSettings(false);
-$("memorySaveShort").onclick = saveShortMemory;
-$("memoryAddDecision").onclick = addMemoryDecision;
-$("memorySaveOwner").onclick = saveMemoryOwner;
-$("memoryOwnerSelect").onchange = updateMemoryOwnerButton;
-$("memoryShortInput").oninput = editShortMemory;
-$("memoryDecisionInput").oninput = renderMemoryByteCounts;
 
 // notes create + edit (event delegation on the list)
 $("nnCreate").onclick = createNote;
@@ -526,13 +551,14 @@ async function toggleHistory(key) {
   if (!box.classList.contains("hidden")) { box.classList.add("hidden"); return; }
   box.innerHTML = `<div class="hmeta">loading…</div>`;
   box.classList.remove("hidden");
+  const gen = state.buildingGen;
   try {
     const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(state.room)}/notes/${encodeURIComponent(key)}/history`, { headers: adminHeaders({}) });
     const revs = await r.json();
     box.innerHTML = revs.length
       ? revs.map(v => `<div class="hrow"><div class="hmeta">rev ${v.rev} · ${esc(v.updated_by)} · ${fmtFull(v.updated_at)}</div><div class="hbody markdown">${renderMarkdown(v.body)}</div></div>`).join("")
       : `<div class="hmeta">no earlier versions</div>`;
-  } catch (e) { box.innerHTML = `<div class="hmeta">history failed</div>`; }
+  } catch (e) { if (!buildingStale(gen)) box.innerHTML = `<div class="hmeta">history failed</div>`; }
 }
 
 async function deleteNote(key) {
@@ -592,4 +618,14 @@ async function bootstrapIdentity() {
   else await fetchProfile();
   await refreshRooms();
 }
-bootstrapIdentity();
+// A Loca Host whose own server did not start has nothing to sign in to: the
+// page says so and talks to nobody (state.js hostWithoutServer); the Host's
+// error box (#hostProvisionError) names the cause.
+function showHostWithoutServer() {
+  document.body.classList.remove("auth-pending");
+  state.authStatus = "unauthenticated";
+  setLocked(true);
+  $("doorline").textContent = "Loca Host could not start its own server, so there is nothing to connect to. Restart Loca Host.";
+}
+if (hostWithoutServer()) showHostWithoutServer();
+else bootstrapIdentity();
