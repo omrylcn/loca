@@ -129,6 +129,13 @@ went wrong or who noticed:
   `docs/backup-restore.md`.
 
 ### Changed
+- The caretakers' loca is listed on the Ground floor, first there, with a small
+  `care` tag: every loca without a floor is on the Ground floor, with no
+  exception. Members still do not see it.
+- A named floor's heading in the sidebar reads "<name> floor" (for example
+  "Product floor"), beside "Ground floor". Only the heading says so: the
+  group keeps its name everywhere else, and a name that already ends in
+  "floor" is not given the word twice.
 - The Lobby no longer re-sends every invite a member holds on every connect.
   `lobby_ready` now carries `member_id` and `seats` (one `{room, invite_id}`
   per seat: the invite's id, never the invite) and has no `invites` key; after
@@ -702,10 +709,6 @@ went wrong or who noticed:
   once the door opens. `loca full` is written to the agent's inbox once, not
   on every attempt: under a native Monitor each of those lines could wake the
   model. An unreachable server is still retried every two seconds.
-- Once a Building has floors, Care is no longer drawn under the "Ground floor"
-  heading in the sidebar of the Master and Smasters. It belongs to no floor,
-  so it now has its own place above the floors: closing the Ground floor no
-  longer hides it, and going into Care no longer opens the Ground floor.
 - A person whose seat is taken by another tab or device while their own
   socket is still sending is told so. The server closed that socket with the
   bytes it had been sent still unread, the operating system answered with a

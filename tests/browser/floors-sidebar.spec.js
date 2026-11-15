@@ -86,55 +86,49 @@ test("the Master's locas are listed by floor: Ground floor first, then floors by
     [`${tag}-alpha`, [`${tag}-a1`, `${tag}-a2`]],
     [`${tag}-beta`, [`${tag}-b1`]],
   ]);
-  // Care, the ranks' own house, is on no floor.
-  expect((await floors(page)).flatMap(([, rooms]) => rooms)).not.toContain("iye");
+  // Care has no floor of its own, so it is on the Ground floor.
+  expect((await floors(page)).find(([n]) => n === "Ground floor")[1]).toContain("iye");
   await context.close();
 });
 
-test("Care has its own place above the floors, under no floor heading", async ({ browser, request }) => {
+test("Care is on the Ground floor like every loca without a floor, first there, with a care tag", async ({ browser, request }) => {
   const tag = "fl9";
   const { master } = await building(request, tag);
   const { context, page } = await openAsMaster(browser, master);
   await expect(floorOf(page, `${tag}-alpha`)).toBeVisible();
-  const careLoca = page.locator("#roomList > .roomitem", { hasText: "iye" });
-  await expect(careLoca).toHaveCount(1);
-  await expect(page.locator("#roomList details.floor .rname", { hasText: /^iye$/ })).toHaveCount(0);
-  // Above the floors: the first thing in the list.
-  expect(await page.evaluate(() => {
-    const first = document.querySelector("#roomList > *");
-    return first.matches(".roomitem") && first.querySelector(".rname").textContent;
-  })).toBe("iye");
-
-  // Closing the Ground floor does not take Care with it, and going into Care
-  // does not open the Ground floor again.
   const ground = floorOf(page, "Ground floor");
+  // Under the Ground floor heading, first, and nowhere else.
+  await expect(page.locator("#roomList > .roomitem", { hasText: "iye" })).toHaveCount(0);
+  await expect.poll(async () => (await floors(page)).find(([n]) => n === "Ground floor")[1][0]).toBe("iye");
+  const careLoca = ground.locator(".roomitem", { has: page.locator(".rname", { hasText: /^iye$/ }) });
+  await expect(careLoca.locator(".caretag")).toHaveText("care");
+  // No other loca carries the tag.
+  await expect(page.locator("#roomList .caretag")).toHaveCount(1);
+
+  // It closes with its floor, and going into it opens the floor again.
   await ground.locator(":scope > summary").click();
   await expect(ground).not.toHaveAttribute("open", "");
-  await expect(careLoca).toBeVisible();
   await page.evaluate(() => joinRoom("iye"));
-  await expect(page.locator("#roomList > .roomitem .room[aria-current=page]", { hasText: "iye" })).toBeVisible();
-  await expect(ground).not.toHaveAttribute("open", "");
+  await expect(ground).toHaveAttribute("open", "");
+  await expect(careLoca.locator(".room[aria-current=page]")).toBeVisible();
+  await context.close();
+});
 
-  // Its unread marker is its own; the closed Ground floor does not count it.
-  await page.evaluate(room => joinRoom(room), `${tag}-a1`);
-  const { token } = await (await request.post("/smasters", { headers: MASTER, data: { name: `${tag}-sm` } })).json();
-  const s = await (await request.post("/sessions", { headers: { "x-admin-token": token }, data: { name: `${tag}-sm`, kind: "user" } })).json();
-  const said = await request.post("/rooms/iye/messages", {
-    headers: { "x-session-token": s.session_token },
-    data: { sender: `${tag}-sm`, sender_type: "user", text: "fl9 unread", op_id: `fl9-${Date.now()}` },
-  });
-  expect(said.ok(), await said.text()).toBeTruthy();
-  await expect.poll(async () => {
-    await page.evaluate(() => refreshRooms());
-    return careLoca.locator(".unreadbadge").textContent({ timeout: 1000 }).catch(() => null);
-  }, { timeout: 15_000 }).toBe("1");
-  await expect(ground.locator(":scope > summary .unreadbadge")).toHaveCount(0);
-
-  // Hiding it still works.
-  await careLoca.locator("summary.roompreftrigger").click();
-  await careLoca.locator("[data-room-preference=hide]").click();
-  await expect(page.locator("#roomList > .roomitem", { hasText: "iye" })).toHaveCount(0);
-  await expect(page.locator("#hiddenLocas")).toContainText("iye");
+test("a named floor's heading says floor; the Ground floor's and a name ending in floor are not doubled", async ({ browser, request }) => {
+  const tag = "fl10";
+  const { master } = await building(request, tag);
+  const as = { "x-session-token": master.session_token };
+  const made = await request.post("/groups", { headers: as, data: { name: `${tag}-Top Floor` } });
+  const top = (await made.json()).id;
+  expect((await request.post("/rooms", { headers: as, data: { name: `${tag}-t1`, group: top } })).status()).toBe(201);
+  const { context, page } = await openAsMaster(browser, master);
+  const heading = name => floorOf(page, name).locator(":scope > summary");
+  // The word is drawn after the name; the name itself stays the group's.
+  const shown = name => heading(name).locator(".rgroupname").evaluate(el => el.textContent + getComputedStyle(el, "::after").content.replace(/^none$/, "").replaceAll('"', ""));
+  await expect(heading(`${tag}-alpha`).locator(".rgroupname")).toHaveText(`${tag}-alpha`);
+  expect(await shown(`${tag}-alpha`)).toBe(`${tag}-alpha floor`);
+  expect(await shown("Ground floor")).toBe("Ground floor");
+  expect(await shown(`${tag}-Top Floor`)).toBe(`${tag}-Top Floor`);
   await context.close();
 });
 

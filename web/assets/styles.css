@@ -1506,6 +1506,12 @@
   .rgrouphead { display: flex; align-items: center; gap: 6px; padding: 10px 16px 4px; color: var(--muted);
     font-size: 10px; letter-spacing: .1em; text-transform: uppercase; border-top: 1px solid var(--line); }
   .rgroupname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A named floor's heading reads "<name> floor", beside "Ground floor". The
+     word is drawn here, so the element's text stays the group's own name. */
+  .rgrouphead.saysfloor .rgroupname::after { content: " floor"; }
+  .caretag { flex: none; margin-left: 6px; padding: 0 5px; border-radius: 6px; font-size: 9px;
+    letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+    border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); }
   .rgroupcount { color: var(--dim); letter-spacing: 0; }
   /* A floor of "Your Locas": its heading opens and closes it. */
   .floor > summary.rgrouphead { list-style: none; cursor: pointer; user-select: none; }
