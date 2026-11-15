@@ -565,12 +565,19 @@ function roomFloorKey(rm) { return rm && rm.group ? (rm.group_id || rm.group) : 
 let floorRevealFor = null;
 function revealRoomFloor(room) { floorRevealFor = room; }
 
+// A floor's heading reads as a floor: "Product floor", beside "Ground floor".
+// Only the heading says so; the group keeps its own name everywhere else. A
+// name that already ends in "floor" is not given the word twice.
+function floorSaysFloor(floor) {
+  return floor.key !== GROUND_FLOOR && !/floor\s*$/i.test(floor.name || "");
+}
+
 function renderRooms() {
   const list = $("roomList");
   list.innerHTML = "";
   if (floorRevealFor) {
     const rm = state.rooms.find(r => r.room === floorRevealFor);
-    if (rm) { floorRevealFor = null; if (!isRankHome(rm.room)) setFloorCollapsed(roomFloorKey(rm), false); }
+    if (rm) { floorRevealFor = null; setFloorCollapsed(roomFloorKey(rm), false); }
   }
   const prefs = loadRoomPreferences();
   const ordered = orderedSidebarRooms(state.rooms);
@@ -602,7 +609,13 @@ function renderRooms() {
     const badge = unread
       ? `<span class="unreadbadge" title="${unread} unread message${unread === 1 ? "" : "s"}">${unread > 99 ? "99+" : unread}</span>`
       : "";
-    el.innerHTML = `<div class="rrow">${locaMarkHtml(rm)}<span class="rname" title="${esc(locaRowTitle(rm))}">${esc(rm.room)}</span>${pres}</div>` +
+    // Care (the Building's own loca) has no floor of its own, so like every
+    // loca without one it is on the Ground floor. The tag says what sets it
+    // apart there: only the ranks and the caretakers may enter it.
+    const care = isRankHome(rm.room)
+      ? `<span class="caretag" title="The Building's care loca: the Master, Smasters and caretakers only">care</span>`
+      : "";
+    el.innerHTML = `<div class="rrow">${locaMarkHtml(rm)}<span class="rname" title="${esc(locaRowTitle(rm))}">${esc(rm.room)}</span>${care}${pres}</div>` +
       (rm.last || badge ? `<div class="rlastrow"><div class="rlast">${esc(rm.last || "")}</div>${badge}</div>` : "");
     // The room list is only visible after identity resolution. Moving
     // between locas is navigation, not a new login: re-reading an autofilled
@@ -622,14 +635,10 @@ function renderRooms() {
   if (!named.length) {
     ground.rooms.forEach(rm => list.appendChild(roomItem(rm)));
   } else {
-    // Care is on no floor (PRINCIPLES: never tied to a group; the server
-    // refuses to move it onto one). Under floor headings it has its own
-    // place above them, not the Ground floor's.
+    // Every loca without a group is on the Ground floor, Care included (the
+    // owner's rule: no exception). It is listed first there.
     const home = ground.rooms.find(rm => isRankHome(rm.room));
-    if (home) {
-      ground.rooms = ground.rooms.filter(rm => rm !== home);
-      list.appendChild(roomItem(home));
-    }
+    if (home) ground.rooms = [home, ...ground.rooms.filter(rm => rm !== home)];
     for (const floor of [ground, ...named]) {
       if (!floor.rooms.length) continue;   // no loca of it listed here
       const collapsed = prefs.collapsed.includes(floor.key);
@@ -638,7 +647,7 @@ function renderRooms() {
       details.dataset.floor = floor.key;
       details.open = !collapsed;
       const head = document.createElement("summary");
-      head.className = "rgrouphead";
+      head.className = "rgrouphead" + (floorSaysFloor(floor) ? " saysfloor" : "");
       const unread = floor.rooms.reduce((n, rm) => n + Number(state.unread[rm.room] || 0), 0);
       const badge = collapsed && unread
         ? `<span class="unreadbadge" title="${unread} unread message${unread === 1 ? "" : "s"} on this floor">${unread > 99 ? "99+" : unread}</span>`
