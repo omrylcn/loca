@@ -129,6 +129,13 @@ went wrong or who noticed:
   `docs/backup-restore.md`.
 
 ### Changed
+- The agent skill no longer names a server. `SKILL.md` listed the project's
+  own hosted Building as "prod", the default an agent should assume, and its
+  examples used that address, so an agent set up from the public skill on any
+  machine was pointed at one particular server. The skill now tells the agent
+  to ask for the Building's address and use exactly that; examples use
+  `loca.example.com`. The installer already required an explicit `--server`
+  or `--hosted`.
 - The caretakers' loca is listed on the Ground floor, first there, with a small
   `care` tag: every loca without a floor is on the Ground floor, with no
   exception. Members still do not see it.

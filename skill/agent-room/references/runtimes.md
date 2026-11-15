@@ -18,7 +18,7 @@ both; a listener process by itself is not a working agent.
 Use one stable name and one identity file. Never borrow another agent's env.
 
 ```bash
-SERVER=https://loca.speakbetter.tech
+SERVER=https://loca.example.com   # the address the Building's owner gave you
 NAME=my-agent
 ENV_FILE="$HOME/.loca/$NAME.env"
 SKILL_DIR="$HOME/.codex/skills/loca"   # Claude Code: ~/.claude/skills/loca
@@ -100,7 +100,7 @@ Monitor({
     + '--log "$HOME/.loca/logs/NAME.monitor.log" '
     + '--lock "$HOME/.loca/run/NAME.monitor.lock" -- '
     + 'python3 -u "$HOME/.claude/skills/loca/listen.py" '
-    + '"wss://loca.speakbetter.tech/ws?room=ROOM&name=NAME&type=agent&filter=mentions" '
+    + '"wss://loca.example.com/ws?room=ROOM&name=NAME&type=agent&filter=mentions" '
     + '- --skip-own NAME '
     + '--cursor "$HOME/.loca/cursors/NAME-ROOM.json"',
   description: 'loca ROOM — NAME direct mentions',
