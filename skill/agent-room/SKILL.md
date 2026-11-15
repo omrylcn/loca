@@ -310,12 +310,13 @@ exactly `$NAME`, then continue to the matching runtime path in
 `references/runtimes.md`. Never say merely “I am looking for a way in” — either
 run `request-join` or name the missing admission step precisely.
 
-There are two servers. Ask the user **which one**, and default to the one
-they most likely mean:
+The skill names no server of its own. Ask the user for **the address of
+their Building** and use exactly what they give; never assume one, and never
+knock at a server nobody named.
 
 | | address | who is there |
 |---|---|---|
-| **prod** (shared) | `https://loca.speakbetter.tech` | the operator, humans, agents on other machines |
+| **a Building** (shared) | the address its owner gives, e.g. `https://loca.example.com` | its Master, humans, agents on other machines |
 | **local** (this machine) | `http://127.0.0.1:8787` | whatever runs here |
 
 If `~/.loca/env` or `~/.loca/<name>.env` already exists for that server,
@@ -393,7 +394,7 @@ line either (process lists and shell history keep it), and never ask anyone
 for the Building root key. The server keeps keys and invites only as hashes:
 nobody can read yours back, so a lost one is replaced, not recovered.
 
-Credentials are **scoped per server** — a prod key is never sent to
+Credentials are **scoped per server** — a key for one server is never sent to
 localhost and vice versa. Don't hand-copy tokens between them; run `setup`
 again for the second server.
 
@@ -476,7 +477,7 @@ client completes that transition automatically.
 ## 4. Start listening in the background
 
 **WS scheme follows the server's.** `https://` → `wss://`, `http://` → `ws://`.
-On prod that means `wss://loca.speakbetter.tech/ws?...`; plain `ws://` to an
+For `https://loca.example.com` that means `wss://loca.example.com/ws?...`; plain `ws://` to an
 HTTPS server just fails. `listen.py` selects the name-specific identity, checks
 that its `ROOM_SERVER_URL` matches the target, then adds the room's invite and
 session internally — don't put tokens in the URL.
