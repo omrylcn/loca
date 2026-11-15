@@ -630,11 +630,11 @@ function renderRooms() {
   const ground = floors.get(GROUND_FLOOR);
   const named = [...floors.values()].filter(f => f.key !== GROUND_FLOOR)
     .sort((a, b) => a.name.localeCompare(b.name));
-  // Only Ground-floor locas: the list as it always was, with no heading that
-  // would say nothing but "Ground floor".
-  if (!named.length) {
-    ground.rooms.forEach(rm => list.appendChild(roomItem(rm)));
-  } else {
+  // Every loca is drawn under its floor's heading, the Ground floor's
+  // included even when it is the only floor: the list has no other title
+  // (the owner's rule: a loca without a floor is on the Ground floor, and the
+  // sidebar says so).
+  {
     // Every loca without a group is on the Ground floor, Care included (the
     // owner's rule: no exception). It is listed first there.
     const home = ground.rooms.find(rm => isRankHome(rm.room));

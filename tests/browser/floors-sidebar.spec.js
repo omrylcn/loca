@@ -146,15 +146,16 @@ test("a member on one floor sees that floor and the Ground floor, and nothing of
   await context.close();
 });
 
-test("with only Ground-floor locas the list has no floor heading", async ({ browser, request }) => {
+test("with only Ground-floor locas the list is headed Ground floor, and there is no Your Locas label", async ({ browser, request }) => {
   const name = "fl3-solo";
   const { token } = await (await request.post("/members", { headers: MASTER, data: { name, kind: "user" } })).json();
   await request.post("/rooms", { headers: MASTER, data: { name: "fl3-g1" } });
   await request.post("/rooms/fl3-g1/invites", { headers: MASTER, data: { name } });
   const { context, page } = await openAsMember(browser, name, token);
   await expect(page.locator("#roomList .roomitem", { hasText: "fl3-g1" })).toBeVisible();
-  await expect(page.locator("#roomList details.floor")).toHaveCount(0);
-  await expect(page.locator("#roomList")).not.toContainText("Ground floor");
+  await expect(page.locator("#roomList details.floor")).toHaveCount(1);
+  await expect(floorOf(page, "Ground floor").locator(".roomitem", { hasText: "fl3-g1" })).toBeVisible();
+  await expect(page.locator("#sideBuildingView .rlabel", { hasText: /^YOUR LOCAS$/i })).toHaveCount(0);
   await context.close();
 });
 

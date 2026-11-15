@@ -80,3 +80,20 @@ class SelfHostInitTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ComposeUpgradeSpaceTests(unittest.TestCase):
+    """The shipped compose file must leave room for the upgrade's VACUUM."""
+
+    def test_sqlite_temporary_files_are_not_on_the_small_tmpfs(self):
+        # v0.14.0's one-time clean-up (VACUUM) writes a temporary copy of the
+        # whole database to SQLite's temporary directory. The container's /tmp
+        # is a 16 MB tmpfs, so with the default directory any database larger
+        # than that stopped the start with "database or disk is full" (seen on
+        # a 249 MB database). The temporary directory must be the data volume.
+        compose = (Path(__file__).resolve().parents[3] / "docker-compose.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertRegex(compose, r"(?m)^\s+- /tmp:size=\d+m", "this test is about the tmpfs")
+        self.assertRegex(compose, r"(?m)^\s+- agent-room-data:/data\s*$")
+        self.assertRegex(compose, r"(?m)^\s+SQLITE_TMPDIR: /data\s*$")

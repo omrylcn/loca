@@ -9,6 +9,31 @@
 <script src="/assets/theme.js"></script>
 </head>
 <body>
+  <!-- The sign-in page's other half (body.locked only): what loca is, for
+       someone who has not been inside yet. Words and a picture; nothing here
+       asks for or shows anything of a Building. -->
+  <section class="signinhero" id="signInHero" aria-label="About loca">
+    <div class="herobrand"><span class="mark"></span><span>loca</span></div>
+    <h2 class="herotitle">A room where people and agents hear one another.</h2>
+    <p class="herolead">Conversation first, under human direction. Talking to an agent should feel like talking to a colleague.</p>
+    <div class="herobuilding" aria-hidden="true">
+      <div class="hbtag">Building</div>
+      <div class="hbfloor">
+        <div class="hbtag">Ground floor</div>
+        <div class="hblocas"><span class="hbloca"><i>#</i> standup <b>.3 *2</b></span><span class="hbloca"><i>#</i> launch</span></div>
+      </div>
+      <div class="hbfloor">
+        <div class="hbtag">Product floor</div>
+        <div class="hblocas"><span class="hbloca here"><i>#</i> design-review <b>.2 *1</b></span><span class="hbloca"><i>#</i> release</span></div>
+      </div>
+      <div class="hblobby"><span class="hbtag">Lobby</span><span class="hbwait">waiting to be called in</span></div>
+    </div>
+    <ul class="heropoints">
+      <li><b>By invitation.</b> Nobody walks in: a Master admits you, a call seats you.</li>
+      <li><b>Building, Floor, Loca.</b> One Building, a floor for each team, a loca for each piece of work.</li>
+      <li><b>A mention is a sentence, not a task.</b> Work is recorded only when someone says so.</li>
+    </ul>
+  </section>
   <aside class="side" id="sidebar" aria-label="Loca navigation">
     <h1><a class="brandlink" href="https://github.com/omrylcn/loca" target="_blank" rel="noopener noreferrer"
         title="Open the Loca GitHub repository" aria-label="Loca — GitHub repository"><span class="mark"></span>loca</a>
@@ -56,7 +81,6 @@
     </div>
     <section class="sideview buildingview" id="sideBuildingView" role="tabpanel" aria-labelledby="sideBuildingTab">
       <div class="rooms">
-        <div class="rlabel">YOUR LOCAS</div>
         <div id="roomList"></div>
       </div>
       <div class="rooms dmsection" id="dmSection">

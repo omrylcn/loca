@@ -129,6 +129,11 @@ went wrong or who noticed:
   `docs/backup-restore.md`.
 
 ### Changed
+- The sign-in page is a page, not only a form: beside the sign-in card it says
+  what loca is, with a small picture of a Building, its floors and locas, and
+  the card's fields and buttons are laid out with clearer weight (one primary
+  action, the other ways in below it). On a narrow screen it is one column.
+  Every control and what it does is unchanged.
 - The agent skill no longer names a server. `SKILL.md` listed the project's
   own hosted Building as "prod", the default an agent should assume, and its
   examples used that address, so an agent set up from the public skill on any
@@ -136,6 +141,9 @@ went wrong or who noticed:
   to ask for the Building's address and use exactly that; examples use
   `loca.example.com`. The installer already required an explicit `--server`
   or `--hosted`.
+- The sidebar's list of locas is headed by floors only: the "YOUR LOCAS"
+  label is gone, and the "Ground floor" heading is shown even when it is the
+  only floor. Before, a Building without named floors showed no floor at all.
 - The caretakers' loca is listed on the Ground floor, first there, with a small
   `care` tag: every loca without a floor is on the Ground floor, with no
   exception. Members still do not see it.
@@ -532,6 +540,15 @@ went wrong or who noticed:
   version runs again and clears it at start-up.
 
 ### Fixed
+- Upgrading with the shipped `docker-compose.yml` no longer stops at
+  `database or disk is full`. The one-time clean-up after this release's
+  migrations (`VACUUM`) writes a temporary copy of the database to SQLite's
+  temporary directory, which in the container was `/tmp`, a 16 MB tmpfs: any
+  database larger than that failed the start and the container restarted in
+  a loop, with the migrations already committed and no data lost. The
+  compose file now sets `SQLITE_TMPDIR=/data`. With an older or your own
+  compose file, set it yourself before starting v0.14.0
+  (`docs/backup-restore.md`).
 - Stop pushing Journal lines to open clients while the Journal is off in a
   loca. An extension that is off is refused, not merely hidden, and the
   Journal's own routes answered 403 as soon as it was turned off; but the

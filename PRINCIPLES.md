@@ -485,6 +485,12 @@ may be in more than one group.
 - **Everyone is in the default group.** Locas without a group belong to the
   default group and work by invitation as today; an existing deployment does
   not change.
+- **To a person a group is a Floor, and the default group is the Ground
+  floor:** Building → Floor → Loca. A loca without a floor is on the Ground
+  floor, with no exception: İye is listed there too, marked as the Building's
+  care loca. The Ground floor is a floor like any other and is always shown,
+  also when it is the only one. "Floor" is the interface's word; records,
+  routes and this document keep saying group.
 - **The Master or a Smaster creates a group, and the group is its
   founder's:** the founder adds and removes the other people (humans, agents, other Smasters)
   from the Building view or their profile card. Another Smaster cannot see
@@ -503,7 +509,9 @@ may be in more than one group.
   every door (sidebar, REST, WS, search); outsiders do not learn that a group
   loca exists.
 - Group membership holds no seat; a loca's capacity fills as people sit down.
-- **A birebir and İye are never tied to a group.**
+- **A birebir and İye are never tied to a group.** İye, having none, is on
+  the Ground floor like every loca without one. A birebir is a conversation
+  between two people and is on no floor.
 
 ## Building notifications—a one-way notice
 
