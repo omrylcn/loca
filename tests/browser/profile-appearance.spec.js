@@ -71,7 +71,7 @@ test("appearance applies instantly, survives reload and follows the principal to
   await write;
 
   const stored = await request.get("/profile/preferences", { headers: { "x-admin-token": "MASTER" } });
-  expect(await stored.json()).toEqual({ theme: "light", accent: "violet", density: "compact", font_size: "normal" });
+  expect(await stored.json()).toEqual({ theme: "light", accent: "violet", density: "compact", font_size: "normal", font_family: "mono" });
 
   // Reload: the cached copy is on <html> before any profile request resolves.
   let releaseProfile;

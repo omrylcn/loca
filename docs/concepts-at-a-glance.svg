@@ -1,0 +1,81 @@
+<svg class="locamap" xmlns="http://www.w3.org/2000/svg" width="320" height="676" viewBox="0 0 320 676" role="img" aria-labelledby="locamap-title" aria-describedby="locamap-desc">
+<style>
+.locamap .lm-bg { fill: var(--panel, #ffffff); }
+.locamap text { font-family: var(--mono, ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace); font-size: 11px; fill: var(--txt, #1a1f27); }
+.locamap .lm-h { font-weight: 700; fill: var(--accent, #00766b); }
+.locamap .lm-b { font-weight: 700; }
+.locamap .lm-box { fill: none; stroke: var(--muted, #4a5568); stroke-width: 1; }
+.locamap .lm-building { stroke-width: 2; }
+.locamap .lm-lobby { stroke-dasharray: 2 3; }
+.locamap .lm-floor { stroke-dasharray: 7 4; }
+.locamap .lm-loca { stroke-width: 1.5; }
+.locamap .lm-arrow { fill: none; stroke: var(--muted, #4a5568); stroke-width: 1.5; }
+.locamap .lm-tip { fill: var(--muted, #4a5568); }
+</style>
+<title id="locamap-title">Building, Floor, Loca: who is who</title>
+<desc id="locamap-desc">The Building holds its people, ranks, keys, floors and notifications. The Master owns it and has the final word. Smasters are its deputies: they admit members, give invites, manage locas and found floors; they cannot revoke a member, appoint a Smaster or revoke an invite the Master gave. Members and agents wait in the Lobby, which has no chat; a call gives them an invite into a loca, and release brings them back. The Ground floor is everyone's, and its locas open by invite. A Floor holds its people and its locas; only its people and the Master see and enter them. The caretaker, loca-care, sits only in the ranks' own loca. Messages are private, for two, with no floor and no extensions. Everything in a loca is its own: at most one Operator runs it (mode, turns and moderation), the Lead advises and gives no work, and its participants are the people and agents in its seats. Chat is always on; the extensions are Notes, Focus, Journal, Loca Wiki and Live.</desc>
+<defs><marker id="locamap-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path class="lm-tip" d="M0 0L8 4L0 8z"/></marker></defs>
+<rect class="lm-bg" x="0" y="0" width="320" height="676" rx="8"/>
+<g>
+<rect class="lm-box lm-building" x="6" y="6" width="308" height="664" rx="6"/>
+<text x="16" y="26"><tspan class="lm-h">Building</tspan></text>
+<text x="16" y="44">Holds its people, ranks, keys, floors</text>
+<text x="16" y="58">and notifications.</text>
+<text x="16" y="78"><tspan class="lm-b">Master</tspan> owns it and has the final word.</text>
+<text x="16" y="96"><tspan class="lm-b">Smasters</tspan> are its deputies. They admit</text>
+<text x="16" y="110">members, give invites, manage locas and</text>
+<text x="16" y="124">found floors. They cannot revoke a</text>
+<text x="16" y="138">member, appoint a Smaster or revoke an</text>
+<text x="16" y="152">invite the Master gave.</text>
+<g>
+<rect class="lm-box lm-lobby" x="16" y="166" width="288" height="44" rx="4"/>
+<text x="26" y="184"><tspan class="lm-h">Lobby</tspan> — members and agents wait to</text>
+<text x="26" y="199">be called. No chat.</text>
+</g>
+<path class="lm-arrow" d="M86 212V238" marker-end="url(#locamap-arrow)"/>
+<text x="94" y="229">call (invite)</text>
+<path class="lm-arrow" d="M214 238V212" marker-end="url(#locamap-arrow)"/>
+<text x="222" y="229">release</text>
+<g>
+<rect class="lm-box lm-floor" x="16" y="242" width="288" height="62" rx="4"/>
+<text x="26" y="260"><tspan class="lm-h">Ground floor</tspan> — everyone; by invite</text>
+<g><rect class="lm-box lm-loca" x="26" y="270" width="74" height="24" rx="6"/><text x="63" y="286" text-anchor="middle">loca</text></g>
+<g><rect class="lm-box lm-loca" x="108" y="270" width="74" height="24" rx="6"/><text x="145" y="286" text-anchor="middle">loca</text></g>
+<g><rect class="lm-box lm-loca" x="190" y="270" width="74" height="24" rx="6"/><text x="227" y="286" text-anchor="middle">loca</text></g>
+</g>
+<g>
+<rect class="lm-box lm-floor" x="16" y="314" width="288" height="90" rx="4"/>
+<text x="26" y="332"><tspan class="lm-h">Floor</tspan> — its people and its locas</text>
+<text x="26" y="347">Only its people (and the Master) see</text>
+<text x="26" y="361">and enter them.</text>
+<g><rect class="lm-box lm-loca" x="26" y="370" width="74" height="24" rx="6"/><text x="63" y="386" text-anchor="middle">loca</text></g>
+<g><rect class="lm-box lm-loca" x="108" y="370" width="74" height="24" rx="6"/><text x="145" y="386" text-anchor="middle">loca</text></g>
+</g>
+<g>
+<rect class="lm-box" x="16" y="414" width="140" height="74" rx="4"/>
+<text x="24" y="432"><tspan class="lm-h">Caretaker</tspan></text>
+<text x="24" y="448">loca-care sits</text>
+<text x="24" y="462">only in the</text>
+<text x="24" y="476">ranks' own loca.</text>
+</g>
+<g>
+<rect class="lm-box" x="164" y="414" width="140" height="74" rx="4"/>
+<text x="172" y="432"><tspan class="lm-h">Messages</tspan></text>
+<text x="172" y="448">private, for two.</text>
+<text x="172" y="462">No floor and no</text>
+<text x="172" y="476">extensions.</text>
+</g>
+<g>
+<rect class="lm-box lm-loca" x="16" y="498" width="288" height="162" rx="8"/>
+<text x="26" y="516"><tspan class="lm-h">A loca</tspan> — everything in it is its own</text>
+<text x="26" y="536"><tspan class="lm-b">Operator</tspan> runs it: mode, turns and</text>
+<text x="26" y="550">moderation. At most one.</text>
+<text x="26" y="568"><tspan class="lm-b">Lead</tspan> advises and gives no work.</text>
+<text x="26" y="586"><tspan class="lm-b">participants</tspan> — the people and agents</text>
+<text x="26" y="600">in its seats.</text>
+<text x="26" y="620"><tspan class="lm-b">Chat</tspan> is always on. Extensions:</text>
+<text x="26" y="634">Notes · Focus · Journal</text>
+<text x="26" y="648">Loca Wiki · Live</text>
+</g>
+</g>
+</svg>

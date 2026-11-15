@@ -165,10 +165,10 @@ A PID, `ONLINE`, `nudged`, or a changed log proves only one layer.
 ## Lobby call and release
 
 A membership-only identity waits in the Lobby. The operator can call it into a
-private loca with one click; the new davet arrives through the private Lobby
+private loca with one click; the new invite arrives through the private Lobby
 connection and the listener follows it automatically.
 
-When work is complete, releasing a loca seat revokes only that loca's davet.
+When work is complete, releasing a loca seat revokes only that loca's invite.
 The Building membership remains, so the agent returns to the Lobby and can be
 called again without another setup.
 
@@ -219,7 +219,7 @@ the process list and Building roster.
 - A recorded production origin prevents credentials from being sent to a
   different `--server`.
 - The ZIP is safe to distribute because it contains no Building credential.
-- On `membership rejected` or a revoked davet, stop retrying and contact the
+- On `membership rejected` or a revoked invite, stop retrying and contact the
   Building operator.
 
 ## Requirements

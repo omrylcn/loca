@@ -6,13 +6,27 @@ const { provisionRooms } = require("./support/building");
 // onboarding, so start past the guide. (getting-started.spec.js deliberately
 // does NOT seed this — it tests the first-open guide itself.)
 test.beforeEach(async ({ page, request }) => {
-  await provisionRooms(request, ["e2e", "markdown-chat", "focus-e2e", "reminder-no-lead", "message-actions", "profile-race-start", "sidebar-a", "sidebar-b", "prefs-a", "prefs-b", "prefs-c"]);
+  await provisionRooms(request, ["e2e", "markdown-chat", "focus-e2e", "reminder-no-lead", "message-actions", "profile-race-start", "sidebar-a", "sidebar-b", "prefs-a", "prefs-b", "prefs-c", "unclear-op", "renewed-op"]);
   await page.addInitScript(() => {
     try {
       localStorage.setItem("loca-gs-seen", "1");
     } catch (e) {}
   });
 });
+
+// Some tests below draw a loca by hand on a page nobody signed in at. Such a
+// page is refused at the door and, as it must, keeps nobody's words. So the
+// drawing starts after that refusal, and the page's own later refusals are
+// switched off for the test: there is no person here whose words could stay.
+// Nothing in the application is relaxed by this.
+async function handDrawnPage(page) {
+  await page.goto("/");
+  await expect(page.locator("body")).toHaveClass(/locked/);
+  await page.evaluate(() => {
+    clearInterval(healthTimer);
+    lockRefusedSession = () => {};
+  });
+}
 
 test("door credentials are masked", async ({ page }) => {
   await page.goto("/");
@@ -33,7 +47,7 @@ test("lead picker options keep readable dark-theme contrast", async ({ page }) =
 });
 
 test("resolving a delivered reminder does not erase its chat receipt", async ({ page }) => {
-  await page.goto("/");
+  await handDrawnPage(page);
   await page.evaluate(() => {
     state.name = "alice";
     state.room = "e2e";
@@ -65,7 +79,7 @@ test("resolving a delivered reminder does not erase its chat receipt", async ({ 
 });
 
 test("a room reminder is visible before any healthy owner can receive Care", async ({ page }) => {
-  await page.goto("/");
+  await handDrawnPage(page);
   await page.evaluate(() => {
     state.room = "e2e";
     state.attentions = {
@@ -96,7 +110,7 @@ test("a room reminder is visible before any healthy owner can receive Care", asy
 });
 
 test("a reminder owner can resolve no-action-needed without operator UI", async ({ page }) => {
-  await page.goto("/");
+  await handDrawnPage(page);
   await page.evaluate(() => {
     state.name = "bob";
     state.room = "e2e";
@@ -148,7 +162,7 @@ test("a reminder owner can resolve no-action-needed without operator UI", async 
 });
 
 test("a confirmed reaction renders without waiting for its websocket echo", async ({ page }) => {
-  await page.goto("/");
+  await handDrawnPage(page);
   await page.evaluate(async () => {
     state.name = "operator";
     state.room = "e2e";
@@ -176,7 +190,7 @@ test("a confirmed reaction renders without waiting for its websocket echo", asyn
   await expect(chip.locator("span")).toHaveText("1");
 });
 
-test("a davet controls identity and ambiguous retry stays exactly once", async ({
+test("an invite controls identity and ambiguous retry stays exactly once", async ({
   page,
   request,
 }) => {
@@ -242,6 +256,154 @@ test("a davet controls identity and ambiguous retry stays exactly once", async (
   await expect(page.locator("#whoami")).toContainText("connected as alice");
   await expect(page.locator("#name")).toHaveValue("alice");
   await expect(page.locator("#curRoom")).toHaveText("e2e");
+});
+
+test("an operation the server cannot attribute is sent again only by choice, as a new one", async ({
+  page,
+  request,
+}) => {
+  const admin = { "x-admin-token": "MASTER" };
+  const admitted = await request.post("/members", {
+    headers: admin,
+    data: { name: "erin", kind: "user" },
+  });
+  expect(admitted.status()).toBe(201);
+  const invited = await request.post("/rooms/unclear-op/invites", {
+    headers: admin,
+    data: { name: "erin", kind: "user" },
+  });
+  expect(invited.ok()).toBeTruthy();
+  const { token } = await invited.json();
+
+  await page.goto("/");
+  await page.locator("#name").fill("erin");
+  await page.locator("#roomToken").fill(token);
+  await page.evaluate(() => window.doConnect("unclear-op"));
+  await expect(page.locator("#whoami")).toContainText("connected as erin");
+
+  // Something to reply to.
+  await page.locator("#msg").fill("a question to come back to");
+  await page.locator("#sendBtn").click();
+  await expect(page.locator(".row.mine .body", { hasText: "a question to come back to" })).toHaveCount(1);
+  const before = await request.get("/rooms/unclear-op/messages", { headers: { "x-room-token": token } });
+  const question = (await before.json()).find(
+    (message) => message.text === "a question to come back to",
+  ).id;
+
+  // The first post is answered as the server answers an operation id it
+  // stored before an upgrade and cannot attribute. Later posts go through.
+  const sent = [];
+  await page.route("**/rooms/unclear-op/messages", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    sent.push(route.request().postDataJSON());
+    if (sent.length === 1) {
+      await route.fulfill({
+        status: 409,
+        contentType: "text/plain",
+        body: "this operation id was used before the upgrade under your name, and the server "
+          + "cannot tell whether by you; nothing was posted — send it again as a new operation",
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.evaluate((id) => window.startReply(id), question);
+  await page.locator("#target").selectOption("all");
+  await page.locator("#msg").fill("my answer, once");
+  await page.locator("#sendBtn").click();
+
+  // Refused: said so, nothing sent again by itself, and the words, their
+  // target and their reply link are back in the composer.
+  await expect(page.locator("#feed .sysline").last()).toContainText("Send again to post it as a new message");
+  await expect(page.locator("#msg")).toHaveValue("my answer, once");
+  await expect(page.locator("#target")).toHaveValue("all");
+  await page.waitForTimeout(750);
+  expect(sent).toHaveLength(1);
+  await expect(page.locator(".row.mine .body", { hasText: "my answer, once" })).toHaveCount(0);
+
+  // The person chooses to send the same words again: a new operation.
+  await page.locator("#sendBtn").click();
+  await expect(page.locator(".row.mine .body", { hasText: "my answer, once" })).toHaveCount(1);
+  expect(sent).toHaveLength(2);
+  expect(sent[1].op_id).toBeTruthy();
+  expect(sent[1].op_id).not.toBe(sent[0].op_id);
+  expect(sent[1].target).toBe("all");
+  expect(sent[1].reply_to).toBe(question);
+  expect(sent[1].text).toBe("my answer, once");
+
+  const stored = await request.get("/rooms/unclear-op/messages", { headers: { "x-room-token": token } });
+  const mine = (await stored.json()).filter((message) => message.text === "my answer, once");
+  expect(mine).toHaveLength(1);
+  expect(mine[0].reply_to).toBe(question);
+  expect(mine[0].target).toBe("all");
+});
+
+test("a retry under a renewed session that is refused for good is not called unauthorized", async ({
+  page,
+  request,
+}) => {
+  const admin = { "x-admin-token": "MASTER" };
+  const admitted = await request.post("/members", {
+    headers: admin,
+    data: { name: "gina", kind: "user" },
+  });
+  expect(admitted.status()).toBe(201);
+  const invited = await request.post("/rooms/renewed-op/invites", {
+    headers: admin,
+    data: { name: "gina", kind: "user" },
+  });
+  expect(invited.ok()).toBeTruthy();
+  const { token } = await invited.json();
+
+  await page.goto("/");
+  await page.locator("#name").fill("gina");
+  await page.locator("#roomToken").fill(token);
+  await page.evaluate(() => window.doConnect("renewed-op"));
+  await expect(page.locator("#whoami")).toContainText("connected as gina");
+
+  // The first post is answered as an ended session; the page renews and
+  // sends again, and that second post is answered as an operation id the
+  // server cannot attribute. Later posts go through.
+  const sent = [];
+  await page.route("**/rooms/renewed-op/messages", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    sent.push(route.request().postDataJSON());
+    if (sent.length === 1) {
+      await route.fulfill({ status: 401, contentType: "text/plain", body: "davet required" });
+      return;
+    }
+    if (sent.length === 2) {
+      await route.fulfill({
+        status: 409,
+        contentType: "text/plain",
+        body: "this operation id was used before the upgrade under your name, and the server "
+          + "cannot tell whether by you; nothing was posted — send it again as a new operation",
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.locator("#msg").fill("across a renewal, once");
+  await page.locator("#sendBtn").click();
+  await expect(page.locator("#feed .sysline").last()).toContainText("Send again to post it as a new message");
+  await expect(page.locator("#feed")).not.toContainText("unauthorized");
+  await expect(page.locator("#msg")).toHaveValue("across a renewal, once");
+  await page.waitForTimeout(750);
+  expect(sent).toHaveLength(2);
+  expect(sent[1].op_id).toBe(sent[0].op_id);
+
+  await page.locator("#sendBtn").click();
+  await expect(page.locator(".row.mine .body", { hasText: "across a renewal, once" })).toHaveCount(1);
+  expect(sent).toHaveLength(3);
+  expect(sent[2].op_id).not.toBe(sent[0].op_id);
 });
 
 test("admin properties use progressive disclosure and mobile navigation", async ({
@@ -328,8 +490,18 @@ test("admin properties use progressive disclosure and mobile navigation", async 
   await expect(page.locator("body")).not.toHaveClass(/sidebar-open/);
 });
 
-test("joining a loca keeps Your Locas visible and opens chat at the latest message", async ({ page }) => {
+test("joining a loca keeps Your Locas visible and opens chat at the latest message", async ({ page, request }) => {
+  // Signed in as the Master: a page nobody is signed in at is refused at the
+  // door and, as it must, keeps no feed, so a loca cannot be drawn on it.
+  await provisionRooms(request, ["latest-message-room"]);
+  const paired = await request.post("/pairings?ttl_hours=1", { headers: { "x-admin-token": "MASTER" } });
+  expect(paired.status()).toBe(201);
+  const { pairing_code: pairingCode } = await paired.json();
   await page.goto("/");
+  await page.locator("#masterEntryButton").click();
+  await page.locator("#pairingCode").fill(pairingCode);
+  await page.evaluate(() => window.doConnect("e2e"));
+  await expect(page.locator("#whoami")).toContainText("MASTER");
   await page.evaluate(() => {
     window.__originalOpenWs = openWs;
     openWs = () => {};
@@ -947,7 +1119,7 @@ test("a delayed reminder fetch cannot leak across a room switch", async ({ page 
     }]),
   }));
 
-  await page.goto("/");
+  await handDrawnPage(page);
   await page.evaluate(() => {
     state.name = "operator";
     state.room = "race-a";

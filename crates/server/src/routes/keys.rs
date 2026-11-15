@@ -8,7 +8,14 @@ pub(crate) async fn list_keys(State(hub): State<Hub>, headers: HeaderMap) -> imp
     if !is_master_req(&hub, &headers) {
         return (StatusCode::FORBIDDEN, "only the Master sees the key ledger").into_response();
     }
-    Json(hub.key_ledger()).into_response()
+    match hub.key_ledger() {
+        Ok(ledger) => Json(ledger).into_response(),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the key ledger could not be read",
+        )
+            .into_response(),
+    }
 }
 
 /// `POST /keys {"kind": "master" | "smaster" | "admission", ...}` — the one
@@ -79,7 +86,7 @@ pub(crate) async fn issue_key(
             if hub
                 .smasters()
                 .iter()
-                .any(|(_, n)| n.eq_ignore_ascii_case(name))
+                .any(|record| record.name.eq_ignore_ascii_case(name))
                 || hub
                     .profiles()
                     .iter()
@@ -99,7 +106,12 @@ pub(crate) async fn issue_key(
                     })),
                 )
                     .into_response(),
-                Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "could not save — try again").into_response(),
+                Err(hub::NameClaimError::Worn) => {
+                    (StatusCode::CONFLICT, "someone already wears that name").into_response()
+                }
+                Err(hub::NameClaimError::Storage) => {
+                    (StatusCode::SERVICE_UNAVAILABLE, "could not save — try again").into_response()
+                }
             }
         }
         Some("admission") => {

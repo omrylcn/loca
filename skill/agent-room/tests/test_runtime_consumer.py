@@ -26,6 +26,14 @@ def append(path, record):
         handle.write(json.dumps(record) + "\n")
 
 
+# An adapter in these tests keeps running this long after it has written its
+# receipt, and "the consumer did not wait for it" means returning well before
+# that. Both are far apart on purpose: with 1.0 s and 0.7 s the test failed
+# on a busy machine (0.94 s) without anything being wrong.
+ADAPTER_STILL_RUNNING_S = 6.0
+RETURNED_EARLY_S = 3.0
+
+
 class RuntimeConsumerTests(unittest.TestCase):
     def test_real_hook_sees_instruction_not_archived_role_in_stdin_or_environment(self):
         record = {"delivery_id": "r:1", "event": {
@@ -135,7 +143,7 @@ class RuntimeConsumerTests(unittest.TestCase):
                 "sender": "operator",
                 "sender_type": "user",
                 "target": "reviewer",
-                "text": "incele",
+                "text": "look into it",
             },
         }
         first = CONSUMER.delivery_environment(record, 1)
@@ -171,7 +179,7 @@ class RuntimeConsumerTests(unittest.TestCase):
                 "sender": "operator",
                 "sender_type": "user",
                 "target": "reviewer",
-                "text": "bak",
+                "text": "look",
             },
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -232,8 +240,9 @@ pathlib.Path(sys.argv[1]).write_text(json.dumps({
             adapter.write_text(
                 """import os, pathlib, time
 pathlib.Path(os.environ["LOCA_REPLY_RECEIPT"]).write_text("accepted\\n")
-time.sleep(1.0)
-""",
+time.sleep(%s)
+"""
+                % ADAPTER_STILL_RUNNING_S,
                 encoding="utf-8",
             )
             replies = []
@@ -246,7 +255,10 @@ time.sleep(1.0)
                 on_reply=lambda: replies.append("OK"),
             )
             elapsed = time.monotonic() - started
-            self.assertLess(elapsed, 0.7)
+            # Returned while the adapter was still running, with seconds to
+            # spare: the bound must hold on a loaded machine, where starting
+            # the adapter's interpreter alone can take most of a second.
+            self.assertLess(elapsed, RETURNED_EARLY_S)
             self.assertEqual(replies, ["OK"])
 
     def test_unanswered_room_turn_yields_to_new_direct_operator_call(self):
@@ -273,8 +285,9 @@ time.sleep(1.0)
                 """import os, pathlib, sys, time
 pathlib.Path(sys.argv[1]).write_text("started\\n")
 pathlib.Path(os.environ["LOCA_WAKE_RECEIPT"]).write_text("accepted\\n")
-time.sleep(0.4)
-""",
+time.sleep(%s)
+"""
+                % ADAPTER_STILL_RUNNING_S,
                 encoding="utf-8",
             )
             started = time.monotonic()
@@ -298,7 +311,10 @@ time.sleep(0.4)
                     urgent_delivery=direct_waiting,
                 )
             elapsed = time.monotonic() - started
-            self.assertLess(elapsed, 0.7)
+            # Returned while the adapter was still running, with seconds to
+            # spare: the bound must hold on a loaded machine, where starting
+            # the adapter's interpreter alone can take most of a second.
+            self.assertLess(elapsed, RETURNED_EARLY_S)
             self.assertEqual(raised.exception.delivery_id, "sb-dev:91")
             # The yielded adapter is intentionally reaped in the background.
             # Keep its script directory alive until that process exits.

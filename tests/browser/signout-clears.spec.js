@@ -1,4 +1,5 @@
 const { test, expect } = require("@playwright/test");
+const { signOut } = require("./support/switch");
 
 const MASTER = { "x-admin-token": "MASTER" };
 
@@ -24,7 +25,7 @@ async function openAs(browser, info, name) {
   return page;
 }
 
-test("signing out without a reload leaves no key, witnessed birebir or Building data in the page", async ({ browser, request }) => {
+test("signing out without a reload leaves no key, witnessed direct message or Building data in the page", async ({ browser, request }) => {
   const PRIVATE = "so-private-line-7f3a";
   const sa = await openAs(browser, await rankSession(request, "so-sa"), "so-sa");
   await rankSession(request, "so-sb");
@@ -33,11 +34,11 @@ test("signing out without a reload leaves no key, witnessed birebir or Building 
   expect(sent.ok()).toBeTruthy();
 
   // A private conversation the Master is called in to read.
-  await sa.evaluate(() => openBirebir("so-sb"));
-  await expect.poll(() => sa.evaluate(() => isBirebir(state.room))).toBe(true);
+  await sa.evaluate(() => openDm("so-sb"));
+  await expect.poll(() => sa.evaluate(() => isDm(state.room))).toBe(true);
   await expect.poll(() => sa.evaluate(() => state.ws && state.ws.readyState)).toBe(1);
-  await sa.locator("#birebirBar [data-bb=call]").click();
-  await expect(sa.locator("#birebirBar")).toContainText("The Master is reading");
+  await sa.locator("#dmBar [data-bb=call]").click();
+  await expect(sa.locator("#dmBar")).toContainText("The Master is reading");
   await sa.fill("#msg", PRIVATE);
   await sa.keyboard.press("Enter");
   await expect(sa.locator("#feed")).toContainText(PRIVATE);
@@ -56,10 +57,10 @@ test("signing out without a reload leaves no key, witnessed birebir or Building 
   await expect(master.locator("#keyIssued")).toContainText("copy it now");
   const key = (await master.locator("#keySecret").textContent()).trim();
   expect(key.length).toBeGreaterThan(8);
-  // ...and reads the birebir it was called into.
+  // ...and reads the direct message it was called into.
   await master.locator("#btabPrivate").click();
-  await expect(master.locator("#birebirOverview [data-bbread]")).toHaveCount(1);
-  await master.locator("#birebirOverview [data-bbread]").click();
+  await expect(master.locator("#dmOverview [data-bbread]")).toHaveCount(1);
+  await master.locator("#dmOverview [data-bbread]").click();
   await expect(master.locator("#bbWitness")).toContainText(PRIVATE);
 
   const held = () => master.evaluate(() => ({
@@ -67,7 +68,7 @@ test("signing out without a reload leaves no key, witnessed birebir or Building 
     people: (state.people || []).length,
     ranks: (state.ranks || []).length,
     joinRequests: Array.isArray(state.joinRequests),
-    birebirOverview: state.birebirOverview.length,
+    dmOverview: state.dmOverview.length,
     groups: state.groups.length,
     groupsLoaded: state.groupsLoaded,
     profilesList: (state.profilesList || []).length,
@@ -80,7 +81,7 @@ test("signing out without a reload leaves no key, witnessed birebir or Building 
   expect(before.keyLedger).toBeGreaterThan(0);
   expect(before.ranks).toBeGreaterThan(0);
   expect(before.joinRequests).toBe(true);
-  expect(before.birebirOverview).toBeGreaterThan(0);
+  expect(before.dmOverview).toBeGreaterThan(0);
   expect(before.groups).toBeGreaterThan(0);
   expect(before.profilesList).toBeGreaterThan(0);
   expect(before.keyIssued).toContain(key);
@@ -88,22 +89,19 @@ test("signing out without a reload leaves no key, witnessed birebir or Building 
 
   // Sign out. The page is not reloaded.
   await master.evaluate(() => { window.__sameDocument = true; });
-  await master.locator("#connGear").click();
-  await master.locator("#leaveBtn").click();
-  await master.locator("#leaveYes").click();
-  await expect(master.locator("#doorline")).toContainText("you left loca.");
+  await signOut(master);
   await expect(master.locator("body")).toHaveClass(/locked/);
   expect(await master.evaluate(() => window.__sameDocument)).toBe(true);
 
   expect(await held()).toEqual({
-    keyLedger: 0, people: 0, ranks: 0, joinRequests: false, birebirOverview: 0,
+    keyLedger: 0, people: 0, ranks: 0, joinRequests: false, dmOverview: 0,
     groups: 0, groupsLoaded: false, profilesList: 0, notif: false, keyIssued: "", bbWitness: "",
   });
   const page = await master.evaluate(() => document.documentElement.outerHTML);
   expect(page).not.toContain(key);
   expect(page).not.toContain(PRIVATE);
   expect(await master.evaluate(() => state.notif.items.length)).toBe(0);
-  for (const pane of ["#peopleList", "#groupsPane", "#keyLedger", "#birebirOverview"]) {
+  for (const pane of ["#peopleList", "#groupsPane", "#keyLedger", "#dmOverview"]) {
     await expect(master.locator(pane)).toBeEmpty();
   }
 
@@ -122,7 +120,7 @@ test("signing out without a reload leaves no key, witnessed birebir or Building 
   await expect(master.locator("#keyIssued")).toBeHidden();
   await expect(master.locator("#keyIssued")).toBeEmpty();
   await master.locator("#btabPrivate").click();
-  await expect(master.locator("#birebirOverview")).toContainText("so-sa");
+  await expect(master.locator("#dmOverview")).toContainText("so-sa");
   await expect(master.locator("#bbWitness")).toBeEmpty();
   await master.locator("#btabGroups").click();
   await expect(master.locator("#groupsPane")).toContainText("so-group");
@@ -136,7 +134,7 @@ test("signing out without a reload leaves no key, witnessed birebir or Building 
 // after it must not bring the last person's data back for the next one.
 
 // The Master at one tab with all a Building view holds: the key ledger, a
-// group, a birebir it was called in to read, and its notifications.
+// group, a direct message it was called in to read, and its notifications.
 async function masterAtWork(browser, request, tag) {
   const PRIVATE = `${tag}-private-line`;
   const sa = await openAs(browser, await rankSession(request, `${tag}-sa`), `${tag}-sa`);
@@ -144,11 +142,11 @@ async function masterAtWork(browser, request, tag) {
   const masterInfo = await rankSession(request, "MASTER");
   const made = await request.post("/groups", { headers: { "x-session-token": masterInfo.session_token }, data: { name: `${tag}-old-group` } });
   expect(made.ok()).toBeTruthy();
-  await sa.evaluate((peer) => openBirebir(peer), `${tag}-sb`);
-  await expect.poll(() => sa.evaluate(() => isBirebir(state.room))).toBe(true);
+  await sa.evaluate((peer) => openDm(peer), `${tag}-sb`);
+  await expect.poll(() => sa.evaluate(() => isDm(state.room))).toBe(true);
   await expect.poll(() => sa.evaluate(() => state.ws && state.ws.readyState)).toBe(1);
-  await sa.locator("#birebirBar [data-bb=call]").click();
-  await expect(sa.locator("#birebirBar")).toContainText("The Master is reading");
+  await sa.locator("#dmBar [data-bb=call]").click();
+  await expect(sa.locator("#dmBar")).toContainText("The Master is reading");
   await sa.fill("#msg", PRIVATE);
   await sa.keyboard.press("Enter");
   await expect(sa.locator("#feed")).toContainText(PRIVATE);
@@ -160,13 +158,13 @@ async function masterAtWork(browser, request, tag) {
   await master.evaluate(() => switchTab("people"));
   await expect.poll(() => master.evaluate(() => state.profile?.building_role)).toBe("master");
   await master.locator("#btabPrivate").click();
-  await expect(master.locator(`#birebirOverview [data-bbread="${room}"]`)).toHaveCount(1);
+  await expect(master.locator(`#dmOverview [data-bbread="${room}"]`)).toHaveCount(1);
   await master.locator("#btabKeys").click();
   await expect(master.locator("#keyLedger")).toContainText("Key generator");
   await expect.poll(() => master.evaluate(() => state.groups.map(g => g.name))).toContain(`${tag}-old-group`);
   await expect.poll(() => master.evaluate(() => state.notif.loaded), { timeout: 15_000 }).toBe(true);
   // Read is in the Private pane, hidden behind Keys now: click it in the DOM.
-  const readWitness = () => master.evaluate((r) => { document.querySelector(`#birebirOverview [data-bbread="${r}"]`).click(); }, room);
+  const readWitness = () => master.evaluate((r) => { document.querySelector(`#dmOverview [data-bbread="${r}"]`).click(); }, room);
   return { master, sa, PRIVATE, readWitness };
 }
 
@@ -237,10 +235,7 @@ async function nextSmaster(request, name) {
 // next person has signed in: a late 401 that must not close their session.
 async function endSession(page, end) {
   if (end === "sign-out") {
-    await page.locator("#connGear").click();
-    await page.locator("#leaveBtn").click();
-    await page.locator("#leaveYes").click();
-    await expect(page.locator("#doorline")).toContainText("you left loca.");
+    await signOut(page);
     return null;
   }
   const oldToken = await page.evaluate(() => state.session);
@@ -292,17 +287,17 @@ async function expectNothingCameBack(page, { tag, name, PRIVATE, secret }) {
   const now = await page.evaluate(() => ({
     role: state.profile?.building_role,
     keyLedger: state.keyLedger.length,
-    birebirOverview: state.birebirOverview.length,
+    dmOverview: state.dmOverview.length,
     groups: state.groups.map(g => g.name),
     notices: state.notif.items.map(x => x.title),
     keyLedgerPane: document.getElementById("keyLedger").innerHTML,
-    overviewPane: document.getElementById("birebirOverview").innerHTML,
+    overviewPane: document.getElementById("dmOverview").innerHTML,
     groupsPane: document.getElementById("groupsPane").textContent,
     html: document.documentElement.outerHTML,
   }));
   expect(now.keyLedger).toBe(0);
   expect(now.keyLedgerPane).toBe("");
-  expect(now.birebirOverview).toBe(0);
+  expect(now.dmOverview).toBe(0);
   expect(now.overviewPane).toBe("");
   expect(now.groups).not.toContain(`${tag}-old-group`);
   expect(now.notices).not.toContain(`${tag}-old-notice`);
@@ -342,7 +337,7 @@ test(`Building answers held at the network across ${end} and the next sign-in br
   await ledger.arrived;
   await readWitness();
   await witness.arrived;
-  await master.evaluate(() => { fetchBirebirOverview(); });
+  await master.evaluate(() => { fetchDmOverview(); });
   await overview.arrived;
   await master.evaluate(() => { fetchGroups(); });
   await groups.arrived;
@@ -391,7 +386,7 @@ test(`Building answers whose body is held across ${end} and the next sign-in bri
   await readWitness();
   await master.evaluate(() => {
     fetchKeyLedger();
-    fetchBirebirOverview();
+    fetchDmOverview();
     fetchGroups();
     pollNotifications();
   });

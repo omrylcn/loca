@@ -135,7 +135,7 @@ browser girişi olarak paylaşılmaz.
 
 # Davetleri gör / revoke et
 ./scripts/invite.sh --list <loca-name>
-./scripts/invite.sh --revoke <loca-name> <davet-token>
+./scripts/invite.sh --revoke <loca-name> <davet-id>
 ```
 
 Çıkan `mb_...` veya `dv_...` token yalnız ilgili kişinin özel onboarding

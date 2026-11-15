@@ -1,0 +1,342 @@
+{
+  "$comment": "Every WebSocket frame type the Loca server can send, and every frame a client may send. Read by the Rust, Python and browser conformance tests; see docs/protocol.md. Field values are type names, not schemas: named types live in crates/protocol/src/lib.rs, and the core ones are spelled out under `types`. `optional` lists fields that may be absent from the object (a field that is present but null is written `T | null`).",
+  "describes_commit": "9104af8",
+  "tag": "t",
+  "sockets": {
+    "loca": "GET /ws?room=<loca> - one loca's stream and presence",
+    "lobby": "GET /lobby/ws - Building presence and private calls; opened with a membership credential only"
+  },
+  "server_frames": {
+    "history": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ServerFrame::History",
+      "fields": { "messages": "Message[]" },
+      "when": "Once on connect, filter=all only (not msg/mentions)."
+    },
+    "msg": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ServerFrame::Msg",
+      "fields": { "message": "Message" },
+      "when": "Every posted message, including the receiver's own echo; filtered per socket under filter=mentions."
+    },
+    "turn": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ServerFrame::Turn",
+      "fields": { "messages": "Message[]" },
+      "when": "Only on filter=mentions with turn_max > 1: several addressed messages coalesced into one runtime turn. A single pending message is sent as msg."
+    },
+    "members": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ServerFrame::Members",
+      "fields": { "members": "Member[]" },
+      "when": "On connect (filter=all), whenever the roster changes, and after an invite re-issue (every socket of the loca then re-checks its credentials)."
+    },
+    "renamed": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ServerFrame::Renamed",
+      "fields": { "from": "string", "to": "string" },
+      "when": "A Building rank renamed its profile and this loca's in-memory history holds a person's message under `from`. Sent after relabelled. Older clients relabel every message under `from`; clients that know relabelled only adopt their own new name. filter=all only."
+    },
+    "relabelled": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ServerFrame::Relabelled",
+      "fields": { "to": "string", "ids": "u64[]", "reply_ids": "u64[]" },
+      "when": "Before renamed, when a rename changed messages in this loca: ids were written by the renamed principal and now read `to`; reply_ids answer one of its messages and now name `to` as reply_to_sender. Clients relabel exactly these. filter=all only."
+    },
+    "control": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ServerFrame::Control",
+      "fields": { "cmd": "string" },
+      "when": "Out-of-band command (operator stop, room-closed, live-expired:<s>, note-deleted:<key>, birebir-access, and the 'loca full' refusal before close). Delivered on filter=all and filter=mentions."
+    },
+    "kicked": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ServerFrame::Kicked",
+      "fields": { "name": "string", "banned": "bool" },
+      "when": "Sent only to the named connection, which the server then closes (kick, ban, release, invite revocation)."
+    },
+    "evicted": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ServerFrame::Evicted",
+      "fields": { "name": "string", "identity": "string", "session": "u64" },
+      "when": "Sent only to an older connection whose seat a newer connection of the same identity took; the server then closes it."
+    },
+    "settings": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ServerFrame::Settings",
+      "fields": { "settings": "RoomSettings" },
+      "when": "Room settings changed, including the enabled extension set and the loca's identity (description, seats, icon, color, labels). filter=all only. Only settings.extensions and the identity fields are core; the other settings are Loca product."
+    },
+    "memory": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Memory",
+      "fields": {
+        "room": "string",
+        "owner": "string | null",
+        "status": "ready | absent | empty | inconsistent",
+        "short": "string",
+        "long": "string",
+        "short_updated_at": "u64 | null",
+        "long_updated_at": "u64 | null",
+        "over_budget": "bool",
+        "version": "u64",
+        "long_truncated": "bool",
+        "long_omitted_bytes": "usize",
+        "long_omitted_entries": "usize",
+        "long_uninjectable_entries": "usize",
+        "long_uninjectable_entry_ids": "u64[]"
+      },
+      "when": "Once on connect for every seated (non-watch) connection, before history. The same object is the body of GET /rooms/:id/memory/snapshot."
+    },
+    "memoryversion": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::MemoryVersion",
+      "fields": { "room": "string", "version": "u64" },
+      "when": "Immediately before every msg, turn, care and reaction frame on every filter."
+    },
+    "reaction": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Reaction",
+      "fields": { "reaction": "MessageReactionEvent" },
+      "when": "A reaction changed. filter=all sees all; msg/mentions only when the receiver owns the message."
+    },
+    "caretaker": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Caretaker",
+      "on_wire": false,
+      "fields": { "message": "Message" },
+      "when": "Never sent as 'caretaker': no code constructs it today, and the loca socket rewrites it to msg for the named caretaker and drops it for everyone else."
+    },
+    "note": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Note",
+      "fields": { "note": "Note" },
+      "when": "A note was created or updated. filter=all only."
+    },
+    "notewarn": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::NoteWarn",
+      "fields": { "key": "string", "by": "string", "can_write": "string[]" },
+      "when": "Advisory: someone wrote a note they were not listed for. filter=all only."
+    },
+    "mode": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Mode",
+      "fields": { "mode": "ChatMode" },
+      "when": "The chat mode changed. filter=all only."
+    },
+    "typing": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Typing",
+      "fields": { "name": "string", "on": "bool" },
+      "when": "Ephemeral typing relay. filter=all only."
+    },
+    "mod": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Mod",
+      "fields": { "state": "ModState" },
+      "when": "Mute/ban lists changed. filter=all only."
+    },
+    "journal": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Journal",
+      "fields": { "entry": "JournalEntry" },
+      "when": "A journal line landed. filter=all only."
+    },
+    "task": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Task",
+      "fields": { "task": "Task" },
+      "when": "A task was created or changed. filter=all only."
+    },
+    "goal": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Goal",
+      "fields": { "goal": "Goal" },
+      "when": "The goal was created or changed. filter=all only."
+    },
+    "care": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Care",
+      "fields": { "signal": "CareSignal" },
+      "when": "A bounded reminder signal; unacknowledged ones are replayed on connect. filter=all, and filter=mentions for the addressed owner."
+    },
+    "attention": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Attention",
+      "fields": { "attention": "Attention" },
+      "when": "A durable attention was created, claimed, delivered or resolved. filter=all only."
+    },
+    "wait": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Wait",
+      "fields": { "waiter": "string", "wait": "WaitState" },
+      "optional": ["wait"],
+      "when": "A participant set (wait present) or cleared (wait absent) a dependency wait. filter=all only."
+    },
+    "lobby_ready": {
+      "socket": "lobby",
+      "layer": "core",
+      "source": "json",
+      "fields": { "name": "string", "member_id": "string", "seats": "Seat[]" },
+      "when": "First frame on every Lobby connection: the member's name, its membership id (mbid_) and its seats. No invite is in it, and there is no invites key (an older kit takes that list as authoritative and deletes kept invites missing from it)."
+    },
+    "called": {
+      "socket": "lobby",
+      "layer": "core",
+      "source": "json",
+      "fields": { "room": "string", "token": "string", "invite_id": "string" },
+      "when": "On every new call (and re-issue, group-move carry-over, direct message agent invite, POST /rooms/:id/invites); a live call whose invite ended before the socket forwards it is not sent. Sent again after lobby_ready on every connect, and after a lag, only while that invite's delivery copy is held: until its first use (a session or loca socket taken with it) or 24 hours after issue. The same invite every time; a connect never mints or revokes one. invite_id is the invite's public id (ivid_)."
+    },
+    "membership_revoked": {
+      "socket": "lobby",
+      "layer": "core",
+      "source": "json",
+      "fields": {},
+      "when": "The Building membership was revoked for good; the server then closes the socket."
+    },
+    "membership_suspended": {
+      "socket": "lobby",
+      "layer": "core",
+      "source": "json",
+      "fields": {},
+      "when": "The Building membership was suspended (resumable); the server then closes the socket. Deliberately not membership_revoked."
+    },
+    "credential_revoked": {
+      "socket": "lobby",
+      "layer": "core",
+      "source": "json",
+      "fields": { "credential_id": "string" },
+      "optional": ["credential_id"],
+      "when": "The credential this socket opened with was revoked at the profile door; the server then closes the socket and refuses its reconnect. Only that credential's Lobby sockets get it; the membership and its invites stay. credential_id (cr_) is absent only on a store without credential records."
+    },
+    "seats": {
+      "socket": "lobby",
+      "layer": "core",
+      "source": "json",
+      "fields": { "seats": "Seat[]" },
+      "when": "After the server's Lobby bus lagged: the seat list again (the same shape as lobby_ready.seats), followed by called for the invites whose delivery is still owed."
+    },
+    "notification": {
+      "socket": "lobby",
+      "layer": "loca",
+      "source": "json",
+      "fields": {
+        "id": "u64",
+        "title": "string",
+        "body": "string",
+        "from": "string",
+        "scope": "building | group",
+        "created_at": "u64"
+      },
+      "when": "A Building notification addressed to this member's principal. A wake hint: GET /notifications stays the record."
+    }
+  },
+  "not_sent_yet": {
+    "$comment": "Frames a first-party client already dispatches on that the server does not send at this commit. They are not protocol yet. A client table may list them (and must, if it dispatches on them); crates/server/tests/protocol_frames.rs fails once the server emits one, so it moves to server_frames then."
+  },
+  "client_frames": {
+    "send": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ClientFrame::Send",
+      "fields": { "text": "string", "target": "string", "reply_to": "u64", "op_id": "string" },
+      "optional": ["target", "reply_to", "op_id"],
+      "when": "Post over the socket instead of REST. Dropped for watchers and, with REQUIRE_SESSIONS, for connections without a session. No first-party client uses it today."
+    },
+    "control": {
+      "socket": "loca",
+      "layer": "core",
+      "source": "ClientFrame::Control",
+      "fields": { "cmd": "string" },
+      "when": "Broadcast a control command (stop). Dropped unless the connection has Building/admin authority."
+    },
+    "typing": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ClientFrame::Typing",
+      "fields": { "on": "bool" },
+      "when": "Typing start/stop, relayed to the room as a typing frame."
+    }
+  },
+  "types": {
+    "Message": {
+      "fields": {
+        "id": "u64",
+        "room": "string",
+        "sender": "string",
+        "sender_type": "agent | user",
+        "target": "string",
+        "text": "string",
+        "kind": "say | announce",
+        "reply_to": "u64",
+        "reply_to_sender": "string",
+        "ts": "u64",
+        "attachments": "Attachment[]",
+        "sender_principal": "string"
+      },
+      "optional": ["target", "kind", "reply_to", "reply_to_sender", "attachments", "sender_principal"]
+    },
+    "Member": {
+      "fields": { "name": "string", "type": "agent | user", "role": "string", "full_name": "string", "icon": "string", "principal_id": "string" },
+      "optional": ["role", "full_name", "icon", "principal_id"]
+    },
+    "Seat": {
+      "fields": { "room": "string", "invite_id": "string" }
+    },
+    "RoomSettings": {
+      "fields": {
+        "lead": "string",
+        "rate_limit": "u32",
+        "rate_window_secs": "u32",
+        "live": "bool",
+        "archived": "bool",
+        "live_timeout_secs": "u32",
+        "operators": "string[]",
+        "turn_max_messages": "u32",
+        "turn_idle_ms": "u32",
+        "turn_max_wait_ms": "u32",
+        "care_wait_secs": "u32",
+        "care_cooldown_secs": "u32",
+        "care_max_attempts": "u32",
+        "care_context_messages": "u32",
+        "care_recipient": "ReminderRecipient",
+        "care_goal_secs": "u32",
+        "care_task_secs": "u32",
+        "care_silence_secs": "u32",
+        "extensions": "string[]",
+        "description": "string",
+        "seats": "u32",
+        "icon": "string",
+        "color": "string",
+        "labels": "string[]"
+      },
+      "optional": ["lead", "extensions", "description", "seats", "icon", "color", "labels"]
+    }
+  }
+}

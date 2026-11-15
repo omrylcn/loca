@@ -125,6 +125,7 @@ function renderSettings() {
   $("msg").placeholder = arch ? "this loca is closed — read-only" : "say it to the table…  (Enter = send · Shift+Enter = new line)";
   renderDoor();
   applyLocaExtensions();
+  applyLocaIdentity();
 }
 
 // The door bar: a Building rank watching a loca sees that it is outside the
@@ -134,7 +135,7 @@ const SEAT_ICON_CHAIR = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hi
 const SEAT_ICON_DOOR = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h8"/><path d="M15 12h6M18 9l3 3-3 3"/><circle cx="11" cy="12" r=".6" fill="currentColor"/></svg>';
 function renderDoor() {
   if (!$("doorBar") || !$("seatToggle")) return;
-  const rank = state.adminSession === true && !!state.room && !isBirebir(state.room);
+  const rank = state.adminSession === true && !!state.room && !isDm(state.room);
   const watching = isWatchingDoor();
   const archived = !!(state.settings && state.settings.archived);
   $("doorBar").classList.toggle("hidden", !watching);
@@ -154,7 +155,7 @@ function renderDoor() {
   for (const id of ["sendBtn", "stopBtn", "attachBtn"]) $(id).disabled = watching;
   if (watching && !archived) $("msg").placeholder = "watching from the door — take a seat to speak";
   else if (!archived) $("msg").placeholder = "say it to the table…  (Enter = send · Shift+Enter = new line)";
-  renderBirebirBar();
+  renderDmBar();
 }
 
 function setSeat(seated) {
@@ -323,7 +324,10 @@ async function applyReminderSettings() {
     body.care_recipient = { kind: "all" };
     chooseReminderRecipient("all");
   }
+  const gen = state.buildingGen;
   const result = await putSettings(body);
+  // Its person has left: no verdict, and no "Saving…" left behind either.
+  if (buildingStale(gen)) { status.className = "remindersavestate"; status.textContent = ""; return; }
   status.classList.add(result.ok ? "saved" : "error");
   status.textContent = result.ok
     ? recoveredMissingLead
@@ -352,7 +356,7 @@ async function toggleLive() {
   await putSettings({ live: !state.settings.live });   // live frame refreshes UI
 }
 
-/* ---- görevler (tasks): declaration, not a queue ---- */
+/* ---- tasks: declaration, not a queue ---- */
 function isLocaOperator() {
   return isAdmin() || (state.profile?.loca?.room === state.room
     && ["human", "user"].includes(state.profile?.principal?.kind)
@@ -371,7 +375,7 @@ function renderOperatorControls() {
   if (!allowed) closeProperties();
   renderLeadControl();
 }
-/// Who holds a davet for this loca but is not connected right now. They still
+/// Who holds an invite for this loca but is not connected right now. They still
 /// occupy a seat, so the master must be able to see and release them.
 let seatedFetchSequence = 0;
 async function fetchSeated() {

@@ -66,7 +66,7 @@ class AdapterProtocolTests(unittest.TestCase):
             {"LOCA_DELIVERY": json.dumps(envelope())},
             clear=False,
         ), mock.patch.object(
-            AGENTD, "token_for_room", return_value="davet"
+            AGENTD, "token_for_room", return_value="invite"
         ), mock.patch.object(
             AGENTD, "fetch_context", return_value={"messages": [], "notes": []}
         ), mock.patch.object(
@@ -120,7 +120,7 @@ class AdapterProtocolTests(unittest.TestCase):
             },
             clear=False,
         ), mock.patch.object(
-            BOT, "token_for_room", return_value="davet"
+            BOT, "token_for_room", return_value="invite"
         ), mock.patch.object(
             BOT, "recent", return_value=[]
         ), mock.patch.object(

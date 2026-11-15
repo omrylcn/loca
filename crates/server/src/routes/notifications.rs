@@ -11,6 +11,21 @@ fn viewer(hub: &Hub, headers: &HeaderMap) -> hub::RequestAuthority {
 
 fn notification_error(error: hub::NotificationError) -> axum::response::Response {
     use hub::NotificationError::*;
+    if let RateLimited {
+        max,
+        retry_after_secs,
+    } = error
+    {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(
+                axum::http::header::RETRY_AFTER,
+                retry_after_secs.to_string(),
+            )],
+            rate_limited_sentence(max, retry_after_secs),
+        )
+            .into_response();
+    }
     let status = match error {
         Unauthenticated => StatusCode::UNAUTHORIZED,
         RankRequired | NoGroup | MasterOnly => StatusCode::FORBIDDEN,
@@ -18,8 +33,27 @@ fn notification_error(error: hub::NotificationError) -> axum::response::Response
         ArchivedGroup | NoRecipients => StatusCode::CONFLICT,
         NoAudience | InvalidTitle | InvalidBody => StatusCode::BAD_REQUEST,
         Unavailable | Storage => StatusCode::SERVICE_UNAVAILABLE,
+        RateLimited { .. } => StatusCode::TOO_MANY_REQUESTS,
     };
     (status, error.message()).into_response()
+}
+
+/// The 429 body: what happened and when the next one fits, in words a person
+/// reads in the composer (the browser shows it as it is).
+fn rate_limited_sentence(max: u32, retry_after_secs: u64) -> String {
+    let wait = if retry_after_secs < 60 {
+        let s = retry_after_secs.max(1);
+        format!("{s} second{}", if s == 1 { "" } else { "s" })
+    } else {
+        let m = retry_after_secs.div_ceil(60);
+        format!("{m} minute{}", if m == 1 { "" } else { "s" })
+    };
+    let sent = if max == 1 {
+        "1 notification".to_string()
+    } else {
+        format!("{max} notifications")
+    };
+    format!("You have sent {sent} in the last 10 minutes, the most allowed. You can send the next one in {wait}.")
 }
 
 fn query_i64(q: &HashMap<String, String>, key: &str) -> Option<i64> {

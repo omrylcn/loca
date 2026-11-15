@@ -3,7 +3,7 @@
 use super::*;
 
 #[tokio::test]
-async fn exact_cross_loca_caretaker_call_reaches_iye_without_opening_source_history() {
+async fn exact_cross_loca_caretaker_call_reaches_care_loca_without_opening_source_history() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("summon.db").to_string_lossy().to_string();
     let (port, _guard) = spawn_server_env(
@@ -34,7 +34,7 @@ async fn exact_cross_loca_caretaker_call_reaches_iye_without_opening_source_hist
             "sender": "operator",
             "sender_type": "user",
             "target": "loca-dev",
-            "text": "@loca-dev monitoring hattına bak"
+            "text": "@loca-dev look at the monitoring line"
         }))
         .send()
         .await
@@ -45,11 +45,11 @@ async fn exact_cross_loca_caretaker_call_reaches_iye_without_opening_source_hist
     let summoned = wait_for(&mut caretaker, |v| {
         v["t"] == "care"
             && v["signal"]["reason"] == "direct_summon"
-            && v["signal"]["context"][0]["text"] == "@loca-dev monitoring hattına bak"
+            && v["signal"]["context"][0]["text"] == "@loca-dev look at the monitoring line"
     })
     .await;
-    // The envelope is re-homed onto Iye (the delivery socket's room); the true
-    // origin travels in source_room. A socket in Iye must never see a Care whose
+    // The envelope is re-homed onto Care (the delivery socket's room); the true
+    // origin travels in source_room. A socket in Care must never see a Care whose
     // room is another loca.
     assert_eq!(summoned["signal"]["room"], "iye");
     assert_eq!(summoned["signal"]["source_room"], "reviewer");
@@ -71,7 +71,7 @@ async fn exact_cross_loca_caretaker_call_reaches_iye_without_opening_source_hist
     .await;
     assert!(
         leaked.is_err(),
-        "an all-filter Iye client must not see another caretaker's source envelope"
+        "an all-filter Care client must not see another caretaker's source envelope"
     );
     let summon_id = summoned["signal"]["id"].as_str().unwrap().to_string();
     let attention_id = summoned["signal"]["attention_id"]
@@ -91,7 +91,7 @@ async fn exact_cross_loca_caretaker_call_reaches_iye_without_opening_source_hist
     assert_eq!(reviewer_attentions[0]["id"], attention_id);
     assert_eq!(reviewer_attentions[0]["status"], "open");
 
-    let iye_history: Vec<Value> = client
+    let care_loca_history: Vec<Value> = client
         .get(format!("{base}/rooms/iye/messages"))
         .send()
         .await
@@ -100,8 +100,8 @@ async fn exact_cross_loca_caretaker_call_reaches_iye_without_opening_source_hist
         .await
         .unwrap();
     assert!(
-        iye_history.is_empty(),
-        "a summon belongs in the durable outbox, not Iye chat history"
+        care_loca_history.is_empty(),
+        "a summon belongs in the durable outbox, not Care chat history"
     );
 
     // No transport ACK: reconnect replays the exact durable summon.
@@ -138,7 +138,7 @@ async fn exact_cross_loca_caretaker_call_reaches_iye_without_opening_source_hist
 }
 
 #[tokio::test]
-async fn operator_all_in_iye_reaches_every_caretaker_mentions_stream() {
+async fn operator_all_in_care_loca_reaches_every_caretaker_mentions_stream() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("iye-all.db").to_string_lossy().to_string();
     let (port, _guard) = spawn_server_env(
@@ -184,7 +184,7 @@ async fn operator_all_in_iye_reaches_every_caretaker_mentions_stream() {
         .json(&serde_json::json!({
             "sender": "operator",
             "sender_type": "user",
-            "text": "@all cevap ver"
+            "text": "@all reply"
         }))
         .send()
         .await
@@ -194,7 +194,7 @@ async fn operator_all_in_iye_reaches_every_caretaker_mentions_stream() {
 
     for socket in [&mut dev, &mut care] {
         let delivered = wait_for(socket, |value| {
-            value["t"] == "msg" && value["message"]["text"] == "@all cevap ver"
+            value["t"] == "msg" && value["message"]["text"] == "@all reply"
         })
         .await;
         assert_eq!(delivered["message"]["sender"], "operator");
@@ -202,10 +202,10 @@ async fn operator_all_in_iye_reaches_every_caretaker_mentions_stream() {
 }
 
 /// P0#2 invariant: the server must never place a Care envelope on a socket
-/// bound to a different room than signal.room. A caretaker socket in Iye that is
-/// summoned from another loca must see the wake homed to Iye — never carrying the
+/// bound to a different room than signal.room. A caretaker socket in Care that is
+/// summoned from another loca must see the wake homed to Care — never carrying the
 /// source room as signal.room. Fails on master @44ef95b (envelope arrives with
-/// signal.room == "reviewer" on the Iye socket).
+/// signal.room == "reviewer" on the Care socket).
 #[tokio::test]
 async fn care_for_one_room_is_not_delivered_to_a_socket_in_another_room() {
     let dir = tempfile::tempdir().unwrap();
@@ -355,18 +355,21 @@ async fn caretaker_claims_source_attention_without_source_room_access() {
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     create_test_room(port, "MASTER", "other").await;
-    let care_davet = davet_for(&base, "MASTER", "iye", "loca-care").await;
+    // Admitted here, before its invite, so the runtime report holds the key a
+    // fresh admission hands out (a repeat admission names the member only).
+    report_ready_runtime(&client, &base, "MASTER", "loca-care").await;
+    let care_invite = invite_for(&base, "MASTER", "iye", "loca-care").await;
     let care_session = session_with(
         &base,
-        ("x-room-token", care_davet.as_str()),
+        ("x-room-token", care_invite.as_str()),
         "loca-care",
         Some("iye"),
     )
     .await;
-    let operator_davet = davet_for(&base, "MASTER", "project", "operator").await;
+    let operator_invite = invite_for(&base, "MASTER", "project", "operator").await;
     let operator_session = session_with(
         &base,
-        ("x-room-token", operator_davet.as_str()),
+        ("x-room-token", operator_invite.as_str()),
         "operator",
         Some("project"),
     )
@@ -378,7 +381,6 @@ async fn caretaker_claims_source_attention_without_source_room_access() {
         Some("project"),
     )
     .await;
-    report_ready_runtime(&client, &base, "MASTER", "loca-care").await;
     let care_url = format!(
         "ws://127.0.0.1:{port}/ws?room=iye&name=loca-care&type=agent\
          &filter=mentions&turn_max=1&session={care_session}"
@@ -409,7 +411,7 @@ async fn caretaker_claims_source_attention_without_source_room_access() {
         value["t"] == "care" && value["signal"]["room"] == "iye"
     })
     .await;
-    // Re-homed onto Iye for delivery; origin preserved in source_room.
+    // Re-homed onto Care for delivery; origin preserved in source_room.
     assert_eq!(care["signal"]["source_room"], "project");
     let attention_id = care["signal"]["attention_id"].as_str().unwrap();
 
@@ -458,10 +460,10 @@ async fn caretaker_claims_source_attention_without_source_room_access() {
         .unwrap();
     assert_eq!(resolved["status"], "resolved");
 
-    let outsider_davet = davet_for(&base, "MASTER", "other", "outsider").await;
+    let outsider_invite = invite_for(&base, "MASTER", "other", "outsider").await;
     let outsider_session = session_with(
         &base,
-        ("x-room-token", outsider_davet.as_str()),
+        ("x-room-token", outsider_invite.as_str()),
         "outsider",
         Some("other"),
     )
@@ -517,6 +519,9 @@ async fn attention_has_one_owner_and_delivery_ack_is_not_resolution() {
         .unwrap();
     assert_eq!(lead.status(), 200);
     let mut ws = connect_ws(port, "proj", "operator", "user").await;
+    // The care frame below is a live broadcast; the operator's socket must be
+    // seated (and so subscribed) before the attention is raised.
+    wait_for_member(&client, &base, "proj", "operator", None).await;
 
     let attention: Value = client
         .post(format!("{base}/rooms/proj/attentions"))
@@ -606,14 +611,14 @@ async fn attention_has_one_owner_and_delivery_ack_is_not_resolution() {
 
 #[tokio::test]
 async fn reminders_cannot_be_enabled_for_a_missing_room_lead() {
-    let (port, _guard) = spawn_server_with("buyuk").await;
-    create_test_room(port, "buyuk", "proj").await;
+    let (port, _guard) = spawn_server_with("bigmaster").await;
+    create_test_room(port, "bigmaster", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
     let rejected = client
         .put(format!("{base}/rooms/proj/settings"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({
             "care_recipient": { "kind": "lead" },
             "care_goal_secs": 60
@@ -630,7 +635,7 @@ async fn reminders_cannot_be_enabled_for_a_missing_room_lead() {
 
     let settings: Value = client
         .get(format!("{base}/rooms/proj/settings"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .send()
         .await
         .unwrap()
@@ -642,21 +647,21 @@ async fn reminders_cannot_be_enabled_for_a_missing_room_lead() {
 
 #[tokio::test]
 async fn explicit_wait_cycle_wakes_only_the_live_lead_with_bounded_context() {
-    let (port, _guard) = spawn_server_with("buyuk").await;
-    create_test_room(port, "buyuk", "proj").await;
+    let (port, _guard) = spawn_server_with("bigmaster").await;
+    create_test_room(port, "bigmaster", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    report_ready_runtime(&client, &base, "buyuk", "lead").await;
+    report_ready_runtime(&client, &base, "bigmaster", "lead").await;
     client
         .post(format!("{base}/rooms/proj/lead"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "lead": "lead" }))
         .send()
         .await
         .unwrap();
     client
         .put(format!("{base}/rooms/proj/settings"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({
             "care_context_messages": 2,
             "care_wait_secs": 600
@@ -666,14 +671,14 @@ async fn explicit_wait_cycle_wakes_only_the_live_lead_with_bounded_context() {
         .unwrap();
     let url = format!(
         "ws://127.0.0.1:{port}/ws?room=proj&name=lead&type=agent\
-         &filter=mentions&turn_max=1&admin=buyuk"
+         &filter=mentions&turn_max=1&admin=bigmaster"
     );
     let (mut lead_ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     wait_for_member(&client, &base, "proj", "lead", None).await;
     for text in ["old", "relevant one", "relevant two"] {
         client
             .post(format!("{base}/rooms/proj/messages"))
-            .header("x-admin-token", "buyuk")
+            .header("x-admin-token", "bigmaster")
             .json(&serde_json::json!({
                 "sender": "operator", "sender_type": "user", "text": text
             }))
@@ -718,11 +723,11 @@ async fn explicit_wait_cycle_wakes_only_the_live_lead_with_bounded_context() {
 }
 
 #[tokio::test]
-async fn loca_care_owns_the_signal_in_iye_when_no_live_lead_exists() {
+async fn loca_care_owns_the_signal_in_care_loca_when_no_live_lead_exists() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("care.db").to_string_lossy().to_string();
     let (port, _guard) = spawn_server_env(
-        "buyuk",
+        "bigmaster",
         &[
             ("LOCA_AGENT_ROOM", "iye".into()),
             ("LOCA_CARETAKERS", "loca-dev,loca-care".into()),
@@ -730,13 +735,13 @@ async fn loca_care_owns_the_signal_in_iye_when_no_live_lead_exists() {
         ],
     )
     .await;
-    create_test_room(port, "buyuk", "proj").await;
+    create_test_room(port, "bigmaster", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    report_ready_runtime(&client, &base, "buyuk", "loca-care").await;
+    report_ready_runtime(&client, &base, "bigmaster", "loca-care").await;
     let care_url = format!(
         "ws://127.0.0.1:{port}/ws?room=iye&name=loca-care&type=agent\
-         &filter=mentions&turn_max=1&admin=buyuk"
+         &filter=mentions&turn_max=1&admin=bigmaster"
     );
     let (mut care_ws, _) = tokio_tungstenite::connect_async(care_url.clone())
         .await
@@ -755,7 +760,7 @@ async fn loca_care_owns_the_signal_in_iye_when_no_live_lead_exists() {
         assert_eq!(response.status(), 201);
     }
     let care = wait_for(&mut care_ws, |value| value["t"] == "care").await;
-    // Delivered in Iye (the caretaker's home loca and this socket's room); the
+    // Delivered in Care (the caretaker's home loca and this socket's room); the
     // source loca travels in source_room, never as signal.room on this socket.
     assert_eq!(care["signal"]["room"], "iye");
     assert_eq!(care["signal"]["source_room"], "proj");
@@ -776,7 +781,7 @@ async fn loca_care_owns_the_signal_in_iye_when_no_live_lead_exists() {
     assert_eq!(replay["signal"]["id"], signal_id);
     let ack = client
         .post(format!("{base}/rooms/iye/care/{signal_id}/ack"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "by": "loca-care" }))
         .send()
         .await
@@ -797,18 +802,18 @@ async fn loca_care_owns_the_signal_in_iye_when_no_live_lead_exists() {
 #[tokio::test]
 async fn failed_lead_runtime_is_not_treated_as_healthy_presence() {
     let (port, _guard) = spawn_server_env(
-        "buyuk",
+        "bigmaster",
         &[
             ("LOCA_AGENT_ROOM", "iye".into()),
             ("LOCA_CARETAKERS", "loca-care".into()),
         ],
     )
     .await;
-    create_test_room(port, "buyuk", "proj").await;
+    create_test_room(port, "bigmaster", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    let lead_token = report_ready_runtime(&client, &base, "buyuk", "lead").await;
-    report_ready_runtime(&client, &base, "buyuk", "loca-care").await;
+    let lead_token = report_ready_runtime(&client, &base, "bigmaster", "lead").await;
+    report_ready_runtime(&client, &base, "bigmaster", "loca-care").await;
     client
         .post(format!("{base}/runtime/health"))
         .header("x-room-token", lead_token)
@@ -825,15 +830,19 @@ async fn failed_lead_runtime_is_not_treated_as_healthy_presence() {
         .unwrap();
     client
         .post(format!("{base}/rooms/proj/lead"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "lead": "lead" }))
         .send()
         .await
         .unwrap();
-    let lead_url = format!("ws://127.0.0.1:{port}/ws?room=proj&name=lead&type=agent&admin=buyuk");
+    let lead_url =
+        format!("ws://127.0.0.1:{port}/ws?room=proj&name=lead&type=agent&admin=bigmaster");
     let (_lead_ws, _) = tokio_tungstenite::connect_async(lead_url).await.unwrap();
+    // The lead must be present for "a failed runtime is not healthy presence"
+    // to be what decides the owner (and for it to be reported online below).
+    wait_for_member(&client, &base, "proj", "lead", None).await;
     let care_url = format!(
-        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-care&type=agent&filter=mentions&admin=buyuk"
+        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-care&type=agent&filter=mentions&admin=bigmaster"
     );
     let (mut care_ws, _) = tokio_tungstenite::connect_async(care_url).await.unwrap();
     for (waiter, waiting_for) in [("a", "b"), ("b", "a")] {
@@ -851,7 +860,7 @@ async fn failed_lead_runtime_is_not_treated_as_healthy_presence() {
 
     let residents: Vec<Value> = client
         .get(format!("{base}/residents"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .send()
         .await
         .unwrap()
@@ -871,21 +880,21 @@ async fn failed_lead_runtime_is_not_treated_as_healthy_presence() {
 
 #[tokio::test]
 async fn configured_task_goal_and_silence_checks_emit_distinct_care_reasons() {
-    let (port, _guard) = spawn_server_with("buyuk").await;
-    create_test_room(port, "buyuk", "proj").await;
+    let (port, _guard) = spawn_server_with("bigmaster").await;
+    create_test_room(port, "bigmaster", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    report_ready_runtime(&client, &base, "buyuk", "lead").await;
+    report_ready_runtime(&client, &base, "bigmaster", "lead").await;
     client
         .post(format!("{base}/rooms/proj/lead"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "lead": "lead" }))
         .send()
         .await
         .unwrap();
     client
         .put(format!("{base}/rooms/proj/settings"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({
             "care_task_secs": 1,
             "care_goal_secs": 1,
@@ -898,13 +907,16 @@ async fn configured_task_goal_and_silence_checks_emit_distinct_care_reasons() {
         .unwrap();
     let url = format!(
         "ws://127.0.0.1:{port}/ws?room=proj&name=lead&type=agent\
-         &filter=mentions&turn_max=1&admin=buyuk"
+         &filter=mentions&turn_max=1&admin=bigmaster"
     );
     let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+    // A reminder's owner must be seated (care_owner). Seat the lead before
+    // the one-second timers can fire, so the first sweep already finds it.
+    wait_for_member(&client, &base, "proj", "lead", None).await;
 
     let task: Value = client
         .post(format!("{base}/rooms/proj/tasks"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({
             "title": "ship adapter", "by": "operator", "assigned_to": "worker"
         }))
@@ -924,7 +936,7 @@ async fn configured_task_goal_and_silence_checks_emit_distinct_care_reasons() {
             "{base}/rooms/proj/tasks/{}",
             task["id"].as_u64().unwrap()
         ))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "status": "cancelled", "by": "operator" }))
         .send()
         .await
@@ -932,7 +944,7 @@ async fn configured_task_goal_and_silence_checks_emit_distinct_care_reasons() {
 
     let goal: Value = client
         .post(format!("{base}/rooms/proj/goals"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({
             "outcome": "release announced", "by": "operator"
         }))
@@ -955,7 +967,7 @@ async fn configured_task_goal_and_silence_checks_emit_distinct_care_reasons() {
             "{base}/rooms/proj/goals/{}",
             goal["id"].as_u64().unwrap()
         ))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({
             "status": "achieved", "by": "operator"
         }))
@@ -965,7 +977,7 @@ async fn configured_task_goal_and_silence_checks_emit_distinct_care_reasons() {
 
     client
         .put(format!("{base}/rooms/proj/settings"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({
             "care_task_secs": 0,
             "care_goal_secs": 0,
@@ -976,7 +988,7 @@ async fn configured_task_goal_and_silence_checks_emit_distinct_care_reasons() {
         .unwrap();
     client
         .post(format!("{base}/rooms/proj/messages"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({
             "sender": "operator", "sender_type": "user", "text": "pause here"
         }))
@@ -1277,6 +1289,8 @@ async fn wall_posts_do_not_wake_a_waiter() {
     let since0 = created["since"].as_u64().unwrap();
 
     let mut a = connect_agent_mentions(port, "proj", "A").await;
+    // A must be seated before the posts, or the silence below proves nothing.
+    wait_for_member(&client, &base, "proj", "A", None).await;
     post_direct(&client, &base, "proj", "B", None, "thinking out loud").await;
     post_direct(
         &client,
@@ -1361,6 +1375,8 @@ async fn a_direct_reply_never_wakes_its_own_sender() {
     declare_wait(&client, &base, "proj", "A", "B").await;
 
     let mut b = connect_agent_mentions(port, "proj", "B").await;
+    // B must be seated before the reply, or the silence below proves nothing.
+    wait_for_member(&client, &base, "proj", "B", None).await;
     post_direct(&client, &base, "proj", "B", Some("A"), "here you go").await;
 
     assert!(
@@ -1393,19 +1409,19 @@ async fn wait_reply_resets_the_overdue_generation() {
         .to_string_lossy()
         .to_string();
     let (port, _guard) = spawn_server_env(
-        "buyuk",
+        "bigmaster",
         &[("DB_PATH", db.clone()), ("CARE_WAIT_SECS", "1".into())],
     )
     .await;
-    create_test_room(port, "buyuk", "proj").await;
+    create_test_room(port, "bigmaster", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
     // A live, healthy lead owns overdue reminders in this room.
-    report_ready_runtime(&client, &base, "buyuk", "L").await;
+    report_ready_runtime(&client, &base, "bigmaster", "L").await;
     client
         .post(format!("{base}/rooms/proj/lead"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "lead": "L" }))
         .send()
         .await
@@ -1413,7 +1429,7 @@ async fn wait_reply_resets_the_overdue_generation() {
         .error_for_status()
         .unwrap();
     let lead_url = format!(
-        "ws://127.0.0.1:{port}/ws?room=proj&name=L&type=agent&filter=mentions&turn_max=1&admin=buyuk"
+        "ws://127.0.0.1:{port}/ws?room=proj&name=L&type=agent&filter=mentions&turn_max=1&admin=bigmaster"
     );
     let (mut lead, _) = tokio_tungstenite::connect_async(lead_url).await.unwrap();
     wait_for_member(&client, &base, "proj", "L", None).await;
@@ -1437,7 +1453,7 @@ async fn wait_reply_resets_the_overdue_generation() {
     // before the REST assertion below observes the reset.
     client
         .put(format!("{base}/rooms/proj/settings"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "care_wait_secs": 60 }))
         .send()
         .await
@@ -1487,7 +1503,7 @@ async fn wait_reply_resets_the_overdue_generation() {
 
     client
         .put(format!("{base}/rooms/proj/settings"))
-        .header("x-admin-token", "buyuk")
+        .header("x-admin-token", "bigmaster")
         .json(&serde_json::json!({ "care_wait_secs": 1 }))
         .send()
         .await
@@ -1518,6 +1534,8 @@ async fn wait_reply_does_not_complete_or_resurrect_the_wait() {
 
     declare_wait(&client, &base, "proj", "A", "B").await;
     let mut a = connect_agent_mentions(port, "proj", "A").await;
+    // Without a database the wake is live only: A must be seated first.
+    wait_for_member(&client, &base, "proj", "A", None).await;
     post_direct(&client, &base, "proj", "B", Some("A"), "answered").await;
     let _ = wait_for(&mut a, |v| {
         v["t"] == "care" && v["signal"]["reason"] == "wait_replied"
@@ -1671,15 +1689,15 @@ async fn everyone_reminder_wakes_each_member_exactly_once_over_websockets() {
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
-    // Three real members, each with a davet and a principal-bound session in proj.
+    // Three real members, each with an invite and a principal-bound session in proj.
     let mut session = std::collections::HashMap::new();
-    let mut davets = std::collections::HashMap::new();
+    let mut invites = std::collections::HashMap::new();
     for name in ["alice", "bob", "carol"] {
-        let davet = davet_for(&base, "MASTER", "proj", name).await;
-        davets.insert(name, davet.clone());
+        let invite = invite_for(&base, "MASTER", "proj", name).await;
+        invites.insert(name, invite.clone());
         session.insert(
             name,
-            session_with(&base, ("x-room-token", davet.as_str()), name, Some("proj")).await,
+            session_with(&base, ("x-room-token", invite.as_str()), name, Some("proj")).await,
         );
     }
 
@@ -1704,8 +1722,8 @@ async fn everyone_reminder_wakes_each_member_exactly_once_over_websockets() {
     let (mut alice, _) = tokio_tungstenite::connect_async(ws_url("alice"))
         .await
         .unwrap();
-    // Native listeners authenticate directly with their loca davet. This used
-    // to leave the socket without a principal even though the davet itself is
+    // Native listeners authenticate directly with their loca invite. This used
+    // to leave the socket without a principal even though the invite itself is
     // principal-bound, so the Everyone branch created Bob's Care row but the
     // principal filter silently withheld the frame.
     let bob_url = format!(
@@ -1713,7 +1731,7 @@ async fn everyone_reminder_wakes_each_member_exactly_once_over_websockets() {
     );
     let mut bob = connect_ws_protocols(
         bob_url,
-        &["loca.v1".into(), format!("loca.room.{}", davets["bob"])],
+        &["loca.v1".into(), format!("loca.room.{}", invites["bob"])],
     )
     .await;
 
@@ -1810,10 +1828,10 @@ async fn everyone_reminder_ack_is_principal_scoped_over_http() {
 
     let mut session = std::collections::HashMap::new();
     for name in ["alice", "bob"] {
-        let davet = davet_for(&base, "MASTER", "proj", name).await;
+        let invite = invite_for(&base, "MASTER", "proj", name).await;
         session.insert(
             name,
-            session_with(&base, ("x-room-token", davet.as_str()), name, Some("proj")).await,
+            session_with(&base, ("x-room-token", invite.as_str()), name, Some("proj")).await,
         );
     }
     client
@@ -1899,6 +1917,10 @@ async fn everyone_reminder_ack_is_principal_scoped_over_http() {
     let (mut alice2, _) = tokio_tungstenite::connect_async(ws_url("alice"))
         .await
         .unwrap();
+    // Care is replayed right after the memory frame, which is sent only once
+    // the connection is seated; count from there so the silence means
+    // "not replayed", not "not seated yet".
+    let _ = wait_for(&mut alice2, |frame| frame["t"] == "memory").await;
     assert_eq!(
         count_silence_care(&mut alice2, 1500).await,
         0,
@@ -1946,14 +1968,14 @@ async fn everyone_reminder_revoked_member_gets_zero_on_reconnect() {
     let client = reqwest::Client::new();
 
     let mut session = std::collections::HashMap::new();
-    let mut davet = std::collections::HashMap::new();
+    let mut invite = std::collections::HashMap::new();
     for name in ["alice", "carol"] {
-        let dv = davet_for(&base, "MASTER", "proj", name).await;
+        let dv = invite_for(&base, "MASTER", "proj", name).await;
         session.insert(
             name,
             session_with(&base, ("x-room-token", dv.as_str()), name, Some("proj")).await,
         );
-        davet.insert(name, dv);
+        invite.insert(name, dv);
     }
     client
         .put(format!("{base}/rooms/proj/settings"))
@@ -1993,9 +2015,12 @@ async fn everyone_reminder_revoked_member_gets_zero_on_reconnect() {
         "alice (still on the roster) is woken once"
     );
 
-    // Revoke carol's davet AFTER the fan-out already enqueued her row.
+    // Revoke carol's invite AFTER the fan-out already enqueued her row.
     client
-        .delete(format!("{base}/rooms/proj/invites/{}", davet["carol"]))
+        .delete(format!(
+            "{base}/rooms/proj/invites/{}",
+            invite_ref(&invite["carol"])
+        ))
         .header("x-admin-token", "MASTER")
         .send()
         .await
@@ -2008,7 +2033,7 @@ async fn everyone_reminder_revoked_member_gets_zero_on_reconnect() {
     let reconnect = tokio_tungstenite::connect_async(ws_url("carol")).await;
     assert!(
         reconnect.is_err(),
-        "a member revoked after the fan-out cannot reconnect — its session is revoked with the davet, so it receives zero"
+        "a member revoked after the fan-out cannot reconnect — its session is revoked with the invite, so it receives zero"
     );
 }
 
@@ -2042,16 +2067,16 @@ async fn everyone_reminder_separates_two_same_named_principals_over_websockets()
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
-    // Boot 1: two distinct members (distinct principals), each davetted into proj.
-    // care_recipient = Everyone. Davets are durable across restart; davet-derived
+    // Boot 1: two distinct members (distinct principals), each invited into proj.
+    // care_recipient = Everyone. Invites are durable across restart; invite-derived
     // sessions are ephemeral, so we re-mint them on boot 2.
     let dv_a;
     let dv_b;
     {
         let (_p, _guard) = spawn_server_env("MASTER", &boot_env(port)).await;
         create_test_room(_p, "MASTER", "proj").await;
-        dv_a = davet_for(&base, "MASTER", "proj", "sam").await;
-        dv_b = davet_for(&base, "MASTER", "proj", "sam-two").await;
+        dv_a = invite_for(&base, "MASTER", "proj", "sam").await;
+        dv_b = invite_for(&base, "MASTER", "proj", "sam-two").await;
         client
             .put(format!("{base}/rooms/proj/settings"))
             .header("x-admin-token", "MASTER")
@@ -2086,7 +2111,7 @@ async fn everyone_reminder_separates_two_same_named_principals_over_websockets()
     // Boot 2: same DB + port. The roster now has two same-named principals.
     let (_p2, _guard2) = spawn_server_env("MASTER", &boot_env(port)).await;
 
-    // Re-mint each session from its durable davet: a session speaks as its davet's
+    // Re-mint each session from its durable invite: a session speaks as its invite's
     // member, so both now resolve to the display name "sam" with DISTINCT principals.
     let session_a = session_with(&base, ("x-room-token", dv_a.as_str()), "sam", Some("proj")).await;
     let session_b = session_with(&base, ("x-room-token", dv_b.as_str()), "sam", Some("proj")).await;

@@ -83,14 +83,14 @@ def main():
                 headers = {}
                 for name, kind in (("reader", "agent"), ("operator", "user")):
                     member = protocol.http(base, "POST", "/members", {"name": name, "kind": kind}, admin)
-                    davet = protocol.http(base, "POST", "/rooms/general/invites", {"name": name}, admin)["token"]
+                    invite = protocol.http(base, "POST", "/rooms/general/invites", {"name": name}, admin)["token"]
                     session = protocol.http(base, "POST", "/sessions", {"name": name, "kind": kind, "loca": "general"},
-                                            {"x-room-token": davet})["session_token"]
+                                            {"x-room-token": invite})["session_token"]
                     headers[name] = {"x-session-token": session}
                     if name == "reader":
                         identity = work / "reader.env"
                         identity.write_text(f"ROOM_SERVER_URL={base}\nLOCA_NAME=reader\nLOCA_MEMBERSHIP={member['token']}\n"
-                                            f"LOCA_SESSION={session}\nDAVET_general={davet}\n")
+                                            f"LOCA_SESSION={session}\nDAVET_general={invite}\n")
                         identity.chmod(0o600)
                         env.update(LOCA_ENV=str(identity), LOCA_NAME="reader")
                 inbox = work / "inbox.jsonl"

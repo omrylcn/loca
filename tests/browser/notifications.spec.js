@@ -240,3 +240,38 @@ test("the Sent view counts people who read it and lists agents apart", async ({ 
   await expect(counts("Context only")).toHaveText("sent to 1 agent");
   await kaan.context().close();
 });
+
+// The sending limit (six in ten minutes) answers 429 with a sentence and a
+// Retry-After header. This suite's shared server runs with a high
+// NOTIFICATION_RATE_LIMIT, so the refusal is fulfilled here with the server's
+// shape; crates/server/tests/ws/notifications.rs proves the real one.
+test("a refused send shows the server's sentence and keeps what was typed", async ({ browser, request }) => {
+  const master = await openAs(browser, await rankSession(request, "MASTER"), "Master");
+  const sentence = "You have sent 6 notifications in the last 10 minutes, the most allowed. You can send the next one in 9 minutes.";
+  let refused = 0;
+  await master.route("**/notifications", route => {
+    if (route.request().method() !== "POST") return route.continue();
+    refused += 1;
+    return route.fulfill({ status: 429, headers: { "retry-after": "512", "content-type": "text/plain; charset=utf-8" }, body: sentence });
+  });
+  await master.locator("#notifBell").click();
+  const panel = master.locator("#notifPanel");
+  await panel.locator(".notifcompose summary").click();
+  await expect(panel.locator("input[name=all]")).toBeChecked();
+  await panel.locator("#notifTitle").fill("Lift out of order");
+  await panel.locator("#notifText").fill("Use the stairs\nuntil Monday.");
+  await panel.locator("#notifSend").click();
+
+  await expect(panel.locator("#notifErr")).toHaveText(sentence);
+  expect(refused).toBe(1);
+  await expect(panel.locator("#notifTitle")).toHaveValue("Lift out of order");
+  await expect(panel.locator("#notifText")).toHaveValue("Use the stairs\nuntil Monday.");
+  await expect(panel.locator("#notifSend")).toBeEnabled();
+  await expect(panel.locator(".notifstatus")).toHaveCount(0);
+  // A poll redraw keeps the typed text and the sentence.
+  await master.evaluate(() => renderNotifPanel());
+  await expect(panel.locator("#notifTitle")).toHaveValue("Lift out of order");
+  await expect(panel.locator("#notifText")).toHaveValue("Use the stairs\nuntil Monday.");
+  await expect(panel.locator("#notifErr")).toHaveText(sentence);
+  await master.context().close();
+});

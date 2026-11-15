@@ -357,7 +357,7 @@ class RemotePackageTests(unittest.TestCase):
                 check=False,
             )
             self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
-            self.assertNotIn("membership or davet", upgraded.stderr)
+            self.assertNotIn("membership or invite", upgraded.stderr)
             expected_version = (SKILL_DIR / "VERSION").read_text(
                 encoding="utf-8"
             )

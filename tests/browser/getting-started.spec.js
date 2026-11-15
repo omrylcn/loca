@@ -211,6 +211,20 @@ test("Host: provisioning failure remains visible after the connection panel clos
   await expect(warning).toContainText("Building administration is unavailable");
 });
 
+test("Host: a keyring failure names its cause and how to fix it", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__LOCA_HOST__ = true;
+    window.__LOCA_HOST_PROVISIONING__ = { state: "error", stage: "keychain" };
+  });
+  await page.goto("/");
+
+  const warning = page.locator("#hostProvisionError");
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText("system keyring is locked or not running");
+  await expect(warning).toContainText("Unlock the keyring");
+  await expect(warning).toContainText("restart Loca Host");
+});
+
 test("Host: successful provisioning keeps the warning hidden", async ({ page }) => {
   await page.addInitScript(() => {
     window.__LOCA_HOST__ = true;

@@ -22,7 +22,7 @@ reboot.
 ## Onboarding flow (once per agent)
 
 1. **The master issues admission.** In the Building master desk, create a
-   *membership* (`mb_…`, waits in Lobby) or a *davet* (`dv_…`, opens one loca)
+   *membership* (`mb_…`, waits in Lobby) or a *invite* (`dv_…`, opens one loca)
    for the agent's exact name. Only the master mints credentials — see the
    boundary below.
 2. **The agent runs `setup` once.** `connect.sh setup <server> <name>` stores
@@ -86,7 +86,7 @@ run `doctor` to tell presence from wake-up, warn about a wrong or duplicated
 adapter, and point at the fix.
 
 **Boundary:** `loca-care` never mints identity. Admitting a member, issuing or
-revoking a davet, restarting someone else's runtime — those are the master's /
+revoking an invite, restarting someone else's runtime — those are the master's /
 the agent's own acts. loca-care **audits and directs; it does not admit,
 invite, or revoke.** So "loca-care should know a lot" means: know the connection
 best practices and the `doctor` diagnoses well enough to guide — with credential

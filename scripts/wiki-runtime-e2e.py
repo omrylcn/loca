@@ -50,21 +50,21 @@ def main():
                 protocol.eventually(lambda:protocol.http(base,"GET","/health"),"server startup failed")
                 admin = {"x-admin-token":protocol.ADMIN}
                 protocol.http(base,"POST","/members",{"name":"editor","kind":"agent"},admin)
-                davet = protocol.http(base,"POST","/rooms/general/invites",{"name":"editor"},admin)["token"]
+                invite = protocol.http(base,"POST","/rooms/general/invites",{"name":"editor"},admin)["token"]
                 session = protocol.http(base,"POST","/sessions",{"name":"editor","kind":"agent","loca":"general"},
-                    {"x-room-token":davet})["session_token"]
+                    {"x-room-token":invite})["session_token"]
                 home = work/"editor"
                 (home/".loca").mkdir(parents=True)
                 identity = home/".loca/editor.env"
                 identity.write_text("ROOM_SERVER_URL="+base+"\nLOCA_NAME=editor\nLOCA_SESSION="+session+
-                    "\nDAVET_general="+davet+"\n")
+                    "\nDAVET_general="+invite+"\n")
                 identity.chmod(0o600)
                 protocol.http(base,"PUT","/rooms/general/wiki/config",
                     {"editor":"editor","enabled":False,"interval_messages":2},admin)
                 protocol.http(base,"POST","/members",{"name":"operator","kind":"user"},admin)
-                user_davet = protocol.http(base,"POST","/rooms/general/invites",{"name":"operator"},admin)["token"]
+                user_invite = protocol.http(base,"POST","/rooms/general/invites",{"name":"operator"},admin)["token"]
                 user_session = protocol.http(base,"POST","/sessions",{"name":"operator","kind":"user","loca":"general"},
-                    {"x-room-token":user_davet})["session_token"]
+                    {"x-room-token":user_invite})["session_token"]
                 user_headers = {"x-session-token":user_session}
                 editor_headers={"x-session-token":session}
                 protocol.http(base,"POST","/rooms/general/wiki/runtime",{"runtime":args.runtime},editor_headers)

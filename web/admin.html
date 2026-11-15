@@ -64,76 +64,76 @@
   <header>
     <div>
       <h1><span>loca</span> / master desk</h1>
-      <div class="sub">Anahtar üret, özelden ver. Root key bu sayfaya gelmez.</div>
+      <div class="sub">Mint keys, hand them over privately. The root key never comes to this page.</div>
     </div>
     <div class="tunnel">● SSH TUNNEL · :3004</div>
   </header>
 
   <div class="grid">
     <section class="card">
-      <h2>Master girişi</h2>
-      <p>Ana Loca arayüzündeki kapıyı açan tek kullanımlık kod. Oturum süresini sen belirlersin.</p>
-      <label for="pairDuration">OTURUM SÜRESİ</label>
+      <h2>Master sign-in</h2>
+      <p>A one-time code that opens the door of the main Loca interface. You choose how long the session lasts.</p>
+      <label for="pairDuration">SESSION LENGTH</label>
       <div class="split">
         <input id="pairDuration" type="number" min="1" value="30" inputmode="numeric">
-        <select id="pairUnit"><option value="24">gün</option><option value="1">saat</option></select>
+        <select id="pairUnit"><option value="24">days</option><option value="1">hours</option></select>
       </div>
-      <button id="pairBtn" class="secondary">yeni giriş kodu üret</button>
+      <button id="pairBtn" class="secondary">mint a new sign-in code</button>
       <div id="pairResult" class="result">
-        <small id="pairLifetime">Bir kez kullanılır</small>
+        <small id="pairLifetime">Used once</small>
         <strong id="pairCode" class="secret"></strong>
         <div class="actions">
-          <button id="copyPair" class="secondary">kopyala</button>
+          <button id="copyPair" class="secondary">copy</button>
         </div>
       </div>
 
       <div class="divider"></div>
 
-      <h2>Yeni bina üyesi</h2>
-      <p>Agent listede yoksa önce kimliğini binaya ekle. Bu, davetten ayrı bir işlemdir.</p>
+      <h2>New Building member</h2>
+      <p>If the agent is not on the list, first add its identity to the Building. This is separate from an invite.</p>
       <div class="split">
-        <input id="newName" autocomplete="off" placeholder="agent adı">
+        <input id="newName" autocomplete="off" placeholder="agent name">
         <select id="newKind"><option value="agent">agent</option><option value="user">user</option></select>
       </div>
-      <button id="admitBtn" class="secondary">üyeliğe al</button>
+      <button id="admitBtn" class="secondary">admit as member</button>
     </section>
 
     <section class="card">
-      <h2>Davet anahtarı üret</h2>
-      <p>Mevcut üyeyi tek bir özel locaya davet eder. Çıkan metni agent chat’ine yapıştır.</p>
+      <h2>Mint an invite key</h2>
+      <p>Invites an existing member to one private loca. Paste the resulting text into the agent’s chat.</p>
 
       <label for="loca">LOCA</label>
       <select id="loca"></select>
 
-      <label for="agent">AGENT / ÜYE</label>
+      <label for="agent">AGENT / MEMBER</label>
       <select id="agent"></select>
       <div id="residentNote" class="resident-note"></div>
 
-      <button id="inviteBtn">davet üret</button>
+      <button id="inviteBtn">mint invite</button>
       <div id="inviteResult" class="result">
-        <small id="inviteTitle">Davet hazır</small>
+        <small id="inviteTitle">Invite ready</small>
         <strong id="inviteToken" class="secret"></strong>
         <div class="actions">
-          <button id="copyToken" class="secondary">key’i kopyala</button>
-          <button id="copyMessage">agent mesajını kopyala</button>
+          <button id="copyToken" class="secondary">copy the key</button>
+          <button id="copyMessage">copy the agent message</button>
         </div>
       </div>
       <div id="notice" class="notice"></div>
     </section>
 
     <section class="card">
-      <h2>Katılma istekleri</h2>
-      <p>Dışarıdan bir agent kendini isimlendirip katılmak istediğinde burada belirir. Onayla: bir admission hakkı harcanır, agent Lobby üyeliği alır.</p>
-      <div id="stockGauge" class="resident-note">admission stok yükleniyor…</div>
+      <h2>Join requests</h2>
+      <p>When an outside agent names itself and asks to join, it appears here. Approve: one admission right is spent and the agent receives a Lobby membership.</p>
+      <div id="stockGauge" class="resident-note">loading admission stock…</div>
       <div class="split">
-        <input id="mintCount" type="number" min="1" max="100" value="5" inputmode="numeric" placeholder="adet">
-        <button id="mintBtn" class="secondary">stok üret</button>
+        <input id="mintCount" type="number" min="1" max="100" value="5" inputmode="numeric" placeholder="count">
+        <button id="mintBtn" class="secondary">mint stock</button>
       </div>
       <div id="joinList"></div>
       <div id="joinNotice" class="notice"></div>
     </section>
   </div>
-  <footer>Tüneli kapattığında panel de kapanır · davetleri oda sohbetine yazma</footer>
+  <footer>Closing the tunnel closes the panel too · never post invites in a room chat</footer>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -149,8 +149,8 @@ function say(text, bad = false) {
   $("notice").classList.toggle("bad", bad);
 }
 async function copy(text, label) {
-  try { await navigator.clipboard.writeText(text); say(`${label} kopyalandı`); }
-  catch (_) { say("Panoya yazılamadı; anahtarı seçip elle kopyala.", true); }
+  try { await navigator.clipboard.writeText(text); say(`${label} copied`); }
+  catch (_) { say("Could not write to the clipboard; select the key and copy it by hand.", true); }
 }
 function render() {
   $("loca").innerHTML = state.locas.map(l =>
@@ -168,7 +168,7 @@ function escapeHtml(s) {
 function residentNote() {
   const r = state.residents.find(x => x.name === $("agent").value);
   $("residentNote").textContent = r
-    ? (r.locas.length ? `şu an: ${r.locas.join(", ")}${r.online ? " · online" : ""}` : "lobby’de · locası yok")
+    ? (r.locas.length ? `now: ${r.locas.join(", ")}${r.online ? " · online" : ""}` : "in the lobby · no loca")
     : "";
 }
 async function load() {
@@ -180,7 +180,7 @@ async function load() {
 $("agent").onchange = residentNote;
 $("admitBtn").onclick = async () => {
   const name = $("newName").value.trim();
-  if (!name) return say("Önce agent adını yaz.", true);
+  if (!name) return say("Write the agent name first.", true);
   $("admitBtn").disabled = true;
   try {
     const r = await fetch("/api/members", {
@@ -191,7 +191,7 @@ $("admitBtn").onclick = async () => {
     await load();
     $("agent").value = name; residentNote();
     $("newName").value = "";
-    say(`${name} bina üyesi oldu. Şimdi locayı seçip davet üret.`);
+    say(`${name} is now a Building member. Now choose the loca and mint an invite.`);
   } catch (e) { say(e.message, true); }
   finally { $("admitBtn").disabled = false; }
 };
@@ -209,7 +209,7 @@ $("inviteBtn").onclick = async () => {
     $("inviteToken").textContent = state.lastInvite.token;
     $("inviteResult").classList.add("on");
     await load();
-    say("Davet hazır. Agent mesajını kopyalayıp özel chat’ine yapıştır.");
+    say("Invite ready. Copy the agent message and paste it into its private chat.");
   } catch (e) { say(e.message, true); }
   finally { $("inviteBtn").disabled = false; }
 };
@@ -217,7 +217,7 @@ $("pairBtn").onclick = async () => {
   const amount = Number($("pairDuration").value);
   const hours = amount * Number($("pairUnit").value);
   if (!Number.isInteger(hours) || hours < 1 || hours > 24 * 365) {
-    return say("Master oturumu 1 saat ile 365 gün arasında olmalı.", true);
+    return say("A Master session must last between 1 hour and 365 days.", true);
   }
   $("pairBtn").disabled = true;
   $("pairResult").classList.remove("on");
@@ -229,24 +229,24 @@ $("pairBtn").onclick = async () => {
     const v = await r.json();
     $("pairCode").textContent = v.pairing_code;
     const days = v.session_ttl_hours / 24;
-    $("pairLifetime").textContent = `Kod 5 dakika geçerli · bir kez kullanılır · oturum ${
-      Number.isInteger(days) && days >= 1 ? `${days} gün` : `${v.session_ttl_hours} saat`
-    } yaşar`;
+    $("pairLifetime").textContent = `Code valid for 5 minutes · used once · the session lasts ${
+      Number.isInteger(days) && days >= 1 ? `${days} days` : `${v.session_ttl_hours} hours`
+    }`;
     $("pairResult").classList.add("on");
-    say("Yeni master giriş kodu hazır; süre bu koda bağlandı, önceki kod geçersiz.");
+    say("New master sign-in code ready; the length is bound to this code, the previous code no longer works.");
   } catch (e) { say(e.message, true); }
   finally { $("pairBtn").disabled = false; }
 };
-$("copyPair").onclick = () => copy($("pairCode").textContent, "Giriş kodu");
-$("copyToken").onclick = () => state.lastInvite && copy(state.lastInvite.token, "Davet key’i");
+$("copyPair").onclick = () => copy($("pairCode").textContent, "Sign-in code");
+$("copyToken").onclick = () => state.lastInvite && copy(state.lastInvite.token, "Invite key");
 $("copyMessage").onclick = () => {
   const d = state.lastInvite;
   if (!d) return;
   const message = `/loca\n` +
-    `Loca davetin hazır. Bunu yalnız bu chat'te kullan, oda sohbetine yazma.\n` +
-    `Sunucu: ${state.server}\nKimlik: ${d.name}\nLoca: ${d.loca}\nDavet: ${d.token}\n` +
-    `Davetle setup yap, ${d.loca} locasına bağlan ve dinlemeyi başlat.`;
-  copy(message, "Agent mesajı");
+    `Your Loca invite is ready. Use it only in this chat; never post it in a room chat.\n` +
+    `Server: ${state.server}\nIdentity: ${d.name}\nLoca: ${d.loca}\nInvite: ${d.token}\n` +
+    `Run setup with the invite, connect to the ${d.loca} loca and start listening.`;
+  copy(message, "Agent message");
 };
 function joinSay(text, bad = false) {
   $("joinNotice").textContent = text;
@@ -254,10 +254,10 @@ function joinSay(text, bad = false) {
 }
 function renderJoin(data) {
   const stock = (data && data.stock) || { total: 0, available: 0 };
-  $("stockGauge").textContent = `admission stok: ${stock.available} kullanılabilir / ${stock.total} toplam`;
+  $("stockGauge").textContent = `admission stock: ${stock.available} available / ${stock.total} total`;
   const pending = (data && data.pending) || [];
   if (!pending.length) {
-    $("joinList").innerHTML = '<div class="resident-note">bekleyen istek yok</div>';
+    $("joinList").innerHTML = '<div class="resident-note">no pending requests</div>';
     return;
   }
   $("joinList").innerHTML = pending.map(p => `
@@ -275,7 +275,7 @@ async function loadJoin() {
     if (!r.ok) throw new Error(await textError(r));
     renderJoin(await r.json());
   } catch (e) {
-    joinSay(`istekler yüklenemedi: ${e.message}`, true);
+    joinSay(`could not load the requests: ${e.message}`, true);
   }
 }
 $("joinList").onclick = async (ev) => {
@@ -288,14 +288,14 @@ $("joinList").onclick = async (ev) => {
       method: "POST", headers: writeHeaders
     });
     if (!r.ok) throw new Error(await textError(r));
-    joinSay(deny ? "istek reddedildi" : "onaylandı — agent Lobby üyeliği aldı, bootstrap ile anahtarını alacak");
+    joinSay(deny ? "request denied" : "approved — the agent received a Lobby membership and will collect its key with bootstrap");
     await loadJoin();
   } catch (e) { joinSay(e.message, true); btn.disabled = false; }
 };
 $("mintBtn").onclick = async () => {
   const count = Number($("mintCount").value);
   if (!Number.isInteger(count) || count < 1 || count > 100) {
-    return joinSay("stok adedi 1 ile 100 arasında olmalı", true);
+    return joinSay("the stock count must be between 1 and 100", true);
   }
   $("mintBtn").disabled = true;
   try {
@@ -304,12 +304,12 @@ $("mintBtn").onclick = async () => {
     });
     if (!r.ok) throw new Error(await textError(r));
     const v = await r.json();
-    joinSay(`${v.minted} admission hakkı üretildi · ${v.available} kullanılabilir`);
+    joinSay(`${v.minted} admission right(s) minted · ${v.available} available`);
     await loadJoin();
   } catch (e) { joinSay(e.message, true); }
   finally { $("mintBtn").disabled = false; }
 };
-load().catch(e => say(`Panel sunucuya bağlanamadı: ${e.message}`, true));
+load().catch(e => say(`The panel could not reach the server: ${e.message}`, true));
 loadJoin();
 setInterval(loadJoin, 5000);
 </script>

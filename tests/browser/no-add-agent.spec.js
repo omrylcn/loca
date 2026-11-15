@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-// The persistent "Add agent" affordance (where the Master live-minted a davet)
+// The persistent "Add agent" affordance (where the Master live-minted an invite)
 // was removed in favour of the agent-initiated join-request model. It lived
 // only as a desktop-injected shim (HOST_SHIM -> a floating "#_lc_add" button +
 // "#_lc_box"/"#_lc_modal" panel); the shared web UI never carried it. The

@@ -1,57 +1,12 @@
 use super::access::mutation_actor;
 use crate::*;
 
-fn memory_actor(
-    hub: &Hub,
-    headers: &HeaderMap,
-) -> Result<hub::SessionIdentity, Box<axum::response::Response>> {
-    let Some(token) = session_of(headers) else {
-        return Err(Box::new(
-            (StatusCode::UNAUTHORIZED, "session token required").into_response(),
-        ));
-    };
-    hub.session_identity(Some(token)).ok_or_else(|| {
-        Box::new((StatusCode::UNAUTHORIZED, "invalid session token").into_response())
-    })
-}
-
-fn memory_write_error(error: crate::store::MemoryWriteError) -> axum::response::Response {
-    match error {
-        crate::store::MemoryWriteError::PersistenceUnavailable => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "loca memory requires persistent storage in this deployment",
-        )
-            .into_response(),
-        crate::store::MemoryWriteError::OwnerUnassigned => (
-            StatusCode::CONFLICT,
-            "memory owner is not assigned for this loca",
-        )
-            .into_response(),
-        crate::store::MemoryWriteError::NotOwner => {
-            (StatusCode::FORBIDDEN, "only the memory owner may write").into_response()
-        }
-        crate::store::MemoryWriteError::ShortTooLarge => (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "short memory exceeds the 4 KiB limit",
-        )
-            .into_response(),
-        crate::store::MemoryWriteError::EntryTooLarge => (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "long-memory entry exceeds the 8 KiB wake-injection budget",
-        )
-            .into_response(),
-        crate::store::MemoryWriteError::LongTooLarge => (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "long memory is a finite append-only ledger (64 KiB); existing entries remain readable, but no further entries can be appended",
-        )
-            .into_response(),
-        crate::store::MemoryWriteError::Storage => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "could not save loca memory — try again",
-        )
-            .into_response(),
-    }
-}
+/// PRINCIPLES "Wiki editor": "there is no separate Memory role or second owner
+/// assignment. Old records are archives, not new authority." The memory
+/// routes stay readable; the old write and owner routes refuse everyone, the
+/// owner an archived record still names included.
+const ARCHIVED_MEMORY: &str =
+    "loca memory is an archive and read-only; Loca Wiki is the shared knowledge surface";
 
 pub(crate) async fn caretaker_memory(
     State(hub): State<Hub>,
@@ -82,33 +37,12 @@ pub(crate) async fn caretaker_memory(
     }
 }
 
-pub(crate) async fn set_loca_memory_owner(
-    State(hub): State<Hub>,
-    access: RoomAccess,
-    headers: HeaderMap,
-    Json(body): Json<protocol::SetLocaMemoryOwner>,
-) -> impl IntoResponse {
-    if !is_master_req(&hub, &headers) {
-        return (
-            StatusCode::FORBIDDEN,
-            "only the master may assign memory ownership",
-        )
-            .into_response();
-    }
-    let owner = body
-        .owner
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty());
-    match hub.set_memory_owner(&access.room, owner) {
-        Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(rusqlite::Error::InvalidParameterName(_)) => (
-            StatusCode::CONFLICT,
-            "memory owner must be one active Building identity",
-        )
-            .into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-    }
+pub(crate) async fn set_loca_memory_owner(_access: RoomAccess) -> impl IntoResponse {
+    (
+        StatusCode::FORBIDDEN,
+        "there is no Memory owner to assign: loca memory is an archive and read-only; \
+         Loca Wiki is the shared knowledge surface",
+    )
 }
 
 pub(crate) async fn get_loca_memory(
@@ -143,48 +77,12 @@ pub(crate) async fn get_loca_memory_snapshot(
     }
 }
 
-pub(crate) async fn write_short_memory(
-    State(hub): State<Hub>,
-    access: RoomAccess,
-    headers: HeaderMap,
-    Json(body): Json<protocol::WriteLocaMemory>,
-) -> impl IntoResponse {
-    if !hub.is_writable(&access.room) {
-        return (StatusCode::CONFLICT, "this loca is closed — read-only").into_response();
-    }
-    if body.text.trim().is_empty() {
-        return (StatusCode::BAD_REQUEST, "memory text is empty").into_response();
-    }
-    let actor = match memory_actor(&hub, &headers) {
-        Ok(actor) => actor,
-        Err(response) => return *response,
-    };
-    match hub.write_short_memory(&access.room, &actor, body.text.trim()) {
-        Ok(memory) => Json(memory).into_response(),
-        Err(error) => memory_write_error(error),
-    }
+pub(crate) async fn write_short_memory(_access: RoomAccess) -> impl IntoResponse {
+    (StatusCode::FORBIDDEN, ARCHIVED_MEMORY)
 }
 
-pub(crate) async fn append_long_memory(
-    State(hub): State<Hub>,
-    access: RoomAccess,
-    headers: HeaderMap,
-    Json(body): Json<protocol::WriteLocaMemory>,
-) -> impl IntoResponse {
-    if !hub.is_writable(&access.room) {
-        return (StatusCode::CONFLICT, "this loca is closed — read-only").into_response();
-    }
-    if body.text.trim().is_empty() {
-        return (StatusCode::BAD_REQUEST, "memory text is empty").into_response();
-    }
-    let actor = match memory_actor(&hub, &headers) {
-        Ok(actor) => actor,
-        Err(response) => return *response,
-    };
-    match hub.append_long_memory(&access.room, &actor, body.text.trim()) {
-        Ok(entry) => (StatusCode::CREATED, Json(entry)).into_response(),
-        Err(error) => memory_write_error(error),
-    }
+pub(crate) async fn append_long_memory(_access: RoomAccess) -> impl IntoResponse {
+    (StatusCode::FORBIDDEN, ARCHIVED_MEMORY)
 }
 
 pub(crate) async fn list_long_memory_entries(
@@ -302,16 +200,15 @@ pub(crate) async fn post_message(
         }
         None => {}
     }
-    let principal = session_identity
-        .as_ref()
-        .and_then(|idy| idy.member.as_ref().map(|member| format!("mb:{member}")))
-        .unwrap_or_else(|| {
-            let kind = match body.sender_type {
-                SenderType::Agent => "agent",
-                SenderType::User => "user",
-            };
-            format!("{kind}:{}", body.sender)
-        });
+    // The same key the WebSocket `send` frame uses for this sender.
+    let scope = hub.operation_scope(
+        &id,
+        admin_token_of(&headers),
+        member_token_of(&headers),
+        session_identity.as_ref(),
+        body.sender_type,
+        &body.sender,
+    );
     // A post carrying a valid admin token bypasses mode gating. In dev (no
     // ADMIN_TOKEN configured) everyone is the operator, so requiring a header
     // there would mean nobody could name a lead or speak past a mode gate on a
@@ -321,7 +218,12 @@ pub(crate) async fn post_message(
     } else {
         is_admin_req(&hub, &headers)
     };
-    match hub.post(&id, body, is_admin, &principal) {
+    // Who wrote it, as verified by the session; a rename follows this id.
+    // Without a session the body's sender is unverified, so nobody is recorded.
+    let sender_principal = session_identity
+        .as_ref()
+        .and_then(|idy| idy.principal_id.clone());
+    match hub.post(&id, body, is_admin, &scope, sender_principal.as_deref()) {
         Ok(msg) => (StatusCode::CREATED, Json(msg)).into_response(),
         Err(reject) => {
             let code = if reject.is_rate_limit() {
@@ -330,6 +232,10 @@ pub(crate) async fn post_message(
                 // Not the caller's fault — the write failed. 503 so a client
                 // may retry rather than treat it as a permanent rejection.
                 StatusCode::SERVICE_UNAVAILABLE
+            } else if matches!(reject, hub::PostReject::OperationUnclear) {
+                // Neither a replay the server can prove nor a new operation
+                // it may post: the client must choose a new `op_id`.
+                StatusCode::CONFLICT
             } else if reject.is_bad_request() {
                 // Malformed caller input (bad/too-many attachment ids) — 400,
                 // distinct from the 403 the mode/permission gates return.
@@ -371,6 +277,7 @@ pub(crate) async fn set_reaction(
     if body.reactor.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "reactor required").into_response();
     }
+    // A session's membership is its id (`mb:<mbid_>`), never its key.
     let principal = identity
         .as_ref()
         .and_then(|idy| idy.member.as_ref().map(|m| format!("mb:{m}")))

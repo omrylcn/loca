@@ -7,10 +7,13 @@
 const APPEARANCE_CHOICES = {
   theme: ["dark", "light"],
   accent: ["teal", "blue", "violet", "amber", "rose"],
-  density: ["comfortable", "compact"],
-  font_size: ["normal", "large"],
+  density: ["compact", "comfortable", "spacious"],
+  font_size: ["small", "normal", "large", "larger"],
+  font_family: ["mono", "sans", "serif"],
 };
-const APPEARANCE_DEFAULTS = { theme: "dark", accent: "teal", density: "comfortable", font_size: "normal" };
+const APPEARANCE_DEFAULTS = {
+  theme: "dark", accent: "teal", density: "comfortable", font_size: "normal", font_family: "mono",
+};
 const APPEARANCE_CACHE_KEY = "loca-appearance";
 
 function normalizeAppearance(value) {
@@ -30,6 +33,7 @@ function applyAppearance(value) {
   root.dataset.accent = prefs.accent;
   root.dataset.density = prefs.density;
   root.dataset.fontSize = prefs.font_size;
+  root.dataset.fontFamily = prefs.font_family;
   return prefs;
 }
 

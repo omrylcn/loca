@@ -8,7 +8,7 @@ let roomPreferenceKey = "";
 
 function resetRoomPreferenceIdentity() {
   state.principalId = null;
-  state.roomPreferences = { pinned: [], hidden: [], order: [] };
+  state.roomPreferences = { pinned: [], hidden: [], order: [], collapsed: [] };
   roomPreferenceKey = "";
 }
 
@@ -27,9 +27,11 @@ function loadRoomPreferences() {
       pinned: Array.isArray(parsed.pinned) ? parsed.pinned : [],
       hidden: Array.isArray(parsed.hidden) ? parsed.hidden : [],
       order: Array.isArray(parsed.order) ? parsed.order : [],
+      // The floors this viewer closed in "Your Locas", by floor key.
+      collapsed: Array.isArray(parsed.collapsed) ? parsed.collapsed : [],
     };
   } catch (error) {
-    state.roomPreferences = { pinned: [], hidden: [], order: [] };
+    state.roomPreferences = { pinned: [], hidden: [], order: [], collapsed: [] };
   }
   return state.roomPreferences;
 }
@@ -38,6 +40,17 @@ function saveRoomPreferences() {
   if (!roomPreferenceKey || !state.principalId) return;
   try { localStorage.setItem(roomPreferenceKey, JSON.stringify(state.roomPreferences)); }
   catch (error) { /* Personal navigation still works for this page lifetime. */ }
+}
+
+// Close or open a floor of "Your Locas" for this viewer. Kept with the rest
+// of the sidebar's personal order, and so cleared with the identity; before
+// the identity is known it lasts for this page only.
+function setFloorCollapsed(key, collapsed) {
+  const prefs = loadRoomPreferences();
+  const others = prefs.collapsed.filter(value => value !== key);
+  if (collapsed === prefs.collapsed.includes(key)) return;
+  prefs.collapsed = collapsed ? [...others, key] : others;
+  saveRoomPreferences();
 }
 
 function orderedSidebarRooms(rooms, includeHidden = false) {
@@ -105,8 +118,11 @@ function updateRoomPreference(action, room) {
   } else if (action === "show") {
     prefs.hidden = prefs.hidden.filter(value => value !== room);
   } else if (action === "up" || action === "down") {
+    // Within its floor: the neighbour above or below is the one drawn there.
+    const floor = roomFloorKey(state.rooms.find(candidate => candidate.room === room));
     const group = orderedSidebarRooms(state.rooms).filter(candidate =>
       prefs.pinned.includes(candidate.room) === prefs.pinned.includes(room)
+      && roomFloorKey(candidate) === floor
     );
     const index = group.findIndex(candidate => candidate.room === room);
     const next = action === "up" ? index - 1 : index + 1;
@@ -162,7 +178,7 @@ function isLocaContextReady(source) {
 }
 
 function setSidebarView(view, focus = false) {
-  const selected = view === "loca" && !!state.room ? "loca" : "building";
+  const selected = view === "loca" && !!state.room && !isDm(state.room) ? "loca" : "building";
   state.sidebarView = selected;
   const building = selected === "building";
   $("sideBuildingView").classList.toggle("hidden", !building);
@@ -186,8 +202,10 @@ function sidebarLifecycle() {
 
 function renderLocaSidebar() {
   const tab = $("sideLocaTab");
-  tab.disabled = !state.room;
-  if (!state.room) {
+  // A private conversation is not a loca: it has no operator, lead, roles or
+  // extensions to show, and its id is nobody's business on screen.
+  tab.disabled = !state.room || isDm(state.room);
+  if (!state.room || isDm(state.room)) {
     $("locaSummary").innerHTML = "";
     if (state.sidebarView === "loca") setSidebarView("building");
     return;
@@ -199,8 +217,7 @@ function renderLocaSidebar() {
   const lead = !isLocaContextReady("settings") ? "Loading…" : state.settings?.lead || "No lead";
   const roles = isLocaContextReady("profile") ? state.profile?.loca?.roles || [] : [];
   const myRole = !isLocaContextReady("profile") ? "Loading…" : roles.length
-    ? roles.filter(role => role !== "participant" || roles.length === 1).map(profileRoleLabel).join(" · ")
-      + (state.profile?.loca?.operator_source === "master" ? " · MASTER" : "")
+    ? locaRoleLabels(state.profile.loca).join(" · ")
     : "PARTICIPANT";
   const lifecycle = sidebarLifecycle();
   $("locaSummary").innerHTML =
@@ -213,6 +230,7 @@ function renderLocaSidebar() {
       (typeof locaGroupFact === "function" ? locaGroupFact() : "") +
     `</dl>` +
     (typeof locaGroupMoveHtml === "function" ? locaGroupMoveHtml() : "") +
+    locaIdentityBlock() +
     locaExtensionsBlock();
 }
 

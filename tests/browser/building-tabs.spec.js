@@ -43,8 +43,8 @@ test("the Building has People, Keys and Private messages tabs; only the Master s
     await page.screenshot({ path: shot(`btabs-keys-${width}.png`) });
 
     await page.locator("#btabPrivate").click();
-    await expect(page.locator("#birebirOverview")).toBeVisible();
-    await expect(page.locator("#birebirOverview")).toContainText("Private messages");
+    await expect(page.locator("#dmOverview")).toBeVisible();
+    await expect(page.locator("#dmOverview")).toContainText("Private messages");
     await page.screenshot({ path: shot(`btabs-private-${width}.png`) });
     expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
     await page.close();

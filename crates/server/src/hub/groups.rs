@@ -3,7 +3,7 @@
 //! Everyone is in the default group: a loca with no group works exactly as
 //! before, by invitation. A group loca opens only to the group's members and
 //! the Master — `enter_decision` asks [`Hub::group_gate`] before any rank
-//! bypass, the way it asks the birebir branch.
+//! bypass, the way it asks the direct message branch.
 //!
 //! Lock discipline: `groups` is a leaf lock. While it is held nothing takes
 //! another hub lock (`rooms`, `invites`, `sessions`, …); only the store
@@ -15,7 +15,7 @@ use std::collections::{HashMap, HashSet};
 
 use protocol::SenderType;
 
-use super::{BuildingRole, Hub, Invite, LobbyEvent, RequestAuthority};
+use super::{BuildingRole, Hub, InviteRecord, LobbyEvent, MemberRecord, RequestAuthority};
 use crate::store::{GroupLogEntry, GroupRecord};
 use crate::sync::RecoverMutex;
 
@@ -93,13 +93,13 @@ pub enum GroupError {
     Archived,
     /// A group with open locas cannot be deleted; archive it first.
     OpenLocas,
-    /// Birebirs and İye are never tied to a group.
+    /// Direct messages and Care are never tied to a group.
     Excluded,
     /// No such loca.
     NoSuchLoca,
     /// Only the Master moves a loca between groups.
     MasterOnly,
-    /// Moving to the default group would need more davets than the loca has
+    /// Moving to the default group would need more invites than the loca has
     /// seats left: nobody is dropped silently, so the move does not happen.
     CarryOverCapacity,
     Storage,
@@ -139,18 +139,19 @@ pub struct GroupMovePreview {
     pub carried_by_davet: Vec<String>,
     pub lead_ends: Option<String>,
     pub operator_ends: Option<String>,
-    /// New davets the move must mint so carried people keep their seat.
+    /// New invites the move must mint so carried people keep their seat.
     pub seats_needed: usize,
-    /// Davets the loca can still take (its capacity minus its live davets).
+    /// Invites the loca can still take (its own seats, or the Building's,
+    /// minus its live invites).
     pub seats_free: usize,
     /// `seats_needed > seats_free`: the move would be refused as it stands.
     pub blocked: bool,
 }
 
-/// The davets a move to the default group has to mint (see
+/// The invites a move to the default group has to mint (see
 /// `Hub::group_move_carry`).
 struct GroupMoveCarry {
-    needs: Vec<protocol::Membership>,
+    needs: Vec<MemberRecord>,
     free: usize,
 }
 
@@ -682,7 +683,7 @@ impl Hub {
     }
 
     /// The founder (or the Master) removes a person. Access to the group's
-    /// locas ends at once: davets, davet sessions, live sockets.
+    /// locas ends at once: invites, invite sessions, live sockets.
     pub fn remove_group_member(
         &self,
         id: &str,
@@ -692,8 +693,8 @@ impl Hub {
         let removed = {
             // Takes turns with a loca move (see `set_loca_group`): a move that
             // ran first has already mirrored the loca into its group, so the
-            // cut below finds this person's davet there; a move that runs
-            // after sees them outside the group and ends the davet itself.
+            // cut below finds this person's invite there; a move that runs
+            // after sees them outside the group and ends the invite itself.
             let _lifecycle = self.member_lifecycle.lock_or_recover();
             let mut book = self.groups.lock_or_recover();
             let g = book.groups.get(id).ok_or(GroupError::NotFound)?;
@@ -752,7 +753,7 @@ impl Hub {
     }
 
     /// Someone left a group (or the group went away): end what they held in
-    /// its locas now. Davets for those locas are revoked (which also kills
+    /// its locas now. Invites for those locas are revoked (which also kills
     /// the sessions minted from them and closes their sockets), and any live
     /// socket they hold there by another credential is closed. Every socket
     /// re-asks the door before each frame, so nothing more reaches them.
@@ -763,7 +764,7 @@ impl Hub {
             .active_principal(principal)
             .map(|p| p.display_name);
         for room in rooms {
-            self.revoke_davets_outside_group(&room);
+            self.revoke_invites_outside_group(&room);
             if let Some(name) = name.as_deref() {
                 if self.group_gate(&room, &[principal]) == Some(false) {
                     self.close_connections(&room, name);
@@ -772,8 +773,8 @@ impl Hub {
         }
     }
 
-    /// Who needs a new davet to keep their seat when `room` leaves `previous`
-    /// for the default group, and how many davets the loca can still take.
+    /// Who needs a new invite to keep their seat when `room` leaves `previous`
+    /// for the default group, and how many invites the loca can still take.
     /// Nobody for any other move. The preview and the move both read this, so
     /// the preview states exactly what the move will do.
     fn group_move_carry(
@@ -782,13 +783,8 @@ impl Hub {
         previous: Option<&str>,
         target: Option<&str>,
     ) -> GroupMoveCarry {
-        let active = self
-            .invites
-            .lock_or_recover()
-            .values()
-            .filter(|i| i.room == room)
-            .count();
-        let free = self.loca_capacity().saturating_sub(active);
+        let active = self.invite_count(room);
+        let free = self.room_capacity(room).saturating_sub(active);
         let (Some(old), None) = (previous, target) else {
             return GroupMoveCarry {
                 needs: Vec::new(),
@@ -802,30 +798,30 @@ impl Hub {
             .get(old)
             .map(|m| m.iter().cloned().collect())
             .unwrap_or_default();
-        let mut needs: Vec<protocol::Membership> = principals
+        let mut needs: Vec<MemberRecord> = principals
             .iter()
-            // Only Building members get a davet; ranks reach a default loca
+            // Only Building members get an invite; ranks reach a default loca
             // by rank and are not carried.
-            .filter_map(|principal| self.member_token_of_principal(principal))
-            .filter(|token| !self.has_active_invite(room, token))
-            // A suspended member holds no davet (`member_of` answers `None`).
-            .filter_map(|token| self.member_of(Some(&token)))
+            .filter_map(|principal| self.member_id_of_principal(principal))
+            .filter(|member_id| !self.has_active_invite(room, member_id))
+            // A suspended member holds no invite (`member_by_id` answers `None`).
+            .filter_map(|member_id| self.member_by_id(&member_id))
             .collect();
         needs.sort_by(|a, b| a.name.cmp(&b.name));
         GroupMoveCarry { needs, free }
     }
 
-    /// The live davets of `room` whose holder the `target` group does not
+    /// The live invites of `room` whose holder the `target` group does not
     /// admit. None when the target is the default group.
-    fn davets_outside_target_group(&self, room: &str, target: Option<&str>) -> Vec<Invite> {
+    fn invites_outside_target_group(&self, room: &str, target: Option<&str>) -> Vec<InviteRecord> {
         let Some(target) = target else {
             return Vec::new();
         };
-        let holders: Vec<(Invite, Option<String>)> = self
+        let holders: Vec<(InviteRecord, Option<String>)> = self
             .invites_of(room)
             .into_iter()
             .map(|invite| {
-                let principal = self.member_principal(&invite.member);
+                let principal = self.member_principal(&invite.member_id);
                 (invite, principal)
             })
             .collect();
@@ -841,17 +837,17 @@ impl Hub {
             .collect()
     }
 
-    /// Revoke every davet for `room` whose holder is not a member of the
+    /// Revoke every invite for `room` whose holder is not a member of the
     /// room's group. A no-op for a default-group loca.
-    fn revoke_davets_outside_group(&self, room: &str) {
+    fn revoke_invites_outside_group(&self, room: &str) {
         for invite in self.invites_of(room) {
-            let principal = self.member_principal(&invite.member);
+            let principal = self.member_principal(&invite.member_id);
             let member = principal
                 .as_deref()
                 .is_some_and(|p| self.group_gate(room, &[p]) == Some(true));
             if !member && self.group_gate(room, &[]).is_some() {
-                if let Err(error) = self.revoke_invite(&invite.token) {
-                    tracing::error!(room, %error, "could not revoke a davet outside the group");
+                if let Err(error) = self.revoke_invite_by_hash(&invite.secret_hash) {
+                    tracing::error!(room, %error, "could not revoke an invite outside the group");
                 }
             }
         }
@@ -905,8 +901,8 @@ impl Hub {
         if !viewer.is_master() {
             return Err(GroupError::MasterOnly);
         }
-        if self.is_birebir(room)
-            || room.starts_with(Self::BIREBIR_PREFIX)
+        if self.is_dm(room)
+            || room.starts_with(Self::DM_PREFIX)
             || self.is_reserved_room(room)
             || room == self.home_room()
         {
@@ -916,11 +912,11 @@ impl Hub {
             return Err(GroupError::NoSuchLoca);
         }
         // The move is all-or-nothing. Who may reach the loca afterwards — its
-        // group, the davets that carry people over, the davets the new group
-        // no longer admits — is decided under the davet lock and written in
-        // one transaction, so no davet is minted or ended half-way through
+        // group, the invites that carry people over, the invites the new group
+        // no longer admits — is decided under the invite lock and written in
+        // one transaction, so no invite is minted or ended half-way through
         // and a failed write leaves the loca exactly where it was.
-        let (target_name, carried, ended) = {
+        let target_name = {
             let _lifecycle = self.member_lifecycle.lock_or_recover();
             let previous = self.group_of(room);
             let target_name = {
@@ -939,8 +935,8 @@ impl Hub {
                 return Ok(group.map(str::to_string));
             }
             // Moving to the default group, the people who reached the loca
-            // through the group it is leaving keep a seat by davet instead.
-            // A davet IS a seat, so all of them must fit: the move is refused
+            // through the group it is leaving keep a seat by invite instead.
+            // An invite IS a seat, so all of them must fit: the move is refused
             // rather than seating some and silently dropping the rest — who
             // stays is the Master's decision, never iteration order.
             let plan = self.group_move_carry(room, previous.as_deref(), group);
@@ -948,23 +944,27 @@ impl Hub {
                 return Err(GroupError::CarryOverCapacity);
             }
             let now = self.now();
-            let carried: Vec<Invite> = plan
+            let carried: Vec<(InviteRecord, String)> = plan
                 .needs
                 .into_iter()
-                .map(|member| Invite {
-                    token: self.new_invite_token(),
-                    room: room.to_string(),
-                    member: member.token,
-                    name: member.name,
-                    kind: member.kind,
-                    issued_at: now,
-                    // Only the Master moves a loca: this davet is the
-                    // Master's own decision and ends only from above.
-                    issued_by: "group-move".to_string(),
+                .map(|member| {
+                    let invite_key = self.new_invite_token();
+                    let invite = InviteRecord::issued(
+                        &invite_key,
+                        room,
+                        &member.id,
+                        &member.name,
+                        &member.kind,
+                        now,
+                        // Only the Master moves a loca: this invite is the
+                        // Master's own decision and ends only from above.
+                        "group-move",
+                    );
+                    (invite, invite_key)
                 })
                 .collect();
-            let ended = self.davets_outside_target_group(room, group);
-            let ended_tokens: Vec<String> = ended.iter().map(|i| i.token.clone()).collect();
+            let ended = self.invites_outside_target_group(room, group);
+            let ended_hashes: Vec<String> = ended.iter().map(|i| i.secret_hash.clone()).collect();
             self.store
                 .move_room_group(
                     room,
@@ -972,7 +972,7 @@ impl Hub {
                     viewer.principal_id.as_deref(),
                     now,
                     &carried,
-                    &ended_tokens,
+                    &ended_hashes,
                     (self.now_ms)(),
                 )
                 .map_err(|_| GroupError::Storage)?;
@@ -991,29 +991,36 @@ impl Hub {
             {
                 let mut invites = self.invites.lock_or_recover();
                 for invite in &ended {
-                    invites.remove(&invite.token);
+                    invites.remove(&invite.secret_hash);
                 }
-                for invite in &carried {
-                    invites.insert(invite.token.clone(), invite.clone());
+                for (invite, _) in &carried {
+                    invites.insert(invite.secret_hash.clone(), invite.clone());
                 }
             }
-            (target_name, carried, ended)
+            for (_, invite_key) in &carried {
+                self.hold_delivery(invite_key);
+            }
+            // Whoever no longer belongs at this table leaves it now, and the
+            // carried invites go out, still under the invite lock (see
+            // `reissue_invite`): a later invite of the same seat cannot exist
+            // before this clean-up and delivery are done.
+            for invite in &ended {
+                self.revoke_sessions_for_invite(&invite.room, &invite.member_id);
+                self.close_connections(&invite.room, &invite.name);
+            }
+            // Wake an already-running agent in the Lobby; a listener that is
+            // not connected right now is sent the invite when it returns,
+            // while its delivery copy is held (first use or 24 hours).
+            for (invite, invite_key) in &carried {
+                let _ = self.lobby_tx.send(LobbyEvent::Called {
+                    member: invite.member_id.clone(),
+                    room: invite.room.clone(),
+                    token: invite_key.clone(),
+                });
+            }
+            target_name
         };
-        // Whoever no longer belongs at this table leaves it now.
-        for invite in &ended {
-            self.revoke_sessions_for_davet(&invite.room, &invite.member);
-            self.close_connections(&invite.room, &invite.name);
-        }
         self.close_non_member_seats(room);
-        // Wake an already-running agent in the Lobby; a listener that is not
-        // connected right now replays the persisted davet when it returns.
-        for invite in carried {
-            let _ = self.lobby_tx.send(LobbyEvent::Called {
-                member: invite.member,
-                room: invite.room,
-                token: invite.token,
-            });
-        }
         // A title must not hang on someone the loca no longer admits.
         if group.is_some() {
             let lead = self.settings(room).lead;
@@ -1052,7 +1059,7 @@ impl Hub {
     }
 
     /// What moving `room` to `group` would do, without doing it: who loses
-    /// access, who keeps it, who is carried over by davet, and which titles
+    /// access, who keeps it, who is carried over by invite, and which titles
     /// end. The UI shows this before the Master confirms.
     pub fn loca_group_move_preview(
         &self,
@@ -1063,8 +1070,8 @@ impl Hub {
         if !viewer.is_master() {
             return Err(GroupError::MasterOnly);
         }
-        if self.is_birebir(room)
-            || room.starts_with(Self::BIREBIR_PREFIX)
+        if self.is_dm(room)
+            || room.starts_with(Self::DM_PREFIX)
             || self.is_reserved_room(room)
             || room == self.home_room()
         {
@@ -1089,11 +1096,14 @@ impl Hub {
             };
             (previous.clone(), set(group), set(previous.as_deref()))
         };
-        // Everyone who reaches the loca now: davet holders, live seats, and
+        // Everyone who reaches the loca now: invite holders, live seats, and
         // the members of its current group. The Master is never in question.
         let mut people: HashMap<String, Option<String>> = HashMap::new();
         for invite in self.invites_of(room) {
-            people.insert(invite.name.clone(), self.member_principal(&invite.member));
+            people.insert(
+                invite.name.clone(),
+                self.member_principal(&invite.member_id),
+            );
         }
         let seated: Vec<String> = self
             .rooms
@@ -1132,10 +1142,10 @@ impl Hub {
             let keeps = match group {
                 Some(_) => principal.is_some_and(|p| target_members.contains(p)),
                 None => {
-                    // Only Building members get a davet; ranks reach a default
+                    // Only Building members get an invite; ranks reach a default
                     // loca by rank and are not "carried".
                     let carried = principal.is_some_and(|p| {
-                        previous_members.contains(p) && self.member_token_of_principal(p).is_some()
+                        previous_members.contains(p) && self.member_id_of_principal(p).is_some()
                     });
                     if carried && previous.is_some() {
                         preview.carried_by_davet.push(name.clone());
@@ -1186,12 +1196,13 @@ impl Hub {
         }
     }
 
-    /// The membership (mb_) token behind a principal, when it is a member.
-    fn member_token_of_principal(&self, principal: &str) -> Option<String> {
-        let tokens: Vec<String> = self.members.lock_or_recover().keys().cloned().collect();
-        tokens
-            .into_iter()
-            .find(|t| self.member_principal(t).as_deref() == Some(principal))
+    /// The membership (its id) behind a principal, when it is a member.
+    fn member_id_of_principal(&self, principal: &str) -> Option<String> {
+        self.members
+            .lock_or_recover()
+            .values()
+            .find(|m| m.principal_id.as_deref() == Some(principal))
+            .map(|m| m.id.clone())
     }
 
     /// May `viewer` open a loca in this group? The Master, or a Smaster who
@@ -1276,20 +1287,16 @@ impl Hub {
         }
     }
 
-    /// The stable principal behind a membership (mb_) token. The binding
-    /// never changes, so a positive answer is cached: the door asks for every
-    /// agent davet at a group loca, on every frame.
-    pub fn member_principal(&self, member_token: &str) -> Option<String> {
-        if member_token.is_empty() {
+    /// The stable principal behind a live membership (by its id), as its
+    /// record holds it: bound when the membership was admitted or migrated,
+    /// and never changed. `None` in a memory-only Building.
+    pub fn member_principal(&self, member_id: &str) -> Option<String> {
+        if member_id.is_empty() {
             return None;
         }
-        if let Some(found) = self.member_principals.lock_or_recover().get(member_token) {
-            return Some(found.clone());
-        }
-        let found = self.store.principal_id_for_member_record(member_token)?;
-        self.member_principals
+        self.members
             .lock_or_recover()
-            .insert(member_token.to_string(), found.clone());
-        Some(found)
+            .get(member_id)
+            .and_then(|m| m.principal_id.clone())
     }
 }

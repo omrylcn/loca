@@ -206,6 +206,7 @@ impl Store {
                         text: r.get(4)?,
                         reply_to: r.get(5)?,
                         reply_to_sender: None,
+                        sender_principal: None,
                         ts: r.get(6)?,
                         kind: parse_kind(&r.get::<_, String>(7)?),
                         attachments: attachments_from_json(r.get(8)?),

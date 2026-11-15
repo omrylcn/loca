@@ -168,3 +168,201 @@ test("a 500 on approve plus a failing refresh keeps the request and stays recove
   await expect(page.locator(".jrsection")).toContainText("srverr");
   await expect(page.locator(".jrsection [data-jr-approve]").first()).toBeEnabled();
 });
+
+// ---------------------------------------------------------------------------
+// The door's own join request: what it does after approval. The server keeps
+// the key for collection until the requester acknowledges it, or 24 hours
+// after the approval. The door acknowledges only a key it has signed in with
+// as the name that asked and kept in the seat it restores after a reload.
+// ---------------------------------------------------------------------------
+const { MASTER, smasterKey, freshDoor, switchTo, settle, openSignInForm } = require("./support/switch");
+const { provisionRooms } = require("./support/building");
+
+// Ask from the door as `name`; resolves with the request's id and secret
+// (read from the server's answer, which only the page holds otherwise).
+async function askAtTheDoor(page, name) {
+  const created = page.waitForResponse(r => r.url().endsWith("/join-requests") && r.request().method() === "POST");
+  await page.locator("#name").fill(name);
+  await page.locator("#joinRequestBtn").click();
+  const body = await (await created).json();
+  await expect(page.locator("#joinRequestStatus")).toContainText("waiting for a Master");
+  return { id: body.request_id, secret: body.request_secret };
+}
+
+async function approveIt(request, id) {
+  expect((await request.post("/admission-stock", { headers: MASTER, data: { count: 1 } })).ok()).toBeTruthy();
+  expect((await request.post(`/join-requests/${id}/approve`, { headers: MASTER })).ok()).toBeTruthy();
+}
+
+async function serverView(request, asked) {
+  const r = await request.get(`/join-requests/${asked.id}`, { headers: { "x-join-secret": asked.secret } });
+  expect(r.status()).toBe(200);
+  return r.json();
+}
+
+async function signedInAs(page, name) {
+  await expect.poll(() => page.evaluate(() => state.authStatus === "authenticated" ? state.name : null)).toBe(name);
+}
+
+function countAcks(page) {
+  const acks = { sent: 0 };
+  page.on("request", r => { if (r.method() === "POST" && /\/join-requests\/[^/]+\/ack$/.test(r.url())) acks.sent++; });
+  return acks;
+}
+
+test("an approval whose window closed stops the watch and says what to do", async ({ browser }) => {
+  const { context, page } = await freshDoor(browser);
+  let polls = 0;
+  await page.route(/\/join-requests\/jr_[^/]+$/, route => {
+    if (route.request().method() !== "GET") return route.fallback();
+    polls++;
+    return route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({ status: "approved", bootstrap_ready: false, bootstrap_expired: true }),
+    });
+  });
+  await askAtTheDoor(page, "lapsed-human");
+  await expect(page.locator("#joinRequestStatus")).toContainText("not collected within 24 hours");
+  await expect(page.locator("#joinRequestStatus")).toContainText("ask a Master to give you access again");
+  const seen = polls;
+  await settle(page, 4000);   // longer than the 3 s watch
+  expect(polls).toBe(seen);
+  await context.close();
+});
+
+test("a collection refused with 410 says the same and takes no seat", async ({ browser }) => {
+  const { context, page } = await freshDoor(browser);
+  await page.route(/\/join-requests\/jr_[^/]+$/, route => {
+    if (route.request().method() !== "GET") return route.fallback();
+    return route.fulfill({
+      status: 200, contentType: "application/json",
+      body: JSON.stringify({ status: "approved", bootstrap_ready: true, bootstrap_expired: false }),
+    });
+  });
+  await page.route(/\/join-requests\/jr_[^/]+\/bootstrap$/, route =>
+    route.fulfill({ status: 410, body: "gone" }));
+  await askAtTheDoor(page, "racer-human");
+  await expect(page.locator("#joinRequestStatus")).toContainText("not collected within 24 hours");
+  expect(await page.evaluate(() => state.authStatus)).not.toBe("authenticated");
+  await context.close();
+});
+
+test("the door acknowledges a kept key, and a reload finishes an acknowledgement that failed", async ({ browser, request }) => {
+  const { context, page } = await freshDoor(browser);
+  const acks = countAcks(page);
+  await page.route(/\/join-requests\/[^/]+\/ack$/, route => route.abort());
+  const asked = await askAtTheDoor(page, "jr-kept");
+  await approveIt(request, asked.id);
+
+  // Signed in with the collected key; the ACK was tried and failed. The
+  // person stays in, and the server still holds the copy for a retry.
+  await signedInAs(page, "jr-kept");
+  await expect.poll(() => acks.sent).toBe(1);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("loca-seat")).name)).toBe("jr-kept");
+  expect(await serverView(request, asked)).toEqual({ status: "approved", bootstrap_ready: true, bootstrap_expired: false });
+
+  // A reload retakes the kept seat and sends the owed ACK.
+  await page.unroute(/\/join-requests\/[^/]+\/ack$/);
+  await page.reload();
+  await signedInAs(page, "jr-kept");
+  await expect.poll(async () => (await serverView(request, asked)).bootstrap_ready).toBe(false);
+  expect(await serverView(request, asked)).toEqual({ status: "approved", bootstrap_ready: false, bootstrap_expired: false });
+  // Paid: nothing more is owed in this tab.
+  expect(await page.evaluate(() => Object.keys(sessionStorage).filter(k => k.startsWith("loca-join-ack-")))).toEqual([]);
+  await context.close();
+});
+
+test("a browser that cannot keep the seat does not acknowledge the key", async ({ browser, request }) => {
+  const context = await browser.newContext();
+  await context.addInitScript(() => {
+    localStorage.setItem("loca-gs-seen", "1");
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (this === window.localStorage && key === "loca-seat") throw new DOMException("full", "QuotaExceededError");
+      return setItem.call(this, key, value);
+    };
+  });
+  const page = await context.newPage();
+  const acks = countAcks(page);
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("unauthenticated");
+  const asked = await askAtTheDoor(page, "jr-unkept");
+  await approveIt(request, asked.id);
+
+  await signedInAs(page, "jr-unkept");
+  await expect(page.locator("#joinRequestStatus")).toContainText("could not keep your key");
+  await settle(page, 1500);
+  expect(acks.sent).toBe(0);
+  expect((await serverView(request, asked)).bootstrap_ready).toBe(true);
+  await context.close();
+});
+
+test("another key for the same name does not acknowledge a key this browser did not keep", async ({ browser, request }) => {
+  // The browser refuses to keep a seat that holds a membership key, and
+  // keeps any other seat.
+  const context = await browser.newContext();
+  await context.addInitScript(() => {
+    localStorage.setItem("loca-gs-seen", "1");
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (this === window.localStorage && key === "loca-seat" && String(value).includes('"roomToken":"mb_')) {
+        throw new DOMException("full", "QuotaExceededError");
+      }
+      return setItem.call(this, key, value);
+    };
+  });
+  const page = await context.newPage();
+  const acks = countAcks(page);
+  await page.goto("/");
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("unauthenticated");
+  const asked = await askAtTheDoor(page, "jr-twokeys");
+  await approveIt(request, asked.id);
+  await signedInAs(page, "jr-twokeys");
+  await expect(page.locator("#joinRequestStatus")).toContainText("could not keep your key");
+  expect(acks.sent).toBe(0);
+
+  // A Master gives the same name an invite; the person signs in with it here.
+  // That seat is kept, under the asking name, and still proves nothing about
+  // the collected key.
+  await provisionRooms(request, ["jr-two"]);
+  const invited = await request.post("/rooms/jr-two/invites", { headers: MASTER, data: { name: "jr-twokeys" } });
+  expect(invited.status(), await invited.text()).toBe(200);
+  const { token } = await invited.json();
+  await openSignInForm(page);
+  await page.locator("#name").fill("jr-twokeys");
+  await page.locator("#roomToken").fill(token);
+  await page.evaluate(() => window.doConnect("jr-two"));
+  await expect(page.locator("#curRoom")).toHaveText("jr-two");
+  await signedInAs(page, "jr-twokeys");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("loca-seat")).roomToken)).toBe(token);
+  await settle(page, 1500);
+  expect(acks.sent).toBe(0);
+
+  // Nor after a reload, when the collected key is no longer there to compare.
+  await page.reload();
+  await signedInAs(page, "jr-twokeys");
+  await settle(page, 1500);
+  expect(acks.sent).toBe(0);
+  expect((await serverView(request, asked)).bootstrap_ready).toBe(true);
+  await context.close();
+});
+
+test("a key owed an acknowledgement is not acknowledged for the next person at the tab", async ({ browser, request }) => {
+  const nextKey = await smasterKey(request, "jrnext");
+  const { context, page } = await freshDoor(browser);
+  const acks = countAcks(page);
+  await page.route(/\/join-requests\/[^/]+\/ack$/, route => route.abort());
+  const asked = await askAtTheDoor(page, "jr-first");
+  await approveIt(request, asked.id);
+  await signedInAs(page, "jr-first");
+  await expect.poll(() => acks.sent).toBe(1);
+
+  // The asker leaves; someone else signs in at this tab. Their seat being
+  // taken must not send the asker's ACK.
+  await page.unroute(/\/join-requests\/[^/]+\/ack$/);
+  await switchTo(page, nextKey, "jrnext");
+  await settle(page, 1500);
+  expect(acks.sent).toBe(1);
+  expect((await serverView(request, asked)).bootstrap_ready).toBe(true);
+  await context.close();
+});

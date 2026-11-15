@@ -1,9 +1,7 @@
 use super::*;
 
-pub const SHORT_MEMORY_MAX_BYTES: usize = 4 * 1024;
 pub const LONG_MEMORY_ENTRY_MAX_BYTES: usize = 8 * 1024;
 pub const LONG_MEMORY_SOFT_BYTES: usize = 32 * 1024;
-pub const LONG_MEMORY_HARD_BYTES: usize = 64 * 1024;
 
 impl Store {
     pub fn loca_memory_version(&self, room: &str) -> rusqlite::Result<u64> {
@@ -204,136 +202,6 @@ impl Store {
         Ok(protocol::LocaMemoryEntryPage {
             entries,
             next_after_id,
-        })
-    }
-
-    pub fn set_memory_owner(
-        &self,
-        room: &str,
-        owner: Option<&str>,
-        principal_id: Option<&str>,
-    ) -> rusqlite::Result<()> {
-        let Some(c) = self.conn() else { return Ok(()) };
-        c.execute(
-            "INSERT INTO loca_memory (room, owner, owner_principal_id, version) VALUES (?1, ?2, ?3, 1)
-             ON CONFLICT(room) DO UPDATE SET
-                owner = excluded.owner,
-                owner_principal_id = excluded.owner_principal_id,
-                version = loca_memory.version + 1",
-            params![room, owner, principal_id],
-        )
-        .map(|_| ())
-    }
-
-    fn require_memory_owner(
-        tx: &rusqlite::Transaction<'_>,
-        room: &str,
-        actor: &MemoryActor<'_>,
-    ) -> Result<(), MemoryWriteError> {
-        let owner = tx
-            .query_row(
-                "SELECT owner, owner_principal_id FROM loca_memory WHERE room = ?1",
-                params![room],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<String>>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|_| MemoryWriteError::Storage)?;
-        match owner {
-            None | Some((None, _)) => Err(MemoryWriteError::OwnerUnassigned),
-            Some((_, Some(principal))) if actor.principal_id == Some(principal.as_str()) => Ok(()),
-            Some((Some(name), None)) if actor.allow_legacy_name && name == actor.name => Ok(()),
-            Some(_) => Err(MemoryWriteError::NotOwner),
-        }
-    }
-
-    pub fn write_short_memory(
-        &self,
-        room: &str,
-        actor: &MemoryActor<'_>,
-        text: &str,
-        at: u64,
-    ) -> Result<protocol::LocaMemory, MemoryWriteError> {
-        let Some(mut c) = self.conn() else {
-            return Err(MemoryWriteError::PersistenceUnavailable);
-        };
-        let tx = c.transaction().map_err(|_| MemoryWriteError::Storage)?;
-        Self::require_memory_owner(&tx, room, actor)?;
-        if text.len() > SHORT_MEMORY_MAX_BYTES {
-            return Err(MemoryWriteError::ShortTooLarge);
-        }
-        tx.execute(
-            "UPDATE loca_memory
-             SET short = ?2, short_updated_at = ?3, version = version + 1
-             WHERE room = ?1",
-            params![room, text, at],
-        )
-        .map_err(|_| MemoryWriteError::Storage)?;
-        tx.commit().map_err(|_| MemoryWriteError::Storage)?;
-        drop(c);
-        self.loca_memory(room)
-            .map_err(|_| MemoryWriteError::Storage)?
-            .ok_or(MemoryWriteError::Storage)
-    }
-
-    pub fn append_long_memory(
-        &self,
-        room: &str,
-        actor: &MemoryActor<'_>,
-        text: &str,
-        at: u64,
-    ) -> Result<protocol::LocaMemoryEntry, MemoryWriteError> {
-        let Some(mut c) = self.conn() else {
-            return Err(MemoryWriteError::PersistenceUnavailable);
-        };
-        let tx = c.transaction().map_err(|_| MemoryWriteError::Storage)?;
-        Self::require_memory_owner(&tx, room, actor)?;
-        if text.len() > LONG_MEMORY_ENTRY_MAX_BYTES {
-            return Err(MemoryWriteError::EntryTooLarge);
-        }
-        let current_bytes = tx
-            .query_row(
-                "SELECT length(CAST(long AS BLOB)) FROM loca_memory WHERE room = ?1",
-                params![room],
-                |row| row.get::<_, usize>(0),
-            )
-            .map_err(|_| MemoryWriteError::Storage)?;
-        let separator_bytes = usize::from(current_bytes > 0) * 2;
-        let next_bytes = current_bytes
-            .checked_add(separator_bytes)
-            .and_then(|bytes| bytes.checked_add(text.len()))
-            .ok_or(MemoryWriteError::LongTooLarge)?;
-        if next_bytes > LONG_MEMORY_HARD_BYTES {
-            return Err(MemoryWriteError::LongTooLarge);
-        }
-        tx.execute(
-            "INSERT INTO loca_memory_entries (room, text, decided_by, decided_at)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![room, text, actor.name, at],
-        )
-        .map_err(|_| MemoryWriteError::Storage)?;
-        let id = tx.last_insert_rowid() as u64;
-        tx.execute(
-            "UPDATE loca_memory
-             SET long = CASE WHEN long = '' THEN ?2 ELSE long || '\n\n' || ?2 END,
-                 long_updated_at = ?3,
-                 version = version + 1
-             WHERE room = ?1",
-            params![room, text, at],
-        )
-        .map_err(|_| MemoryWriteError::Storage)?;
-        tx.commit().map_err(|_| MemoryWriteError::Storage)?;
-        Ok(protocol::LocaMemoryEntry {
-            id,
-            room: room.to_string(),
-            text: text.to_string(),
-            decided_by: Some(actor.name.to_string()),
-            decided_at: Some(at),
-            over_budget: next_bytes > LONG_MEMORY_SOFT_BYTES,
         })
     }
 }

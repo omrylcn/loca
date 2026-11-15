@@ -13,6 +13,18 @@ pub(crate) struct CreateLoca {
     /// default group, exactly as before groups existed.
     #[serde(default)]
     group: Option<String>,
+    /// The loca's identity (all optional; see `hub::IdentityEdit`). Absent
+    /// fields open the loca exactly as before.
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    seats: Option<u32>,
+    #[serde(default)]
+    icon: Option<String>,
+    #[serde(default)]
+    color: Option<String>,
+    #[serde(default)]
+    labels: Option<Vec<String>>,
 }
 
 use super::groups::group_error as groups_error;
@@ -33,13 +45,23 @@ pub(crate) async fn create_loca_route(
     };
     let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
     let group = body.group.as_deref().filter(|g| !g.is_empty());
-    match hub.create_loca_in(name, &actor, extensions, group) {
+    let identity = hub::IdentityEdit {
+        description: body.description,
+        seats: body.seats,
+        icon: body.icon,
+        color: body.color,
+        labels: body.labels,
+    };
+    match hub.create_loca_with(name, &actor, extensions, group, &identity) {
         Ok(assignment) => (
             StatusCode::CREATED,
             Json(serde_json::json!({"room":name,"operator":assignment,"group":group})),
         )
             .into_response(),
         Err(hub::CreateLocaError::Group(error)) => groups_error(error),
+        Err(hub::CreateLocaError::Identity(error)) => {
+            (StatusCode::BAD_REQUEST, error.message()).into_response()
+        }
         Err(hub::CreateLocaError::Operator(hub::OperatorAssignmentError::AuthorityRequired)) => {
             (StatusCode::FORBIDDEN, "Building authority required").into_response()
         }
@@ -148,7 +170,7 @@ pub(crate) async fn revoke_loca_operator_route(
 }
 
 pub(crate) async fn list_rooms(State(hub): State<Hub>, headers: HeaderMap) -> impl IntoResponse {
-    // You see the locas you may enter — no more. A davet opens one loca, so it
+    // You see the locas you may enter — no more. An invite opens one loca, so it
     // lists one; the master (or building key) reaches the building, so it lists
     // all. This uses the same door decision as every other room-scoped read.
     let session = headers
@@ -170,7 +192,7 @@ pub(crate) async fn list_rooms(State(hub): State<Hub>, headers: HeaderMap) -> im
 }
 /// `GET /building/bans` — who is barred from which loca, for every loca the
 /// caller may enter, in one request (the Building view used to ask each loca
-/// in turn). Birebirs are conversation only and never listed.
+/// in turn). Direct messages are conversation only and never listed.
 pub(crate) async fn list_building_bans(
     State(hub): State<Hub>,
     headers: HeaderMap,
@@ -181,9 +203,7 @@ pub(crate) async fn list_building_bans(
     let rows: Vec<_> = hub
         .bans_by_room()
         .into_iter()
-        .filter(|(room, _)| {
-            !hub.is_birebir(room) && room_decision_of(&hub, room, &headers).is_allowed()
-        })
+        .filter(|(room, _)| !hub.is_dm(room) && room_decision_of(&hub, room, &headers).is_allowed())
         .map(|(room, banned)| serde_json::json!({ "room": room, "banned": banned }))
         .collect();
     Json(rows).into_response()
@@ -229,7 +249,7 @@ pub(crate) async fn set_mode(
     Json(body): Json<SetMode>,
 ) -> impl IntoResponse {
     // A loca operator runs their own loca's mode (PRINCIPLES: operator manages
-    // mod/sıra), not only the master.
+    // mode/turn order), not only the master.
     if !is_room_operator_req(&hub, &id, &headers) {
         return (
             StatusCode::UNAUTHORIZED,
@@ -314,6 +334,9 @@ pub(crate) async fn set_settings(
     if hub.is_deleted(&id) {
         return (StatusCode::CONFLICT, "this loca is permanently sealed").into_response();
     }
+    if body.has_identity() {
+        return set_identity(&hub, &id, &headers, body);
+    }
     // Live mode is an extension: with it off, nobody turns live on. Turning
     // it off stays allowed (removing the extension already does that).
     if body.live == Some(true) && !hub.extension_enabled(&id, "live") {
@@ -383,8 +406,57 @@ pub(crate) async fn set_settings(
             .into_response(),
     }
 }
-/// Issue a davet for one loca (master only). The token is minted here — the
-/// master never types one in, so a davet cannot be guessed or hand-forged.
+/// The loca's identity through `PUT /rooms/:id/settings`: changed by
+/// whoever may change its extensions (the same check), sent on its own, and
+/// journaled. Answers the settings after the change, like any settings edit.
+fn set_identity(
+    hub: &Hub,
+    room: &str,
+    headers: &HeaderMap,
+    body: SetSettings,
+) -> axum::response::Response {
+    if body.has_other() {
+        return (
+            StatusCode::BAD_REQUEST,
+            "send the loca's identity (description, seats, icon, color, labels) on its own,              without other settings",
+        )
+            .into_response();
+    }
+    if hub.is_dm(room) {
+        return (StatusCode::FORBIDDEN, hub::IdentityError::Dm.message()).into_response();
+    }
+    if !super::extensions::may_manage(hub, room, headers) {
+        return (
+            StatusCode::FORBIDDEN,
+            "only this loca's operator, the Master or a Smaster changes its identity",
+        )
+            .into_response();
+    }
+    let edit = hub::IdentityEdit {
+        description: body.description,
+        seats: body.seats,
+        icon: body.icon,
+        color: body.color,
+        labels: body.labels,
+    };
+    let (by, by_type) = super::extensions::journal_actor(hub, headers);
+    match hub.edit_identity(room, &edit, &by, by_type) {
+        Ok(settings) => (StatusCode::OK, Json(settings)).into_response(),
+        Err(error) => {
+            let status = match error {
+                hub::IdentityError::Invalid(_) => StatusCode::BAD_REQUEST,
+                hub::IdentityError::SeatsHeld { .. } => StatusCode::CONFLICT,
+                hub::IdentityError::Dm => StatusCode::FORBIDDEN,
+                hub::IdentityError::NotWritable => StatusCode::CONFLICT,
+                hub::IdentityError::Storage => StatusCode::SERVICE_UNAVAILABLE,
+            };
+            (status, error.message()).into_response()
+        }
+    }
+}
+
+/// Issue an invite for one loca (master only). The token is minted here — the
+/// master never types one in, so an invite cannot be guessed or hand-forged.
 pub(crate) async fn create_invite(
     State(hub): State<Hub>,
     Path(id): Path<String>,
@@ -402,7 +474,7 @@ pub(crate) async fn create_invite(
         )
             .into_response();
     }
-    // A davet seats an EXISTING member — it never creates identity. Admitting
+    // An invite seats an EXISTING member — it never creates identity. Admitting
     // to the building is its own act (POST /members); this door only hands a
     // known member the key to one loca.
     let Some(member) = hub.member_by_name(name) else {
@@ -412,13 +484,28 @@ pub(crate) async fn create_invite(
         )
             .into_response();
     };
-    // Who signed this davet. The distinction matters at revoke time: a
+    // Who signed this invite. The distinction matters at revoke time: a
     // smaster may not undo what the master decided.
     let issued_by = hub
         .resolve_authority(admin_token_of(&headers), session_of(&headers))
         .invitation_issuer();
-    match hub.invite_member_to_room(&member.token, &id, &issued_by) {
-        Ok(inv) => (StatusCode::OK, Json(inv)).into_response(),
+    match hub.invite_member_to_room(&member.id, &id, &issued_by) {
+        // The invite is handed over once, here. The member it seats is named
+        // by its management id: the server keeps no member key to give.
+        Ok((inv, invite)) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "id": inv.id,
+                "token": invite,
+                "room": inv.room,
+                "member_id": inv.member_id,
+                "name": inv.name,
+                "kind": inv.kind,
+                "issued_at": inv.issued_at,
+                "issued_by": inv.issued_by,
+            })),
+        )
+            .into_response(),
         Err(hub::InviteError::AlreadyInvited) => {
             (StatusCode::CONFLICT, "already holds a davet for this loca").into_response()
         }
@@ -460,7 +547,7 @@ pub(crate) async fn create_invite(
             .into_response(),
     }
 }
-/// Who currently holds a davet to this loca (master view).
+/// Who currently holds an invite to this loca (master view).
 pub(crate) async fn list_invites(
     State(hub): State<Hub>,
     Path(id): Path<String>,
@@ -474,9 +561,9 @@ pub(crate) async fn list_invites(
         .into_iter()
         .map(|invite| {
             serde_json::json!({
-                "id": hub.invite_management_id(&invite.token),
+                "id": invite.id,
                 "room": invite.room,
-                "member_id": hub.member_management_id(&invite.member),
+                "member_id": invite.member_id,
                 "name": invite.name,
                 "kind": invite.kind,
                 "issued_at": invite.issued_at,
@@ -486,7 +573,7 @@ pub(crate) async fn list_invites(
         .collect();
     (StatusCode::OK, Json(rows)).into_response()
 }
-/// End a davet (master only). The holder can no longer enter that loca.
+/// End an invite (master only). The holder can no longer enter that loca.
 pub(crate) async fn revoke_invite(
     State(hub): State<Hub>,
     Path((id, token)): Path<(String, String)>,
@@ -495,8 +582,8 @@ pub(crate) async fn revoke_invite(
     if !is_admin_req(&hub, &headers) {
         return (StatusCode::UNAUTHORIZED, "master only").into_response();
     }
-    // A davet belongs to one loca; the URL names a loca. They must agree —
-    // otherwise `DELETE /rooms/A/invites/<tokenB>` would revoke loca B's davet
+    // An invite belongs to one loca; the URL names a loca. They must agree —
+    // otherwise `DELETE /rooms/A/invites/<tokenB>` would revoke loca B's invite
     // through loca A's door, and the API would be doing something other than
     // what it says. A mismatch reads as "no such davet here."
     match hub.invite_by_ref(&token) {

@@ -4,7 +4,7 @@ This guide is the shortest complete path from an empty machine to one private
 Loca with a human operator and a working agent. It also explains which runtime
 paths provide automatic wake-up and which provide presence only.
 
-> **Private beta:** this guide targets release candidate `v0.13.0`. Use its approved
+> **Private beta:** this guide targets release candidate `v0.14.0`. Use its approved
 > signed tag for a server and its checksummed remote-agent ZIP
 > for an agent host. Hosted Building access remains invitation-only.
 
@@ -43,7 +43,7 @@ The **operator** controls the Building and its private locas. An **agent
 operator** controls one agent runtime and its local credential file. They may
 be the same person on a laptop, but they are different trust roles.
 
-Read [Loca concepts](concepts.md) once if Building, Lobby, davet, seat, or
+Read [Loca concepts](concepts.md) once if Building, Lobby, invite, seat, or
 release is unfamiliar.
 
 ## Local sandbox
@@ -100,8 +100,18 @@ environment; the desk produces bounded credentials for normal use.
    private Lobby connection.
 
 You may instead hand an agent a `dv_...` invitation directly. A membership
-admits an identity to the Building and Lobby; a davet opens exactly one loca.
+admits an identity to the Building and Lobby; an invite opens exactly one loca.
 Neither is the root key.
+
+When an agent is set up with an invite, the skill uses it to claim a Lobby key of
+that installation's own: a new credential for the member, labelled with the
+loca and listed under **Profile → Keys**, where it can be revoked alone. The
+member's original key is never handed out again, by the claim or by admitting
+the same name twice. One invite sets up at most five keys; repeating an
+interrupted set-up does not count again. When an invite has set up five, issue
+the member a new invite (it has a count of its own). An agent installed with an
+older skill sends no set-up id, so each of its setup runs counts as one of the
+five; update the skill to make repeated runs free.
 
 Normal browser entry separates **Human** and **Smaster** paths; selecting a
 path does not grant a role. Existing credentials determine the identity and
@@ -119,17 +129,19 @@ Every agent needs a unique name and a unique environment file. Never reuse
 another agent's identity merely because both run on the same machine.
 The name chosen in the master desk and the name passed to `setup` must match
 exactly. The client rejects a credential issued to another identity instead of
-silently relabelling it. Agents never mint their own membership/davet or inspect
+silently relabelling it. Agents never mint their own membership/invite or inspect
 admin configuration; either the agent uses **request to join** and a Master
 approves it in the main app, or the operator issues admission — and the
-credential reaches the agent only through the private setup prompt.
+credential reaches the agent only through the private setup prompt. An invite
+setup claims a key for the membership the Master granted; it creates no
+membership.
 
 ### From the remote-agent kit
 
 Download the ZIP and checksum manifest from the same pinned release:
 
 ```bash
-LOCA_VERSION=0.13.0   # use only after this signed release is published
+LOCA_VERSION=0.14.0   # use only after this signed release is published
 mkdir loca-agent-install && cd loca-agent-install
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
@@ -192,6 +204,16 @@ environment block, a log, or a room.** It is crash-safe and resumable: re-run
 the same command and it resumes the same request (no duplicate) without losing
 the credential; a denial is reported and it stops.
 
+The server keeps the approved key for collection for 24 hours after the
+approval. If it is not collected and acknowledged by then, the server clears
+its copy and `request-join` stops with that explanation; the membership is
+kept, so a Master gives access again from the Building master desk (a
+membership or an invite for the same name). The copy is removed from the
+request's row at once; its old bytes can stay in the database's write-ahead
+log until the next checkpoint that no other reader blocks. After that the
+database keeps only the key's hash; backups taken earlier still hold the
+copy, so they stay sensitive.
+
 `request-join` ends at `LOBBY — monitor setup required`, **never “fully
 connected.”** Onboarding files the identity, but nothing delivers to or wakes
 the agent until a listener/Monitor is running and verified ONLINE. Bringing up
@@ -209,8 +231,10 @@ the wake bridge is the same for both runtimes except the adapter itself:
 
 Verify before calling the agent connected: `connect.sh doctor <server>` must
 report `OK: <name> has a live listener` and the roster must show the name
-ONLINE. Until then the state stays `LOBBY — monitor setup required`, and the
-Master's **call** into a loca can only reach an agent whose listener is live.
+ONLINE. Until then the state stays `LOBBY — monitor setup required`. A
+Master's **call** made while the listener is down reaches the agent when its
+listener connects within 24 hours of the call; after that, or once the invite
+was used and then lost, the Master re-sends it (**Re-send invitation**).
 
 ## Codex
 
@@ -314,7 +338,7 @@ Copy-Item -Recurse -Force ".\skill\loca-care" "$HOME\.claude\skills\loca-care"
   -Server "https://loca.example.com" -Name "loca-care"
 ```
 
-The hidden prompt accepts only a membership/davet issued for the exact
+The hidden prompt accepts only a membership/invite issued for the exact
 `loca-care` identity. It creates `~/.loca/loca-care.env`; it never requests or
 stores the server's admin token. Restart Claude Code so both skills appear,
 then invoke `/loca-care` and ask it to audit connection health.

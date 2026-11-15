@@ -1,5 +1,13 @@
 # Public source export allowlist. Only tracked paths at an approved commit.
 # Dated reviews, local receipts, identities, data, backups and plans stay private.
+#
+# scripts/export-public-tree.py builds the public tree from this list. Every
+# tracked file must match an entry here or in private-source-paths.txt; any
+# other file stops the export and is named. A file matched by both lists stays
+# private. An entry without `*`, `?` or `[` is a file or a whole directory;
+# otherwise it is a glob over the full path (`*` stays within one segment,
+# `**` crosses segments).
+#
 .dockerignore
 .env.example
 .github
@@ -16,8 +24,8 @@ DESIGN.md
 Dockerfile
 LICENSE
 Makefile
-PRINCIPLES.en.md
 PRINCIPLES.md
+PRINCIPLES.tr.md
 PRODUCTION.md
 README.md
 SECURITY.md
@@ -39,6 +47,7 @@ docs/README.md
 docs/adr
 docs/backup-restore.md
 docs/concepts.md
+docs/concepts-at-a-glance.svg
 docs/getting-started.md
 docs/giris.md
 docs/goal-attention-care.html
@@ -47,6 +56,9 @@ docs/loca-model.svg
 docs/loca-ui.png
 docs/monitoring.md
 docs/multi-agent-connection.md
+docs/protocol-frames.json
+docs/protocol.md
+docs/public-contributions.md
 docs/release-protocol.md
 docs/security.md
 docs/self-host.md

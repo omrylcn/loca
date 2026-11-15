@@ -13,6 +13,25 @@ impl Store {
         .optional()
     }
 
+    /// The verified principal that wrote `message_id` in `room`: `Ok(None)`
+    /// when the message is unknown or nobody was recorded as its writer.
+    pub fn message_sender_principal(
+        &self,
+        room: &str,
+        message_id: u64,
+    ) -> rusqlite::Result<Option<String>> {
+        let Some(c) = self.conn() else {
+            return Ok(None);
+        };
+        c.query_row(
+            "SELECT sender_principal FROM messages WHERE room = ?1 AND id = ?2",
+            params![room, message_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .map(Option::flatten)
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn set_message_reaction(
         &self,
@@ -99,8 +118,8 @@ impl Store {
     }
 
     /// Persist a message. Returns the DB result so the caller can refuse to
-    /// broadcast something that never landed on disk (PRINCIPLES: "mesaj
-    /// kaybolmaz"). Memory-only mode (no connection) is NOT a failure — there
+    /// broadcast something that never landed on disk (PRINCIPLES: "Messages
+    /// are not lost"). Memory-only mode (no connection) is NOT a failure — there
     /// is deliberately no disk, so it returns Ok.
     pub fn insert_message(
         &self,
@@ -118,8 +137,9 @@ impl Store {
         Self::require_unsealed_room(&tx, &m.room)?;
         tx.execute(
             "INSERT INTO messages
-             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id, attachments)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id,
+              attachments, sender_principal)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 m.id,
                 m.room,
@@ -132,7 +152,8 @@ impl Store {
                 kind_str(m.kind),
                 principal,
                 op_id,
-                attachments_to_json(&m.attachments)
+                attachments_to_json(&m.attachments),
+                m.sender_principal
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
@@ -163,8 +184,9 @@ impl Store {
         Self::write_room_state(&tx, &m.room, mode, settings)?;
         tx.execute(
             "INSERT INTO messages
-             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id, attachments)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id,
+              attachments, sender_principal)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 m.id,
                 m.room,
@@ -177,7 +199,8 @@ impl Store {
                 kind_str(m.kind),
                 principal,
                 op_id,
-                attachments_to_json(&m.attachments)
+                attachments_to_json(&m.attachments),
+                m.sender_principal
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
@@ -212,8 +235,9 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO messages
-             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id, attachments)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id,
+              attachments, sender_principal)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 m.id,
                 m.room,
@@ -226,7 +250,8 @@ impl Store {
                 kind_str(m.kind),
                 principal,
                 op_id,
-                attachments_to_json(&m.attachments)
+                attachments_to_json(&m.attachments),
+                m.sender_principal
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
@@ -274,8 +299,9 @@ impl Store {
         }
         tx.execute(
             "INSERT INTO messages
-             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id, attachments)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             (id, room, sender, sender_type, target, text, reply_to, ts, kind, principal, op_id,
+              attachments, sender_principal)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 m.id,
                 m.room,
@@ -288,7 +314,8 @@ impl Store {
                 kind_str(m.kind),
                 principal,
                 op_id,
-                attachments_to_json(&m.attachments)
+                attachments_to_json(&m.attachments),
+                m.sender_principal
             ],
         )?;
         Self::reset_silence_care(&tx, &m.room, m.ts)?;
@@ -331,7 +358,8 @@ impl Store {
             return Ok(None);
         };
         c.query_row(
-            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments
+            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments,
+                    sender_principal
              FROM messages WHERE room = ?1 AND principal = ?2 AND op_id = ?3",
             params![room, principal, op_id],
             |r| {
@@ -345,6 +373,7 @@ impl Store {
                     text: r.get(4)?,
                     reply_to: r.get(5)?,
                     reply_to_sender: None,
+                    sender_principal: r.get(9)?,
                     ts: r.get(6)?,
                     kind: parse_kind(&r.get::<_, String>(7).unwrap_or_default()),
                 })
@@ -373,7 +402,8 @@ impl Store {
             return Ok(None);
         };
         let mut stmt = c.prepare(
-            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments
+            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments,
+                    sender_principal
              FROM messages
              WHERE room = ?1 AND id > ?2 AND ts >= ?3 AND id <= ?4
              ORDER BY id
@@ -394,6 +424,7 @@ impl Store {
                     text: r.get(4)?,
                     reply_to: r.get(5)?,
                     reply_to_sender: None,
+                    sender_principal: r.get(9)?,
                     ts: r.get(6)?,
                     kind: parse_kind(&r.get::<_, String>(7).unwrap_or_default()),
                 })

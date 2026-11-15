@@ -97,13 +97,14 @@ const WEB_APP: &str = include_str!("../../../web/assets/app.js");
 const WEB_JOINREQUEST: &str = include_str!("../../../web/assets/joinrequest.js");
 const WEB_GETSTARTED: &str = include_str!("../../../web/assets/getstarted.js");
 const WEB_TOOLTIP: &str = include_str!("../../../web/assets/tooltip.js");
-const WEB_BIREBIR: &str = include_str!("../../../web/assets/birebir.js");
+const WEB_DM: &str = include_str!("../../../web/assets/dm.js");
 const WEB_KEYS: &str = include_str!("../../../web/assets/keys.js");
 const WEB_EXTENSIONS: &str = include_str!("../../../web/assets/extensions.js");
+const WEB_IDENTITY: &str = include_str!("../../../web/assets/identity.js");
 const WEB_GROUPS: &str = include_str!("../../../web/assets/groups.js");
 const WEB_NOTIFICATIONS: &str = include_str!("../../../web/assets/notifications.js");
-const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.md");
-const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.en.md");
+const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.tr.md");
+const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
 const ADMIN_INDEX: &str = include_str!("../../../web/admin.html");
 const ADMIN_CONSOLE_HEADER: &str = "x-loca-console";
@@ -152,7 +153,7 @@ async fn main() {
     );
     if room_token.is_empty() {
         if require_invite {
-            tracing::info!("ROOM_TOKEN retired — davet-only door is active.");
+            tracing::info!("ROOM_TOKEN retired — invite-only door is active.");
         } else {
             tracing::warn!("ROOM_TOKEN not set — anyone can connect and post. Set ROOM_TOKEN or REQUIRE_INVITE=1 to close the door.");
         }
@@ -209,6 +210,12 @@ async fn main() {
         // Absent = the legacy set: a loca auto-created by a first join keeps
         // what every loca had before extensions could be chosen.
         extensions: None,
+        // A loca has no identity until someone gives it one.
+        description: None,
+        seats: None,
+        icon: None,
+        color: None,
+        labels: Vec::new(),
     };
 
     // Boot epoch = process start time (seconds); changes every restart.
@@ -218,22 +225,22 @@ async fn main() {
         .unwrap_or(0);
 
     // REQUIRE_SESSIONS=1: posting requires a session token, so `sender` is
-    // always server-derived (spoof-proof identity; PRODUCTION.md Aşama 0).
+    // always server-derived (spoof-proof identity; PRODUCTION.md stage 0).
     // Unset = compat mode: sessions are available but body identity still works.
     let require_sessions = matches!(
         std::env::var("REQUIRE_SESSIONS").as_deref(),
         Ok("1") | Ok("true")
     );
-    // REQUIRE_INVITE=1: an empty ROOM_TOKEN means davet-only, not open-house.
+    // REQUIRE_INVITE=1: an empty ROOM_TOKEN means invite-only, not open-house.
     // This is how the building key is retired — no key, but the door still
-    // demands a davet for every loca. Defaults on when there is no room token
+    // demands an invite for every loca. Defaults on when there is no room token
     // AND an admin token exists, so retiring the key never accidentally opens
     // the building.
     // Explicit opt-in only: turning this on automatically whenever the key is
     // gone would silently change every existing deployment's behaviour. Prod
     // sets REQUIRE_INVITE=1 in its .env when it retires the building key.
     if require_invite {
-        tracing::info!("davet-only mode: no building key, every loca needs a davet");
+        tracing::info!("invite-only mode: no building key, every loca needs an invite");
     }
     let home_room = std::env::var("LOCA_AGENT_ROOM").unwrap_or_else(|_| "iye".into());
     let reserved_room = std::env::var("RESERVED_LOCA").unwrap_or_default();
@@ -258,11 +265,30 @@ async fn main() {
         default_settings,
         epoch,
     );
-    // LOCA_CAPACITY: seats per loca, humans and agents alike (default 7,
-    // clamped 2..=32). Watchers never take a seat.
-    let capacity =
-        hub.set_loca_capacity(env_u32("LOCA_CAPACITY", hub::Hub::LOCA_KAPASITE as u32) as usize);
-    tracing::info!(capacity, "seats per loca");
+    // LOCA_CAPACITY: seats of a loca without a number of its own, humans and
+    // agents alike (default 7, clamped 2..=32). Watchers never take a seat.
+    let capacity = hub
+        .set_loca_capacity(
+            env_u32("LOCA_CAPACITY", hub::Hub::DEFAULT_LOCA_CAPACITY as u32) as usize,
+        );
+    // LOCA_CAPACITY_MAX: the most a loca's own number may reach (default 32,
+    // clamped LOCA_CAPACITY..=32). Set it equal to LOCA_CAPACITY to keep every
+    // loca at the Building's number.
+    let capacity_max = hub
+        .set_loca_capacity_max(
+            env_u32("LOCA_CAPACITY_MAX", hub::Hub::LOCA_CAPACITY_MAX as u32) as usize,
+        );
+    tracing::info!(capacity, capacity_max, "seats per loca");
+    // NOTIFICATION_RATE_LIMIT: notifications one sender may send in any ten
+    // minutes (default 6, at least 1; the window is fixed).
+    let notification_limit = hub.set_notification_send_limit(env_u32(
+        "NOTIFICATION_RATE_LIMIT",
+        hub::NOTIFICATION_SEND_LIMIT,
+    ));
+    tracing::info!(
+        notification_limit,
+        "notifications per sender per 10 minutes"
+    );
     if hub.admin_pairing_code().is_some() {
         tracing::info!(
             "master browser pairing is available from the loopback master desk; code omitted from logs"
@@ -280,6 +306,10 @@ async fn main() {
                 hub.expire_live();
                 hub.tick_wiki();
                 hub.expire_unused_smasters();
+                hub.expire_join_request_bootstraps();
+                hub.expire_invite_deliveries();
+                // Logged inside; a storage error does not stop serving.
+                let _ = hub.sweep_sessions();
             }
         });
     }
@@ -362,7 +392,13 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index))
-        .route("/PRINCIPLES.md", get(principles_tr))
+        // The principles are served under their file names, so the language
+        // links inside them work here as they do in the repository:
+        // PRINCIPLES.md is the English text, PRINCIPLES.tr.md the Turkish.
+        // /PRINCIPLES.en.md is the address the English text had before it
+        // became PRINCIPLES.md; it is kept so old links still open it.
+        .route("/PRINCIPLES.md", get(principles_en))
+        .route("/PRINCIPLES.tr.md", get(principles_tr))
         .route("/PRINCIPLES.en.md", get(principles_en))
         .route("/downloads/skills", get(skill_bundles_index))
         .route("/downloads/skills/:name", get(download_skill_bundle))
@@ -442,6 +478,7 @@ async fn main() {
             "/profile/preferences",
             get(get_profile_preferences).put(put_profile_preferences),
         )
+        .route("/profile/card", axum::routing::put(put_profile_card))
         .route(
             "/profile/credentials",
             get(list_profile_credentials).post(create_profile_credential_route),
@@ -451,6 +488,10 @@ async fn main() {
             axum::routing::delete(revoke_profile_credential_route),
         )
         .route("/membership/claim", axum::routing::post(claim_membership))
+        .route(
+            "/membership/claim/ack",
+            axum::routing::post(ack_membership_claim_route),
+        )
         .route("/lobby/ws", get(lobby_ws_handler))
         .route("/members", get(list_members).post(admit_member))
         .route("/profiles", get(list_profiles))
@@ -611,35 +652,29 @@ async fn main() {
             axum::routing::post(ack_care),
         )
         .route("/ws", get(ws_handler))
-        .route("/birebirs", get(list_my_birebirs).post(open_birebir_route))
-        .route("/birebirs/candidates", get(birebir_candidates_route))
+        .route("/birebirs", get(list_my_dms).post(open_dm_route))
+        .route("/birebirs/candidates", get(dm_candidates_route))
         .route(
             "/birebirs/:room/master",
-            axum::routing::post(birebir_master_route),
+            axum::routing::post(dm_master_route),
         )
-        .route("/building/birebirs", get(birebir_overview_route))
-        .route(
-            "/building/birebirs/:room/messages",
-            get(birebir_witness_route),
-        )
+        .route("/building/birebirs", get(dm_overview_route))
+        .route("/building/birebirs/:room/messages", get(dm_witness_route))
         .route(
             "/building/birebirs/:room/close",
-            axum::routing::post(birebir_close_route),
+            axum::routing::post(dm_close_route),
         )
         .route(
             "/building/birebirs/:room/seal",
-            axum::routing::post(birebir_seal_route),
+            axum::routing::post(dm_seal_route),
         )
-        // Innermost: by the time it runs, the birebir fence has already
-        // answered for a birebir and the membership gate for a stranger.
+        // Innermost: by the time it runs, the direct message fence has already
+        // answered for a direct message and the membership gate for a stranger.
         .route_layer(axum::middleware::from_fn_with_state(
             hub.clone(),
             extension_fence,
         ))
-        .route_layer(axum::middleware::from_fn_with_state(
-            hub.clone(),
-            birebir_fence,
-        ))
+        .route_layer(axum::middleware::from_fn_with_state(hub.clone(), dm_fence))
         // A group loca is invisible to everyone outside its group.
         .route_layer(axum::middleware::from_fn_with_state(
             hub.clone(),
@@ -776,9 +811,10 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "joinrequest.js" => Some(("text/javascript; charset=utf-8", WEB_JOINREQUEST)),
         "getstarted.js" => Some(("text/javascript; charset=utf-8", WEB_GETSTARTED)),
         "tooltip.js" => Some(("text/javascript; charset=utf-8", WEB_TOOLTIP)),
-        "birebir.js" => Some(("text/javascript; charset=utf-8", WEB_BIREBIR)),
+        "dm.js" => Some(("text/javascript; charset=utf-8", WEB_DM)),
         "keys.js" => Some(("text/javascript; charset=utf-8", WEB_KEYS)),
         "extensions.js" => Some(("text/javascript; charset=utf-8", WEB_EXTENSIONS)),
+        "identity.js" => Some(("text/javascript; charset=utf-8", WEB_IDENTITY)),
         "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
         "notifications.js" => Some(("text/javascript; charset=utf-8", WEB_NOTIFICATIONS)),
         _ => None,
@@ -829,7 +865,7 @@ fn admin_console_write_allowed(headers: &HeaderMap) -> bool {
 
 async fn admin_console_state(State(hub): State<Hub>) -> impl IntoResponse {
     Json(serde_json::json!({
-        "locas": hub.room_summaries_for(|room| !hub.is_birebir(room)),
+        "locas": hub.room_summaries_for(|room| !hub.is_dm(room)),
         // Resident deliberately omits the mb_ membership token. The browser
         // needs names and loca occupancy, never identity credentials.
         "residents": hub.residents(),
@@ -854,6 +890,9 @@ async fn admin_console_admit(
     if name.is_empty() {
         return (StatusCode::BAD_REQUEST, "agent name required").into_response();
     }
+    // The rule is for a name being admitted now, decided by
+    // `Hub::admit_member` under the lock it writes the name with. A member
+    // admitted before the rule keeps answering here: this door finds it again.
     let kind = body.get("kind").and_then(|v| v.as_str()).unwrap_or("agent");
     if kind != "agent" && kind != "user" {
         return (StatusCode::BAD_REQUEST, "kind must be agent or user").into_response();
@@ -864,7 +903,9 @@ async fn admin_console_admit(
             Json(serde_json::json!({ "name": member.name, "kind": member.kind })),
         )
             .into_response(),
-        Err(_) => (
+        Err(hub::AdmitError::Rule(rule)) => (StatusCode::BAD_REQUEST, rule).into_response(),
+        Err(hub::AdmitError::Worn) => (StatusCode::CONFLICT, NAME_WORN_RULE).into_response(),
+        Err(hub::AdmitError::Storage) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "could not save building member",
         )
@@ -900,11 +941,11 @@ async fn admin_console_invite(
         )
             .into_response();
     };
-    match hub.invite_member_to_room(&member.token, loca, "master") {
-        Ok(invite) => (
+    match hub.invite_member_to_room(&member.id, loca, "master") {
+        Ok((invite, invite_key)) => (
             StatusCode::CREATED,
             Json(serde_json::json!({
-                "token": invite.token,
+                "token": invite_key,
                 "loca": invite.room,
                 "name": invite.name,
                 "kind": invite.kind,
@@ -1022,6 +1063,8 @@ async fn admin_console_approve_join_request(
             "that name already exists — choose another",
         )
             .into_response(),
+        crate::hub::Approve::NameRule(rule) => (StatusCode::CONFLICT, rule).into_response(),
+        crate::hub::Approve::NameWorn => (StatusCode::CONFLICT, NAME_WORN_RULE).into_response(),
         crate::hub::Approve::NoStock => {
             (StatusCode::CONFLICT, "no admission stock — mint some first").into_response()
         }
@@ -1094,8 +1137,11 @@ async fn health(State(hub): State<Hub>) -> impl IntoResponse {
         "version": env!("CARGO_PKG_VERSION"),
         "epoch": hub.epoch(),
         "needs_token": !hub.is_member(None),
-        // Seats per loca (LOCA_CAPACITY), humans and agents alike.
+        // Seats of a loca without a number of its own (LOCA_CAPACITY),
+        // humans and agents alike, and the most a loca's own number may
+        // reach (LOCA_CAPACITY_MAX).
         "loca_capacity": hub.loca_capacity(),
+        "loca_capacity_max": hub.loca_capacity_max(),
         // true when no ADMIN_TOKEN is configured: admin actions are open to all
         // (dev mode), so clients can surface admin controls without a token.
         "admin_open": hub.is_admin(None),
@@ -1133,27 +1179,42 @@ async fn ws_handler(
     let credentials = WsCredentials {
         admin: websocket_credential(&headers, "loca.admin.")
             .or_else(|| legacy.then(|| q.get("admin").cloned()).flatten()),
-        davet: websocket_credential(&headers, "loca.room.")
+        invite: websocket_credential(&headers, "loca.room.")
             .or_else(|| legacy.then(|| q.get("token").cloned()).flatten()),
         session: websocket_credential(&headers, "loca.session.")
             .or_else(|| legacy.then(|| q.get("session").cloned()).flatten()),
     };
 
     // Resolve the session FIRST: it is a way in on its own (the browser holds
-    // one and no davet), so judging the door before reading it would turn
+    // one and no invite), so judging the door before reading it would turn
     // every seated operator away.
     let session_identity = hub.session_identity(credentials.session.as_deref());
     if credentials.session.is_some() && session_identity.is_none() {
         return (StatusCode::UNAUTHORIZED, "invalid session token").into_response();
     }
+    // A closed Building answers an id that names nothing and a direct message or
+    // group loca this caller may not enter alike, decided here, together,
+    // before anything else reads the id, after the same work whichever is
+    // true (PRINCIPLES "Birebir", "Groups").
+    if !hub.admin_open()
+        && socket_sees_nothing(
+            &hub,
+            &room,
+            credentials.admin.as_deref(),
+            credentials.invite.as_deref(),
+            session_identity.as_ref(),
+        )
+    {
+        return no_such_loca();
+    }
 
     // The WS door: the SAME single decision the REST gate uses. Bearers arrive
     // as WebSocket subprotocol credentials; ?name= is only the ban hint when
-    // there is no authoritative session or davet identity yet.
+    // there is no authoritative session or invite identity yet.
     match hub.enter_decision(
         &room,
         credentials.admin.as_deref(),
-        credentials.davet.as_deref(),
+        credentials.invite.as_deref(),
         session_identity.as_ref(),
         q.get("name").map(String::as_str),
     ) {
@@ -1162,41 +1223,37 @@ async fn ws_handler(
             return (StatusCode::FORBIDDEN, "banned from this room").into_response();
         }
         hub::EnterDecision::Denied => {
-            if hub.is_birebir(&room) || hub.is_group_loca(&room) || !hub.room_exists(&room) {
-                return (StatusCode::NOT_FOUND, "no such loca").into_response();
+            if hub.is_dm(&room) || hub.is_group_loca(&room) || !hub.room_exists(&room) {
+                return no_such_loca();
             }
             return (StatusCode::UNAUTHORIZED, "davet required for this loca").into_response();
         }
     }
     if !hub.admin_open() && !hub.room_exists(&room) {
-        return (
-            StatusCode::NOT_FOUND,
-            "loca does not exist; create it first",
-        )
-            .into_response();
+        return no_such_loca();
     }
-    // A session OR davet names its holder authoritatively. Query-string names
-    // are only a hint for open/legacy doors; allowing a davet to enter under an
+    // A session OR invite names its holder authoritatively. Query-string names
+    // are only a hint for open/legacy doors; allowing an invite to enter under an
     // alias meant revocation kicked the recorded holder while the alias socket
     // stayed alive.
-    let davet_identity = credentials
-        .davet
+    let invite_identity = credentials
+        .invite
         .as_deref()
         .and_then(|token| hub.invite_for(&room, Some(token)));
     let member_identity = credentials
-        .davet
+        .invite
         .as_deref()
         .and_then(|token| hub.member_for_credential(Some(token)));
     if let Some(idy) = &session_identity {
         name = idy.name.clone();
-    } else if let Some(invite) = &davet_identity {
+    } else if let Some(invite) = &invite_identity {
         name = invite.name.clone();
     } else if let Some(member) = &member_identity {
         name = member.name.clone();
     }
     let kind = match &session_identity {
         Some(idy) => idy.kind,
-        None => match davet_identity.as_ref().map(|invite| invite.kind.as_str()) {
+        None => match invite_identity.as_ref().map(|invite| invite.kind.as_str()) {
             Some("agent") => SenderType::Agent,
             Some(_) => SenderType::User,
             None => match member_identity.as_ref().map(|member| member.kind.as_str()) {
@@ -1261,15 +1318,21 @@ async fn ws_handler(
     // seat instead of two ghosts.
     let identity = hub.seat_identity(
         credentials.admin.as_deref(),
-        credentials.davet.as_deref(),
+        credentials.invite.as_deref(),
         session_identity.as_ref(),
         credentials.session.as_deref(),
         &name,
     );
+    // A loca socket taken with an invite is that invite's use: its delivery
+    // copy, if still held, ends once the socket is open.
+    let invite_used = invite_identity.map(|invite| invite.secret_hash);
     ws.protocols([WS_PROTOCOL])
         .max_message_size(MAX_WS_MESSAGE_BYTES)
         .max_frame_size(MAX_WS_MESSAGE_BYTES)
         .on_upgrade(move |socket| {
+            if let Some(hash) = &invite_used {
+                hub.note_invite_used_by_hash(hash);
+            }
             ws_session(
                 socket,
                 hub,
@@ -1290,12 +1353,12 @@ async fn ws_handler(
 }
 
 /// Bearers used at the WebSocket door. They stay attached to the connection so
-/// logout, expiry, smaster revoke, and davet revoke take effect after the
+/// logout, expiry, smaster revoke, and invite revoke take effect after the
 /// handshake too; authorization is not a forever-valid snapshot.
 #[derive(Clone)]
 struct WsCredentials {
     admin: Option<String>,
-    davet: Option<String>,
+    invite: Option<String>,
     session: Option<String>,
 }
 
@@ -1313,7 +1376,7 @@ impl WsCredentials {
             hub.enter_decision(
                 room,
                 self.admin.as_deref(),
-                self.davet.as_deref(),
+                self.invite.as_deref(),
                 session.as_ref(),
                 Some(name),
             ),
@@ -1371,6 +1434,9 @@ fn msg_addresses(m: &protocol::Message, name: &str, accepts_all: bool) -> bool {
 // listener can prove the socket is still carrying traffic before renewing its
 // wake lease; a 30-second ping left an impossible gap between those contracts.
 const WS_PING_SECS: u64 = 10;
+/// How long a socket the server is closing keeps reading what its peer had
+/// already sent, so the final frame is not lost to a TCP reset.
+const WS_CLOSE_DRAIN: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// One WS connection: replay history, then fan broadcast frames down to the
 /// client while accepting optional `send`/`control` frames coming up.
@@ -1397,14 +1463,47 @@ async fn ws_session(
                                                // Identify this session so we can tell our own eviction broadcast apart
                                                // from a later one aimed at us.
     let session_id = hub.next_session_id();
-    // The session's AUTHENTICATED principal, when it took its session with a
-    // davet/credential. Everyone per-member reminders are delivered and replayed
+    // The session's AUTHENTICATED principal, when it took its session with an
+    // invite/credential. Everyone per-member reminders are delivered and replayed
     // by this id, never by the connection's display name — so a shared name can
     // never cross wires and a principal-less socket never receives one.
     let session_principal_id = credentials
         .live_session(&hub)
         .and_then(|session| session.principal_id)
-        .or_else(|| hub.principal_id_for_invite(&room, credentials.davet.as_deref()));
+        .or_else(|| hub.principal_id_for_invite(&room, credentials.invite.as_deref()));
+    // Who this socket's messages are written by, as verified at the door, in
+    // the order its display name was chosen: the session, else the invite or
+    // membership credential, else the Smaster code that named the seat. A
+    // rename follows this id. An open door or the root key records nobody.
+    let sender_principal = match credentials.live_session(&hub) {
+        Some(session) => session.principal_id,
+        None => hub
+            .principal_id_for_invite(&room, credentials.invite.as_deref())
+            .or_else(|| {
+                hub.member_for_credential(credentials.invite.as_deref())
+                    .and_then(|member| member.principal_id)
+            })
+            .or_else(|| {
+                credentials
+                    .invite
+                    .is_none()
+                    .then(|| identity.strip_prefix("sm:pr:").map(str::to_string))
+                    .flatten()
+            }),
+    };
+    // The key its `op_id`s are remembered under: the same one REST uses for
+    // this sender, so a re-send over either transport lands once.
+    let operation_scope = {
+        let session = credentials.live_session(&hub);
+        hub.operation_scope(
+            &room,
+            credentials.admin.as_deref(),
+            credentials.invite.as_deref(),
+            session.as_ref(),
+            kind,
+            &name,
+        )
+    };
     // `@all` calls ordinary room members everywhere. A caretaker receives it
     // only at its private home table; a cross-loca watch must never turn a
     // room-wide call into access to that room's discussion.
@@ -1412,6 +1511,9 @@ async fn ws_session(
     let (mut sink, mut stream) = socket.split();
     let (mut rx, history) = hub.subscribe(&room);
     let mut replayed_care_ids = std::collections::HashSet::new();
+    if !watch_only {
+        hub.prove_seat(&room, &identity, sender_principal.as_deref());
+    }
     if !watch_only && !hub.join(&room, &identity, &name, kind, session_id) {
         // The loca is full. Say so rather than dropping silently — and the
         // door stays open for watchers, who take no seat.
@@ -1421,7 +1523,7 @@ async fn ws_session(
             &ServerFrame::Control {
                 cmd: format!(
                     "loca full ({} seats). ask the master for a seat, or watch with ?watch=1",
-                    hub.loca_capacity()
+                    hub.room_capacity(&room)
                 ),
             },
         )
@@ -1439,7 +1541,7 @@ async fn ws_session(
             Err(error) => {
                 tracing::warn!(%room, %name, %error, "could not read loca memory");
                 if !watch_only {
-                    hub.leave(&room, &identity);
+                    hub.leave(&room, &identity, session_id);
                 }
                 return;
             }
@@ -1448,7 +1550,7 @@ async fn ws_session(
             .await
             .is_err()
         {
-            hub.leave(&room, &identity);
+            hub.leave(&room, &identity, session_id);
             return;
         }
     }
@@ -1471,7 +1573,7 @@ async fn ws_session(
             .is_err()
         {
             if !watch_only {
-                hub.leave(&room, &identity);
+                hub.leave(&room, &identity, session_id);
             }
             return;
         }
@@ -1484,7 +1586,7 @@ async fn ws_session(
             .is_err()
         {
             if !watch_only {
-                hub.leave(&room, &identity);
+                hub.leave(&room, &identity, session_id);
             }
             return;
         }
@@ -1503,8 +1605,8 @@ async fn ws_session(
     ping.tick().await; // consume the immediate first tick
 
     // Set when a newer connection takes this seat over. The seat then belongs
-    // to the new holder (join reset its count to 1), so this connection must
-    // NOT run leave() on the way out — that would free the seat under them.
+    // to the new holder (join made it the seat's only connection), so this
+    // connection has nothing to leave.
     let mut evicted = false;
     // One connection represents one agent in one loca, so this is naturally a
     // per-agent+loca queue. The quiet deadline slides with each fragment, but
@@ -1568,6 +1670,9 @@ async fn ws_session(
                     // Credentials can die after the handshake. Never deliver a
                     // new room frame to a logged-out or revoked connection.
                     if !credentials.allowed(&hub, &room, &name) {
+                        if let Some(kicked) = removal_notice(&mut rx, &name).await {
+                            let _ = send_frame(&mut sink, &kicked).await;
+                        }
                         break;
                     }
                     // `msg` is a raw event stream. `mentions` is a runtime
@@ -1610,7 +1715,7 @@ async fn ws_session(
                         }
                         // A re-homed cross-loca envelope carries only bounded
                         // source context and stays private to its selected
-                        // owner. Iye's default/all event stream must never turn
+                        // owner. Care's default/all event stream must never turn
                         // that envelope into source-room history for other
                         // caretakers sharing the home loca.
                         if !signal.source_room.is_empty()
@@ -1722,7 +1827,12 @@ async fn ws_session(
             },
             // Keepalive: ping the client so an idle link isn't dropped (1006).
             _ = ping.tick() => {
-                if !credentials.allowed(&hub, &room, &name) { break; }
+                if !credentials.allowed(&hub, &room, &name) {
+                    if let Some(kicked) = removal_notice(&mut rx, &name).await {
+                        let _ = send_frame(&mut sink, &kicked).await;
+                    }
+                    break;
+                }
                 if sink.send(WsMessage::Ping(Vec::new())).await.is_err() { break; }
             },
             _ = async {
@@ -1749,12 +1859,18 @@ async fn ws_session(
             // Client -> server: optional send/control (web client convenience).
             msg = stream.next() => match msg {
                 Some(Ok(WsMessage::Text(txt))) => {
-                    if !credentials.allowed(&hub, &room, &name) { break; }
+                    if !credentials.allowed(&hub, &room, &name) {
+                        if let Some(kicked) = removal_notice(&mut rx, &name).await {
+                            let _ = send_frame(&mut sink, &kicked).await;
+                        }
+                        break;
+                    }
                     handle_client_frame(
                         &hub,
                         &room,
                         &name,
-                        &identity,
+                        &operation_scope,
+                        sender_principal.as_deref(),
                         kind,
                         credentials.is_admin(&hub),
                         credentials.live_session(&hub).is_some(),
@@ -1775,9 +1891,36 @@ async fn ws_session(
     // may race the final control frame on loaded test or production hosts.
     let _ = sink.send(WsMessage::Close(None)).await;
     if !watch_only && !evicted {
-        hub.leave(&room, &identity);
+        hub.leave(&room, &identity, session_id);
     }
     tracing::info!(%room, %name, watch_only, evicted, "ws leave");
+    // The seat is free; now let the last frame arrive. Closing a TCP socket
+    // that still holds bytes the peer sent makes the kernel answer with a
+    // reset, and a reset can reach the peer instead of the frames just
+    // written: a client that was sending when its seat was taken would then
+    // see a broken connection where it should read `evicted` (or `kicked`),
+    // and reconnect. So what the peer already sent is read and dropped until
+    // it answers the close, for a bounded time.
+    drain_before_close(&mut stream).await;
+}
+
+/// Read and drop what the peer of a socket the server is closing had already
+/// sent, until it answers the close or `WS_CLOSE_DRAIN` passes. Call it after
+/// the final frame and the close frame are written and after the seat or
+/// presence is released: nothing read here is acted on.
+pub(crate) async fn drain_before_close<R>(stream: &mut R)
+where
+    R: futures_util::Stream<Item = Result<WsMessage, axum::Error>> + Unpin,
+{
+    use futures_util::StreamExt;
+    let _ = tokio::time::timeout(WS_CLOSE_DRAIN, async {
+        while let Some(Ok(frame)) = stream.next().await {
+            if matches!(frame, WsMessage::Close(_)) {
+                break;
+            }
+        }
+    })
+    .await;
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1785,14 +1928,15 @@ fn handle_client_frame(
     hub: &Hub,
     room: &str,
     name: &str,
-    identity: &str,
+    operation_scope: &hub::OperationScope,
+    sender_principal: Option<&str>,
     kind: SenderType,
     is_admin: bool,
     has_session: bool,
     watch_only: bool,
     txt: &str,
 ) {
-    // A watcher listens without taking a seat (PRINCIPLES: "izler, iş yapmaz").
+    // A watcher listens without taking a seat (PRINCIPLES: "watches, does no work").
     // It reads the stream but produces nothing — no speaking, no typing, no
     // control. Otherwise someone invisible to the roster could still talk at
     // the table. Reads (the pushed frames) already flow; only writes are cut.
@@ -1831,7 +1975,8 @@ fn handle_client_frame(
                         attachments: Vec::new(),
                     },
                     false,
-                    identity,
+                    operation_scope,
+                    sender_principal,
                 );
             }
         }
@@ -1848,6 +1993,37 @@ fn handle_client_frame(
         Ok(ClientFrame::Typing { on }) => hub.typing(room, name, on),
         Err(e) => tracing::debug!(%name, error = %e, "bad client frame"),
     }
+}
+
+/// How long a socket whose credential has just ended waits for the `kicked`
+/// frame a removal broadcasts right after ending it.
+const REMOVAL_NOTICE_WAIT_MS: u64 = 500;
+
+/// A socket's credential has ended. A removal (kick, ban, release, invite or
+/// membership revocation, suspension) ends it and then broadcasts `kicked`
+/// naming this connection, so that frame can be queued behind ordinary frames
+/// the socket may no longer forward, or still be on its way. Skip to it,
+/// forwarding nothing else. `None` when no removal names this connection (a
+/// sign-out): the socket then closes without a word, as before.
+async fn removal_notice(
+    rx: &mut tokio::sync::broadcast::Receiver<ServerFrame>,
+    name: &str,
+) -> Option<ServerFrame> {
+    let wait = std::time::Duration::from_millis(REMOVAL_NOTICE_WAIT_MS);
+    tokio::time::timeout(wait, async {
+        loop {
+            match rx.recv().await {
+                Ok(frame) if matches!(&frame, ServerFrame::Kicked { name: who, .. } if who == name) => {
+                    return Some(frame);
+                }
+                Ok(_) | Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => return None,
+            }
+        }
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 async fn send_frame<S>(sink: &mut S, frame: &ServerFrame) -> Result<(), ()>

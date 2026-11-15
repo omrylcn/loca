@@ -927,7 +927,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "loca-admin"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "crossterm",
  "protocol",
@@ -1176,7 +1176,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "serde",
 ]
@@ -1541,7 +1541,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "axum",
  "futures-util",
@@ -1557,6 +1557,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-tungstenite",
+ "tower",
  "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
@@ -1639,7 +1640,7 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
 name = "skill-bundles"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "serde_json",
  "sha2",

@@ -1,12 +1,12 @@
-//! Birebir: a private loca for exactly two principals (PRINCIPLES "Birebir").
+//! Direct message: a private loca for exactly two principals (PRINCIPLES "Birebir").
 
 use rusqlite::{params, OptionalExtension};
 
 use super::Store;
 
-/// One birebir. `a` and `b` are principal ids with `a < b`.
+/// One direct message. `a` and `b` are principal ids with `a < b`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Birebir {
+pub struct Dm {
     pub room: String,
     pub a: String,
     pub b: String,
@@ -25,7 +25,7 @@ pub struct Birebir {
     pub history_b: bool,
 }
 
-impl Birebir {
+impl Dm {
     pub fn has(&self, principal: &str) -> bool {
         self.a == principal || self.b == principal
     }
@@ -44,8 +44,8 @@ impl Birebir {
     }
 }
 
-fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Birebir> {
-    Ok(Birebir {
+fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Dm> {
+    Ok(Dm {
         room: r.get(0)?,
         a: r.get(1)?,
         b: r.get(2)?,
@@ -64,7 +64,7 @@ const COLUMNS: &str =
      master_since_ordered";
 
 impl Store {
-    pub fn load_birebirs(&self) -> rusqlite::Result<Vec<Birebir>> {
+    pub fn load_dms(&self) -> rusqlite::Result<Vec<Dm>> {
         let Some(c) = self.conn() else {
             return Ok(Vec::new());
         };
@@ -73,13 +73,9 @@ impl Store {
         rows.collect()
     }
 
-    /// Persist a new birebir and its room state in one commit. Returns the
+    /// Persist a new direct message and its room state in one commit. Returns the
     /// existing row when the pair already has one (never a second room).
-    pub fn create_birebir(
-        &self,
-        b: &Birebir,
-        settings: &protocol::RoomSettings,
-    ) -> rusqlite::Result<Birebir> {
+    pub fn create_dm(&self, b: &Dm, settings: &protocol::RoomSettings) -> rusqlite::Result<Dm> {
         let Some(mut c) = self.conn() else {
             return Ok(b.clone());
         };
@@ -103,8 +99,8 @@ impl Store {
         Ok(b.clone())
     }
 
-    /// Record the Master's call-in state for a birebir.
-    pub fn save_birebir_access(&self, b: &Birebir) -> rusqlite::Result<()> {
+    /// Record the Master's call-in state for a direct message.
+    pub fn save_dm_access(&self, b: &Dm) -> rusqlite::Result<()> {
         let Some(c) = self.conn() else {
             return Ok(());
         };
@@ -130,7 +126,7 @@ impl Store {
 /// before the call, so the visit ends and the two call again if they wish.
 /// One statement, safe to repeat: a visit opened under the ordered rule is
 /// never touched, and a failure stops the open so the next start retries.
-pub(super) fn end_unordered_birebir_visits(conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
+pub(super) fn end_unordered_dm_visits(conn: &rusqlite::Connection) -> rusqlite::Result<usize> {
     conn.execute(
         "UPDATE birebirs SET master_called_by = NULL, master_since = NULL,
              history_a = 0, history_b = 0

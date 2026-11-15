@@ -150,7 +150,7 @@ pub(crate) async fn set_loca_group_route(
 
 /// `GET /rooms/:id/group/preview?group=<id>` (no `group` = default) — what
 /// a move would do: who loses access, who keeps it, who is carried over by
-/// davet, and which titles end. Master only; nothing changes.
+/// invite, and which titles end. Master only; nothing changes.
 pub(crate) async fn preview_loca_group_route(
     State(hub): State<Hub>,
     Path(room): Path<String>,
@@ -172,6 +172,10 @@ pub(crate) async fn preview_loca_group_route(
 /// admit — a Smaster outside the group included — gets exactly the answer a
 /// loca that does not exist gets. Handlers gated only by rank (mode,
 /// settings, moderation, invites, calls) therefore never act on it for them.
+/// In a closed Building the membership gate has already refused such a
+/// caller where it decides whether the loca exists (`rest_sees_nothing`),
+/// so the refusal costs what a missing loca's costs; this fence stays as
+/// defence in depth, and refuses first only in the loopback sandbox.
 pub(crate) async fn group_fence(
     State(hub): State<Hub>,
     req: axum::extract::Request,
@@ -190,11 +194,7 @@ pub(crate) async fn group_fence(
         return next.run(req).await;
     };
     if hub.is_group_loca(&room) && !room_decision_of(&hub, &room, req.headers()).is_allowed() {
-        return (
-            StatusCode::NOT_FOUND,
-            "loca does not exist; create it first",
-        )
-            .into_response();
+        return super::access::no_such_loca();
     }
     next.run(req).await
 }

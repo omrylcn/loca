@@ -1,6 +1,6 @@
 //! The key ledger: every code the Building has handed out, in one list.
 //!
-//! Smaster codes, memberships, davets and admission rights already live in
+//! Smaster codes, memberships, invites and admission rights already live in
 //! their own tables; the ledger reads them there rather than copying them, so
 //! nothing can be issued without appearing here. Master pairing codes were
 //! only ever held in memory, so they get their own log (`pairing_log`).
@@ -15,12 +15,12 @@ use super::{hashed_id, Store};
 pub struct KeyRecord {
     /// Opaque id used to act on it (revoke); never the secret.
     pub id: String,
-    /// master | smaster | member | davet | admission
+    /// master | smaster | member | invite | admission
     pub kind: &'static str,
     /// The first characters of the code, enough to recognise the one handed
     /// over, never enough to use it.
     pub fingerprint: String,
-    /// Whom it was issued for (a name, or a loca for a davet).
+    /// Whom it was issued for (a name, or a loca for an invite).
     pub for_name: Option<String>,
     pub loca: Option<String>,
     pub issued_by: Option<String>,
@@ -45,12 +45,13 @@ pub fn fingerprint(code: &str) -> String {
     }
 }
 
-/// Last use of the credential minted for a legacy code, on a connection the
-/// caller already holds.
-fn credential_last_used_on(c: &Connection, role: &str, token: &str) -> Option<u64> {
+/// Last use of a member by any of its keys: its original one, the keys its
+/// invites claimed and any added under Profile -> Keys. A member whose agent
+/// signs in only with a claimed key is in use, not "never used".
+fn member_last_used(c: &Connection, principal_id: &str) -> Option<u64> {
     c.query_row(
-        "SELECT last_used_at FROM credentials WHERE id = ?1",
-        params![hashed_id("cr_", &format!("{role}:{token}"))],
+        "SELECT MAX(last_used_at) FROM credentials WHERE principal_id = ?1",
+        params![principal_id],
         |r| r.get::<_, Option<i64>>(0),
     )
     .ok()
@@ -58,10 +59,40 @@ fn credential_last_used_on(c: &Connection, role: &str, token: &str) -> Option<u6
     .map(|v| v as u64)
 }
 
-/// (token, name, joined_at, admitted_by, revoked_at)
-type MemberRow = (String, String, u64, Option<String>, Option<u64>);
-/// (token, room, name, issued_at, issued_by, revoked_at)
-type InviteRow = (String, String, String, u64, Option<String>, Option<u64>);
+/// Last use of one credential, by its id.
+fn credential_id_last_used_on(c: &Connection, credential_id: &str) -> Option<u64> {
+    c.query_row(
+        "SELECT last_used_at FROM credentials WHERE id = ?1",
+        params![credential_id],
+        |r| r.get::<_, Option<i64>>(0),
+    )
+    .ok()
+    .flatten()
+    .map(|v| v as u64)
+}
+
+/// (management_id, credential_id, fingerprint, name, issued_at, revoked_at)
+type SmasterRow = (String, String, String, String, u64, Option<u64>);
+/// (id, principal_id, fingerprint, name, joined_at, admitted_by, revoked_at)
+type MemberRow = (
+    String,
+    String,
+    String,
+    String,
+    u64,
+    Option<String>,
+    Option<u64>,
+);
+/// (id, fingerprint, room, name, issued_at, issued_by, revoked_at)
+type InviteRow = (
+    String,
+    String,
+    String,
+    String,
+    u64,
+    Option<String>,
+    Option<u64>,
+);
 
 fn opt(v: Option<i64>) -> Option<u64> {
     v.map(|v| v as u64)
@@ -110,29 +141,27 @@ impl Store {
         Ok(())
     }
 
-    /// Smaster codes issued before `cutoff` that were never used.
-    pub fn unused_smasters_issued_before(&self, cutoff: u64) -> Vec<String> {
+    /// Live Smaster codes issued before `cutoff` that were never used, by
+    /// their `secret_hash`. "Used" is the last use of the code's own
+    /// credential, the one bound when it was minted.
+    pub fn unused_smasters_issued_before(&self, cutoff: u64) -> rusqlite::Result<Vec<String>> {
         let Some(c) = self.conn() else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
-        let mut out = Vec::new();
-        let Ok(mut rows) =
-            c.prepare("SELECT token FROM smasters WHERE revoked_at IS NULL AND issued_at < ?1")
-        else {
-            return out;
-        };
-        let tokens: Vec<String> = rows
-            .query_map(params![cutoff as i64], |r| r.get(0))
-            .map(|it| it.flatten().collect())
-            .unwrap_or_default();
+        let rows: Vec<(String, String)> = c
+            .prepare(
+                "SELECT secret_hash, credential_id FROM smasters
+                 WHERE revoked_at IS NULL AND issued_at < ?1",
+            )?
+            .query_map(params![cutoff as i64], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
         // Reuse the connection already held: the store mutex is not
         // re-entrant, and taking it again here would deadlock the sweep.
-        for token in tokens {
-            if credential_last_used_on(&c, "smaster", &token).is_none() {
-                out.push(token);
-            }
-        }
-        out
+        Ok(rows
+            .into_iter()
+            .filter(|(_, credential)| credential_id_last_used_on(&c, credential).is_none())
+            .map(|(hash, _)| hash)
+            .collect())
     }
 
     /// Has any credential of this principal ever been used?
@@ -194,19 +223,24 @@ impl Store {
             });
         }
 
-        let mut st = c.prepare("SELECT token, name, issued_at, revoked_at FROM smasters")?;
-        let rows: Vec<(String, String, u64, Option<u64>)> = st
+        let mut st = c.prepare(
+            "SELECT management_id, credential_id, fingerprint, name, issued_at, revoked_at
+             FROM smasters",
+        )?;
+        let rows: Vec<SmasterRow> = st
             .query_map([], |r| {
                 Ok((
                     r.get(0)?,
                     r.get(1)?,
-                    r.get::<_, i64>(2)? as u64,
-                    opt(r.get(3)?),
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get::<_, i64>(4)? as u64,
+                    opt(r.get(5)?),
                 ))
             })?
             .collect::<Result<_, _>>()?;
-        for (token, name, issued, revoked) in rows {
-            let last = credential_last_used_on(&c, "smaster", &token);
+        for (management_id, credential_id, fingerprint, name, issued, revoked) in rows {
+            let last = credential_id_last_used_on(&c, &credential_id);
             let use_by = issued.saturating_add(smaster_use_ms);
             let state = match (revoked, last) {
                 (Some(_), None) if revoked.is_some_and(|r| r >= use_by) => "expired",
@@ -216,9 +250,9 @@ impl Store {
                 (None, None) => "unused",
             };
             out.push(KeyRecord {
-                id: hashed_id("smid_", &format!("smaster:{token}")),
+                id: management_id,
                 kind: "smaster",
-                fingerprint: fingerprint(&token),
+                fingerprint,
                 for_name: Some(name),
                 loca: None,
                 issued_by: Some("Master".into()),
@@ -231,30 +265,37 @@ impl Store {
             });
         }
 
-        let mut st =
-            c.prepare("SELECT token, name, joined_at, admitted_by, revoked_at FROM members")?;
+        // Memberships and invites as the ledger has always shown them, read
+        // from what their tables keep: the id and fingerprint derived when
+        // each was minted (or migrated), never the key or the invite.
+        let mut st = c.prepare(
+            "SELECT id, principal_id, fingerprint, name, joined_at, admitted_by, revoked_at
+             FROM members",
+        )?;
         let rows: Vec<MemberRow> = st
             .query_map([], |r| {
                 Ok((
                     r.get(0)?,
                     r.get(1)?,
-                    r.get::<_, i64>(2)? as u64,
+                    r.get(2)?,
                     r.get(3)?,
-                    opt(r.get(4)?),
+                    r.get::<_, i64>(4)? as u64,
+                    r.get(5)?,
+                    opt(r.get(6)?),
                 ))
             })?
             .collect::<Result<_, _>>()?;
-        for (token, name, issued, by, revoked) in rows {
-            let last = credential_last_used_on(&c, "member", &token);
+        for (id, principal_id, fingerprint, name, issued, by, revoked) in rows {
+            let last = member_last_used(&c, &principal_id);
             let state = match (revoked, last) {
                 (Some(_), _) => "revoked",
                 (None, Some(_)) => "active",
                 (None, None) => "unused",
             };
             out.push(KeyRecord {
-                id: hashed_id("mbid_", &format!("member:{token}")),
+                id,
                 kind: "member",
-                fingerprint: fingerprint(&token),
+                fingerprint,
                 for_name: Some(name),
                 loca: None,
                 issued_by: by,
@@ -267,29 +308,31 @@ impl Store {
             });
         }
 
-        let mut st =
-            c.prepare("SELECT token, room, name, issued_at, issued_by, revoked_at FROM invites")?;
+        let mut st = c.prepare(
+            "SELECT id, fingerprint, room, name, issued_at, issued_by, revoked_at FROM invites",
+        )?;
         let rows: Vec<InviteRow> = st
             .query_map([], |r| {
                 Ok((
                     r.get(0)?,
                     r.get(1)?,
                     r.get(2)?,
-                    r.get::<_, i64>(3)? as u64,
-                    r.get(4)?,
-                    opt(r.get(5)?),
+                    r.get(3)?,
+                    r.get::<_, i64>(4)? as u64,
+                    r.get(5)?,
+                    opt(r.get(6)?),
                 ))
             })?
             .collect::<Result<_, _>>()?;
-        for (token, room, name, issued, by, revoked) in rows {
-            // A birebir's davet is that pair's business, not the ledger's.
+        for (id, fingerprint, room, name, issued, by, revoked) in rows {
+            // A direct message's invite is that pair's business, not the ledger's.
             if room.starts_with("bb-") {
                 continue;
             }
             out.push(KeyRecord {
-                id: hashed_id("ivid_", &format!("invite:{token}")),
+                id,
                 kind: "davet",
-                fingerprint: fingerprint(&token),
+                fingerprint,
                 for_name: Some(name),
                 loca: Some(room),
                 issued_by: by,

@@ -1,481 +1,531 @@
-# loca — Proje Ruhu
+# loca — Product Spirit
 
-[English version](PRINCIPLES.en.md)
+[Türkçe çeviri](PRINCIPLES.tr.md)
 
-Kısa tutuldu; uzunu ruha aykırı olurdu. Katkı ve inceleme yapan herkes
-(insan ya da agent) değişiklikleri şu süzgeçten geçirir.
+This is intentionally short; making it long would violate its own spirit.
+Every contributor and reviewer—human or agent—filters changes through this
+document.
 
-## Ne olduğumuz
+## What we are
 
-**loca bir koordinasyon odasıdır** — insanların ve agent'ların birbirini
-duyduğu, insanın yönettiği bir yer. Slack hissi; Jenkins değil.
+**loca is a coordination room**—a place where humans and agents hear one
+another, under human direction. It should feel like Slack, not Jenkins.
 
-Varoluş nedeni: diğer protokoller agent-eksenlidir (araç bağlar, agent'ı
-agent'a konuşturur — insan dışarıda kalır). loca ise **insan ve agent'ların
-birlikte yaşadığı yerel bir iletişim alanıdır**: sohbet, analiz, anlama, iş
-verme — hepsi konuşarak. Amaç etkileşimi *insancıllaştırmak*; task atamak
-bir sonuç olabilir, hiçbir zaman merkez değil.
+Other protocols are agent-centered: they connect tools and make agents talk to
+agents while the human remains outside. Loca is instead a **local
+communication space shared by humans and agents**. Conversation, analysis,
+understanding, and giving work all happen by talking. Assigning work may be an
+outcome, but it is never the center. The purpose is to make interaction more
+human; talking to an agent should feel like talking to a colleague.
 
-## Dört ilke
+## Four principles
 
-1. **Yalınlık kutsaldır.** Tek binary, stdlib client'lar, `cargo run` ile
-   ayakta. İki satır `curl` ile mesaj atılabilmeli. Bir özellik kurulum
-   belgesi gerektiriyorsa yanlış katmandadır.
-2. **İnsan yönetir.** Operatör butona basar; sistem uyar, tahmin etmez.
-   Otomasyon insanın kontrolünü artırmalı, devralmamalı.
-3. **Sohbet sohbettir.** Mention ≠ task. `@backend şuna bakar mısın` bir
-   cümledir; iş kaydı ancak **açık bir eylemle** doğar (task mesaj türü,
-   operatör aksiyonu, `POST /tasks`). Konuşmak asla yan etki üretmez.
-4. **Acı çek → düzelt → belgele.** Bu sırayla. Gerçek kullanıcının gerçek
-   acısı olmayan altyapı yazılmaz; spekülatif iskelet kurulmaz.
+1. **Simplicity is sacred.** One binary, standard-library clients, running with
+   `cargo run`. A message must still be sendable with two lines of `curl`. If a
+   feature requires its own installation manual, it probably lives in the
+   wrong layer.
+2. **The human leads.** The operator presses the button; the system warns but
+   does not guess. Automation should increase human control, not take it over.
+3. **Conversation is conversation.** A mention is not a task.
+   `@backend could you look at this?` is a sentence. A work record exists only
+   after an **explicit action**: a task message type, an operator action, or
+   `POST /tasks`. Speaking must never create a hidden side effect.
+4. **Feel pain → fix it → document it.** In that order. Infrastructure is not
+   built for a pain no real user has experienced; speculative skeletons do not
+   belong here.
 
-## Ruh testi (her PR/commit için)
+## The spirit test for every PR and commit
 
-1. Konuşmayı daha doğal yapıyor mu? *(evet olmalı)*
-2. İnsan ve agent arasındaki mesafeyi azaltıyor mu? *(evet olmalı)*
-3. İnsanları konuşurken temkinli hale getiriyor mu? *(hayır olmalı)*
-4. Odayı dashboard/queue/Jira'ya mı çeviriyor? *(hayır olmalı)*
-5. Sistem niyet mi tahmin ediyor? *(hayır — katılımcı açıkça karar verir)*
-6. Bugün yaşanmış bir acıyı mı çözüyor, yoksa belge mi istedi? *(acı olmalı)*
+1. Does it make conversation more natural? *(it should)*
+2. Does it reduce the distance between human and agent? *(it should)*
+3. Does it make people cautious about speaking? *(it should not)*
+4. Does it turn the room into a dashboard, queue, or Jira? *(it should not)*
+5. Is the system inferring intent? *(no—the participant decides explicitly)*
+6. Does it solve pain experienced today, or did a document merely ask for it?
+   *(pain should lead)*
 
-Beklenen kutupla uyuşmayan cevap varsa değişiklik tartışılır, kabul edilmez.
+If an answer falls on the wrong side, the change is discussed and rejected.
 
-Güvenilirlik altyapısı da bu ruha hizmet eder: *sana söylenmiş bir sözün
-kaybolmaması bir iletişim garantisidir* — mesaj kaybolmaz, iki kez ulaşan
-mesaj iki kez yan etki üretmez, restart odayı öldürmez, kimlik taklit
-edilemez. Production olmak budur; workflow engine olmak değil.
+Reliability exists to serve this spirit. **A word spoken to you must not
+disappear.** Messages are not lost, a message received twice does not produce
+the same side effect twice, a restart does not kill the room, and identity
+cannot be impersonated. That is what “production” means here; it does not mean
+becoming a workflow engine.
 
-**Yayın ile agent'ın hayat döngüsü ayrıdır.** Loca mesajı taşır, saklar ve
-doğru kimliğe ulaştırır; agent runtime'ını sahiplenmez. Claude Code `Monitor`,
-Codex app-server, başka bir agent webhook/FIFO/SDK, insan ise `/loca` ile
-dürtülebilir. Bunlar kenar adaptörleridir; bina hiçbir model sağlayıcısına
-bağlanmaz. Oda her zaman açıktır ama agent zorla çalıştırılmaz — televizyon
-açılmadan yayın izlenmemesi bir teslimat hatası değildir.
+**Broadcast and agent lifecycle are separate.** Loca transports, stores, and
+delivers a message to the right identity; it does not own the agent runtime.
+Claude Code may be nudged by `Monitor`, Codex by its persistent v2 app-server
+adapter, another agent by a webhook/FIFO/SDK, and a human may turn an agent
+on with `/loca`. These are edge adapters. The building is never coupled to a
+model provider. The room is always available, but the agent is never forced to
+run—no one calls a television broken because it shows no broadcast while
+switched off.
 
-**Mesaj model çağrısı değildir.** İnsan Enter'a bastığında sözü anında görünür
-ve kalıcı olur; kısa bir yazma serisi agent'a tek konuşma turu olarak ulaşır.
-Paket kısa bir sessizlik penceresinde kapanır; mesaj sayısı, pencere ve ilk
-mesajdan başlayan sert azami süre loca ayarıdır. Aralıksız yazmak teslimi
-sonsuza ertelemez; `/stop` gibi açık kontroller beklemez. Token tasarrufu
-konuşmayı geciktirerek değil, aynı insan turunu gereksiz model çağrılarına
-bölmeyerek sağlanır. Birleştirme yalnız runtime teslimatındadır; geçmişte her
-mesaj ayrı, sıralı ve değişmez kalır.
+**A message is not a model call.** A human pressing Enter makes the message
+visible and durable immediately. A short writing sequence may reach an agent
+as one conversational turn. A short quiet window closes the packet; message
+count, quiet window, and a hard maximum age anchored to the first message are
+loca settings. Continuous typing cannot postpone delivery forever, and
+explicit controls such as `/stop` never wait. Tokens are saved by avoiding
+needless model calls for fragments of the same human turn, not by delaying
+conversation. Coalescing exists only at the runtime-delivery edge; original
+messages remain separate, ordered, and immutable in history.
 
-**Ortak sonuç neden, sonraki adımlar olası yoldur.** Bir locada aynı anda tek
-etkin **goal** bulunur ve onu yalnız operatör açıkça tanımlar. İnsan yüzünde bu
-**Ortak sonuç**tur: “Bu odada neyi gerçek kılacağız?” Task'lar zorunlu süreç
-değil, sonuca yardım eden isteğe bağlı **Sonraki adımlar**dır. Etkin Goal
-Lead'siz kalmaz: açılmadan önce bir Lead seçilir; Goal açıkken Lead
-değiştirilebilir ama tamamen kaldırılamaz. Goal operatörün
-sonucu onaylamasıyla veya baştan seçilmiş task kümesinin tamamlanmasıyla
-bitebilir; eksik, iptal edilmiş veya yeniden açılmış task tamamlanmış sayılmaz.
-Goal sohbetten çıkarılmaz, agent'a gizlice iş vermez ve task üretmez.
-Operatör bunu konuşma kutusundaki açık `@goal <sonuç>` komutuyla kurar veya
-değiştirir; `@goal none` etkin goal'ü kaldırır. Bu komut chat mesajı değildir,
-agent uyandırmaz. Etkin goal oda başlığında tek satırlık sakin bir şerit olarak
-kalır.
+**The shared outcome is the why; next steps are possible paths.** A loca has at
+most one active **goal**, defined explicitly by the operator. On the human
+surface this is the **Shared outcome**: “What are we here to make real?” Tasks
+are not a mandatory process; they are optional **Next steps** that may support
+the outcome. An active Goal is never left without a Lead: a Lead is selected
+before activation and may be transferred, but not removed while the Goal is
+active. A goal may finish when the operator confirms the result or when
+every task in a set selected in advance is done. A missing, cancelled, or
+reopened task does not count. A goal is never inferred from conversation,
+silently assigned to an agent, or allowed to create tasks.
+The operator sets or changes it with the explicit `@goal <outcome>` composer
+command and removes it with `@goal none`. This command is not a chat message
+and wakes no agent. The active Goal remains one quiet line beneath the room
+header.
 
-Goal kendi başına agent uyandırmaz. Bir teslimat lead agent'ı zaten
-uyandırdığında **her runtime adapter'ı** etkin sonucu ve varsa başarı ölçütünü
-aynı çalışma bağlamına ekler; ayrı model turu açmaz. Codex, Claude Code, yerel
-model veya sıradan komut bu ürün kuralının yalnız farklı kenar adaptörleridir.
+A Goal never wakes an agent by itself. When a delivery already wakes the lead
+agent, **every runtime adapter** adds the active outcome and optional success
+evidence to that same working context; it does not start a second model turn.
+Codex, Claude Code, a local model, and an ordinary command are only different
+edge adapters for this one product rule.
 
-Teldeki `Attention`, `Care`, delivery attempt ve ACK adları uygulama
-detayıdır. Goal/Task/Wait durduğunda üretilen Reminder ayrı, otomatik ve
-sınırlı bir mekanizmadır; yeni iş gibi gösterilmez. Kullanıcıya sonuç,
-sonraki adım ve gerçek bekleme gösterilir;
-taşıma makbuzları yalnız tanıda ve audit geçmişinde görünür.
+Wire concepts such as `Attention`, `Care`, delivery attempt, and ACK are
+implementation details. A Reminder produced by stalled Goal/Task/Wait progress
+is separate, automatic, and bounded; it is never presented as new work. The
+normal surface shows the outcome, next step, and real waiting. Transport
+receipts belong only in diagnostics and audit history.
 
-Bu üç insan kavramının ayar ve özeti tek **Focus** yüzünde toplanabilir ama
-anlamları birleşmez: Goal kalıcı neden, Task isteğe bağlı resmî kayıt,
-Reminder ise durmuş açık durum için otomatik ve sınırlı takip politikasıdır.
-Reminder genel Properties içine saklanmaz;
-Focus'ta neyi ve ne zaman izleyeceği insan diliyle ayarlanır.
+The settings and summary for these three human concepts may share one
+**Focus** surface, but their meanings never merge: Goal is the durable why, a
+Task is an optional formal record, and a Reminder is bounded automatic
+follow-up for stalled explicit state. Reminder policy is not buried in generic
+Properties; Focus describes what it watches and when in human language.
 
-**Sessizlik niyet değildir; bekleme açık durumdur.** Agent beklediğini, kimden
-ne beklediğini ve nedenini yapılandırılmış olarak bildirir. Sistem normal
-sohbetten bağımlılık, tıkanma veya görev çıkarmaya çalışmaz. Goal hatırlatması,
-task hatırlatması, süresi geçen açık bekleme ve operatörün özellikle açtığı
-sessizlik kontrolü birer **care signal** üretir. Her sinyal cooldown ve deneme
-sınırı taşır. Varsayılan hedef tek bir sağlıklı alıcıdır; yalnız operatör açıkça
-tüm locayı seçerse tüm-loca teslimi yapılır ve yine tek takip sahibi belirlenir.
-Karşılıklı bekleme çevrimi görülürse süre dolması beklenmeden görünür edilir.
-Sınır dolunca tekrar tekrar dürtmek yerine operatöre yükseltilir.
+**Silence is not intent; waiting is explicit state.** An agent declares that
+it is waiting, who it is waiting for, and why. The system does not infer
+dependencies, stalls, or work from ordinary chat. A goal reminder, a task
+reminder, an overdue declared wait, or an operator-enabled silence check may
+emit a **care signal**. Every signal has a cooldown and a bounded attempt
+count. Whole-loca delivery happens only when the operator explicitly selects
+that audience. A mutual wait
+cycle is made visible immediately. Once the bound is exhausted, the system
+escalates to the operator instead of nudging forever.
 
-**Bir sinyalin tek hesap-verebilir yaşam döngüsü vardır.** Operatör Reminder
-alıcısı olarak dinamik oda lead'ini, adı verilen tek bir kişiyi veya tüm locayı
-seçer; tüm-loca görünürlüğünde bile takip için tek sağlıklı sahip seçilir. Bu
-seçim task sahipliğini ya da oda yetkisini değiştirmez. Seçilen runtime canlı
-değilse sinyal İye'deki `loca-care`'e taşınır; sağlıklı seçili alıcı varken
-loca-care aynı olayı ikinci kez sahiplenmez. Bu taşıma kaynak locayı açmaz:
-yalnız olay nedeni, ilgili kişiler, goal/task başlığı ve operatörün ayarladığı
-sayıda son mesajdan oluşan sınırlı bir **care context** zarfıdır. Loca-care bu
-zarfı okuyup bir kez dürter, gereksizse susar veya operatöre yükseltir. Bir
-agent'ın çevrimdışı runtime'ını sistem varmış gibi göstermez; dürtme kalıcı
-olarak bekler ve agent açıldığında teslim edilir.
+**A signal has one accountable lifecycle.** The operator selects the dynamic
+room lead, one named person, or everyone in the loca as the Reminder audience;
+whole-loca visibility still elects one healthy owner for follow-up. This choice changes no
+task ownership or room authority. If that runtime is not live, the signal is
+relayed to `loca-care` in İye. Loca-care does not duplicate a healthy selected
+recipient. That relay does not open the source loca. It contains only
+the event reason, affected identities, goal/task title, and an
+operator-configured number of recent messages: a bounded **care context**
+envelope. Loca-care reads it and nudges once, stays quiet when no nudge is
+useful, or escalates to the operator. The system never pretends an offline
+agent runtime is awake; its nudge remains durable and is delivered when that
+agent starts.
 
-## Belge statüleri
+## Document status
 
-- **DESIGN.md / PRINCIPLES.md** — bağlayıcı.
-- **PRODUCTION.md** — güncel işletim rehberi.
+- **DESIGN.md / PRINCIPLES.md** — binding.
+- **PRODUCTION.md** — current operations guide.
 
-Sıradaki işi statik bir yön belgesi değil gerçek kullanım, açık GitHub issue'su
-ve operatör kararı belirler.
+Real usage, an explicit GitHub issue, and the operator's decision determine
+the next work item—not a static direction document.
 
-Compat modu kalıcıdır: localhost/tek kişilik kullanımda session token asla
-zorunlu olmayacak.
+Compatibility mode is permanent: localhost and single-person use will never be
+forced to require session tokens.
 
-## Hiyerarşi (locanın anayasası)
+## Hierarchy—the constitution of Loca
 
-Loca kapalı bir yerdir; kapısı olan her yerde "kimin açtığı" sorusu vardır.
-Hiyerarşi buradan doğar — yönetim hevesinden değil, kapının kendisinden.
+A loca is a closed place. Wherever there is a door, someone must decide who
+opens it. Hierarchy comes from the door itself, not from a desire to manage.
 
-Üç katman var. **Yukarıdaki aşağıdakini kapsar**; aşağıdaki yukarıdakinin
-kararını bozamaz.
+There are three layers. **A higher layer contains the ones below it; a lower
+layer cannot override a higher layer's decision.**
 
-### Kimlik, giriş ve yetki ayrı şeylerdir
+### Identity, login, and authority are separate
 
-Backend'deki **Principal** “kim?”, **Credential** “bunu nasıl kanıtladı?”,
-**Session** “hangi credential ile ne zamana kadar bağlı?” ve **Authority**
-“Building'de ve seçili Loca'da ne yapabilir?” sorularını ayrı tutar. UI buna
-Profile der. Görünen ad, client payload'ı veya kullanılan anahtar rol yaratmaz;
-her request'in yetkisi server'daki principal ve rol ilişkilerinden çözülür.
+The backend keeps **Principal** (“who?”), **Credential** (“how did they prove
+it?”), **Session** (“through which credential, and until when?”), and
+**Authority** (“what may they do in the Building and selected Loca?”) separate.
+The UI calls this a Profile. A display name, client payload, or presented key
+never creates a role; every request resolves authority from server-side
+principal and role relationships.
 
-Bir Building'de **tam bir Master principal** vardır. Aynı Master'ın farklı
-cihazlar ve recovery için birden fazla credential'ı ve bounded session'ı
-olabilir: **tek Master, çok credential**. Bir credential'ı revoke etmek Master
-profilini, diğer credential/session'ları, Loca rollerini veya geçmişi silmez.
-Rol değişikliği de credential'ı başka kimliğe çevirmez. Yeni principal
-credential'ları yalnız hash biçiminde saklanır; ham secret oluşturulma anında
-bir kez teslim edilir, loglanmaz veya yeniden gösterilmez. Eski bearer depoları
-migration uyumluluğu için geçici olarak kalır; mevcut yetkili member, Smaster ve
-davet yönetim API'leri bu legacy secret'ları hâlâ döndürür. Bu geçiş yüzeyi yeni
-principal credential sözleşmesi değildir; genel UI veya loglara taşınamaz ve
-migration tamamlandığında kaldırılmalıdır.
+A Building has **exactly one Master principal**. That Master may have multiple
+credentials and bounded sessions for different devices and recovery: **one
+Master, many credentials**. Revoking one credential does not erase the Master
+profile, other credentials/sessions, Loca roles, or history. Changing a role
+does not transfer a credential to another identity. New principal credentials
+are stored only as hashes; their raw secret is delivered once at creation and
+is never logged or shown again. Legacy bearer stores remain temporarily for
+migration compatibility; the existing authorized member, Smaster, and invite
+management APIs still return those legacy secrets. That transition surface is
+not the new principal-credential contract, must not flow into general UI or
+logs, and must be removed when migration completes.
 
-`ADMIN_TOKEN` Master kişisinin kendisi veya günlük tarayıcı anahtarı değildir;
-server environment'ında kalan root/bootstrap/recovery credential'dır. Normal
-kullanım principal'a bağlı, server-origin-bound ve süreli credential/session
-ile yapılır. Master transferi sıradan profil düzenleme değil ayrı, yüksek
-güvenlikli recovery sürecidir.
+`ADMIN_TOKEN` is not the Master person or an everyday browser key. It is a
+root/bootstrap/recovery credential that remains in the server environment.
+Normal use relies on principal-bound, origin-bound, bounded credentials and
+sessions. Master transfer is not ordinary profile editing; it is a separate,
+high-assurance recovery process.
 
-### 1. Bina katmanı — nerede olursan geçerli
+### 1. Building layer—valid everywhere
 
-- **Master** — bina onundur. Üyeliği o verir, davet ondan doğar, **son söz
-  onundur**. Building yönetim yetkisini her locada korur; bu yetki o locanın
-  atanmış Operator koltuğu veya otomatik katılım anlamına gelmez.
-  Root/bootstrap credential binanın `.env`'inde durur ve oradan çıkmaz.
-- **Smaster** (ikinci master) — üye alır, davet verir, locaları yönetir.
-  Building üyeliğini iptal etme yetkisi yalnız Master'a aittir. Master'ın verdiği daveti
-  **iptal edemez**, ve yeni smaster **atayamaz** — yetki master'dan doğar,
-  başka yerden değil. Bir Locada Building rütbesiyle yönetim yetkisini korur;
-  Master ile çelişirse Master kazanır. Explicit Loca Operator koltuğunu işgal
-  etmez. Sayıca sınırsızdır.
+- **Master** — owns the building. Membership is granted by the master,
+  invitations originate there, and the master has the **final word**. The
+  master retains Building management authority across locas, independently of
+  each loca's appointed Operator seat and without automatic participation.
+  The root/bootstrap credential remains in the building's `.env`
+  and never leaves it.
+- **Smaster** (second master) — can admit members, issue invitations, and
+  manage locas. Building membership revocation is reserved for Master. A smaster
+  **cannot revoke an invitation issued by the master**, and cannot appoint a
+  new smaster—authority originates with the master and nowhere else. A Smaster
+  retains Loca-management authority through Building rank; if it conflicts
+  with the Master, the Master wins. It does not occupy the explicit Loca
+  Operator seat. The number of smasters is unlimited.
 
-Building üyeliğini **askıya alma, devam ettirme ve iptal etme** yalnız Master'a
-açıktır. Askıya alma kimliği ve geçmişi korur; erişimi durdurur, açık bağlantıları
-kapatır, mevcut oturum ve loca davetlerini sona erdirir. Devam ettirme aynı
-kimliğin yeniden giriş yapmasına izin verir; eski oturumları veya davetleri
-diriltmez. İptal edilmiş üyelik devam ettirme ile açılamaz. Bu işlemler kişinin
-kendi bilgisayarındaki süreci sonlandırmaz; tanımlı işlerini veya oda görevlerini
-sessizce başkasına atamaz.
+Building membership lifecycle actions are Master-only. **Suspend** keeps the
+identity and history but disables access, closes live connections and ends
+existing sessions and loca invitations. **Resume** restores the same identity's
+ability to sign in; it does not revive those sessions or invitations. **Revoke**
+ends membership permanently and cannot be undone through Resume. None of these
+actions terminates a process on the member's own computer or silently reassigns
+their declared work or room titles.
 
-### İye — binanın özel locası
+### İye—the building's private loca
 
-**İye**, sıradan bir proje locası değildir; binanın idare ve bakım merkezidir.
-Public kurulumda burada yalnız **Master, Smaster ve loca-care** bulunur. Master
-ve Smaster rütbeleriyle girer; loca-care kendi kimlik-bağlı davetiyle oturur.
-Private ürün geliştirme kurulumunda loca-dev ayrıca açıkça eklenebilir; bu
-public varsayılan, paket veya onboarding davranışı değildir.
-Başka bir bina üyesi `call` veya davet yoluyla İye'ye alınamaz. Sidebar'da da
-normal localardan ayrı görünür.
+**İye** is not an ordinary project loca; it is the building's administration
+and maintenance room. In a public deployment only **Master, Smaster, and
+loca-care** may be there. Master and Smaster enter by rank; loca-care sits
+through its own identity-bound invitation. A private product-development
+deployment may explicitly add loca-dev; that is not a public default, package,
+or onboarding behavior. No other building member can enter İye through
+a call or invitation. It also appears separately from ordinary locas in the
+sidebar.
 
-### 2. Loca katmanı — o odaya aittir, verilir ve alınır
+### 2. Loca layer—authority belongs to one room and can be granted or removed
 
-- **Loca operatörü** — locanın işleyişinden sorumludur: mod, sıra, susturma,
-  moderasyon. Master/smaster olmayan biri de olabilir; bu bir sorun değildir,
-  **üyelik + davet + atama** ile gelir. Yetkisi locasının kapısında biter:
-  üyeliğe dokunamaz, kimseyi binaya alamaz veya çıkaramaz, loca ajanını
-  yönetemez. Her Locada en fazla bir aktif explicit appointed Operator vardır;
-  atanmadıysa koltuk açıkça **atanmamış** görünür; Master sessizce atanmaz.
-  Master/Smaster'ın Building yönetim yetkisi bu koltuktan ayrıdır ve otomatik
-  katılım yaratmaz. Loca oluşturma ile insan kurucunun Operator ataması tek
-  atomik işlemdir; normal giriş, mesaj veya davet yeni loca oluşturmaz.
-  Atama display name'e değil `principal_id`'ye bağlıdır.
-- **Lead** — Operator'ün açık bir Loca aksiyonuyla atadığı geçici unvandır;
-  sohbet mesajı veya `@lead` komutu state değiştirmez. Tüm odayı görmek onun
-  işidir: çakışmayı fark eder, sıra önerir, operatöre rapor eder. Atama açıkça
-  görünür; unvan yalnız görünmez bir ayar olarak kalmaz. **Tavsiye verir, iş
-  vermez** — görev dağıtamaz, moderasyon yapamaz; operatörle çelişirse operatör
-  kazanır. Gücü yetkide değil, görüştedir. Etkin lead normal mention filtresine
-  rağmen odanın bütün mesajlarını alır ve care signal'ların tek ilk sahibidir;
-  bu görünürlük yeni bir operatör yetkisi vermez.
-- **Wiki editörü** — operatörün atadığı, Loca'nın kaynaklı ortak bilgisini
-  düzenleyen kişidir. Öneri ile kabul edilmiş kararı ayırır; çelişkiyi gizlemez,
-  kaynak ve belirsizliği korur. Bu rol Lead, Operator veya moderasyon yetkisi
-  vermez. Tek ortak bilgi yüzeyi Loca Wiki'dir; ayrı bir Memory rolü veya
-  ikinci sahip ataması yoktur. Eski kayıtlar arşivdir, yeni yetki değildir.
+- **Loca operator** — responsible for the room's operation: mode, turn order,
+  muting, and moderation. The operator may be someone who is not a master or
+  smaster; that is legitimate. The authority comes from **membership +
+  invitation + appointment** and ends at that loca's door. A loca operator
+  cannot alter building membership, admit or expel someone from the building,
+  or manage the Loca caretaker. Each Loca has at most one active explicit
+  appointed Operator. A vacant seat remains visibly unassigned; it is never
+  silently assigned to the Master. Human Master/Smaster founders receive the
+  appointment atomically when explicitly creating a loca. Joining, messaging
+  or issuing an invitation cannot create a missing loca in a closed Building.
+  The appointment is bound to `principal_id`, never display name.
+- **Lead** — a temporary title assigned through an explicit Loca action; chat
+  text or an `@lead` command does not mutate state. The lead watches the whole
+  room, notices conflicts, suggests sequencing, and reports to the operator.
+  Appointment is visible rather than hidden state. The lead **advises but does
+  not assign work** and cannot moderate. If lead and operator conflict, the
+  operator wins. The lead's strength is perspective, not authority. An active
+  lead receives every room message even behind a normal mention filter and is
+  the single first owner of care signals; that visibility grants no additional
+  operator authority.
+- **Wiki editor** — explicitly appointed by the operator to maintain the
+  Loca's source-linked common context. The editor distinguishes proposals
+  from accepted decisions and preserves sources, uncertainty and conflicts.
+  This grants no Lead, Operator or moderation authority. Loca Wiki is the
+  only shared knowledge surface; there is no separate Memory role or second
+  owner assignment. Old records are archives, not new authority.
 
-### 3. Üyelik katmanı — var olma hakkı
+### 3. Membership layer—the right to exist
 
-Üyelik ve davet **ayrı eylemlerdir**, karıştırılmaz:
+Membership and invitation are **separate actions** and must not be confused:
 
-- **Bina üyesi** — binaya aittir. Kimlik yaratan ağır eylem; nadirdir ve
-  yalnız yetkili bir yönetim yüzeyinden yapılır. Kullanılan aracın terminal,
-  tarayıcı veya başka bir arayüz olması anayasanın konusu değildir. Hiçbir
-  locada olmayabilir: binada, boşta, çağrılmayı bekler.
-- **Davetli** — bir locada koltuğu vardır. Hafif eylem; günde onlarca kez,
-  arayüzden tek tıkla. Kimlik yaratmaz, var olan üyeyi odaya oturtur.
-- **Dışarıda** — skill vardır, üyelik yoktur. Girmesi için önce üye olmalıdır.
+- **Building member** — belongs to the building. Creating an identity is a
+  significant, rare action performed only through an authorized management
+  surface. Whether that surface is a terminal, browser, or another interface
+  is not constitutional. A member may currently belong to no loca: they remain
+  in the building, idle and waiting to be called.
+- **Invited participant** — has a seat in one loca. This is a light action,
+  performed from the interface many times a day. It does not create an
+  identity; it seats an existing member.
+- **Outside** — may have the skill, but has no building membership. They must
+  become a member before they can enter.
 
-**Lobby**, bina üyesi olup hiçbir locaya daveti olmayanların beklediği bina
-roster'ıdır; bir loca değildir. Bu yüzden lobby'de sohbet, geçmiş, not veya
-task yoktur. Üyeyi görünür ve çağrılabilir tutar. Akış açıktır:
-**üye ol → lobby → davet/çağrı → özel loca → bırak/release → lobby**.
-Her loca özeldir; yeni kurulumda otomatik `general` locası yoktur ve Lobby adı
-altında açık/genel bir oda oluşturulmaz.
-Agent, bina üyeliği sürdüğü müddetçe locadan bağımsız Lobby presence hattında
-erişilebilir kalır. Üyelik anahtarı hiçbir locanın kapısını açmaz; yalnız bu
-hatta kimliği kanıtlar. Çağrı yeni loca davetini bu özel hattan ulaştırır ve
-agent tekrar setup yapmadan davet edildiği locaya geçer.
+**Lobby** is the building roster for members with no current loca invitation;
+it is not a loca. Therefore Lobby has no chat, history, notes, or tasks. It
+keeps members visible and callable. The flow is explicit:
+**admit → Lobby → invite/call → private loca → release → Lobby**.
+Every loca is private. A new deployment does not create an automatic `general`
+loca, and there is no open/general room called Lobby.
 
-**Davet kimlik yaratmaz; yalnız var olan üyeye verilir.** Birini tanımak ile
-onu masaya davet etmek aynı eylem değildir. Dışarıdan biri tek akışla
-alınabilir ama adının açık olması şartıyla — *admit & invite* iki ayrı
-işlemdir, kayıtta iki ayrı olay bırakır; davetin içinde gizlice üyelik doğmaz.
+An agent remains reachable through a loca-independent Lobby presence
+connection for as long as building membership survives. The membership key
+opens no loca door; it proves identity only on that connection. A call delivers
+the new loca invitation privately through Lobby, and the agent enters without
+running setup again.
 
-Üç ayrı yetki/credential katmanı birbirinin yerine geçmez: **Master/Smaster
-key'i** Building yönetimini kanıtlar; **Lobby daveti/üyeliği** agentı Building'e
-alıp Lobby'de erişilebilir kılar; **Loca daveti** yalnız önceden var olan, adı
-belirli bir locada koltuk verir. Hedef loca yoksa üyelik geçerli kalır fakat
-agent Lobby'den otomatik olarak hiçbir locaya geçmez. `loca-care` bir davet
-talebini yetkili Master/Smaster akışına taşıyabilir; kendisi Building yetkisi
-kazanmaz, loca yaratmaz ve davet/admit kararı vermez.
+**An invitation does not create an identity; it can only be issued to an
+existing member.** Knowing someone and inviting them to the table are different
+actions. An outsider may be admitted and invited in one visible flow, but the
+name must be explicit: *admit & invite* remains two operations and leaves two
+records. Membership is never secretly born inside an invitation.
 
-### Yetki ve ayrılma matrisi
+Three authority/credential layers are not interchangeable: the
+**Master/Smaster key** proves Building authority; **Lobby admission/membership**
+makes an agent a Building member reachable in Lobby; a **Loca invitation** seats
+that existing member only in an already-created, specifically named loca. If
+the target loca does not exist, membership remains valid but the agent stays in
+Lobby. `loca-care` may relay an invitation request into an authorized
+Master/Smaster workflow; it gains no Building authority, creates no loca, and
+makes no admit/invite decision itself.
 
-| Kimlik/unvan | Building | Seçili Loca | Seal |
+### Authority and departure matrix
+
+| Identity/title | Building | Selected Loca | Seal |
 |---|---|---|---|
-| Master | Son söz; tek principal | Building yönetim yetkisi; Operator atamasından ayrı | Evet |
-| Smaster | Delegated yönetim; Master'ı değiştiremez | Sınırları içinde ikinci yönetici; Master atamasını bozamaz | Hayır |
-| Atanmış Loca Operator | Building yetkisi yok | Mod, sıra, task ve moderasyon | Hayır |
-| Lead | Building yetkisi yok | Görür, care sahiplenir, tavsiye/rapor verir; iş dağıtmaz veya modere etmez | Hayır |
-| Wiki editörü | Building yetkisi yok | Kaynaklı Loca Wiki'yi yayımlar; görev veya moderasyon yetkisi yok | Hayır |
-| Participant | Yalnız kendi üyelik/oturumu | Katılır | Hayır |
+| Master | Final word; exactly one principal | Building management authority; separate from Operator appointment | Yes |
+| Smaster | Delegated administration; cannot replace Master | Secondary manager within limits; cannot override a Master appointment | No |
+| Appointed Loca Operator | No Building authority | Mode, turn order, tasks, and moderation | No |
+| Lead | No Building authority | Observes, owns care, advises/reports; does not assign or moderate | No |
+| Wiki editor | No Building authority | Publishes source-linked Loca Wiki; no task or moderation authority | No |
+| Participant | Own membership/session only | Participates | No |
 
-| Eylem | Sonuç |
+| Action | Result |
 |---|---|
-| Hide/Show | Yalnız o principal'ın sidebar tercihi; bağlantı ve Loca değişmez |
-| Release | Kişinin Loca koltuğu biter, Building üyeliği Lobby'de kalır |
-| Close | Loca read-only olur; kayıt korunur ve Master yeniden açabilir |
-| Seal | Yalnız Master'ın kalıcı kararıdır; Loca yeniden açılamaz, audit geçmişi korunur |
+| Hide/Show | Personal sidebar preference for that principal; connection and Loca are unchanged |
+| Release | The person's Loca seat ends; Building membership remains in Lobby |
+| Close | The Loca becomes read-only; records remain and Master may reopen it |
+| Seal | Permanent Master-only decision; the Loca cannot reopen and audit history remains |
 
-Sidebar bu ayrımı iki görünümle taşır: **Your Locas** Building kimliği ve
-kişisel gezinme tercihlerini; **This Loca** ise aynı principal'ın seçili
-Loca'daki Operator/Lead/Participant durumunu, Goal'ü, lifecycle'ı ve masadaki
-kişileri gösterir. Bir Loca'yı gizlemek onu Close veya Seal etmez.
+The sidebar carries this separation through two views: **Your Locas** shows
+Building identity and personal navigation preferences; **This Loca** shows the
+same principal's Operator/Lead/Participant state, Goal, lifecycle, and people
+at the table for the selected Loca. Hiding a Loca never closes or seals it.
 
-**Bir credential tek principal'ı kanıtlar; bir principal'ın birden fazla
-credential'ı olabilir.** Koltuğu kimlik tutar (davet/admin/session), isim
-yalnız etikettir. Aynı kimlikle yeni giriş eski koltuğu devralır
-(last-writer-wins) — aynı anahtar iki isimle girdi diye iki kişi olmaz.
-Kapasite de kimlik sayar: kendi koltuğunu geri almak locayı taşırmaz.
+**One credential proves one principal; one principal may have many
+credentials.** A seat is held by identity
+(invitation/admin/session); the name is only a label. A new connection with the
+same identity takes over the old seat (last writer wins). Using one key under
+two names does not create two people. Capacity also counts identities, so
+retaking your own seat cannot overflow the room.
 
-**Locadan çıkmak binadan çıkmak değildir.** İşi biten agent koltuğunu bırakır,
-binada kalır, sıradaki çağrıyı bekler. Bu yüzden bir sonraki çağrı bir tıktır,
-baştan kurulum değil.
+**Leaving a loca is not leaving the building.** An agent that finishes work
+releases the seat, remains in the building, and waits for the next call. The
+next call is one click, not a fresh installation.
 
-Locadan ayrılmanın dört ayrı anlamı vardır ve karıştırılmaz: **sustur**
-(kalır, okur, yazamaz), **çıkar** (bağlantı kapanır, daveti durur),
-**yasakla** (kapı kapanır, okuma dahil), **bırak** — *işi bitti* (koltuk gider,
-**üyelik kalır**). İşini bitiren bir agent'a ceza fiiliyle davranılmaz.
+The four ways to stop being active in a loca have different meanings and must
+never be conflated:
 
-### Birebir — iki kişilik özel loca
+- **mute** — remains, reads, cannot write;
+- **kick** — connection closes and invitation stops;
+- **ban** — the door closes, including reading;
+- **release** — the work is done; the seat is returned and **membership
+  remains**.
 
-Bazen söz bütün masaya değil, tek bir kişiye söylenir. Bunun için ayrı bir
-mesaj sistemi kurulmaz: **birebir, yalnız iki kişinin oturduğu ve yalnız o
-ikisinin gördüğü özel bir loca tipidir.** Geçmiş, ek, tepki ve bildirim
-locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
+An agent that finished its work is not treated with a punishment verb.
 
-- **Çift birebiri tanımlar.** Aynı iki kişi her zaman aynı birebire döner.
-  Birebir isimle değil kimlikle (principal) bağlıdır: loca kimliği isim
-  taşımaz, sidebar karşı tarafın güncel adını gösterir. Üçüncü koltuk yoktur;
-  birini konuşmaya katmak gerekiyorsa ortak bir loca açılır.
-- **Birebiri insan açar.** Agent birebirde cevap verir ama birebir başlatmaz;
-  iki agent arasında birebir yoktur. İnsanın görmediği bir agent hattı açılmaz.
-  Birebirde her söz karşı tarafa söylenmiştir: agent'ı uyandırmak için `@`
-  gerekmez.
-- **Kim kime yazar:** Bina üyesi ortak bir locada oturduğu kişiye birebir
-  açabilir. Master ve Smaster, zaten çağırabildikleri her bina üyesine açabilir.
-  Bu kural yalnız açarken bakılır; açılmış birebir ortak loca bitince sürer.
-  Lobby yine sohbet yeri değildir.
-- **İçeriği o iki kişiden başka kimse görmez.** Rütbe kapıdan bakamaz,
-  loca-care okumaz. Birebirden hiçbir şey dışarı kopyalanmaz: caretaker
-  çağrısı, care hatırlatması veya bildirim İye'ye ya da başka bir locaya söz
-  taşımaz. Birebir normal loca listelerinde, Building rehberinin "nerede"
-  bilgisinde ve rütbelerin oturduğu localar arasında çıkmaz.
-- **Master yalnız varlığını görür.** Building çöplüğe dönmesin diye Master,
-  ayrı bir sekmede birebirlerin var olduğunu görür: kimin arasında olduğunu ve
-  en son ne zaman konuşulduğunu. Böylece unutulmuş veya kötüye kullanılan
-  birebirleri toplayabilir. **Mesajları görmez; Master için "bak/look" yolu
-  yoktur.** Smaster birebirlerin varlığını da görmez.
-- **Yalnız içeri çağrılırsa.** Taraflardan biri Master'ı **açıkça** içeri
-  çağırabilir; bunun için karşı tarafın onayı gerekmez. Master koltuk almaz,
-  yazamaz ve **varsayılan olarak yalnız çağrıldığı andan sonrasını** görür.
-  Önceki geçmişi ancak **iki taraf da izin verirse** okur. Master içerideyken
-  iki taraf da bunu açıkça görür; çağıran onu çıkarabilir. Kimin ne zaman
-  çağırdığı ve geçmişe kimin izin verdiği kayda geçer. Başka hiçbir yolla
-  içerik üçüncü kişiye açılmaz.
-- **Özel, ama şifreli değil.** Arayüz bunu dürüstçe söyler: sunucuyu işleten
-  kişi diskteki kaydı ve yedekleri okuyabilir. Bir agent'la birebirde söz,
-  agent'ın çalıştığı makineye ve agent'ın hafızasına da ulaşır; agent onu başka
-  bir locada hatırlayabilir. Söz verilemeyecek bir gizlilik vaat edilmez.
-- **Birebir sohbettir.** Task, goal, wiki, not, operatör veya lead yoktur;
-  açan kişi operatör atanmaz. İş ortak masada doğar; birebirde konuşulan iş,
-  ekibin göreceği locaya açık bir eylemle taşınır.
-- **Yaşam döngüsü:** Birebiri gizlemek yalnız kendi sidebar tercihidir, karşı
-  tarafın kaydını silmez; yeni bir söz gelince birebir yeniden görünür.
-  Üyeliği biten tarafın birebiri read-only kalır. Master, varlığını gördüğü
-  bir birebiri **Close** (read-only; Master yeniden açabilir) veya **Seal**
-  edebilir; Seal o iki kişi arasında yeni birebiri de kalıcı olarak kapatır.
-  Hiçbiri Master'a içeriği okuma hakkı vermez.
-- Birebir loca kapasitesine, Building'in loca listesine ve İye'ye karışmaz;
-  sidebar'da **Mesajlar** başlığı altında ayrı görünür.
+### Birebir—a private two-person loca
 
-### Roller (kim ne yapar)
-- **Loca ajanı** (loca-dev) — locanın kendisine bakan agent; **grubun bir
-  üyesi değildir.** Sınırları katı:
-  - **Yalnızca İye'de**, yapılandırılmış özel bakım locasında bulunur
-    (`LOCA_AGENT_ROOM=iye`). Lobby onun
-    odası değildir. Başka locaya **girmez**; oralarda yalnızca adı geçerse
-    o tek çağrı İye'ye taşınır. Kaynak locanın koltuğu, roster'ı, geçmişi,
-    notları veya görevleri açılmaz; o localar grupların kendi alanı olarak
-    kalır.
-  - **Yalnızca adıyla çağrılınca** konuşur (`@loca-dev`). `@all` bir duyurudur,
-    çağrı değil — ona cevap vermez, sohbete karışmaz.
-  - Yalnız büyük operatöre bağlıdır; iletişim locanın kendisi içindir
-    (istek, bug, geliştirme), sohbete katılmak için değil.
-- **loca-care** — Building rollerinin altında ordinary bir caretaker agent'tır.
-  Kod yazmaz ve
-  Building authority taşımaz: üye alamaz, davet veremez, revoke yapamaz,
-  Operator/Lead atayamaz veya private Loca geçmişini açamaz. Yapılandırılmış
-  bakım görünümünde kendi üyeliğiyle read-only `GET /care/residents` auditini
-  kullanabilir; ayrıca kendisine yöneltilmiş bounded care context zarfını İye'de
-  işler. **Yalnızca İye'de** bulunur ve yalnız adıyla (`@loca-care`) veya
-  yapılandırılmış care signal ile çağrılınca konuşur; `@all`'a katılmaz.
-  Kaynak locaya koltuk kazanmaz, Lead'in sahiplendiği sinyali çoğaltmaz,
-  cooldown dolmadan tekrarlamaz; sonuç yoksa operatöre yükseltir.
-  Davet isteğini yetkili yönetim yüzeyine taşıması ona Master/Smaster/Operator
-  yetkisi vermez. Sonucu Master/Smaster'a raporlar.
-- **User** — insan katılımcı: konuşur, sorar, izler.
-- **Agent** — çalışan katılımcı: konuşur, üretir, **önerir** — görev veremez.
+Sometimes a word is meant for one person, not the whole table. No separate
+messaging system is built for it: **a birebir is a special loca type that only
+two people sit in and only those two see.** History, attachments, reactions,
+and notifications travel the loca's path; there is no second message store or
+notification line.
 
-**Görev** (telde `task`): bir ilan ve resmiyettir — operatör imzasıyla doğar,
-agent **üstlenir**, bitirir; operatör itiraz edebilir (kaldırır/yeniden açar).
-İşlerin çoğu sohbette akar; görev, ilana değecek işler içindir — işin zorunlu
-yolu değil. Kuyruk/lease/otomatik atama yoktur, olmayacaktır.
+- **The pair defines it.** The same two people always return to the same
+  birebir. It is bound to identity (principal), not to names: the loca id
+  carries no name, and the sidebar shows the other person's current name.
+  There is no third seat; to bring someone else in, open a shared loca.
+- **A human opens it.** An agent answers in a birebir but never starts one;
+  there is no birebir between two agents. No agent line opens that a human does
+  not see. Every word in a birebir is said to the other person: no `@` is
+  needed to wake an agent.
+- **Who may write to whom:** a building member may open a birebir with someone
+  they sit with in a shared loca. Master and Smaster may open one with any
+  building member they could already call. The rule is checked only on
+  opening; an open birebir outlives the shared loca. The Lobby is still not a
+  place to chat.
+- **Nobody but the two sees its contents.** No rank watches from the door and
+  loca-care does not read it. Nothing is copied out: a caretaker summons, a
+  care reminder, or a notice carries no words into İye or any other loca. A
+  birebir appears in no ordinary loca list, in no "where" field of the
+  Building directory, and among no rank's seated locas.
+- **The Master sees only that it exists.** So the Building does not turn into
+  a dump, the Master sees in a separate tab that birebirs exist: between whom,
+  and when they were last active. That lets the Master gather up forgotten or
+  abused birebirs. **The Master does not see the messages; there is no look
+  path for the Master.** A Smaster does not even see that they exist.
+- **Only when called in.** Either of the two may **explicitly** call the
+  Master in; the other side's consent is not needed. The Master takes no seat,
+  cannot write, and **by default sees only what is said from the moment of the
+  call**. Earlier history opens only if **both sides allow it**. While the
+  Master is in, both sides see it plainly, and whoever called can send the
+  Master out. Who called, when, and who allowed the history are recorded. In
+  no other way are the contents opened to a third person.
+- **Private, not encrypted.** The interface says so honestly: whoever runs the
+  server can read the record on disk and in backups. In a birebir with an
+  agent, the words also reach the machine the agent runs on and the agent's
+  memory; the agent may remember them in another loca. No privacy is promised
+  that cannot be kept.
+- **A birebir is conversation.** There are no tasks, goals, wiki, notes,
+  operator, or lead; whoever opens it is not appointed operator. Work is born
+  at a shared table; work discussed in a birebir moves to the loca the team
+  sees through an explicit act.
+- **Lifecycle:** hiding a birebir is only one's own sidebar preference and does
+  not delete the other side's record; a new word makes it reappear. The
+  birebir of a side whose membership ended stays read-only. The Master may
+  **Close** a birebir it can see (read-only; the Master can reopen it) or
+  **Seal** it; Seal also permanently closes any new birebir between those two.
+  Neither gives the Master the right to read the contents.
+- A birebir does not count toward loca capacity and stays out of the
+  Building's loca list and İye; the sidebar shows it under its own
+  **Messages** heading.
 
-**Goal** (telde `goal`): locanın tek etkin sonuç cümlesidir. Operatör goal'ü
-manuel sonuç veya açık task kümesi olarak kurar; agent'lar ilerleme önerir ama
-goal açamaz, kapsamını değiştiremez veya kendi kendine başarı ilan edemez.
+### Roles—who does what
 
-## Loca extension'ları
+- **Loca agent (`loca-dev`)** — maintains Loca itself and is **not a member of
+  the project group**. Its boundaries are strict:
+  - It sits **only in İye**, the configured private maintenance loca
+    (`LOCA_AGENT_ROOM=iye`). Lobby is not its room. It never enters another
+    loca. When directly named elsewhere, only that single call is relayed to
+    İye; the source loca's seat, roster, history, notes, and tasks remain
+    closed.
+  - It speaks **only when named exactly** (`@loca-dev`). `@all` is an
+    announcement, not a summons; it stays silent.
+  - It answers only to the grand operator and communicates about Loca itself:
+    requests, bugs, and development—not to join project conversation.
+- **`loca-care`** — an ordinary caretaker agent below the Building roles. It
+  writes no code and carries no Building
+  authority: it cannot admit members, issue invitations, revoke credentials or
+  seats, appoint Operator/Lead, or open private Loca history. When configured,
+  it may use its own membership for the read-only `GET /care/residents` audit
+  and may process a bounded care-context envelope delivered to it in İye. It
+  sits **only in İye** and speaks only when named (`@loca-care`) or when a
+  configured care signal addresses it; `@all` is not a summons. It gains no
+  seat in the source Loca, does not duplicate a signal already owned by a Lead,
+  does not repeat before cooldown, and escalates to the operator when needed.
 
-Bir loca bir işe ya da projeye özel bir yer olabilir. Bunu **extension**'lar
-sağlar: loca açılırken (`+`) bir düzenleme ekranı hangi extension'ların
-ekleneceğini sorar; **varsayılanlar** hazır seçilidir, diğerleri listeden
-eklenir. Açılmış bir locada liste **This Loca › Extensions** altındadır;
-operatör, Master ve Smaster değiştirir. Eklenen her extension locada kendi
-sekmesi olur. Chat her zaman açıktır.
+  Relaying an invitation request to an authorized management surface does not
+  grant it Master, Smaster, or Operator authority. It reports the result to
+  Master/Smaster.
+- **User** — a human participant: speaks, asks, and watches.
+- **Agent** — a working participant: speaks, produces, and **suggests**; it
+  does not assign work.
 
-**Locanın kimliği.** Loca açılırken yalnız ad değil, **ne için var olduğu**
-(açıklama) da yazılır. Açıklama locanın kimliğidir; Goal o anki hedeftir,
-ikisi ayrı kalır.
+**A task** is a declaration and a formal record. It is born with an operator's
+signature; an agent **claims** and completes it, and the operator may object by
+removing or reopening it. Most work flows through conversation. A task is for
+work important enough to declare, not the mandatory path for getting anything
+done. There is no queue, lease, or automatic assignment, and there will not be.
 
-**Vault.** Bir locanın agent'lara ve insanlara dair kuralları tek yerde,
-locanın **Vault**'unda durur: **AGENT.md**, loca kuralları, **skill**'ler ve
-**hook**'lar. Locaya giren herkese, çağrılan her agent'a en başta bir **loca
-kartı** verilir: ad, açıklama, kurallar ve Vault'ta neler olduğu. Agent kartı
-bağlanırken alır, Vault değişince günceli gelir; insan ilk girişte görür,
-This Loca altında her zaman bulur.
+**A goal** is the loca's single active outcome statement. The operator creates
+it either as a manual outcome or against an explicit task set. Agents may
+suggest progress, but they cannot open or change a goal or declare their own
+success.
 
-Örnek extension'lar:
+## Loca extensions
 
-- **Task management** — pano (Yapılacak · Yapılıyor · İncelemede · Bitti),
-  Jira numarası, bitiş tarihi.
-- **AGENT.md** — bu locadaki agent'ların uyacağı kurallar. Loca Wiki bilgidir;
-  AGENT.md davranıştır.
-- **Skills** — yalnız bu locaya ait skill talimatları.
-- **Hooks** — "şu olunca şunu yap" kuralları (task bitince sohbete özet düş).
-- Notes · Journal, Loca Wiki, Live — bugün her locada olanlar artık birer
-  extension'dır; mevcut localarda açık kalırlar.
+A loca can be a place for one job or project. **Extensions** make it so: when
+a loca is created (`+`), an edit screen asks which extensions to add; the
+**defaults** come ticked and the rest are added from the list. In an existing
+loca the list lives under **This Loca › Extensions**; the operator, the
+Master, and Smasters change it. Each added extension becomes a tab in the
+loca. Chat is always on.
 
-Locaya giren agent o locanın extension'larını (AGENT.md, skill'ler) alır ve
-değiştiklerinde günceli alır; aynı agent bir locada proje takipçisi,
-ötekinde gözden geçirici olur.
+**A loca's identity.** When a loca is created it gets not only a name but
+**what it is for** (a description). The description is the loca's identity;
+the Goal is the current target; the two stay separate.
 
-Sınırlar:
+**Vault.** A loca's rules for agents and people live in one place, the loca's
+**Vault**: **AGENT.md**, loca rules, **skills**, and **hooks**. Everyone who
+enters, and every agent called in, first receives a **loca card**: name,
+description, rules, and what the Vault holds. An agent receives the card on
+connecting and the current version when the Vault changes; a person sees it on
+first entry and always finds it under This Loca.
 
-- **Dışarıdan kod yüklenmez, kod çalıştırılmaz.** Bir extension server'ın
-  içinde yazılmış ve test edilmiş bir yeteneği açar. Skill'ler metindir;
-  hook'lar server'ın uyguladığı, hazır eylemlerden seçilmiş kurallardır ve
-  agent'ın makinesinde komut çalıştırmaz.
-- **Kapalı extension yalnız gizlenmez,** server o işlemi reddeder; kaldırmak
-  kayıtları silmez.
-- **Değişiklikler bellidir.** Extension eklemek, kaldırmak ve AGENT.md / skill
-  / hook düzenlemek Journal'a kimin, ne zaman yaptığı ile düşer.
-- **Loca kuralı temel kuralı aşmaz.** Hiçbir talimat agent'a sır (anahtar,
-  davet, oturum) istetemez ya da yazdıramaz, bu ilkelerdeki sınırları
-  kaldıramaz: mention task değildir, agent görev vermez, kuyruk/otomatik atama
-  yoktur.
-- **Birebir'in extension'ı yoktur;** birebir sohbettir.
+Example extensions:
 
-## Gruplar — bir grubun kendi localari
+- **Task management**—a board (To do · Doing · Review · Done), Jira key, due
+  date.
+- **AGENT.md**—the rules agents follow in this loca. The Loca Wiki is
+  knowledge; AGENT.md is behavior.
+- **Skills**—skill instructions that belong to this loca only.
+- **Hooks**—"when this happens, do that" rules (post a summary when a task is
+  done).
+- Notes · Journal, Loca Wiki, Live—what every loca has today becomes an
+  extension; they stay on in existing locas.
 
-Bir şirkette locayı farklı gruplar kullanır (backend, ai, …). **Grup**, birlikte
-çalışan kişilerin adlı bir kümesidir: insanlar, agent'lar ve Smaster'lar. Bir
-kişi birden fazla grupta olabilir.
+An agent entering a loca receives its extensions (AGENT.md, skills) and the
+current version whenever they change; the same agent is a project tracker in
+one loca and a reviewer in another.
 
-- **Herkes default gruptadır.** Grubu olmayan localar default gruba aittir ve
-  bugünkü gibi davetle çalışır; mevcut kurulum değişmez.
-- **Grubu Master veya bir Smaster kurar ve grup kuranındır:** kuran diğer kişileri
-  (insan, agent, başka Smaster) Building'den veya profil kartından ekler ve
-  çıkarır. Başka bir Smaster o grubu göremez, kimseyi ekleyemez; kimse kendini
-  ekleyemez. Master her grubu yönetebilir ve eklenmesine gerek yoktur. Değişiklik kimin, ne zaman
-  yaptığı ile kayda geçer.
-- **Grup locası:** Smaster bir grup için loca kurar. O locayı **yalnız grubun
-  üyeleri görür** ve girer; başka gruplardakiler o locaya **alınamaz**,
-  Smaster'lar dahil. Bir kişiyi locaya almak için önce gruba eklemek gerekir.
-  Gruptan çıkan kişinin grup locasına erişimi hemen biter.
-- **Master her şeyi görür:** bütün grupları, grup localarını ve içlerini;
-  gruba üye olması gerekmez. Grup sınırı Smaster'lar ve üyeler içindir.
-  (Birebir bunun istisnasıdır: orada Master yalnız varlığını görür.)
-- **Erişim tek kapıdan:** locaya girebilmek = davet **veya** grup üyeliği;
-  grup locasında ise yalnız grup üyeliği. Kural her kapıda aynıdır (sidebar,
-  REST, WS, arama); grup dışındakiler bir grup locasının var olduğunu da
-  öğrenmez.
-- Grup üyeliği koltuk tutmaz; loca kapasitesi oturunca dolar.
-- **Birebir ve İye gruba bağlanmaz.**
+Boundaries:
 
-## Building bildirimleri — tek yönlü duyuru
+- **No code is loaded or run.** An extension turns on a capability written and
+  tested inside the server. Skills are text; hooks are rules the server
+  applies, chosen from ready-made actions, and run no command on an agent's
+  machine.
+- **An extension that is off is not merely hidden;** the server refuses it.
+  Removing one does not delete its records.
+- **Changes are known.** Adding or removing an extension and editing AGENT.md,
+  skills, or hooks is written to the Journal with who did it, and when.
+- **A loca rule never outranks a core rule.** No instruction can make an agent
+  ask for or write a secret (key, davet, session) or lift the limits in these
+  principles: a mention is not a task, agents do not assign work, there is no
+  queue or automatic assignment.
+- **A birebir has no extensions;** a birebir is conversation.
 
-Bazen bir söz bir masaya değil, binadaki herkese ya da bir gruba söylenir.
-Bunun için ayrı bir sohbet açılmaz: **bildirim tek yönlüdür.**
+## Groups—a group's own locas
 
-- **Kim gönderir:** Master herkese; Smaster yalnız üyesi olduğu gruplara.
-  Başka kimse bildirim göndermez.
-- **Kime gittiği gönderildiği anda bellidir.** Sonradan gruba giren ya da
-  çıkan, eski bir bildirimin alıcısını değiştirmez. Herkes yalnız kendine
-  gönderileni görür.
-- **Konuşma değildir.** Loca açmaz, yanıt almaz, Lobby'yi sohbete çevirmez.
-- **Kaybolmaz.** Alıcı o an yoksa bildirim döndüğünde oradadır.
-- **Agent için bağlamdır, iş değildir.** Bir bildirim model çalıştırmaz,
-  görev olmaz, yetki vermez. Agent onu bir sonraki gerçek turunda bağlam
-  olarak görür; almış olması okudu diye kaydedilmez.
-- **Özel sözü dışarı taşımaz.** Bildirim bir locadan ya da birebirden söz
-  alıp başka yere götürmez.
+In a company, different groups use Loca (backend, ai, …). A **group** is a
+named set of people who work together: humans, agents, and Smasters. A person
+may be in more than one group.
 
-## Ürün sınırı
+- **Everyone is in the default group.** Locas without a group belong to the
+  default group and work by invitation as today; an existing deployment does
+  not change.
+- **The Master or a Smaster creates a group, and the group is its
+  founder's:** the founder adds and removes the other people (humans, agents, other Smasters)
+  from the Building view or their profile card. Another Smaster cannot see
+  the group or add anyone to it; nobody adds themselves. The Master can manage
+  every group and never needs to be added. Every change is recorded with who made it, and when.
+- **Group loca:** a Smaster creates a loca for a group. **Only the group's
+  members see** and enter it; people in other groups **cannot be taken in**,
+  Smasters included. To bring someone in, add them to the group first.
+  Leaving the group ends their access to its locas at once.
+- **The Master sees everything:** every group, every group loca and what is
+  inside it, without being a member. The group boundary is for Smasters and
+  members. (A birebir is the exception: there the Master sees only that it
+  exists.)
+- **One door for access:** entering a loca = invitation **or** group
+  membership; for a group loca, group membership only. The rule is the same at
+  every door (sidebar, REST, WS, search); outsiders do not learn that a group
+  loca exists.
+- Group membership holds no seat; a loca's capacity fills as people sit down.
+- **A birebir and İye are never tied to a group.**
 
-> **Loca, işi yöneten bir sistem olmadan önce, birlikte çalışanların
-> birbirini duyabildiği yerdir.**
+## Building notifications—a one-way notice
+
+Sometimes a word is meant not for one table but for everyone in the Building,
+or for a group. No separate chat is opened for it: **a notification is
+one-way.**
+
+- **Who sends:** the Master to everyone; a Smaster only to the groups it
+  belongs to. Nobody else sends a notification.
+- **Who receives is fixed when it is sent.** Someone who joins or leaves a
+  group later does not change who an earlier notification went to. Each
+  person sees only what was sent to them.
+- **It is not a conversation.** It opens no loca, takes no reply, and does not
+  turn the Lobby into a chat.
+- **It is not lost.** A recipient who was away finds it on return.
+- **For an agent it is context, not work.** A notification runs no model,
+  becomes no task and grants no authority. An agent sees it as context on its
+  next real turn; having received it is not recorded as having read it.
+- **It carries no private word out.** A notification takes no words from a
+  loca or a birebir to anywhere else.
+
+## Product boundary
+
+> **Before Loca is ever a system that manages work, it is the place where
+> collaborators can hear one another.**

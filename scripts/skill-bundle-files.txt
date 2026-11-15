@@ -19,7 +19,10 @@ skill/agent-room/orchestrator_queue.py
 skill/agent-room/portable_lock.py
 skill/agent-room/references/adapter-protocol-v1.md
 skill/agent-room/references/adapter-protocol-v2.md
+skill/agent-room/references/door-answers.md
+skill/agent-room/references/identity.md
 skill/agent-room/references/loca-wiki.md
+skill/agent-room/references/locas.md
 skill/agent-room/references/runtimes.md
 skill/agent-room/runtime.sh
 skill/agent-room/runtime_agent.py

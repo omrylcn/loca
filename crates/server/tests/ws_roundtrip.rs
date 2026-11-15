@@ -71,23 +71,29 @@ async fn building_suspension_blocks_access_and_resume_keeps_identity() {
         .as_str()
         .unwrap();
     create_test_room(port, "suspension-master", "suspension-room").await;
-    let davet = davet_for(
+    let invite = invite_for(
         &base,
         "suspension-master",
         "suspension-room",
         "suspension-worker",
     )
     .await;
-    let session = session_with(&base, ("x-room-token", &davet), "suspension-worker", None).await;
+    let session = session_with(&base, ("x-room-token", &invite), "suspension-worker", None).await;
     let url =
         format!("ws://127.0.0.1:{port}/ws?room=suspension-room&name=suspension-worker&type=agent");
     let mut socket =
-        connect_ws_protocols(url, &["loca.v1".into(), format!("loca.room.{davet}")]).await;
+        connect_ws_protocols(url, &["loca.v1".into(), format!("loca.room.{invite}")]).await;
     let mut lobby = connect_ws_protocols(
         format!("ws://127.0.0.1:{port}/lobby/ws"),
         &["loca.v1".into(), format!("loca.membership.{key}")],
     )
     .await;
+    // Both handshakes answer before the server registers the sockets. The
+    // room socket is seated before its history; the Lobby socket listens
+    // before its lobby_ready. Without these the suspension can be broadcast
+    // before either listens.
+    let _ = wait_for(&mut socket, |frame| frame["t"] == "history").await;
+    let _ = wait_for(&mut lobby, |frame| frame["t"] == "lobby_ready").await;
     for suspended in [true, false] {
         let denied = client
             .post(format!("{base}/members/{id}/suspension"))
@@ -123,6 +129,7 @@ async fn building_suspension_blocks_access_and_resume_keeps_identity() {
                         .unwrap();
                     if let WsMessage::Text(text) = frame {
                         let value: Value = serde_json::from_str(&text).unwrap();
+                        assert_listed_frame(&value);
                         assert_ne!(
                             value["t"], "membership_revoked",
                             "suspension must not erase the listener credential"
@@ -150,7 +157,7 @@ async fn building_suspension_blocks_access_and_resume_keeps_identity() {
             assert_eq!(before["principal"]["id"], after["principal"]["id"]);
             assert!(after["principal"]["id"].is_string());
         }
-        for (header, credential) in [("x-room-token", &davet), ("x-session-token", &session)] {
+        for (header, credential) in [("x-room-token", &invite), ("x-session-token", &session)] {
             let response = client
                 .get(format!("{base}/rooms/suspension-room/messages"))
                 .header(header, credential)
@@ -269,6 +276,12 @@ async fn spawn_server_with(admin_token: &str) -> (u16, ServerGuard) {
     spawn_server_env(admin_token, &[]).await
 }
 
+/// An `env` entry for `spawn_server_env` that is not passed to the server:
+/// its value is a file the server's output (its log, on stdout, and stderr)
+/// is written to, for a test that reads what the server logs. Without it the
+/// output is discarded.
+const SERVER_LOG_FILE: &str = "TEST_SERVER_LOG_FILE";
+
 /// Spawn with extra env vars (DB_PATH, RATE_LIMIT, …). A fixed `port` can be
 /// forced via the `PORT` entry in `env`; otherwise the child binds port zero
 /// itself and reports the OS-selected port without a probe/drop race.
@@ -297,13 +310,20 @@ async fn spawn_server_env(admin_token: &str, env: &[(&str, String)]) -> (u16, Se
         cmd.env("BOUND_PORT_FILE", file.path());
     }
     for (k, v) in env {
-        if *k != "PORT" {
+        if *k != "PORT" && *k != SERVER_LOG_FILE {
             cmd.env(k, v);
         }
     }
+    let (stdout, stderr) = match env.iter().find(|(k, _)| *k == SERVER_LOG_FILE) {
+        Some((_, file)) => {
+            let file = std::fs::File::create(file).unwrap();
+            (file.try_clone().unwrap().into(), file.into())
+        }
+        None => (std::process::Stdio::null(), std::process::Stdio::null()),
+    };
     let child = cmd
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdout(stdout)
+        .stderr(stderr)
         .kill_on_drop(true)
         .spawn()
         .unwrap();
@@ -339,7 +359,7 @@ async fn spawn_server_env(admin_token: &str, env: &[(&str, String)]) -> (u16, Se
 }
 
 /// Explicit test setup, using the same creation boundary as the application.
-/// Joining, sending a message, or issuing a davet must not provision a loca.
+/// Joining, sending a message, or issuing an invite must not provision a loca.
 async fn create_test_room(port: u16, master: &str, room: &str) {
     let response = reqwest::Client::new()
         .post(format!("http://127.0.0.1:{port}/rooms"))
@@ -393,6 +413,39 @@ async fn ws_protocol_can(port: u16, room: &str, room_credential: &str) -> bool {
     tokio_tungstenite::connect_async(request).await.is_ok()
 }
 
+/// Every frame a round trip reads through `wait_for` must be one that
+/// docs/protocol-frames.json lists, with exactly the fields it lists. This is
+/// where hand-built Lobby/notification frames are checked on the wire
+/// (tests/protocol_frames.rs explains what the static checks cannot see).
+fn assert_listed_frame(frame: &Value) {
+    static LIST: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let list = LIST.get_or_init(|| {
+        serde_json::from_str(include_str!("../../../docs/protocol-frames.json")).unwrap()
+    });
+    let tag = frame["t"]
+        .as_str()
+        .unwrap_or_else(|| panic!("frame without t: {frame}"));
+    let entry = &list["server_frames"][tag];
+    assert!(
+        entry.is_object() && entry["on_wire"] != false,
+        "server sent t={tag:?}, which docs/protocol-frames.json does not list as on the wire"
+    );
+    let fields = entry["fields"].as_object().unwrap();
+    let optional = entry["optional"].as_array().cloned().unwrap_or_default();
+    for key in frame.as_object().unwrap().keys() {
+        assert!(
+            key == "t" || fields.contains_key(key),
+            "t={tag} carries {key:?}, which docs/protocol-frames.json does not list"
+        );
+    }
+    for name in fields.keys() {
+        assert!(
+            frame.get(name).is_some() || optional.iter().any(|o| o == name.as_str()),
+            "t={tag} lacks listed field {name:?}"
+        );
+    }
+}
+
 /// Read text frames until `pred` matches one, or time out.
 async fn wait_for<F: Fn(&Value) -> bool>(
     ws: &mut tokio_tungstenite::WebSocketStream<
@@ -409,6 +462,7 @@ async fn wait_for<F: Fn(&Value) -> bool>(
                 let msg = item.expect("stream ended").expect("ws error");
                 if let WsMessage::Text(txt) = msg {
                     let v: Value = serde_json::from_str(&txt).unwrap();
+                    assert_listed_frame(&v);
                     if pred(&v) { return v; }
                 }
             }
@@ -537,7 +591,7 @@ async fn ws_can(port: u16, room: &str, query: &str) -> bool {
     tokio_tungstenite::connect_async(url).await.is_ok()
 }
 
-/// Admit `name` to the building (master action) — the founding act a davet
+/// Admit `name` to the building (master action) — the founding act an invite
 /// now requires. Idempotent for tests: admits only when the name is unknown.
 async fn admit(base: &str, admin: &str, name: &str, kind: &str) {
     let client = reqwest::Client::new();
@@ -567,10 +621,10 @@ async fn admit(base: &str, admin: &str, name: &str, kind: &str) {
     );
 }
 
-/// Mint a davet for `name` into `room` (master action). A davet seats an
+/// Mint an invite for `name` into `room` (master action). An invite seats an
 /// existing member, so this admits the name first when needed — the exact
 /// two-step the model now demands.
-async fn davet_for(base: &str, admin: &str, room: &str, name: &str) -> String {
+async fn invite_for(base: &str, admin: &str, room: &str, name: &str) -> String {
     admit(base, admin, name, "agent").await;
     let client = reqwest::Client::new();
     let response = client
@@ -582,11 +636,29 @@ async fn davet_for(base: &str, admin: &str, room: &str, name: &str) -> String {
         .unwrap();
     assert!(
         response.status().is_success(),
-        "davet fixture for {room}: {}",
+        "invite fixture for {room}: {}",
         response.status()
     );
     let v: Value = response.json().await.unwrap();
     v["token"].as_str().unwrap().to_string()
+}
+
+/// The management id the server derives for an invite (`ivid_`) or a member
+/// key (`mbid_`). Management URLs (`DELETE /rooms/:id/invites/:ref`,
+/// `DELETE /members/:ref`) take these ids only, never the key itself.
+fn management_id(prefix: &str, source: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(source.as_bytes());
+    let hex: String = digest[..16].iter().map(|b| format!("{b:02x}")).collect();
+    format!("{prefix}{hex}")
+}
+
+fn invite_ref(invite: &str) -> String {
+    management_id("ivid_", &format!("invite:{invite}"))
+}
+
+fn member_ref(key: &str) -> String {
+    management_id("mbid_", &format!("member:{key}"))
 }
 
 /// Take a session with a given key, optionally scoped to a loca.
@@ -1408,12 +1480,14 @@ async fn legacy_operator_names_migrate_only_when_one_human_principal_is_unambigu
             .push(member["token"].as_str().unwrap().to_string());
     }
     // Building role and display label are independent. A Smaster and a Member
-    // may legitimately share a label, which makes legacy name authority
-    // ambiguous even though each principal is individually valid.
+    // that share a label make legacy name authority ambiguous even though
+    // each principal is individually valid. No door admits that pair any
+    // more, so the Smaster is renamed in storage below, as an older server
+    // that let `POST /smasters` take a member's name would have left it.
     client
         .post(format!("{base}/smasters"))
         .header("x-admin-token", root)
-        .json(&serde_json::json!({ "name": "duplicate" }))
+        .json(&serde_json::json!({ "name": "duplicate-seed" }))
         .send()
         .await
         .unwrap()
@@ -1445,6 +1519,15 @@ async fn legacy_operator_names_migrate_only_when_one_human_principal_is_unambigu
     }
 
     drop(guard);
+    wait_for_server_shutdown(port).await;
+    let connection = rusqlite::Connection::open(&db_path).unwrap();
+    for sql in [
+        "UPDATE smasters SET name = 'duplicate' WHERE name = 'duplicate-seed'",
+        "UPDATE principals SET display_name = 'duplicate' WHERE display_name = 'duplicate-seed'",
+    ] {
+        assert_eq!(connection.execute(sql, []).unwrap(), 1, "{sql}");
+    }
+    drop(connection);
     let (restart_port, _restart_guard) =
         spawn_server_env(root, &[("DB_PATH", db_path.to_string_lossy().into_owned())]).await;
     let restarted = format!("http://127.0.0.1:{restart_port}");
@@ -1629,29 +1712,59 @@ async fn get_json(client: &reqwest::Client, url: String) -> Vec<Value> {
 mod access;
 #[path = "ws/attention.rs"]
 mod attention;
-#[path = "ws/birebir.rs"]
-mod birebir;
+#[path = "ws/authority_matrix.rs"]
+mod authority_matrix;
+#[path = "ws/building_key.rs"]
+mod building_key;
+#[path = "ws/claims.rs"]
+mod claims;
 #[path = "ws/content.rs"]
 mod content;
 #[path = "ws/delivery.rs"]
 mod delivery;
+#[path = "ws/dm.rs"]
+mod dm;
 #[path = "ws/downloads.rs"]
 mod downloads;
 #[path = "ws/extensions.rs"]
 mod extensions;
 #[path = "ws/groups.rs"]
 mod groups;
+#[path = "ws/hidden_locas.rs"]
+mod hidden_locas;
+#[path = "ws/key_ids.rs"]
+mod key_ids;
 #[path = "ws/keys.rs"]
 mod keys;
+#[path = "ws/lobby_delivery.rs"]
+mod lobby_delivery;
+#[path = "ws/loca_identity.rs"]
+mod loca_identity;
+#[path = "ws/member_keys.rs"]
+mod member_keys;
 #[path = "ws/membership.rs"]
 mod membership;
 #[path = "ws/notifications.rs"]
 mod notifications;
+#[path = "ws/principles.rs"]
+mod principles;
+#[path = "ws/profile_card.rs"]
+mod profile_card;
+#[path = "ws/profile_rename.rs"]
+mod profile_rename;
+#[path = "ws/reissue.rs"]
+mod reissue;
 #[path = "ws/review_regressions.rs"]
 mod review_regressions;
 #[path = "ws/rooms.rs"]
 mod rooms;
 #[path = "ws/server.rs"]
 mod server;
+#[path = "ws/sessions.rs"]
+mod sessions;
+#[path = "ws/suspension.rs"]
+mod suspension;
+#[path = "ws/upgrade.rs"]
+mod upgrade;
 #[path = "ws/work.rs"]
 mod work;

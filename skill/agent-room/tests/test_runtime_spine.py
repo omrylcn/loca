@@ -30,6 +30,23 @@ def stop_process(process: subprocess.Popen, timeout: float = 8.0) -> None:
         process.wait(timeout=2)
 
 
+# A supervisor's child can exit and be reaped between listing the children
+# and reading the child's command line (the test kills one on purpose). Such a
+# child is no longer there to find; skip it, as runtime.sh status does.
+STARTUP_DEADLINE_SECONDS = 30.0
+
+
+def child_commands(pid: int) -> list[tuple[int, bytes]]:
+    raw = Path(f"/proc/{pid}/task/{pid}/children").read_text().split()
+    commands = []
+    for value in raw:
+        try:
+            commands.append((int(value), Path(f"/proc/{value}/cmdline").read_bytes()))
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+    return commands
+
+
 def isolated_runtime_env(root: Path) -> dict[str, str]:
     """Keep supervisor tests independent from a developer's live Loca identity."""
     identity = root / "isolated.env"
@@ -248,17 +265,10 @@ time.sleep(30)
                 stderr=subprocess.DEVNULL,
             )
             try:
-                def children():
-                    raw = Path(
-                        f"/proc/{process.pid}/task/{process.pid}/children"
-                    ).read_text().split()
-                    return [int(value) for value in raw]
-
                 old_shadow = old_consumer = old_listener = None
-                deadline = time.monotonic() + 4
+                deadline = time.monotonic() + STARTUP_DEADLINE_SECONDS
                 while time.monotonic() < deadline:
-                    for child in children():
-                        cmd = Path(f"/proc/{child}/cmdline").read_bytes()
+                    for child, cmd in child_commands(process.pid):
                         if b"shadow_bridge.py" in cmd:
                             old_shadow = child
                         elif b"runtime_consumer.py" in cmd:
@@ -274,10 +284,9 @@ time.sleep(30)
                 os.kill(old_shadow, signal.SIGKILL)
 
                 replacement = None
-                deadline = time.monotonic() + 5
+                deadline = time.monotonic() + STARTUP_DEADLINE_SECONDS
                 while time.monotonic() < deadline:
-                    for child in children():
-                        cmd = Path(f"/proc/{child}/cmdline").read_bytes()
+                    for child, cmd in child_commands(process.pid):
                         if b"shadow_bridge.py" in cmd and child != old_shadow:
                             replacement = child
                     if replacement:
@@ -319,17 +328,10 @@ time.sleep(30)
                 stderr=subprocess.DEVNULL,
             )
             try:
-                def children():
-                    raw = Path(
-                        f"/proc/{process.pid}/task/{process.pid}/children"
-                    ).read_text().split()
-                    return [int(value) for value in raw]
-
                 old_bridge = old_listener = None
-                deadline = time.monotonic() + 3
+                deadline = time.monotonic() + STARTUP_DEADLINE_SECONDS
                 while time.monotonic() < deadline:
-                    for child in children():
-                        cmd = Path(f"/proc/{child}/cmdline").read_bytes()
+                    for child, cmd in child_commands(process.pid):
                         if b"bridge.py" in cmd:
                             old_bridge = child
                         elif b"listener.py" in cmd:
@@ -342,10 +344,9 @@ time.sleep(30)
                 os.kill(old_bridge, signal.SIGKILL)
 
                 replacement = None
-                deadline = time.monotonic() + 4
+                deadline = time.monotonic() + STARTUP_DEADLINE_SECONDS
                 while time.monotonic() < deadline:
-                    for child in children():
-                        cmd = Path(f"/proc/{child}/cmdline").read_bytes()
+                    for child, cmd in child_commands(process.pid):
                         if b"bridge.py" in cmd and child != old_bridge:
                             replacement = child
                     if replacement:
@@ -376,17 +377,10 @@ time.sleep(30)
                 stderr=subprocess.DEVNULL,
             )
             try:
-                def children():
-                    raw = Path(
-                        f"/proc/{process.pid}/task/{process.pid}/children"
-                    ).read_text().split()
-                    return [int(value) for value in raw]
-
-                deadline = time.monotonic() + 3
+                deadline = time.monotonic() + STARTUP_DEADLINE_SECONDS
                 old_consumer = old_listener = None
                 while time.monotonic() < deadline:
-                    for child in children():
-                        cmd = Path(f"/proc/{child}/cmdline").read_bytes()
+                    for child, cmd in child_commands(process.pid):
                         if b"runtime_consumer.py" in cmd:
                             old_consumer = child
                         elif b"listener.py" in cmd:
@@ -399,10 +393,9 @@ time.sleep(30)
                 os.kill(old_consumer, signal.SIGKILL)
 
                 replacement = None
-                deadline = time.monotonic() + 4
+                deadline = time.monotonic() + STARTUP_DEADLINE_SECONDS
                 while time.monotonic() < deadline:
-                    for child in children():
-                        cmd = Path(f"/proc/{child}/cmdline").read_bytes()
+                    for child, cmd in child_commands(process.pid):
                         if b"runtime_consumer.py" in cmd and child != old_consumer:
                             replacement = child
                     if replacement:

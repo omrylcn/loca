@@ -4,7 +4,7 @@
 One machine may host several agents.  Each identity therefore gets its own
 ``~/.loca/<name>.env`` file, while ``~/.loca/env`` remains the compatibility
 default for a single-agent machine.  Credentials are also bound to the server
-recorded in that file: a production davet must never be sent to localhost (or
+recorded in that file: a production invite must never be sent to localhost (or
 to any other origin) because a caller supplied the wrong URL.
 """
 
@@ -200,7 +200,7 @@ def _main():
 
 
 def token_for_room(room):
-    """Return this loca's davet, falling back to the legacy building key."""
+    """Return this loca's invite, falling back to the legacy building key."""
     suffix = re.sub(r"[^A-Za-z0-9_]", "_", room)
     return os.environ.get("DAVET_" + suffix) or os.environ.get("ROOM_TOKEN", "")
 

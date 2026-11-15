@@ -103,6 +103,13 @@ derived from the ordered bundle ids, turn id, and item id. Retry never changes
 that id. A relay stores `covered_attention_ids`; first and final response
 milestones are updated separately.
 
+A 409 from the message post means the server cannot prove that an earlier use
+of that operation id was this sender's and posted nothing; the same id will
+never post. The relay is then stored as `refused` with the server's answer and
+is not retried, and it is never reposted under a new id (an earlier use may
+have landed). The attentions it covered keep their open response milestones,
+so a required reply stays overdue and visible in health until someone decides.
+
 ## Ingestion contract
 
 Inbox materialization and ingestion-offset advancement happen in one database

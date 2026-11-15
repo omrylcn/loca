@@ -1,0 +1,1155 @@
+{
+ "birebir": "bb-cf41cc795822d31cc407827f05fdde4b",
+ "join_requests": {
+  "fx-done": {
+   "id": "jr_ce2e06dcfb841adbf72a172d",
+   "secret": "jrs_d513a12a31c01bb4041e35ddae0926d954d3d737e1ba6203"
+  },
+  "fx-late": {
+   "id": "jr_88c26fbe83305961bb9cf554",
+   "secret": "jrs_513cdd1af7b87afb2b228debbbba63ee19fc463612602740"
+  },
+  "fx-no": {
+   "id": "jr_0e0c87fe48fd01d59e47f044",
+   "secret": "jrs_7a1ed0c0082993eb820ae98b1ee8388365ab6a7d2c1be17e"
+  },
+  "fx-wait": {
+   "id": "jr_cffd3684a59587b56aca2abc",
+   "secret": "jrs_83b9e45fb12bbfd6825ed73f03e08a316c5fd0936838cf9e"
+  }
+ },
+ "views": [
+  {
+   "body": {
+    "building_role": "master",
+    "groups": [],
+    "loca": null,
+    "principal": {
+     "display_name": "Master",
+     "id": "pr_23d4427d9d0de4324b8990ed97233978",
+     "kind": "user"
+    },
+    "session": {
+     "bounded": true,
+     "credential_id": "cr_23d4427d9d0de4324b8990ed97233978",
+     "expires_at": 1826213277083
+    }
+   },
+   "credential": "master-session",
+   "header": "x-session-token",
+   "path": "/profile",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "created_at": 1794677276403,
+     "current": true,
+     "id": "cr_23d4427d9d0de4324b8990ed97233978",
+     "label": "Root recovery",
+     "last_used_at": 1794677278346,
+     "revoked_at": null,
+     "root_recovery": true
+    }
+   ],
+   "credential": "master-session",
+   "header": "x-session-token",
+   "path": "/profile/credentials",
+   "status": 200
+  },
+  {
+   "body": {
+    "building_role": "smaster",
+    "groups": [],
+    "loca": null,
+    "principal": {
+     "display_name": "fx-deputy",
+     "id": "pr_0bc3f280bfe771b0fc0e6be5b986205f",
+     "kind": "user"
+    },
+    "session": null
+   },
+   "credential": "smaster:fx-deputy",
+   "header": "x-admin-token",
+   "path": "/profile",
+   "status": 200
+  },
+  {
+   "body": null,
+   "credential": "smaster:fx-retired",
+   "header": "x-admin-token",
+   "path": "/profile",
+   "status": 401
+  },
+  {
+   "body": {
+    "building_role": "member",
+    "groups": [
+     {
+      "id": "grp_af3c92e2f9b643d3",
+      "name": "fx-group"
+     }
+    ],
+    "loca": null,
+    "principal": {
+     "display_name": "fx-ada",
+     "id": "pr_96f31563960808a9d293424182f880df",
+     "kind": "user"
+    },
+    "session": null
+   },
+   "credential": "member:fx-ada",
+   "header": "x-admin-token",
+   "path": "/profile",
+   "status": 200
+  },
+  {
+   "body": {
+    "kind": "member",
+    "locas": [
+     "fx-team",
+     "fx-ops"
+    ],
+    "member_kind": "user",
+    "name": "fx-ada"
+   },
+   "credential": "member:fx-ada",
+   "header": "x-room-token",
+   "path": "/whoami",
+   "status": 200
+  },
+  {
+   "body": {
+    "building_role": "member",
+    "groups": [],
+    "loca": null,
+    "principal": {
+     "display_name": "fx-bea",
+     "id": "pr_11c9c02fb2fd0b0b4ec47324fbe1d22f",
+     "kind": "user"
+    },
+    "session": null
+   },
+   "credential": "member:fx-bea",
+   "header": "x-admin-token",
+   "path": "/profile",
+   "status": 200
+  },
+  {
+   "body": {
+    "kind": "member",
+    "locas": [
+     "fx-team"
+    ],
+    "member_kind": "user",
+    "name": "fx-bea"
+   },
+   "credential": "member:fx-bea",
+   "header": "x-room-token",
+   "path": "/whoami",
+   "status": 200
+  },
+  {
+   "body": {
+    "building_role": "member",
+    "groups": [
+     {
+      "id": "grp_af3c92e2f9b643d3",
+      "name": "fx-group"
+     }
+    ],
+    "loca": null,
+    "principal": {
+     "display_name": "fx-bot",
+     "id": "pr_0db74bb3c40c294f1f1d704e468ef1fc",
+     "kind": "agent"
+    },
+    "session": null
+   },
+   "credential": "member:fx-bot",
+   "header": "x-admin-token",
+   "path": "/profile",
+   "status": 200
+  },
+  {
+   "body": {
+    "kind": "member",
+    "locas": [
+     "fx-team",
+     "fx-ops"
+    ],
+    "member_kind": "agent",
+    "name": "fx-bot"
+   },
+   "credential": "member:fx-bot",
+   "header": "x-room-token",
+   "path": "/whoami",
+   "status": 200
+  },
+  {
+   "body": null,
+   "credential": "member:fx-gone",
+   "header": "x-admin-token",
+   "path": "/profile",
+   "status": 401
+  },
+  {
+   "body": null,
+   "credential": "member:fx-gone",
+   "header": "x-room-token",
+   "path": "/whoami",
+   "status": 401
+  },
+  {
+   "body": null,
+   "credential": "member:fx-paused",
+   "header": "x-admin-token",
+   "path": "/profile",
+   "status": 401
+  },
+  {
+   "body": null,
+   "credential": "member:fx-paused",
+   "header": "x-room-token",
+   "path": "/whoami",
+   "status": 401
+  },
+  {
+   "body": {
+    "building_role": "member",
+    "groups": [],
+    "loca": null,
+    "principal": {
+     "display_name": "fx-late",
+     "id": "pr_bbd256609d257a960e7f917cf16e82c6",
+     "kind": "agent"
+    },
+    "session": null
+   },
+   "credential": "member:fx-late",
+   "header": "x-admin-token",
+   "path": "/profile",
+   "status": 200
+  },
+  {
+   "body": {
+    "kind": "member",
+    "locas": [],
+    "member_kind": "agent",
+    "name": "fx-late"
+   },
+   "credential": "member:fx-late",
+   "header": "x-room-token",
+   "path": "/whoami",
+   "status": 200
+  },
+  {
+   "body": {
+    "building_role": "member",
+    "groups": [],
+    "loca": null,
+    "principal": {
+     "display_name": "fx-done",
+     "id": "pr_69909ccd5742fc357f78b871530985fc",
+     "kind": "agent"
+    },
+    "session": null
+   },
+   "credential": "member:fx-done",
+   "header": "x-admin-token",
+   "path": "/profile",
+   "status": 200
+  },
+  {
+   "body": {
+    "kind": "member",
+    "locas": [],
+    "member_kind": "agent",
+    "name": "fx-done"
+   },
+   "credential": "member:fx-done",
+   "header": "x-room-token",
+   "path": "/whoami",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "created_at": 1794677276543,
+     "current": true,
+     "id": "cr_96f31563960808a9d293424182f880df",
+     "label": "Member access",
+     "last_used_at": 1794677278748,
+     "revoked_at": null,
+     "root_recovery": false
+    }
+   ],
+   "credential": "member:fx-ada",
+   "header": "x-admin-token",
+   "path": "/profile/credentials",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "kind": "user",
+     "locas": [
+      "fx-team",
+      "fx-ops"
+     ],
+     "membership_id": "mbid_96f31563960808a9d293424182f880df",
+     "name": "fx-ada",
+     "online": false,
+     "suspended": false
+    },
+    {
+     "kind": "user",
+     "locas": [
+      "fx-team"
+     ],
+     "membership_id": "mbid_11c9c02fb2fd0b0b4ec47324fbe1d22f",
+     "name": "fx-bea",
+     "online": false,
+     "suspended": false
+    },
+    {
+     "kind": "agent",
+     "locas": [
+      "fx-team",
+      "fx-ops"
+     ],
+     "membership_id": "mbid_0db74bb3c40c294f1f1d704e468ef1fc",
+     "name": "fx-bot",
+     "online": false,
+     "suspended": false
+    },
+    {
+     "kind": "agent",
+     "locas": [],
+     "membership_id": "mbid_69909ccd5742fc357f78b871530985fc",
+     "name": "fx-done",
+     "online": false,
+     "suspended": false
+    },
+    {
+     "kind": "agent",
+     "locas": [],
+     "membership_id": "mbid_bbd256609d257a960e7f917cf16e82c6",
+     "name": "fx-late",
+     "online": false,
+     "suspended": false
+    },
+    {
+     "kind": "user",
+     "locas": [],
+     "membership_id": "mbid_1d74203c684fdfc7f17d915c2dae804b",
+     "name": "fx-paused",
+     "online": false,
+     "suspended": true
+    }
+   ],
+   "credential": "root",
+   "header": "x-admin-token",
+   "path": "/residents",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "id": "smid_33944c9ed7750a56930956ae60b48f56",
+     "name": "fx-spare"
+    },
+    {
+     "id": "smid_0bc3f280bfe771b0fc0e6be5b986205f",
+     "name": "fx-deputy"
+    }
+   ],
+   "credential": "root",
+   "header": "x-admin-token",
+   "path": "/smasters",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "display_name": "Master",
+     "id": "pr_23d4427d9d0de4324b8990ed97233978",
+     "kind": "user",
+     "role": "master"
+    },
+    {
+     "display_name": "fx-deputy",
+     "id": "pr_0bc3f280bfe771b0fc0e6be5b986205f",
+     "kind": "user",
+     "role": "smaster"
+    },
+    {
+     "display_name": "fx-spare",
+     "id": "pr_33944c9ed7750a56930956ae60b48f56",
+     "kind": "user",
+     "role": "smaster"
+    },
+    {
+     "display_name": "fx-ada",
+     "id": "pr_96f31563960808a9d293424182f880df",
+     "kind": "user",
+     "role": "member"
+    },
+    {
+     "display_name": "fx-bea",
+     "id": "pr_11c9c02fb2fd0b0b4ec47324fbe1d22f",
+     "kind": "user",
+     "role": "member"
+    },
+    {
+     "display_name": "fx-bot",
+     "id": "pr_0db74bb3c40c294f1f1d704e468ef1fc",
+     "kind": "agent",
+     "role": "member"
+    },
+    {
+     "display_name": "fx-done",
+     "id": "pr_69909ccd5742fc357f78b871530985fc",
+     "kind": "agent",
+     "role": "member"
+    },
+    {
+     "display_name": "fx-late",
+     "id": "pr_bbd256609d257a960e7f917cf16e82c6",
+     "kind": "agent",
+     "role": "member"
+    }
+   ],
+   "credential": "root",
+   "header": "x-admin-token",
+   "path": "/profiles",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "id": "ivid_8e84d7148444bd189643b4444c91ccf8",
+     "issued_at": 1794677277224,
+     "issued_by": "master",
+     "kind": "user",
+     "member_id": "mbid_96f31563960808a9d293424182f880df",
+     "name": "fx-ada",
+     "room": "fx-team"
+    },
+    {
+     "id": "ivid_49694d21d38ee69cc97939b7803f719e",
+     "issued_at": 1794677277267,
+     "issued_by": "master",
+     "kind": "user",
+     "member_id": "mbid_11c9c02fb2fd0b0b4ec47324fbe1d22f",
+     "name": "fx-bea",
+     "room": "fx-team"
+    },
+    {
+     "id": "ivid_a18f8c366cecee6be41e068437105b0f",
+     "issued_at": 1794677277328,
+     "issued_by": "master",
+     "kind": "agent",
+     "member_id": "mbid_0db74bb3c40c294f1f1d704e468ef1fc",
+     "name": "fx-bot",
+     "room": "fx-team"
+    }
+   ],
+   "credential": "root",
+   "header": "x-admin-token",
+   "path": "/rooms/fx-team/invites",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "id": "ivid_ab6394f1010d156991464c62b002045b",
+     "issued_at": 1794677277443,
+     "issued_by": "master",
+     "kind": "user",
+     "member_id": "mbid_96f31563960808a9d293424182f880df",
+     "name": "fx-ada",
+     "room": "fx-ops"
+    },
+    {
+     "id": "ivid_ffc12188644691881bb254feb00a6ad7",
+     "issued_at": 1794677277499,
+     "issued_by": "master",
+     "kind": "agent",
+     "member_id": "mbid_0db74bb3c40c294f1f1d704e468ef1fc",
+     "name": "fx-bot",
+     "room": "fx-ops"
+    }
+   ],
+   "credential": "root",
+   "header": "x-admin-token",
+   "path": "/rooms/fx-ops/invites",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "id": 6,
+     "room": "fx-team",
+     "sender": "fx-ada",
+     "sender_type": "user",
+     "text": "fx hello from ada",
+     "ts": 1794677277769
+    },
+    {
+     "id": 7,
+     "room": "fx-team",
+     "sender": "fx-bot",
+     "sender_type": "agent",
+     "text": "fx status from bot",
+     "ts": 1794677277774
+    },
+    {
+     "id": 8,
+     "reply_to": 6,
+     "room": "fx-team",
+     "sender": "fx-bea",
+     "sender_type": "user",
+     "text": "fx reply from bea",
+     "ts": 1794677277783
+    },
+    {
+     "attachments": [
+      {
+       "id": "8f4acefc28453106b9011b2821d4de5db3563157227f948f639d112b3db2175e",
+       "mime": "text/plain",
+       "name": "fx-note.txt",
+       "sha256": "8f4acefc28453106b9011b2821d4de5db3563157227f948f639d112b3db2175e",
+       "size": 38
+      }
+     ],
+     "id": 9,
+     "room": "fx-team",
+     "sender": "fx-ada",
+     "sender_type": "user",
+     "text": "fx file from ada",
+     "ts": 1794677277812
+    },
+    {
+     "id": 10,
+     "room": "fx-team",
+     "sender": "Master",
+     "sender_type": "user",
+     "text": "fx word from the master",
+     "ts": 1794677277820
+    },
+    {
+     "id": 12,
+     "room": "fx-team",
+     "sender": "fx-deputy",
+     "sender_type": "user",
+     "text": "fx socket word from deputy",
+     "ts": 1794677277825
+    },
+    {
+     "id": 15,
+     "kind": "announce",
+     "room": "fx-team",
+     "sender": "loca",
+     "sender_type": "user",
+     "target": "fx-bot",
+     "text": "Master set @lead fx-bot.",
+     "ts": 1794677278082
+    }
+   ],
+   "credential": "davet:fx-team:fx-ada",
+   "header": "x-room-token",
+   "path": "/rooms/fx-team/messages",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "id": 6,
+     "room": "fx-team",
+     "sender": "fx-ada",
+     "sender_type": "user",
+     "text": "fx hello from ada",
+     "ts": 1794677277769
+    },
+    {
+     "id": 7,
+     "room": "fx-team",
+     "sender": "fx-bot",
+     "sender_type": "agent",
+     "text": "fx status from bot",
+     "ts": 1794677277774
+    },
+    {
+     "id": 8,
+     "reply_to": 6,
+     "room": "fx-team",
+     "sender": "fx-bea",
+     "sender_type": "user",
+     "text": "fx reply from bea",
+     "ts": 1794677277783
+    },
+    {
+     "attachments": [
+      {
+       "id": "8f4acefc28453106b9011b2821d4de5db3563157227f948f639d112b3db2175e",
+       "mime": "text/plain",
+       "name": "fx-note.txt",
+       "sha256": "8f4acefc28453106b9011b2821d4de5db3563157227f948f639d112b3db2175e",
+       "size": 38
+      }
+     ],
+     "id": 9,
+     "room": "fx-team",
+     "sender": "fx-ada",
+     "sender_type": "user",
+     "text": "fx file from ada",
+     "ts": 1794677277812
+    },
+    {
+     "id": 10,
+     "room": "fx-team",
+     "sender": "Master",
+     "sender_type": "user",
+     "text": "fx word from the master",
+     "ts": 1794677277820
+    },
+    {
+     "id": 12,
+     "room": "fx-team",
+     "sender": "fx-deputy",
+     "sender_type": "user",
+     "text": "fx socket word from deputy",
+     "ts": 1794677277825
+    },
+    {
+     "id": 15,
+     "kind": "announce",
+     "room": "fx-team",
+     "sender": "loca",
+     "sender_type": "user",
+     "target": "fx-bot",
+     "text": "Master set @lead fx-bot.",
+     "ts": 1794677278082
+    }
+   ],
+   "credential": "davet:fx-team:fx-bot",
+   "header": "x-room-token",
+   "path": "/rooms/fx-team/messages",
+   "status": 200
+  },
+  {
+   "body": null,
+   "credential": "davet:fx-team:fx-paused",
+   "header": "x-room-token",
+   "path": "/rooms/fx-team/messages",
+   "status": 401
+  },
+  {
+   "body": [],
+   "credential": "davet:fx-ops:fx-ada",
+   "header": "x-room-token",
+   "path": "/rooms/fx-ops/messages",
+   "status": 200
+  },
+  {
+   "body": null,
+   "credential": "davet:fx-ops:fx-bea",
+   "header": "x-room-token",
+   "path": "/rooms/fx-ops/messages",
+   "status": 401
+  },
+  {
+   "body": [
+    {
+     "id": 13,
+     "room": "bb-cf41cc795822d31cc407827f05fdde4b",
+     "sender": "fx-ada",
+     "sender_type": "user",
+     "target": "fx-bea",
+     "text": "fx private ada to bea",
+     "ts": 1794677277903
+    },
+    {
+     "id": 14,
+     "room": "bb-cf41cc795822d31cc407827f05fdde4b",
+     "sender": "fx-bea",
+     "sender_type": "user",
+     "target": "fx-ada",
+     "text": "fx private bea to ada",
+     "ts": 1794677277908
+    }
+   ],
+   "credential": "member:fx-ada",
+   "header": "x-admin-token",
+   "path": "/rooms/bb-cf41cc795822d31cc407827f05fdde4b/messages",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "id": 13,
+     "room": "bb-cf41cc795822d31cc407827f05fdde4b",
+     "sender": "fx-ada",
+     "sender_type": "user",
+     "target": "fx-bea",
+     "text": "fx private ada to bea",
+     "ts": 1794677277903
+    },
+    {
+     "id": 14,
+     "room": "bb-cf41cc795822d31cc407827f05fdde4b",
+     "sender": "fx-bea",
+     "sender_type": "user",
+     "target": "fx-ada",
+     "text": "fx private bea to ada",
+     "ts": 1794677277908
+    }
+   ],
+   "credential": "member:fx-bea",
+   "header": "x-admin-token",
+   "path": "/rooms/bb-cf41cc795822d31cc407827f05fdde4b/messages",
+   "status": 200
+  },
+  {
+   "body": null,
+   "credential": "master-session",
+   "header": "x-session-token",
+   "path": "/rooms/bb-cf41cc795822d31cc407827f05fdde4b/messages",
+   "status": 404
+  },
+  {
+   "body": null,
+   "credential": "member:fx-bot",
+   "header": "x-admin-token",
+   "path": "/rooms/bb-cf41cc795822d31cc407827f05fdde4b/messages",
+   "status": 404
+  },
+  {
+   "body": [
+    {
+     "history_allowed_by_me": false,
+     "history_open": false,
+     "master_called_by_me": false,
+     "master_in": false,
+     "master_since": null,
+     "peer": "fx-bea",
+     "peer_kind": "user",
+     "room": "bb-cf41cc795822d31cc407827f05fdde4b"
+    }
+   ],
+   "credential": "member:fx-ada",
+   "header": "x-admin-token",
+   "path": "/birebirs",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "archived": false,
+     "between": [
+      "fx-bea",
+      "fx-ada"
+     ],
+     "history_open": false,
+     "last_at": 1794677277908,
+     "master_in": false,
+     "opened_at": 1794677277892,
+     "room": "bb-cf41cc795822d31cc407827f05fdde4b"
+    }
+   ],
+   "credential": "master-session",
+   "header": "x-session-token",
+   "path": "/building/birebirs",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "archived": false,
+     "can_create_loca": true,
+     "can_manage": true,
+     "created_at": 1794677277920,
+     "id": "grp_af3c92e2f9b643d3",
+     "locas": [
+      "fx-ops"
+     ],
+     "members": [
+      {
+       "kind": "user",
+       "name": "fx-ada",
+       "principal_id": "pr_96f31563960808a9d293424182f880df",
+       "role": "member"
+      },
+      {
+       "kind": "agent",
+       "name": "fx-bot",
+       "principal_id": "pr_0db74bb3c40c294f1f1d704e468ef1fc",
+       "role": "member"
+      }
+     ],
+     "name": "fx-group",
+     "owned_by_master": true,
+     "owner": null,
+     "owner_id": null
+    }
+   ],
+   "credential": "master-session",
+   "header": "x-session-token",
+   "path": "/groups",
+   "status": 200
+  },
+  {
+   "body": {
+    "more": false,
+    "notifications": [
+     {
+      "audience": {
+       "all": true
+      },
+      "body": "fx notice body",
+      "created_at": 1794677278033,
+      "from": "Master",
+      "id": 1,
+      "read": true,
+      "title": "fx notice"
+     }
+    ],
+    "order": "desc",
+    "unread": 0
+   },
+   "credential": "member:fx-ada",
+   "header": "x-admin-token",
+   "path": "/notifications",
+   "status": 200
+  },
+  {
+   "body": {
+    "more": false,
+    "notifications": [
+     {
+      "audience": {
+       "all": true
+      },
+      "body": "fx notice body",
+      "created_at": 1794677278033,
+      "from": "Master",
+      "id": 1,
+      "read": false,
+      "title": "fx notice"
+     }
+    ],
+    "order": "desc",
+    "unread": 1
+   },
+   "credential": "member:fx-bea",
+   "header": "x-admin-token",
+   "path": "/notifications",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "agents": 2,
+     "audience": {
+      "all": true
+     },
+     "body": "fx notice body",
+     "created_at": 1794677278033,
+     "id": 1,
+     "people": 5,
+     "read": 1,
+     "recipients": 7,
+     "title": "fx notice"
+    }
+   ],
+   "credential": "master-session",
+   "header": "x-session-token",
+   "path": "/notifications/sent",
+   "status": 200
+  },
+  {
+   "body": {
+    "birebir": false,
+    "can_manage": true,
+    "catalog": [
+     {
+      "default_on_new": true,
+      "id": "notes",
+      "name": "Notes",
+      "summary": "Keyed notes: the current state of the work.",
+      "tab": "Notes"
+     },
+     {
+      "default_on_new": false,
+      "id": "focus",
+      "name": "Focus",
+      "summary": "The loca's goal and declared tasks.",
+      "tab": "Focus"
+     },
+     {
+      "default_on_new": true,
+      "id": "journal",
+      "name": "Journal",
+      "summary": "What was done here, in the doers' own words.",
+      "tab": "Journal"
+     },
+     {
+      "default_on_new": true,
+      "id": "wiki",
+      "name": "Loca Wiki",
+      "summary": "The loca's shared knowledge, kept by an editor agent.",
+      "tab": "Loca Wiki"
+     },
+     {
+      "default_on_new": false,
+      "id": "live",
+      "name": "Live",
+      "summary": "A live-mode toggle: every message reaches everyone."
+     }
+    ],
+    "enabled": [
+     "notes",
+     "focus",
+     "journal",
+     "live"
+    ],
+    "room": "fx-team"
+   },
+   "credential": "master-session",
+   "header": "x-session-token",
+   "path": "/rooms/fx-team/extensions",
+   "status": 200
+  },
+  {
+   "body": {
+    "birebir": false,
+    "can_manage": true,
+    "catalog": [
+     {
+      "default_on_new": true,
+      "id": "notes",
+      "name": "Notes",
+      "summary": "Keyed notes: the current state of the work.",
+      "tab": "Notes"
+     },
+     {
+      "default_on_new": false,
+      "id": "focus",
+      "name": "Focus",
+      "summary": "The loca's goal and declared tasks.",
+      "tab": "Focus"
+     },
+     {
+      "default_on_new": true,
+      "id": "journal",
+      "name": "Journal",
+      "summary": "What was done here, in the doers' own words.",
+      "tab": "Journal"
+     },
+     {
+      "default_on_new": true,
+      "id": "wiki",
+      "name": "Loca Wiki",
+      "summary": "The loca's shared knowledge, kept by an editor agent.",
+      "tab": "Loca Wiki"
+     },
+     {
+      "default_on_new": false,
+      "id": "live",
+      "name": "Live",
+      "summary": "A live-mode toggle: every message reaches everyone."
+     }
+    ],
+    "enabled": [
+     "notes",
+     "focus",
+     "journal",
+     "wiki",
+     "live"
+    ],
+    "room": "fx-ops"
+   },
+   "credential": "master-session",
+   "header": "x-session-token",
+   "path": "/rooms/fx-ops/extensions",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "body": "fx plan v2",
+     "can_write": [],
+     "key": "fx-plan",
+     "rev": 2,
+     "title": "Plan",
+     "updated_at": 1794677278063,
+     "updated_by": "fx-ada"
+    }
+   ],
+   "credential": "davet:fx-team:fx-ada",
+   "header": "x-room-token",
+   "path": "/rooms/fx-team/notes",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "body": "fx plan v1",
+     "can_write": [],
+     "key": "fx-plan",
+     "rev": 1,
+     "title": "Plan",
+     "updated_at": 1794677278052,
+     "updated_by": "fx-ada"
+    }
+   ],
+   "credential": "davet:fx-team:fx-ada",
+   "header": "x-room-token",
+   "path": "/rooms/fx-team/notes/fx-plan/history",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "at": 1794677278048,
+     "by": "Master",
+     "by_type": "user",
+     "id": 1,
+     "room": "fx-team",
+     "text": "extensions: removed Loca Wiki"
+    },
+    {
+     "at": 1794677278067,
+     "by": "fx-bot",
+     "by_type": "agent",
+     "id": 2,
+     "room": "fx-team",
+     "text": "fx bot finished the fixture"
+    }
+   ],
+   "credential": "davet:fx-team:fx-ada",
+   "header": "x-room-token",
+   "path": "/rooms/fx-team/journal",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "at": 1794677277983,
+     "by": "Master",
+     "by_type": "user",
+     "id": 1,
+     "room": "fx-ops",
+     "text": "moved this loca to fx-group"
+    }
+   ],
+   "credential": "davet:fx-ops:fx-ada",
+   "header": "x-room-token",
+   "path": "/rooms/fx-ops/journal",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "assigned_to": "fx-bot",
+     "created_at": 1794677278078,
+     "created_by": "Master",
+     "id": 1,
+     "progress_at": 1794677278078,
+     "room": "fx-team",
+     "status": "open",
+     "title": "fx write the upgrade test"
+    }
+   ],
+   "credential": "davet:fx-team:fx-ada",
+   "header": "x-room-token",
+   "path": "/rooms/fx-team/tasks",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "completion": "manual",
+     "created_at": 1794677278093,
+     "created_by": "Master",
+     "id": 1,
+     "outcome": "fx the upgrade opens",
+     "progress_at": 1794677278093,
+     "room": "fx-team",
+     "status": "active",
+     "task_ids": []
+    }
+   ],
+   "credential": "davet:fx-team:fx-ada",
+   "header": "x-room-token",
+   "path": "/rooms/fx-team/goals",
+   "status": 200
+  },
+  {
+   "body": {
+    "sha256": "8f4acefc28453106b9011b2821d4de5db3563157227f948f639d112b3db2175e"
+   },
+   "credential": "davet:fx-team:fx-ada",
+   "header": "x-room-token",
+   "path": "/rooms/fx-team/attachments/8f4acefc28453106b9011b2821d4de5db3563157227f948f639d112b3db2175e",
+   "status": 200
+  },
+  {
+   "body": {
+    "pending": [
+     {
+      "created_at": 1794677278149,
+      "id": "jr_cffd3684a59587b56aca2abc",
+      "kind": "agent",
+      "name": "fx-wait"
+     }
+    ]
+   },
+   "credential": "root",
+   "header": "x-admin-token",
+   "path": "/join-requests",
+   "status": 200
+  },
+  {
+   "body": {
+    "bootstrap_ready": false,
+    "status": "approved"
+   },
+   "credential": "join:fx-done",
+   "header": "x-join-secret",
+   "path": "/join-requests/jr_ce2e06dcfb841adbf72a172d",
+   "status": 200
+  },
+  {
+   "body": {
+    "bootstrap_ready": true,
+    "status": "approved"
+   },
+   "credential": "join:fx-late",
+   "header": "x-join-secret",
+   "path": "/join-requests/jr_88c26fbe83305961bb9cf554",
+   "status": 200
+  },
+  {
+   "body": {
+    "bootstrap_ready": false,
+    "status": "denied"
+   },
+   "credential": "join:fx-no",
+   "header": "x-join-secret",
+   "path": "/join-requests/jr_0e0c87fe48fd01d59e47f044",
+   "status": 200
+  },
+  {
+   "body": {
+    "bootstrap_ready": false,
+    "status": "pending"
+   },
+   "credential": "join:fx-wait",
+   "header": "x-join-secret",
+   "path": "/join-requests/jr_cffd3684a59587b56aca2abc",
+   "status": 200
+  }
+ ]
+}

@@ -1,51 +1,58 @@
 "use strict";
-// Birebir: a private loca for exactly two people (PRINCIPLES "Birebir").
+// Direct message: a private loca for exactly two people (PRINCIPLES "Birebir").
 // The two see it under Messages; nobody else sees it at all. The Master sees
 // only that it exists, in the Building view, and reads it only when one side
 // calls the Master in.
 
-const BIREBIR_PREFIX = "bb-";
-state.birebirs = [];
-state.birebirOverview = [];
+const DM_PREFIX = "bb-";
+state.dms = [];
+state.dmOverview = [];
 
-function isBirebir(room) {
-  return typeof room === "string" && room.startsWith(BIREBIR_PREFIX);
+function isDm(room) {
+  return typeof room === "string" && room.startsWith(DM_PREFIX);
 }
 
-function birebirOf(room) {
-  return state.birebirs.find(b => b.room === room) || null;
+function dmOf(room) {
+  return state.dms.find(b => b.room === room) || null;
 }
 
-// What the header and lists call a room: a birebir by the other person.
+// The other side's card (full name and icon), as the server describes them.
+function dmPeerCard(b) {
+  return b ? cardOf({ full_name: b.peer_full_name, icon: b.peer_icon }) : null;
+}
+
+// What the header and lists call a room: a direct message by the other person.
 function roomLabel(room) {
   if (!room) return "—";
-  const b = birebirOf(room);
+  const b = dmOf(room);
   if (b) return b.peer;
-  return isBirebir(room) ? "private" : room;
+  return isDm(room) ? "private" : room;
 }
 
-async function fetchBirebirs() {
+async function fetchDms() {
   const gen = state.buildingGen;
   try {
     const r = await fetch(`${serverBase()}/birebirs`, { headers: adminHeaders({}) });
     if (buildingStale(gen)) return;
     const list = r.ok ? await r.json() : [];
     if (buildingStale(gen)) return;
-    state.birebirs = list;
+    state.dms = list;
   } catch (e) {
     if (buildingStale(gen)) return;
-    state.birebirs = [];
+    state.dms = [];
   }
-  renderBirebirList();
-  if (isBirebir(state.room)) {
+  renderDmList();
+  if (isDm(state.room)) {
     $("curRoom").textContent = roomLabel(state.room);
-    renderBirebirBar();
+    renderDmBar();
+    // The other side's card is known now, seated here or not.
+    if (typeof refreshSenderCards === "function") refreshSenderCards();
   }
 }
 
-const BIREBIR_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+const DM_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
 
-function renderBirebirList() {
+function renderDmList() {
   const list = $("dmList");
   if (!list) return;
   const prefs = loadRoomPreferences();
@@ -53,7 +60,7 @@ function renderBirebirList() {
   // for good. The row then stays after that word is read, until it is closed
   // again: a conversation that vanished the moment one read the reply could
   // not be answered.
-  const returned = new Set(state.birebirs
+  const returned = new Set(state.dms
     .filter(b => prefs.hidden.includes(b.room) && Number(state.unread[b.room] || 0) > 0)
     .map(b => b.room));
   if (returned.size) {
@@ -61,9 +68,11 @@ function renderBirebirList() {
     saveRoomPreferences();
   }
   const hidden = new Set(prefs.hidden);
-  const rows = state.birebirs
+  const rows = state.dms
     .filter(b => !hidden.has(b.room))
-    .sort((a, b) => Number(state.roomLatest[b.room] || 0) - Number(state.roomLatest[a.room] || 0));
+    .sort((a, b) => Number(state.roomLatest[b.room] || 0) - Number(state.roomLatest[a.room] || 0)
+      // Nothing said in either (or the same last word): by name, not by chance.
+      || a.peer.localeCompare(b.peer));
   $("dmSection").classList.toggle("empty", !rows.length);
   list.innerHTML = rows.length ? "" : `<div class="dmhint">Press + to write to someone privately.</div>`;
   for (const b of rows) {
@@ -77,7 +86,7 @@ function renderBirebirList() {
       : "";
     const glyph = b.peer_kind === "agent" ? "*" : ".";
     const master = b.master_in ? `<span class="dmmaster" title="The Master is reading">Master in</span>` : "";
-    el.innerHTML = `<div class="rrow"><span class="rname dmname"><span class="glyph ${esc(b.peer_kind)}">${glyph}</span>${esc(b.peer)}</span>${master}${badge}</div>`;
+    el.innerHTML = `<div class="rrow"><span class="rname dmname"><span class="glyph ${esc(b.peer_kind)}">${glyph}</span>${personLabelHtml(b.peer, dmPeerCard(b))}</span>${master}${badge}</div>`;
     el.onclick = () => { setMobileSidebar(false); joinRoom(b.room); };
     const item = document.createElement("div");
     item.className = "roomitem";
@@ -102,7 +111,7 @@ function renderBirebirList() {
   }
 }
 
-async function openBirebir(name) {
+async function openDm(name) {
   const gen = state.buildingGen;
   const r = await fetch(`${serverBase()}/birebirs`, {
     method: "POST",
@@ -112,34 +121,46 @@ async function openBirebir(name) {
   if (buildingStale(gen)) return;
   if (!r.ok) {
     const text = await r.text();
-    if (!buildingStale(gen)) addSys(`could not open a birebir with ${name}: ${text}`);
+    if (!buildingStale(gen)) addSys(`could not open a conversation with ${name}: ${text}`);
     return;
   }
-  const { birebir } = await r.json();
+  const { birebir: dm } = await r.json();
   if (buildingStale(gen)) return;
   // Opening it again is a clear wish to see it: undo one's own Hide.
-  if (birebir?.room && loadRoomPreferences().hidden.includes(birebir.room)) {
-    updateRoomPreference("show", birebir.room);
+  if (dm?.room && loadRoomPreferences().hidden.includes(dm.room)) {
+    updateRoomPreference("show", dm.room);
   }
-  await fetchBirebirs();
+  await fetchDms();
   if (buildingStale(gen)) return;
   await refreshRooms();
   if (buildingStale(gen)) return;
-  if (birebir?.room) joinRoom(birebir.room);
+  if (dm?.room) joinRoom(dm.room);
 }
 
-// The bar above the composer in a birebir: who can read it, honestly, and
+// The bar above the composer in a direct message: who can read it, honestly, and
 // the one way a third person ever does — the Master, called in by a side.
-function renderBirebirBar() {
-  const bar = $("birebirBar");
+function renderDmBar() {
+  const bar = $("dmBar");
   if (!bar) return;
-  const inside = isBirebir(state.room);
-  document.querySelector(".main").classList.toggle("birebir", inside);
+  const inside = isDm(state.room);
+  document.querySelector(".main").classList.toggle("dm", inside);
   bar.classList.toggle("hidden", !inside);
   if (!inside) return;
   if ($("target")) $("target").value = "";
-  const b = birebirOf(state.room);
-  if (!$("msg").disabled) $("msg").placeholder = `say it to ${b ? b.peer : "them"}…  (Enter = send · Shift+Enter = new line)`;
+  const b = dmOf(state.room);
+  // Nothing more can be said once a side has left the building, or after the
+  // Master closed it; say so before anyone types, not after a refused send.
+  const closed = !!state.settings?.archived;
+  const gone = !!b?.read_only;
+  if (gone || bar.dataset.gone === "1") {
+    $("msg").disabled = gone || closed;
+    for (const id of ["sendBtn", "attachBtn"]) $(id).disabled = gone;
+    $("composer").classList.toggle("gated", gone || closed || !canITalk());
+  }
+  bar.dataset.gone = gone ? "1" : "";
+  $("msg").placeholder = gone ? "read-only — the other person is no longer a member here"
+    : closed ? "the Master closed this conversation — read-only"
+    : `say it to ${b ? b.peer : "them"}…  (Enter = send · Shift+Enter = new line)`;
   if (!b) {
     bar.innerHTML = `<span><b>Private.</b> Only the two of you see this.</span>`;
     return;
@@ -147,14 +168,19 @@ function renderBirebirBar() {
   const since = b.master_since ? fmtTime(b.master_since) : "";
   let status;
   let actions = "";
+  const lifecycle = gone
+    ? "<b>Read-only.</b> The other person is no longer a member of this building; what was said stays here. "
+    : closed ? "<b>Closed by the Master.</b> Read-only until the Master reopens it. " : "";
   if (!b.master_in) {
-    status = `<b>Private.</b> Only you and ${esc(b.peer)} see this; the Master sees only that it exists. Not encrypted: whoever runs the server can read its disk${b.peer_kind === "agent" ? ", and the agent keeps what it hears" : ""}.`;
+    status = `${lifecycle}<b>Private.</b> Only you and ${esc(b.peer)} see this; the Master sees only that it exists. Not encrypted: whoever runs the server can read its disk${b.peer_kind === "agent" ? ", and the agent keeps what it hears" : ""}.`;
     actions = `<button type="button" class="btn" data-bb="call" title="Let the Master read from now on">Call the Master in</button>`;
   } else {
     const history = b.history_open
       ? "everything, from the start"
-      : `from ${since} on${b.history_allowed_by_me ? " (you allowed earlier history; waiting for the other side)" : ""}`;
-    status = `<b>The Master is reading</b> ${history}.`;
+      : `from then on${b.history_allowed_by_me ? " (you allowed earlier history; waiting for the other side)" : ""}`;
+    // Who called is on the record (PRINCIPLES "Birebir"); both sides see it.
+    const caller = b.master_called_by_me ? "You" : esc(b.peer);
+    status = `${lifecycle}${caller} called the Master in at ${since}. <b>The Master is reading</b> ${history}.`;
     if (!b.history_allowed_by_me) {
       actions += `<button type="button" class="btn" data-bb="history" title="Earlier history opens only when both allow it">Allow earlier history</button>`;
     }
@@ -165,7 +191,7 @@ function renderBirebirBar() {
   bar.innerHTML = `<span class="bbstatus">${status}</span><span class="bbacts">${actions}</span>`;
 }
 
-async function birebirMasterAction(action) {
+async function dmMasterAction(action) {
   const gen = state.buildingGen;
   const r = await fetch(`${serverBase()}/birebirs/${encodeURIComponent(state.room)}/master`, {
     method: "POST",
@@ -178,13 +204,13 @@ async function birebirMasterAction(action) {
     if (buildingStale(gen)) return;
     addSys(text);
   }
-  await fetchBirebirs();
+  await fetchDms();
 }
 
 // ---- The Master's view: existence only ----------------------------------
 
-async function fetchBirebirOverview() {
-  const box = $("birebirOverview");
+async function fetchDmOverview() {
+  const box = $("dmOverview");
   if (!box) return;
   syncBuildingTabs();
   if (state.profile?.building_role !== "master") return;
@@ -194,18 +220,18 @@ async function fetchBirebirOverview() {
     if (buildingStale(gen)) return;
     const rows = r.ok ? await r.json() : [];
     if (buildingStale(gen)) return;
-    state.birebirOverview = rows;
+    state.dmOverview = rows;
   } catch (e) {
     if (buildingStale(gen)) return;
-    state.birebirOverview = [];
+    state.dmOverview = [];
   }
-  renderBirebirOverview();
+  renderDmOverview();
 }
 
-function renderBirebirOverview() {
-  const box = $("birebirOverview");
+function renderDmOverview() {
+  const box = $("dmOverview");
   if (!box) return;
-  const rows = state.birebirOverview;
+  const rows = state.dmOverview;
   const body = rows.length
     ? rows.map(b => {
       const last = b.last_at ? fmtFull(b.last_at) : "no messages yet";
@@ -226,7 +252,7 @@ function renderBirebirOverview() {
     `<div class="bbwitness hidden" id="bbWitness"></div>`;
 }
 
-async function birebirOverviewClick(event) {
+async function dmOverviewClick(event) {
   const read = event.target.closest("[data-bbread]");
   const close = event.target.closest("[data-bbclose]");
   const seal = event.target.closest("[data-bbseal]");
@@ -263,7 +289,7 @@ async function birebirOverviewClick(event) {
       headers: adminHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({ archived: close.dataset.archived === "true" }),
     });
-    fetchBirebirOverview();
+    fetchDmOverview();
     return;
   }
   if (seal) {
@@ -272,20 +298,20 @@ async function birebirOverviewClick(event) {
       method: "POST",
       headers: adminHeaders({}),
     });
-    fetchBirebirOverview();
+    fetchDmOverview();
   }
 }
 
 // Close removes the conversation from one's own Messages (yes/no first).
 // The other side keeps theirs; a new word from them brings it back.
-function deleteBirebir(room, peer) {
+function deleteDm(room, peer) {
   if (!confirm(`Close your conversation with ${peer}?\n\nIt leaves your Messages. ${peer} keeps theirs; if they write again, it comes back.`)) return;
   // Closing answers for everything said so far: only a word that comes after
   // this brings the conversation back, not one that was already waiting.
   markRoomRead(room, Number(state.roomLatest[room] || 0));
   updateRoomPreference("hide", room);
-  if (state.room === room) joinRoom(state.homeRoom);
-  renderBirebirList();
+  if (state.room === room) leaveFor(room, locaToReturnTo(room));
+  renderDmList();
 }
 
 // Wired with late-bound calls: sidebar.js loads after this file.
@@ -293,18 +319,18 @@ $("dmList").onclick = (event) => {
   const del = event.target.closest("[data-dm-delete]");
   if (del) {
     del.closest("details")?.removeAttribute("open");
-    deleteBirebir(del.dataset.dmDelete, del.dataset.dmPeer);
+    deleteDm(del.dataset.dmDelete, del.dataset.dmPeer);
     return;
   }
   roomPreferenceClick(event);
 };
-$("birebirBar").addEventListener("click", (event) => {
+$("dmBar").addEventListener("click", (event) => {
   const button = event.target.closest("[data-bb]");
-  if (button) birebirMasterAction(button.dataset.bb);
+  if (button) dmMasterAction(button.dataset.bb);
 });
-$("birebirOverview").addEventListener("click", birebirOverviewClick);
+$("dmOverview").addEventListener("click", dmOverviewClick);
 
-// "New message": pick a person and open (or return to) the pair's birebir,
+// "New message": pick a person and open (or return to) the pair's direct message,
 // without going through the Building view. The server decides who is
 // eligible: ranks reach anyone, members their tablemates.
 let dmCandidatesCache = [];
@@ -332,14 +358,17 @@ async function openDmPicker(open) {
 }
 
 function renderDmCandidates() {
-  const q = $("dmSearch").value.trim().toLowerCase();
-  const rows = dmCandidatesCache.filter(c => !q || c.name.toLowerCase().includes(q));
+  // By @name, or by any word of a full name (accents aside), as @ completion.
+  const fold = text => String(text).normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  const q = fold($("dmSearch").value.trim());
+  const rows = dmCandidatesCache.filter(c => !q || c.name.toLowerCase().includes(q)
+    || fold(c.full_name || "").split(" ").some(word => word.startsWith(q)));
   $("dmCandidates").innerHTML = rows.length
     ? rows.map(c => {
       const glyph = c.kind === "agent" ? "*" : ".";
       const badge = c.role === "member" ? "" : rankBadge(c.role);
       return `<button type="button" class="dmcand" role="option" data-dm-pick="${esc(c.name)}">` +
-        `<span class="glyph ${esc(c.kind)}">${glyph}</span><span class="dmcandname">${esc(c.name)}</span>${badge}</button>`;
+        `<span class="glyph ${esc(c.kind)}">${glyph}</span><span class="dmcandname">${personLabelHtml(c.name, cardOf(c))}</span>${badge}</button>`;
     }).join("")
     : `<div class="dmhint">${dmCandidatesCache.length ? "nobody by that name" : "nobody to write to yet — sit at a loca with someone first"}</div>`;
 }
@@ -347,16 +376,27 @@ function renderDmCandidates() {
 $("dmNew").addEventListener("click", () => openDmPicker());
 $("dmSearch").addEventListener("input", () => renderDmCandidates());
 $("dmSearch").addEventListener("keydown", (event) => {
-  if (event.key === "Escape") { openDmPicker(false); $("dmNew").focus(); }
   if (event.key === "Enter") {
     const first = $("dmCandidates").querySelector("[data-dm-pick]");
     if (first) first.click();
   }
+});
+// Keyboard in the picker: Up and Down move between the search and the people
+// offered; Escape anywhere in it closes it, back on its button.
+$("dmPicker").addEventListener("keydown", (event) => {
+  if (event.key === "Escape") { event.preventDefault(); openDmPicker(false); $("dmNew").focus(); return; }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  const stops = [$("dmSearch"), ...$("dmCandidates").querySelectorAll("[data-dm-pick]")];
+  const at = stops.indexOf(document.activeElement);
+  if (at < 0) return;
+  event.preventDefault();
+  const next = Math.min(stops.length - 1, Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)));
+  stops[next].focus();
 });
 $("dmCandidates").addEventListener("click", (event) => {
   const pick = event.target.closest("[data-dm-pick]");
   if (!pick) return;
   openDmPicker(false);
   setMobileSidebar(false);
-  openBirebir(pick.dataset.dmPick);
+  openDm(pick.dataset.dmPick);
 });

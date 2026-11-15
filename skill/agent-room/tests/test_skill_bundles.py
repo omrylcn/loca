@@ -200,7 +200,7 @@ class SkillBundlesTest(unittest.TestCase):
         cases["export quoted"] = ("c.sh", 'export LOCA_MEMBERSHIP="%s"\n' % v)
         cases["json"] = ("d.json", '{"ROOM_TOKEN": "%s"}\n' % v)
         cases["yaml"] = ("e.yaml", "LOCA_SESSION: %s\n" % v)
-        cases["davet export"] = ("f.sh", "export DAVET_iye=%s\n" % v)
+        cases["invite export"] = ("f.sh", "export DAVET_iye=%s\n" % v)
         for label, (fname, content) in cases.items():
             res = self._build_in_fixture_repo({fname: content})
             self.assertEqual(res.returncode, 3,

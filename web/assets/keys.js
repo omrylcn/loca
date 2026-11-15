@@ -12,7 +12,7 @@ const KEY_KIND_LABEL = {
   master: "Master key",
   smaster: "Smaster key",
   member: "Membership",
-  davet: "Davet",
+  davet: "Invite",
   admission: "Admission right",
 };
 const KEY_STATE_LABEL = {
@@ -33,12 +33,20 @@ async function fetchKeyLedger() {
   try {
     const r = await fetch(`${serverBase()}/keys`, { headers: adminHeaders({}) });
     if (buildingStale(gen)) return;
-    const ledger = r.ok ? await r.json() : [];
-    if (buildingStale(gen)) return;
-    state.keyLedger = ledger;
+    // A ledger that could not be read is unknown, not empty: "No keys here"
+    // would tell the Master nothing was ever issued. What was last read stays
+    // on screen, marked as possibly out of date.
+    if (!r.ok) {
+      state.keyLedgerError = true;
+    } else {
+      const ledger = await r.json();
+      if (buildingStale(gen)) return;
+      state.keyLedger = ledger;
+      state.keyLedgerError = false;
+    }
   } catch (e) {
     if (buildingStale(gen)) return;
-    state.keyLedger = [];
+    state.keyLedgerError = true;
   }
   renderKeyLedger();
 }
@@ -64,7 +72,12 @@ function renderKeyLedger() {
     (k.kind === "smaster" && (k.state === "unused" || k.state === "active")) ||
     (k.kind === "davet" && k.state === "active");
   const body = rows.length ? rows.map(k => {
-    const whom = k.kind === "davet" ? `${esc(k.for_name || "")} <span class="keyloca">#${esc(k.loca || "")}</span>` : esc(k.for_name || "—");
+    // The plain @name the key was issued for, and nothing more. A ledger row
+    // records a name, not a person: after a revoke the same name can belong
+    // to someone else, and their full name and icon must not appear on a key
+    // that was never theirs.
+    const holder = k.for_name ? esc(k.for_name) : "";
+    const whom = k.kind === "davet" ? `${holder} <span class="keyloca">#${esc(k.loca || "")}</span>` : (holder || "—");
     const useBy = k.use_by && (k.state === "unused") ? `<span class="keydim">use by ${esc(keyWhen(k.use_by))}</span>` : "";
     const used = k.last_used_at ? `last used ${esc(keyWhen(k.last_used_at))}` : (k.state === "unused" ? "never used" : "");
     const act = revocable(k)
@@ -76,7 +89,10 @@ function renderKeyLedger() {
       `<span class="keydates">issued ${esc(keyWhen(k.issued_at))}${k.issued_by ? ` by ${esc(k.issued_by)}` : ""}<br>${useBy}${useBy && used ? " · " : ""}<span class="keydim">${used}</span></span>` +
       `<span class="keystate state-${esc(k.state)}">${esc(KEY_STATE_LABEL[k.state] || k.state)}</span>` +
       `<span class="pacts">${act}</span></div>`;
-  }).join("") : `<div class="bbempty">No keys here.</div>`;
+  }).join("") : (state.keyLedgerError ? "" : `<div class="bbempty">No keys here.</div>`);
+  const unread = state.keyLedgerError
+    ? `<div class="bbempty keyledgererror" role="alert">The key ledger could not be loaded.${rows.length ? " What is shown may be out of date." : ""}</div>`
+    : "";
   box.innerHTML =
     `<div class="bbhead"><b>Key generator</b>` +
     `<small>Generate a key, copy it once, and every key ever generated stays recorded below.</small></div>` +
@@ -92,7 +108,7 @@ function renderKeyLedger() {
     `<div class="keylisthead">Generated keys <span>${state.keyLedger.length}</span> <small>for whom, when, until when, and what became of each — only the first characters are kept</small></div>` +
     `<div class="keyfilters" role="group" aria-label="Filter keys">` +
       filters.map(([v, l]) => `<button type="button" class="chip${state.keyFilter === v ? " on" : ""}" data-key-filter="${v}">${l}</button>`).join("") +
-    `</div>${body}`;
+    `</div>${unread}${body}`;
   syncKeyForm();
 }
 
@@ -217,7 +233,7 @@ function syncBuildingTabs() {
   $("btabPrivate").classList.toggle("hidden", !master);
   if (!master && (state.buildingTab === "keys" || state.buildingTab === "private")) state.buildingTab = "people";
   if (!rank && state.buildingTab === "groups") state.buildingTab = "people";
-  const panes = { people: "peopleList", groups: "groupsPane", keys: "keyLedger", private: "birebirOverview" };
+  const panes = { people: "peopleList", groups: "groupsPane", keys: "keyLedger", private: "dmOverview" };
   for (const [tab, pane] of Object.entries(panes)) {
     const on = state.buildingTab === tab;
     $(pane).classList.toggle("hidden", !on);
@@ -234,7 +250,7 @@ function setBuildingTab(tab) {
   if (tab === "keys") fetchKeyLedger();
   if (tab === "groups") fetchGroups();
   if (tab === "people") renderPeople();
-  if (tab === "private") fetchBirebirOverview();
+  if (tab === "private") fetchDmOverview();
 }
 
 document.querySelector(".buildingtabs").addEventListener("click", (event) => {

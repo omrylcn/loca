@@ -79,7 +79,7 @@ impl Hub {
     /// Reconnect replay for one session, scoped to its authenticated principal. A
     /// principal-required reminder (Everyone per-member) matches only this
     /// session's principal in the store, and is additionally dropped here when the
-    /// recipient's davet/membership was revoked after the snapshot — the
+    /// recipient's invite/membership was revoked after the snapshot — the
     /// delivery-time re-check. The outbox row is left untouched (not fake-ACKed),
     /// so the audit truth stands; it is simply not replayed.
     pub fn pending_care_scoped(

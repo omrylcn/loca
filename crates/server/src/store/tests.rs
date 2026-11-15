@@ -5,23 +5,29 @@ use rusqlite::Connection;
 
 use super::Store;
 
+mod claim_window;
+mod invite_delivery;
+mod join_window;
+mod key_scopes;
+mod member_keys;
+mod notification_limit;
+mod preferences;
+mod profile_card;
+mod upgrade_v0_13_0;
+
 #[test]
 fn failed_suspension_rolls_back_access_and_suspension_marker() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("suspension-rollback.db");
     let store = Store::open(path.to_str()).unwrap();
-    let member = protocol::Membership {
-        token: "rollback-fixture".into(),
-        name: "worker".into(),
-        kind: "agent".into(),
-        joined_at: 1,
-        admitted_by: "master".into(),
-    };
-    store.add_member(&member).unwrap();
+    let key = "rollback-fixture";
+    let member = store
+        .add_member(key, "worker", "agent", 1, "master")
+        .unwrap();
     store.conn().unwrap().execute_batch("CREATE TEMP TRIGGER reject_suspend BEFORE UPDATE ON principals BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
-    assert!(store.suspend_member(&member.token, "test", 2).is_err());
-    assert!(!store.member_suspended(&member.token).unwrap());
-    assert!(store.principal_for_credential(&member.token).is_some());
+    assert!(store.suspend_member(&member.id, "test", 2).is_err());
+    assert!(!store.member_suspended(&member.id).unwrap());
+    assert!(store.principal_for_credential(key).is_some());
 }
 
 #[test]
@@ -29,36 +35,25 @@ fn member_suspension_survives_restart_preserves_identity_and_cannot_undo_revocat
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("suspension.db");
     let store = Store::open(Some(path.to_str().unwrap())).unwrap();
-    let member = protocol::Membership {
-        token: "suspension-fixture".into(),
-        name: "worker".into(),
-        kind: "agent".into(),
-        joined_at: 1,
-        admitted_by: "master".into(),
-    };
-    store.add_member(&member).unwrap();
-    let id = store.principal_for_credential(&member.token).unwrap().id;
-    assert!(store
-        .suspend_member(&member.token, "maintenance", 2)
-        .unwrap());
-    assert!(store.member_suspended(&member.token).unwrap());
-    assert!(store.principal_for_credential(&member.token).is_none());
+    let key = "suspension-fixture";
+    let member = store
+        .add_member(key, "worker", "agent", 1, "master")
+        .unwrap();
+    let id = store.principal_for_credential(key).unwrap().id;
+    assert!(store.suspend_member(&member.id, "maintenance", 2).unwrap());
+    assert!(store.member_suspended(&member.id).unwrap());
+    assert!(store.principal_for_credential(key).is_none());
     drop(store);
     let store = Store::open(Some(path.to_str().unwrap())).unwrap();
-    assert!(store.member_suspended(&member.token).unwrap());
-    assert!(store.principal_for_credential(&member.token).is_none());
-    assert!(store.resume_member(&member.token).unwrap());
-    assert_eq!(
-        store.principal_for_credential(&member.token).unwrap().id,
-        id
-    );
-    assert!(!store.resume_member(&member.token).unwrap());
-    store
-        .suspend_member(&member.token, "maintenance", 3)
-        .unwrap();
-    store.revoke_member_cascade(&member.token, 4).unwrap();
-    assert!(!store.resume_member(&member.token).unwrap());
-    assert!(store.principal_for_credential(&member.token).is_none());
+    assert!(store.member_suspended(&member.id).unwrap());
+    assert!(store.principal_for_credential(key).is_none());
+    assert!(store.resume_member(&member.id).unwrap());
+    assert_eq!(store.principal_for_credential(key).unwrap().id, id);
+    assert!(!store.resume_member(&member.id).unwrap());
+    store.suspend_member(&member.id, "maintenance", 3).unwrap();
+    store.revoke_member_cascade(&member.id, 4).unwrap();
+    assert!(!store.resume_member(&member.id).unwrap());
+    assert!(store.principal_for_credential(key).is_none());
 }
 
 #[test]
@@ -122,14 +117,12 @@ fn operator_appointment_follows_identity_not_renamed_or_reused_labels() {
     store
         .create_room_with_operator("r", &RoomSettings::default(), &master, None, 2)
         .unwrap();
-    let member = |token: &str| protocol::Membership {
-        token: token.into(),
-        name: "alice".into(),
-        kind: "user".into(),
-        joined_at: 3,
-        admitted_by: "founder".into(),
+    let add = |key: &str| {
+        store
+            .add_member(key, "alice", "user", 3, "founder")
+            .unwrap()
     };
-    store.add_member(&member("old-person")).unwrap();
+    add("old-person");
     let original = store.principal_for_credential("old-person").unwrap().id;
     store
         .appoint_loca_operator("r", &original, &master, 4)
@@ -144,7 +137,7 @@ fn operator_appointment_follows_identity_not_renamed_or_reused_labels() {
         .unwrap();
     assert_eq!(store.loca_operator("r").unwrap().principal_id, original);
     assert_eq!(store.loca_operator("r").unwrap().display_name, "renamed");
-    store.add_member(&member("new-person")).unwrap();
+    add("new-person");
     let replacement = store.principal_for_credential("new-person").unwrap().id;
     assert_ne!(original, replacement);
     drop(store);
@@ -171,19 +164,18 @@ fn memory_owner_migration_binds_once_and_never_grants_reused_or_late_names() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("loca.db");
         let store = Store::open(Some(path.to_str().unwrap())).unwrap();
-        let member = |token: &str| protocol::Membership {
-            token: token.into(),
-            name: "alice".into(),
-            kind: "agent".into(),
-            joined_at: 1,
-            admitted_by: "master".into(),
+        let member = |store: &Store, key: &str| {
+            store
+                .add_member(key, "alice", "agent", 1, "master")
+                .unwrap()
+                .id
         };
         if scenario != "missing" {
-            store.add_member(&member("old-owner")).unwrap();
-        }
-        if scenario == "reused" {
-            store.revoke_member_cascade("old-owner", 2).unwrap();
-            store.add_member(&member("new-owner")).unwrap();
+            let old = member(&store, "old-owner");
+            if scenario == "reused" {
+                store.revoke_member_cascade(&old, 2).unwrap();
+                member(&store, "new-owner");
+            }
         }
         {
             let c = store.conn().unwrap();
@@ -215,7 +207,7 @@ fn memory_owner_migration_binds_once_and_never_grants_reused_or_late_names() {
             assert!(bound.is_none());
         }
         if scenario == "missing" {
-            store.add_member(&member("late-owner")).unwrap();
+            member(&store, "late-owner");
             drop(store);
             let store = Store::open(Some(path.to_str().unwrap())).unwrap();
             let bound: Option<String> = store
@@ -477,14 +469,9 @@ fn live_member_and_smaster_mutations_keep_identity_v2_in_sync() {
     let directory = tempfile::tempdir().expect("tempdir");
     let path = directory.path().join("identity-v2-live.db");
     let store = Store::open(Some(path.to_str().expect("db path"))).expect("store");
-    let member = protocol::Membership {
-        token: "mb_live".into(),
-        name: "worker".into(),
-        kind: "agent".into(),
-        joined_at: 10,
-        admitted_by: "master".into(),
-    };
-    store.add_member(&member).expect("add member");
+    let member = store
+        .add_member("mb_live", "worker", "agent", 10, "master")
+        .expect("add member");
     store
         .add_smaster("sm_live", "alice", 11)
         .expect("add smaster");
@@ -504,9 +491,11 @@ fn live_member_and_smaster_mutations_keep_identity_v2_in_sync() {
     );
 
     store
-        .revoke_member_cascade("mb_live", 20)
+        .revoke_member_cascade(&member.id, 20)
         .expect("revoke member");
-    store.revoke_smaster("sm_live", 21).expect("revoke smaster");
+    store
+        .revoke_smaster(&super::secret_hash("sm_live"), 21)
+        .expect("revoke smaster");
     assert!(store.principal_for_credential("mb_live").is_none());
     assert!(store.principal_for_credential("sm_live").is_none());
 }
@@ -686,6 +675,37 @@ fn archive_pauses_attention_delivery_and_seal_resolves_it() {
     );
 }
 
+/// A collection as the join-request tests below were written against it,
+/// all inside the delivery window: the key, or nothing.
+fn claimed(store: &Store, id: &str, secret: &str, now: u64) -> Option<String> {
+    match store
+        .claim_join_request_bootstrap(id, secret, now)
+        .expect("claim reads the store")
+    {
+        super::BootstrapClaim::Delivered(key) => Some(key),
+        super::BootstrapClaim::Expired => panic!("these tests stay inside the window"),
+        super::BootstrapClaim::Unavailable => None,
+    }
+}
+
+fn acked(store: &Store, id: &str, secret: &str, now: u64) -> Option<bool> {
+    store
+        .ack_join_request_bootstrap(id, secret, now)
+        .expect("ack reads the store")
+}
+
+/// `(status, name, bootstrap_ready)`, read well inside every window these
+/// tests open (their approvals are at small times).
+fn viewed(store: &Store, id: &str, secret: &str) -> Option<(String, String, bool)> {
+    store
+        .join_request_view(id, secret, 1_000)
+        .expect("view reads the store")
+        .map(|view| {
+            assert!(!view.bootstrap_expired);
+            (view.status, view.name, view.bootstrap_ready)
+        })
+}
+
 #[test]
 fn admission_stock_mints_consumes_once_and_ignores_expired() {
     let directory = tempfile::tempdir().expect("tempdir");
@@ -732,9 +752,7 @@ fn admission_stock_mints_consumes_once_and_ignores_expired() {
         super::ApproveTxn::NoStock
     ));
     assert_eq!(store.admission_stock_counts(100), (2, 0));
-    assert!(store
-        .claim_join_request_bootstrap("jr_c", "sc", 150)
-        .is_none());
+    assert!(claimed(&store, "jr_c", "sc", 150).is_none());
     // After replenishing, the same still-pending request approves cleanly.
     assert_eq!(
         store
@@ -778,8 +796,8 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_crash_safe() {
         .create_join_request("jr_1", "sekret", "bot", "agent", 100)
         .expect("create");
     // Only the matching secret can see the request; a wrong one learns nothing.
-    assert!(store.join_request_view("jr_1", "wrong").is_none());
-    let (status, name, ready) = store.join_request_view("jr_1", "sekret").expect("view");
+    assert!(viewed(&store, "jr_1", "wrong").is_none());
+    let (status, name, ready) = viewed(&store, "jr_1", "sekret").expect("view");
     assert_eq!(
         (status.as_str(), name.as_str(), ready),
         ("pending", "bot", false)
@@ -797,8 +815,12 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_crash_safe() {
         panic!("expected Committed, got {out:?}");
     };
     assert_eq!(
-        (m.token.as_str(), m.name.as_str(), m.kind.as_str()),
-        ("mb_bot", "bot", "agent")
+        (m.id.as_str(), m.name.as_str(), m.kind.as_str()),
+        (
+            super::hashed_id("mbid_", "member:mb_bot").as_str(),
+            "bot",
+            "agent"
+        )
     );
     assert_eq!(store.admission_stock_counts(200), (2, 1));
     // The issued mb_ must AUTHENTICATE immediately on this persistent (file-backed)
@@ -820,34 +842,24 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_crash_safe() {
     // the client ACKs, so a crash between receiving it and persisting it cannot
     // lose the credential. Repeated bootstraps return the SAME mb_.
     assert_eq!(
-        store
-            .claim_join_request_bootstrap("jr_1", "sekret", 300)
-            .as_deref(),
+        claimed(&store, "jr_1", "sekret", 300).as_deref(),
         Some("mb_bot")
     );
     // Re-fetch (client crashed before persisting) still works — the window is open.
     assert_eq!(
-        store
-            .claim_join_request_bootstrap("jr_1", "sekret", 301)
-            .as_deref(),
+        claimed(&store, "jr_1", "sekret", 301).as_deref(),
         Some("mb_bot")
     );
     // The requester's poll keeps signaling bootstrap_ready until the ACK.
-    let (_, _, ready_before_ack) = store.join_request_view("jr_1", "sekret").expect("view");
+    let (_, _, ready_before_ack) = viewed(&store, "jr_1", "sekret").expect("view");
     assert!(ready_before_ack, "bootstrap_ready must stay true until ACK");
     // A wrong secret can neither bootstrap nor ACK someone else's request, and
     // a failed ACK attempt changes NO state — the window stays open for the
     // rightful holder (the next real bootstrap still returns mb_).
-    assert!(store
-        .claim_join_request_bootstrap("jr_1", "nope", 302)
-        .is_none());
-    assert!(store
-        .ack_join_request_bootstrap("jr_1", "nope", 303)
-        .is_none());
+    assert!(claimed(&store, "jr_1", "nope", 302).is_none());
+    assert!(acked(&store, "jr_1", "nope", 303).is_none());
     assert_eq!(
-        store
-            .claim_join_request_bootstrap("jr_1", "sekret", 304)
-            .as_deref(),
+        claimed(&store, "jr_1", "sekret", 304).as_deref(),
         Some("mb_bot"),
         "a wrong-secret ACK must not close the window"
     );
@@ -858,19 +870,11 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_crash_safe() {
     );
     // ACK finalizes: first returns Some(true); a repeat by the same secret is
     // idempotent Some(false); afterwards the bootstrap window is CLOSED (None).
-    assert_eq!(
-        store.ack_join_request_bootstrap("jr_1", "sekret", 305),
-        Some(true)
-    );
-    assert_eq!(
-        store.ack_join_request_bootstrap("jr_1", "sekret", 306),
-        Some(false)
-    );
-    assert!(store
-        .claim_join_request_bootstrap("jr_1", "sekret", 307)
-        .is_none());
+    assert_eq!(acked(&store, "jr_1", "sekret", 305), Some(true));
+    assert_eq!(acked(&store, "jr_1", "sekret", 306), Some(false));
+    assert!(claimed(&store, "jr_1", "sekret", 307).is_none());
     // And the poll no longer advertises readiness once finalized.
-    let (_, _, ready_after_ack) = store.join_request_view("jr_1", "sekret").expect("view");
+    let (_, _, ready_after_ack) = viewed(&store, "jr_1", "sekret").expect("view");
     assert!(!ready_after_ack, "bootstrap_ready must be false after ACK");
     // The ACK scrubbed the plaintext mb_ copy from the request row — a DB dump
     // retains no delivered credential (the live membership lives in the members
@@ -895,10 +899,8 @@ fn join_request_approve_is_exactly_once_and_bootstrap_is_crash_safe() {
         super::ApproveTxn::NameTaken
     ));
     assert_eq!(store.admission_stock_counts(200), (2, 1)); // unchanged
-    assert!(store
-        .claim_join_request_bootstrap("jr_3", "s3", 400)
-        .is_none());
-    let (status3, _, _) = store.join_request_view("jr_3", "s3").expect("view3");
+    assert!(claimed(&store, "jr_3", "s3", 400).is_none());
+    let (status3, _, _) = viewed(&store, "jr_3", "s3").expect("view3");
     assert_eq!(status3, "pending");
 
     // Deny is one-shot too: a pending request denies once, then no longer.
@@ -927,16 +929,8 @@ fn join_request_bootstrap_ack_survives_restart_and_reopen_migration() {
         else {
             panic!("approve");
         };
-        assert_eq!(
-            store
-                .claim_join_request_bootstrap("jr_r", "sr", 300)
-                .as_deref(),
-            Some("mb_r")
-        );
-        assert_eq!(
-            store.ack_join_request_bootstrap("jr_r", "sr", 301),
-            Some(true)
-        );
+        assert_eq!(claimed(&store, "jr_r", "sr", 300).as_deref(), Some("mb_r"));
+        assert_eq!(acked(&store, "jr_r", "sr", 301), Some(true));
     } // drop → the connection closes, simulating a server restart.
 
     // Reopen the SAME file: the additive `ALTER TABLE ... ADD COLUMN` re-runs
@@ -944,15 +938,10 @@ fn join_request_bootstrap_ack_survives_restart_and_reopen_migration() {
     // window stays closed, the credential copy stays scrubbed, and a repeat ACK
     // is still idempotent across the restart.
     let store2 = Store::open(Some(p)).expect("reopen");
-    assert!(store2
-        .claim_join_request_bootstrap("jr_r", "sr", 400)
-        .is_none());
-    assert_eq!(
-        store2.ack_join_request_bootstrap("jr_r", "sr", 401),
-        Some(false)
-    );
+    assert!(claimed(&store2, "jr_r", "sr", 400).is_none());
+    assert_eq!(acked(&store2, "jr_r", "sr", 401), Some(false));
     assert_eq!(store2.join_request_mb_token_raw("jr_r"), Some(None));
-    let (_, _, ready) = store2.join_request_view("jr_r", "sr").expect("view");
+    let (_, _, ready) = viewed(&store2, "jr_r", "sr").expect("view");
     assert!(!ready, "restart must not reopen the bootstrap window");
 }
 
@@ -983,11 +972,11 @@ fn join_request_bootstrap_ack_is_atomic_under_concurrency() {
     for i in 0..8u64 {
         let s = Arc::clone(&store);
         handles.push(std::thread::spawn(move || {
-            s.claim_join_request_bootstrap("jr_c", "sc", 300 + i)
+            claimed(&s, "jr_c", "sc", 300 + i)
         }));
     }
     let sack = Arc::clone(&store);
-    let ack = std::thread::spawn(move || sack.ack_join_request_bootstrap("jr_c", "sc", 999));
+    let ack = std::thread::spawn(move || acked(&sack, "jr_c", "sc", 999));
 
     for h in handles {
         if let Some(mb) = h.join().expect("bootstrap thread") {
@@ -998,9 +987,7 @@ fn join_request_bootstrap_ack_is_atomic_under_concurrency() {
 
     // Once every thread has joined the ACK is committed: the window is closed and
     // the credential copy scrubbed, no matter how the threads interleaved above.
-    assert!(store
-        .claim_join_request_bootstrap("jr_c", "sc", 1000)
-        .is_none());
+    assert!(claimed(&store, "jr_c", "sc", 1000).is_none());
     assert_eq!(store.join_request_mb_token_raw("jr_c"), Some(None));
 }
 
@@ -1178,12 +1165,12 @@ fn a_rename_leaves_no_row_behind_in_any_loca_table() {
     );
 }
 
-/// A birebir is never renamed, and no loca is renamed into the birebir id
+/// A direct message is never renamed, and no loca is renamed into the direct message id
 /// space: the refusal changes nothing.
 #[test]
-fn a_rename_never_touches_a_birebir_or_its_id_space() {
+fn a_rename_never_touches_a_dm_or_its_id_space() {
     let directory = tempfile::tempdir().expect("tempdir");
-    let store = Store::open(directory.path().join("rename-birebir.db").to_str()).expect("store");
+    let store = Store::open(directory.path().join("rename-dm.db").to_str()).expect("store");
     store
         .save_room("plain", &ChatMode::Free, &RoomSettings::default())
         .expect("room");
@@ -1193,7 +1180,7 @@ fn a_rename_never_touches_a_birebir_or_its_id_space() {
             "INSERT INTO birebirs (room, a, b, opened_by, opened_at) VALUES ('bb-pair', 'a', 'b', 'a', 1)",
             [],
         )
-        .expect("birebir");
+        .expect("dm");
         conn.execute(
             "INSERT INTO journal (id, room, by, by_type, text, at) VALUES (1, 'bb-pair', 'a', 'user', 'x', 1)",
             [],
@@ -1233,7 +1220,7 @@ fn ledger_signal(store: &Store, id: &str) -> Option<CareSignal> {
     json.map(|json| serde_json::from_str(&json).expect("ledger signal"))
 }
 
-/// A relay delivered in İye about another loca (`room = iye`,
+/// A relay delivered in Care about another loca (`room = iye`,
 /// `source_room = old`). Renaming the SOURCE loca moves the ledger row, its
 /// id, the JSON source and the outbox reference together; the delivery id
 /// stays, so a late ACK still lands, and a resolved signal is not delivered
@@ -1274,7 +1261,7 @@ fn renaming_the_source_loca_keeps_a_rehomed_care_signal_whole() {
     };
     check(&store, "after rename");
     let pending = store.pending_care("iye", "loca-care");
-    assert_eq!(pending.len(), 1, "still one delivery waiting in İye");
+    assert_eq!(pending.len(), 1, "still one delivery waiting in Care");
     assert_eq!(
         (
             pending[0].id.as_str(),
@@ -1445,18 +1432,17 @@ fn sending_a_notification_counts_its_recipients_in_the_same_transaction() {
     let store = Store::open(path.to_str()).unwrap();
     let mut ids = Vec::new();
     for (name, kind) in [("ali", "user"), ("bot", "agent"), ("scribe", "agent")] {
-        let member = protocol::Membership {
-            token: format!("{name}-fixture"),
-            name: name.into(),
-            kind: kind.into(),
-            joined_at: 1,
-            admitted_by: "master".into(),
-        };
-        store.add_member(&member).unwrap();
-        ids.push(store.principal_for_credential(&member.token).unwrap().id);
+        let key = format!("{name}-fixture");
+        store.add_member(&key, name, kind, 1, "master").unwrap();
+        ids.push(store.principal_for_credential(&key).unwrap().id);
     }
 
-    let created = store
+    let unlimited = super::SendLimit {
+        senders: &[],
+        max: u32::MAX,
+        window_ms: 1,
+    };
+    let created = match store
         .create_notification(
             "pr_sender",
             "Master",
@@ -1465,9 +1451,14 @@ fn sending_a_notification_counts_its_recipients_in_the_same_transaction() {
             "",
             10,
             &ids,
+            unlimited,
         )
         .unwrap()
-        .unwrap();
+        .unwrap()
+    {
+        super::NotificationSend::Created(created) => created,
+        refused => panic!("the first send was refused: {refused:?}"),
+    };
     assert_eq!((created.recipients, created.agents), (3, 2));
     // The Sent list reads the same numbers later.
     let sent = store.sent_notifications("pr_sender", None, 10).unwrap();
@@ -1493,7 +1484,8 @@ fn sending_a_notification_counts_its_recipients_in_the_same_transaction() {
             "Lost",
             "",
             11,
-            &ids
+            &ids,
+            unlimited,
         )
         .is_err());
     let sent = store.sent_notifications("pr_sender", None, 10).unwrap();
@@ -1502,4 +1494,1346 @@ fn sending_a_notification_counts_its_recipients_in_the_same_transaction() {
         vec!["Kept"],
         "a failed send leaves no notification behind"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The Smaster registry stops holding codes. These build a registry the way
+// v0.13.0 left it on disk (the code as the primary key, its identity bound in
+// `principals`/`credentials`, a WAL not yet checkpointed) and open it here.
+// ---------------------------------------------------------------------------
+
+/// One Smaster as v0.13.0 recorded it.
+struct LegacySmaster {
+    code: String,
+    issued_as: &'static str,
+    renamed_to: Option<&'static str>,
+    issued_at: u64,
+    revoked_at: Option<u64>,
+    last_used_at: Option<u64>,
+    device_secret: Option<&'static str>,
+}
+
+impl LegacySmaster {
+    fn name(&self) -> &'static str {
+        self.renamed_to.unwrap_or(self.issued_as)
+    }
+    fn derived(&self, prefix: &str) -> String {
+        super::hashed_id(prefix, &format!("smaster:{}", self.code))
+    }
+    /// The part of the code the ledger never shows: everything after the
+    /// fingerprint's four characters.
+    fn secret_tail(&self) -> &str {
+        &self.code[7..]
+    }
+}
+
+/// A synthetic code shaped like v0.13.0's (`sm_` and 64 characters) around a
+/// marker nothing else in the file contains, so a byte search is meaningful.
+fn synthetic_smaster_code(tag: &str) -> String {
+    let mut code = format!("sm_QZXJ-synthetic-smaster-code-{tag}-");
+    while code.len() < 67 {
+        code.push('7');
+    }
+    code
+}
+
+/// A renamed one, a revoked one, one with an extra device credential, and one
+/// that was never used.
+fn legacy_smasters() -> Vec<LegacySmaster> {
+    vec![
+        LegacySmaster {
+            code: synthetic_smaster_code("renamed"),
+            issued_as: "yeni-0001",
+            renamed_to: Some("ayse"),
+            issued_at: 1_000,
+            revoked_at: None,
+            last_used_at: Some(1_500),
+            device_secret: None,
+        },
+        LegacySmaster {
+            code: synthetic_smaster_code("revoked"),
+            issued_as: "bora",
+            renamed_to: None,
+            issued_at: 2_000,
+            revoked_at: Some(2_500),
+            last_used_at: Some(2_100),
+            device_secret: None,
+        },
+        LegacySmaster {
+            code: synthetic_smaster_code("device"),
+            issued_as: "cem",
+            renamed_to: None,
+            issued_at: 3_000,
+            revoked_at: None,
+            last_used_at: Some(3_300),
+            device_secret: Some("ak_synthetic-device-credential-for-cem"),
+        },
+        LegacySmaster {
+            code: synthetic_smaster_code("unused"),
+            issued_as: "deniz",
+            renamed_to: None,
+            issued_at: 4_000,
+            revoked_at: None,
+            last_used_at: None,
+            device_secret: None,
+        },
+    ]
+}
+
+/// Every row of `principals` and `credentials`, as text, in a stable order.
+fn identity_rows(conn: &Connection) -> Vec<Vec<String>> {
+    let mut out = Vec::new();
+    for sql in [
+        "SELECT id, display_name, kind, building_role, created_at, disabled_at
+         FROM principals ORDER BY id",
+        "SELECT id, principal_id, label, secret_hash, created_at, last_used_at, revoked_at,
+                legacy_source
+         FROM credentials ORDER BY id",
+    ] {
+        let mut statement = conn.prepare(sql).unwrap();
+        let columns = statement.column_count();
+        let rows = statement
+            .query_map([], |row| {
+                (0..columns)
+                    .map(|i| Ok(format!("{:?}", row.get_ref(i)?)))
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .unwrap();
+        out.extend(rows.map(Result::unwrap));
+    }
+    out
+}
+
+/// How v0.13.0's files look when the upgrade opens them.
+#[derive(Clone, Copy)]
+enum LegacyLayout {
+    /// A stopped server's database plus the WAL it had not checkpointed.
+    PendingWal,
+    /// Everything checkpointed into the main file, after rows that once held
+    /// a code were deleted: pages and cells freed before the upgrade.
+    CheckpointedWithFreedPages,
+}
+
+/// Write the registry the way v0.13.0 did and leave the files at
+/// `legacy.db` in `layout`. `bound` false leaves the Smasters' principals
+/// and credentials unbound, as a database from before identity v2. Returns
+/// the path and the identity rows as v0.13.0 left them.
+fn legacy_smaster_database(
+    dir: &std::path::Path,
+    smasters: &[LegacySmaster],
+    bound: bool,
+) -> (std::path::PathBuf, Vec<Vec<String>>) {
+    legacy_smaster_files(dir, smasters, bound, LegacyLayout::PendingWal)
+}
+
+fn legacy_smaster_files(
+    dir: &std::path::Path,
+    smasters: &[LegacySmaster],
+    bound: bool,
+    layout: LegacyLayout,
+) -> (std::path::PathBuf, Vec<Vec<String>>) {
+    use rusqlite::params;
+    let build = dir.join("build.db");
+    drop(Store::open(build.to_str()).expect("current schema"));
+    let conn = legacy_build_connection(&build);
+    write_legacy_smasters(&conn, smasters, bound);
+    let identities = identity_rows(&conn);
+    if let LegacyLayout::CheckpointedWithFreedPages = layout {
+        for (i, s) in smasters.iter().enumerate().cycle().take(400) {
+            conn.execute(
+                "INSERT OR REPLACE INTO smasters (token, name, issued_at, revoked_at)
+                 VALUES (?1, 'churn', 1, NULL)",
+                params![format!("{}-copy-{i}", s.code)],
+            )
+            .unwrap();
+        }
+        conn.execute("DELETE FROM smasters WHERE name = 'churn'", [])
+            .unwrap();
+    }
+    (finish_legacy_files(dir, &build, conn, layout), identities)
+}
+
+/// A connection to the fixture being built that keeps every write in the WAL
+/// until `finish_legacy_files` decides what the old version left on disk.
+fn legacy_build_connection(build: &std::path::Path) -> Connection {
+    let conn = Connection::open(build).expect("build");
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA wal_autocheckpoint = 0;",
+    )
+    .expect("WAL kept");
+    conn
+}
+
+/// Leave the fixture at `legacy.db` in `layout`: with its WAL pending, or
+/// checkpointed into the main file after the caller's churn freed pages.
+fn finish_legacy_files(
+    dir: &std::path::Path,
+    build: &std::path::Path,
+    conn: Connection,
+    layout: LegacyLayout,
+) -> std::path::PathBuf {
+    if let LegacyLayout::CheckpointedWithFreedPages = layout {
+        conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
+            .unwrap();
+    }
+    let legacy = dir.join("legacy.db");
+    std::fs::copy(build, &legacy).expect("database file");
+    if let LegacyLayout::PendingWal = layout {
+        std::fs::copy(dir.join("build.db-wal"), dir.join("legacy.db-wal")).expect("its WAL");
+    }
+    drop(conn);
+    legacy
+}
+
+/// The registry v0.13.0 wrote, with the bindings it made when `bound`.
+fn write_legacy_smasters(conn: &Connection, smasters: &[LegacySmaster], bound: bool) {
+    use rusqlite::params;
+    conn.execute_batch(
+        "DROP TABLE smasters;
+         CREATE TABLE smasters (
+             token TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             issued_at INTEGER NOT NULL,
+             revoked_at INTEGER
+         );",
+    )
+    .expect("v0.13.0 registry");
+    for s in smasters {
+        let hash = super::secret_hash(&s.code);
+        conn.execute(
+            "INSERT OR REPLACE INTO smasters (token, name, issued_at, revoked_at)
+             VALUES (?1, ?2, ?3, NULL)",
+            params![s.code, s.issued_as, s.issued_at],
+        )
+        .unwrap();
+        if bound {
+            conn.execute(
+                "INSERT INTO principals (id, display_name, kind, building_role, created_at)
+                 VALUES (?1, ?2, 'human', 'smaster', ?3)",
+                params![s.derived("pr_"), s.issued_as, s.issued_at],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO credentials
+                 (id, principal_id, label, secret_hash, created_at, last_used_at, revoked_at,
+                  legacy_source)
+                 VALUES (?1, ?2, 'Smaster access', ?3, ?4, ?5, NULL, ?6)",
+                params![
+                    s.derived("cr_"),
+                    s.derived("pr_"),
+                    hash,
+                    s.issued_at,
+                    s.last_used_at,
+                    format!("smaster:{hash}")
+                ],
+            )
+            .unwrap();
+            if let Some(device) = s.device_secret {
+                conn.execute(
+                    "INSERT INTO credentials
+                     (id, principal_id, label, secret_hash, created_at, last_used_at)
+                     VALUES (?1, ?2, 'Laptop', ?3, ?4, ?5)",
+                    params![
+                        super::hashed_id("cr_", &format!("credential:{device}")),
+                        s.derived("pr_"),
+                        super::secret_hash(device),
+                        s.issued_at + 10,
+                        s.issued_at + 50
+                    ],
+                )
+                .unwrap();
+            }
+        }
+        if let Some(name) = s.renamed_to {
+            conn.execute(
+                "UPDATE smasters SET name = ?2 WHERE token = ?1 AND revoked_at IS NULL",
+                params![s.code, name],
+            )
+            .unwrap();
+            if bound {
+                conn.execute(
+                    "UPDATE principals SET display_name = ?2 WHERE id = ?1",
+                    params![s.derived("pr_"), name],
+                )
+                .unwrap();
+            }
+        }
+        if let Some(at) = s.revoked_at {
+            conn.execute(
+                "UPDATE smasters SET revoked_at = ?2 WHERE token = ?1 AND revoked_at IS NULL",
+                params![s.code, at],
+            )
+            .unwrap();
+            if bound {
+                conn.execute(
+                    "UPDATE credentials SET revoked_at = ?2 WHERE secret_hash = ?1",
+                    params![hash, at],
+                )
+                .unwrap();
+                conn.execute(
+                    "UPDATE principals SET disabled_at = ?2 WHERE id = ?1",
+                    params![s.derived("pr_"), at],
+                )
+                .unwrap();
+            }
+        }
+    }
+}
+
+/// Every value in every table of `conn` that contains `needle`, as
+/// `table.column`.
+fn sql_values_containing(conn: &Connection, needle: &str) -> Vec<String> {
+    let tables: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let mut found = Vec::new();
+    for table in tables {
+        let mut statement = conn.prepare(&format!("SELECT * FROM \"{table}\"")).unwrap();
+        let names: Vec<String> = statement.column_names().map(str::to_string).collect();
+        let mut rows = statement.query([]).unwrap();
+        while let Some(row) = rows.next().unwrap() {
+            for (i, column) in names.iter().enumerate() {
+                let bytes = match row.get_ref(i).unwrap() {
+                    rusqlite::types::ValueRef::Text(bytes) => bytes.to_vec(),
+                    rusqlite::types::ValueRef::Blob(bytes) => bytes.to_vec(),
+                    other => format!("{other:?}").into_bytes(),
+                };
+                if contains_bytes(&bytes, needle.as_bytes()) {
+                    found.push(format!("{table}.{column}"));
+                }
+            }
+        }
+    }
+    found
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+/// The files of the database at `path` (itself, `-wal`, `-shm`) that contain
+/// `needle` byte for byte.
+fn files_containing(path: &std::path::Path, needle: &str) -> Vec<String> {
+    ["", "-wal", "-shm"]
+        .into_iter()
+        .filter_map(|suffix| {
+            let file = std::path::PathBuf::from(format!("{}{suffix}", path.display()));
+            let bytes = std::fs::read(&file).ok()?;
+            contains_bytes(&bytes, needle.as_bytes())
+                .then(|| file.file_name().unwrap().to_string_lossy().into_owned())
+        })
+        .collect()
+}
+
+fn hub_on(store: Store) -> crate::hub::Hub {
+    crate::hub::Hub::build(
+        crate::hub::HubConfig {
+            admin_token: "smaster-migration-root".into(),
+            room_token: String::new(),
+            require_sessions: true,
+            require_invite: true,
+            home_room: "iye".into(),
+            reserved_room: "iye".into(),
+            caretakers: std::collections::HashSet::new(),
+        },
+        std::sync::Arc::new(store),
+        RoomSettings::default(),
+        1,
+    )
+}
+
+#[test]
+fn smaster_code_migration_keeps_every_identity_and_sign_in() {
+    let directory = tempfile::tempdir().unwrap();
+    let smasters = legacy_smasters();
+    let (path, before) = legacy_smaster_database(directory.path(), &smasters, true);
+    let store = Store::open(path.to_str()).expect("the upgrade opens a v0.13.0 database");
+    {
+        let c = store.conn().unwrap();
+        // No principal or credential was added, changed or lost: the same
+        // ids, names, revocations and last uses as v0.13.0 left them.
+        assert_eq!(identity_rows(&c), before);
+        for s in &smasters {
+            let row: (String, String, String, String, String, u64, Option<u64>) = c
+                .query_row(
+                    "SELECT management_id, principal_id, credential_id, fingerprint, name,
+                            issued_at, revoked_at
+                     FROM smasters WHERE secret_hash = ?1",
+                    [super::secret_hash(&s.code)],
+                    |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                            r.get(6)?,
+                        ))
+                    },
+                )
+                .expect("the registry keeps each Smaster under its code's hash");
+            assert_eq!(
+                row,
+                (
+                    s.derived("smid_"),
+                    s.derived("pr_"),
+                    s.derived("cr_"),
+                    super::keys::fingerprint(&s.code),
+                    s.name().to_string(),
+                    s.issued_at,
+                    s.revoked_at
+                ),
+                "identifiers are exactly what v0.13.0 derived from {}",
+                s.name()
+            );
+        }
+    }
+    // The ledger shows the same ids, fingerprints, uses and revocations.
+    let ledger = store.key_ledger(10_000, 7 * 24 * 60 * 60 * 1_000).unwrap();
+    for s in &smasters {
+        let entry = ledger
+            .iter()
+            .find(|k| k.kind == "smaster" && k.id == s.derived("smid_"))
+            .expect("listed by its smid_");
+        assert_eq!(entry.fingerprint, super::keys::fingerprint(&s.code));
+        assert_eq!(entry.for_name.as_deref(), Some(s.name()));
+        assert_eq!(entry.issued_at, s.issued_at);
+        assert_eq!(entry.last_used_at, s.last_used_at);
+        assert_eq!(entry.revoked_at, s.revoked_at);
+    }
+    // The Hub's legacy path knows each live code by its hash, with its name.
+    let hub = hub_on(store);
+    for s in &smasters {
+        assert_eq!(
+            hub.smaster_name(Some(&s.code)).as_deref(),
+            s.revoked_at.is_none().then(|| s.name())
+        );
+    }
+    // The seven-day sweep (these fixture codes were issued in 1970) takes
+    // back only the code that was never used, judged by the last use v0.13.0
+    // recorded on its credential. Nothing has signed in since the upgrade.
+    hub.expire_unused_smasters();
+    let live = |s: &LegacySmaster| s.revoked_at.is_none() && s.last_used_at.is_some();
+    for s in &smasters {
+        assert_eq!(
+            hub.smaster_name(Some(&s.code)).is_some(),
+            live(s),
+            "{} after the sweep",
+            s.name()
+        );
+    }
+    // The same codes sign in as the same principals; the revoked and the
+    // expired one do not, and the device credential still belongs to its
+    // Smaster.
+    for s in &smasters {
+        let authority = hub.resolve_authority(Some(&s.code), None);
+        if live(s) {
+            assert_eq!(authority.principal_id, Some(s.derived("pr_")));
+            assert_eq!(authority.display_name.as_deref(), Some(s.name()));
+            assert_eq!(authority.building_role, Some(super::BuildingRole::Smaster));
+        } else {
+            assert!(!authority.is_building_admin(), "{} signs in", s.name());
+        }
+        if let Some(device) = s.device_secret {
+            assert_eq!(
+                hub.resolve_authority(Some(device), None).principal_id,
+                Some(s.derived("pr_"))
+            );
+        }
+    }
+}
+
+#[test]
+fn smaster_codes_leave_no_trace_in_the_database_files_or_a_snapshot() {
+    for layout in [
+        LegacyLayout::PendingWal,
+        LegacyLayout::CheckpointedWithFreedPages,
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let smasters = legacy_smasters();
+        let (path, _) = legacy_smaster_files(directory.path(), &smasters, true, layout);
+        // The fixture is meaningful: before the upgrade the codes are on disk.
+        assert!(smasters
+            .iter()
+            .all(|s| !files_containing(&path, s.secret_tail()).is_empty()));
+
+        let store = Store::open(path.to_str()).expect("upgrade");
+        for s in &smasters {
+            for needle in [s.code.as_str(), s.secret_tail()] {
+                assert_eq!(
+                    sql_values_containing(&store.conn().unwrap(), needle),
+                    Vec::<String>::new(),
+                    "no column of any table holds {}'s code",
+                    s.name()
+                );
+                assert_eq!(
+                    files_containing(&path, needle),
+                    Vec::<String>::new(),
+                    "no byte of the open database, its WAL or shm holds {}'s code",
+                    s.name()
+                );
+            }
+        }
+        drop(store);
+        for s in &smasters {
+            assert_eq!(
+                files_containing(&path, s.secret_tail()),
+                Vec::<String>::new()
+            );
+        }
+
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts/storage_snapshot.py");
+        let snapshot = directory.path().join("snapshot");
+        let python = std::env::var("PYTHON").unwrap_or_else(|_| "python3".into());
+        let backup = std::process::Command::new(&python)
+            .arg(&script)
+            .arg("backup")
+            .arg(&path)
+            .arg(&snapshot)
+            .arg("--server-stopped")
+            .output()
+            .expect("python3 runs the snapshot tool");
+        assert!(
+            backup.status.success(),
+            "{}",
+            String::from_utf8_lossy(&backup.stderr)
+        );
+        for s in &smasters {
+            assert_eq!(
+                files_containing(&snapshot.join("loca.sqlite3"), s.secret_tail()),
+                Vec::<String>::new(),
+                "a snapshot taken after the upgrade holds no code"
+            );
+        }
+    }
+}
+
+#[test]
+fn reopening_a_migrated_smaster_registry_changes_nothing() {
+    let directory = tempfile::tempdir().unwrap();
+    let smasters = legacy_smasters();
+    // Unbound: the first open binds each Smaster, the second must not add or
+    // change anything (no principal minted from a hash or a placeholder).
+    let (path, _) = legacy_smaster_database(directory.path(), &smasters, false);
+    let dump = |store: &Store| {
+        let c = store.conn().unwrap();
+        let mut rows = identity_rows(&c);
+        let mut statement = c
+            .prepare(
+                "SELECT management_id, secret_hash, principal_id, credential_id, fingerprint,
+                        name, issued_at, revoked_at
+                 FROM smasters ORDER BY management_id",
+            )
+            .expect("the registry has its hashed shape");
+        let registry = statement
+            .query_map([], |row| {
+                (0..8)
+                    .map(|i| Ok(format!("{:?}", row.get_ref(i)?)))
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })
+            .unwrap()
+            .map(Result::unwrap);
+        rows.extend(registry);
+        rows
+    };
+    let first = Store::open(path.to_str()).expect("first open");
+    let after_first = dump(&first);
+    let principals = |rows: &[Vec<String>]| rows.iter().filter(|r| r.len() == 6).count();
+    assert_eq!(
+        principals(&after_first),
+        smasters.len(),
+        "one principal per Smaster, nothing else"
+    );
+    for s in &smasters {
+        assert_eq!(
+            first.principal_for_credential(&s.code).map(|who| who.id),
+            s.revoked_at.is_none().then(|| s.derived("pr_"))
+        );
+    }
+    let after_sign_in = dump(&first);
+    drop(first);
+    let schema = schema_dump(path.to_str().unwrap());
+    let second = Store::open(path.to_str()).expect("second open");
+    assert_eq!(dump(&second), after_sign_in, "the second open is a no-op");
+    drop(second);
+    assert_eq!(schema_dump(path.to_str().unwrap()), schema);
+}
+
+#[test]
+fn a_failed_smaster_migration_leaves_the_old_registry_and_fails_open() {
+    let read_old = |path: &std::path::Path| -> Vec<(String, String, u64, Option<u64>)> {
+        let c = Connection::open(path).unwrap();
+        let mut statement = c
+            .prepare("SELECT token, name, issued_at, revoked_at FROM smasters ORDER BY token")
+            .expect("the old registry is still readable in its old shape");
+        let rows = statement
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        rows
+    };
+    let smasters = legacy_smasters();
+    let mut expected: Vec<_> = smasters
+        .iter()
+        .map(|s| {
+            (
+                s.code.clone(),
+                s.name().to_string(),
+                s.issued_at,
+                s.revoked_at,
+            )
+        })
+        .collect();
+    expected.sort();
+
+    // 1. Binding a Smaster's credential is refused (a trigger, as the other
+    //    fault-injection tests do).
+    let directory = tempfile::tempdir().unwrap();
+    let (path, _) = legacy_smaster_database(directory.path(), &smasters, false);
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER refuse_smaster_binding BEFORE INSERT ON credentials
+             WHEN NEW.legacy_source LIKE 'smaster:%'
+             BEGIN SELECT RAISE(ABORT, 'injected: Smaster binding refused'); END;",
+        )
+        .unwrap();
+    let error = match Store::open(path.to_str()) {
+        Ok(_) => panic!("open must fail when the migration fails"),
+        Err(error) => error.to_string(),
+    };
+    assert!(
+        error.contains("injected: Smaster binding refused"),
+        "{error}"
+    );
+    assert_eq!(read_old(&path), expected);
+
+    // 2. The rebuild itself fails after every binding was written: an
+    //    operator's view over the old column cannot follow the new table.
+    //    Nothing of the transaction stays, the bindings included.
+    let directory = tempfile::tempdir().unwrap();
+    let (path, _) = legacy_smaster_database(directory.path(), &smasters, false);
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("CREATE VIEW smaster_codes AS SELECT token FROM smasters;")
+        .unwrap();
+    let error = match Store::open(path.to_str()) {
+        Ok(_) => panic!("open must fail when the rebuild fails"),
+        Err(error) => error.to_string(),
+    };
+    assert!(error.contains("smaster_codes"), "the real cause: {error}");
+    assert_eq!(read_old(&path), expected);
+    let c = Connection::open(&path).unwrap();
+    let bound: i64 = c
+        .query_row(
+            "SELECT count(*) FROM principals WHERE building_role = 'smaster'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(bound, 0, "the bindings rolled back with the rebuild");
+    let leftovers: i64 = c
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name = 'smasters_hashed'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(leftovers, 0);
+}
+
+#[test]
+fn a_busy_checkpoint_is_not_a_finished_scrub_and_the_next_open_finishes_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let smasters = legacy_smasters();
+    let (path, _) = legacy_smaster_database(directory.path(), &smasters, true);
+    // Another process reading the file pins the WAL: the migration commits,
+    // but its old frames cannot be cut away while that read is open.
+    let reader = Connection::open(&path).unwrap();
+    reader
+        .execute_batch("BEGIN; SELECT count(*) FROM smasters;")
+        .unwrap();
+    let error = match Store::open(path.to_str()) {
+        Ok(_) => panic!("a busy checkpoint must not count as a removed residue"),
+        Err(error) => error.to_string(),
+    };
+    assert!(error.contains("checkpoint busy"), "{error}");
+    reader.execute_batch("COMMIT").unwrap();
+    drop(reader);
+    // The chore was recorded with the migration, so the next open runs it
+    // although there is nothing left to migrate.
+    let store = Store::open(path.to_str()).expect("the next open finishes the scrub");
+    let pending: i64 = store
+        .conn()
+        .unwrap()
+        .query_row("SELECT count(*) FROM storage_maintenance", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(pending, 0);
+    for s in &smasters {
+        assert_eq!(
+            files_containing(&path, s.secret_tail()),
+            Vec::<String>::new()
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Persisted admin sessions stop holding their tokens. These write
+// `admin_sessions` the way v0.13.0 and the build before this change left it
+// (the session token as the primary key, beside the `principal_sessions` row
+// the same sign-in wrote under the token's hash) and open it here.
+// ---------------------------------------------------------------------------
+
+/// The root key `hub_on` runs with.
+const SESSION_FIXTURE_ROOT: &str = "smaster-migration-root";
+/// The Smaster whose session the fixture keeps when it has no v0.13.0
+/// registry of its own.
+const SESSION_FIXTURE_SMASTER: &str = "sm_QZXJ-synthetic-session-fixture-smaster";
+
+/// A session token shaped like the server's (`st_` and 64 characters) around
+/// a marker nothing else in the file contains, so a byte search is
+/// meaningful.
+fn synthetic_session_token(tag: &str) -> String {
+    let mut token = format!("st_QZXJ-synthetic-admin-session-{tag}-");
+    while token.len() < 67 {
+        token.push('7');
+    }
+    token
+}
+
+/// One persisted admin session as the previous version left it.
+struct LegacySession {
+    token: String,
+    name: &'static str,
+    principal_id: String,
+    credential_id: String,
+    role: super::BuildingRole,
+    expires_at: u64,
+}
+
+impl LegacySession {
+    fn live(&self) -> bool {
+        self.expires_at > super::current_time_ms()
+    }
+    /// Everything after the `st_QZXJ` prefix: what must not survive anywhere.
+    fn secret_tail(&self) -> &str {
+        &self.token[7..]
+    }
+}
+
+/// Build a database whose admin sessions are stored the old way, at
+/// `legacy.db` in `layout`: a live Master session, a live Smaster session and
+/// an expired Master session. With `smasters`, the Smaster registry is
+/// v0.13.0's too (a database that needs both migrations) and the Smaster
+/// session belongs to the first live one of them.
+fn legacy_session_files(
+    dir: &std::path::Path,
+    smasters: &[LegacySmaster],
+    layout: LegacyLayout,
+) -> (std::path::PathBuf, Vec<LegacySession>) {
+    use rusqlite::params;
+    let build = dir.join("build.db");
+    {
+        let store = Store::open(build.to_str()).expect("current schema");
+        if smasters.is_empty() {
+            store
+                .add_smaster(SESSION_FIXTURE_SMASTER, "selin", 1)
+                .unwrap();
+        }
+        // Starting a Hub binds the Master principal to the root key.
+        drop(hub_on(store));
+    }
+    let (master_id, master_credential) = {
+        let store = Store::open(build.to_str()).unwrap();
+        (
+            store
+                .principal_for_credential(SESSION_FIXTURE_ROOT)
+                .expect("Master principal")
+                .id,
+            store
+                .credential_id_for_secret(SESSION_FIXTURE_ROOT)
+                .expect("Master credential"),
+        )
+    };
+    let (smaster_id, smaster_credential, smaster_name) =
+        match smasters.iter().find(|s| s.revoked_at.is_none()) {
+            Some(s) => (s.derived("pr_"), s.derived("cr_"), s.name()),
+            None => {
+                let store = Store::open(build.to_str()).unwrap();
+                (
+                    store
+                        .principal_for_credential(SESSION_FIXTURE_SMASTER)
+                        .expect("Smaster principal")
+                        .id,
+                    store
+                        .credential_id_for_secret(SESSION_FIXTURE_SMASTER)
+                        .expect("Smaster credential"),
+                    "selin",
+                )
+            }
+        };
+    let now = super::current_time_ms();
+    let week = 7 * 24 * 60 * 60 * 1_000;
+    let sessions = vec![
+        LegacySession {
+            token: synthetic_session_token("master"),
+            name: "Master",
+            principal_id: master_id.clone(),
+            credential_id: master_credential.clone(),
+            role: super::BuildingRole::Master,
+            expires_at: now + week,
+        },
+        LegacySession {
+            token: synthetic_session_token("smaster"),
+            name: smaster_name,
+            principal_id: smaster_id,
+            credential_id: smaster_credential,
+            role: super::BuildingRole::Smaster,
+            expires_at: now + week - 60_000,
+        },
+        LegacySession {
+            token: synthetic_session_token("expired"),
+            name: "Master",
+            principal_id: master_id,
+            credential_id: master_credential,
+            role: super::BuildingRole::Master,
+            expires_at: now - 60_000,
+        },
+    ];
+    let conn = legacy_build_connection(&build);
+    if !smasters.is_empty() {
+        write_legacy_smasters(&conn, smasters, true);
+    }
+    conn.execute_batch(
+        "DROP TABLE admin_sessions;
+         CREATE TABLE admin_sessions (
+             token TEXT PRIMARY KEY,
+             name TEXT NOT NULL,
+             kind TEXT NOT NULL,
+             expires_at INTEGER NOT NULL
+         );",
+    )
+    .expect("the previous admin_sessions table");
+    for s in &sessions {
+        // What a sign-in wrote: the principal session under the token's hash
+        // (`save_principal_session`) and the admin session under the token.
+        conn.execute(
+            "INSERT OR REPLACE INTO principal_sessions
+             (id, principal_id, credential_id, created_at, expires_at, revoked_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL)",
+            params![
+                super::secret_hash(&s.token),
+                s.principal_id,
+                s.credential_id,
+                now - 120_000,
+                s.expires_at
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO admin_sessions (token, name, kind, expires_at)
+             VALUES (?1, ?2, 'user', ?3)",
+            params![s.token, s.name, s.expires_at],
+        )
+        .unwrap();
+    }
+    if let LegacyLayout::CheckpointedWithFreedPages = layout {
+        // Sessions that came and went before the upgrade: their rows were
+        // deleted, their cells and pages freed, and everything checkpointed.
+        for (i, s) in sessions.iter().enumerate().cycle().take(400) {
+            conn.execute(
+                "INSERT OR REPLACE INTO admin_sessions (token, name, kind, expires_at)
+                 VALUES (?1, 'churn', 'user', 1)",
+                params![format!("{}-copy-{i}", s.token)],
+            )
+            .unwrap();
+        }
+        conn.execute("DELETE FROM admin_sessions WHERE name = 'churn'", [])
+            .unwrap();
+    }
+    (finish_legacy_files(dir, &build, conn, layout), sessions)
+}
+
+/// `admin_sessions` as stored, keyed by whatever its first column is, in a
+/// stable order. Fails on a table that is not in the hashed shape.
+fn admin_session_rows(conn: &Connection) -> Vec<(String, String, String, u64)> {
+    let mut statement = conn
+        .prepare(
+            "SELECT secret_hash, name, kind, expires_at FROM admin_sessions
+             ORDER BY secret_hash",
+        )
+        .expect("admin_sessions is keyed by the token's hash");
+    let rows = statement
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    rows
+}
+
+#[test]
+fn admin_session_migration_keeps_everyone_signed_in() {
+    let directory = tempfile::tempdir().unwrap();
+    let (path, sessions) = legacy_session_files(directory.path(), &[], LegacyLayout::PendingWal);
+    let store = Store::open(path.to_str()).expect("the upgrade opens the database");
+    {
+        let c = store.conn().unwrap();
+        assert!(
+            !super::table_has_column(&c, "admin_sessions", "token").unwrap(),
+            "the token is no longer a column"
+        );
+        // Every live row carried over under its token's hash, with its name,
+        // kind and expiry; expired ones go at the open (the session sweep).
+        let mut expected: Vec<_> = sessions
+            .iter()
+            .filter(|s| s.live())
+            .map(|s| {
+                (
+                    super::secret_hash(&s.token),
+                    s.name.to_string(),
+                    "user".to_string(),
+                    s.expires_at,
+                )
+            })
+            .collect();
+        expected.sort();
+        assert_eq!(admin_session_rows(&c), expected);
+    }
+    let hub = hub_on(store);
+    for s in &sessions {
+        let identity = hub.session_identity(Some(&s.token));
+        let authority = hub.resolve_authority(None, Some(&s.token));
+        if s.live() {
+            let identity = identity.expect("a live session survives the upgrade");
+            assert_eq!(
+                identity.principal_id.as_deref(),
+                Some(s.principal_id.as_str())
+            );
+            assert_eq!(identity.building_role, s.role);
+            assert_eq!(identity.expires_at, s.expires_at, "same expiry");
+            assert!(identity.admin);
+            assert_eq!(
+                authority.principal_id.as_deref(),
+                Some(s.principal_id.as_str())
+            );
+            assert_eq!(authority.building_role, Some(s.role));
+        } else {
+            assert!(identity.is_none(), "an expired session stays expired");
+            assert!(!authority.is_building_admin());
+        }
+    }
+    drop(hub);
+    let c = Connection::open(&path).unwrap();
+    let mut live: Vec<_> = sessions
+        .iter()
+        .filter(|s| s.live())
+        .map(|s| {
+            (
+                super::secret_hash(&s.token),
+                s.name.to_string(),
+                "user".to_string(),
+                s.expires_at,
+            )
+        })
+        .collect();
+    live.sort();
+    assert_eq!(admin_session_rows(&c), live, "the expired row was removed");
+}
+
+#[test]
+fn admin_session_tokens_leave_no_trace_in_the_database_files_or_a_snapshot() {
+    for layout in [
+        LegacyLayout::PendingWal,
+        LegacyLayout::CheckpointedWithFreedPages,
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let (path, sessions) = legacy_session_files(directory.path(), &[], layout);
+        // The fixture is meaningful: before the upgrade the tokens are on disk.
+        assert!(sessions
+            .iter()
+            .all(|s| !files_containing(&path, s.secret_tail()).is_empty()));
+
+        let store = Store::open(path.to_str()).expect("upgrade");
+        for s in &sessions {
+            for needle in [s.token.as_str(), s.secret_tail()] {
+                assert_eq!(
+                    sql_values_containing(&store.conn().unwrap(), needle),
+                    Vec::<String>::new(),
+                    "no column of any table holds the {} session's token",
+                    s.name
+                );
+                assert_eq!(
+                    files_containing(&path, needle),
+                    Vec::<String>::new(),
+                    "no byte of the open database, its WAL or shm holds the {} session's token",
+                    s.name
+                );
+            }
+        }
+        // Signing in with the tokens after the upgrade writes none of them.
+        let hub = hub_on(store);
+        for s in sessions.iter().filter(|s| s.live()) {
+            assert!(hub
+                .resolve_authority(None, Some(&s.token))
+                .is_building_admin());
+        }
+        drop(hub);
+        for s in &sessions {
+            assert_eq!(
+                files_containing(&path, s.secret_tail()),
+                Vec::<String>::new()
+            );
+        }
+
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts/storage_snapshot.py");
+        let snapshot = directory.path().join("snapshot");
+        let python = std::env::var("PYTHON").unwrap_or_else(|_| "python3".into());
+        let backup = std::process::Command::new(&python)
+            .arg(&script)
+            .arg("backup")
+            .arg(&path)
+            .arg(&snapshot)
+            .arg("--server-stopped")
+            .output()
+            .expect("python3 runs the snapshot tool");
+        assert!(
+            backup.status.success(),
+            "{}",
+            String::from_utf8_lossy(&backup.stderr)
+        );
+        for s in &sessions {
+            assert_eq!(
+                files_containing(&snapshot.join("loca.sqlite3"), s.secret_tail()),
+                Vec::<String>::new(),
+                "a snapshot taken after the upgrade holds no session token"
+            );
+        }
+    }
+}
+
+#[test]
+fn reopening_migrated_admin_sessions_changes_nothing() {
+    let directory = tempfile::tempdir().unwrap();
+    let (path, sessions) = legacy_session_files(directory.path(), &[], LegacyLayout::PendingWal);
+    let dump = |c: &Connection| {
+        let mut rows: Vec<Vec<String>> = admin_session_rows(c)
+            .into_iter()
+            .map(|(hash, name, kind, expires_at)| vec![hash, name, kind, expires_at.to_string()])
+            .collect();
+        let mut statement = c
+            .prepare(
+                "SELECT id, principal_id, credential_id, created_at, expires_at, revoked_at
+                 FROM principal_sessions ORDER BY id",
+            )
+            .unwrap();
+        rows.extend(
+            statement
+                .query_map([], |row| {
+                    (0..6)
+                        .map(|i| Ok(format!("{:?}", row.get_ref(i)?)))
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })
+                .unwrap()
+                .map(Result::unwrap),
+        );
+        let pending: i64 = c
+            .query_row("SELECT count(*) FROM storage_maintenance", [], |r| r.get(0))
+            .unwrap();
+        rows.push(vec![format!("pending chores: {pending}")]);
+        rows
+    };
+    // The first open migrates; a Hub on it restores the sessions.
+    let hub = hub_on(Store::open(path.to_str()).expect("first open"));
+    for s in sessions.iter().filter(|s| s.live()) {
+        assert!(hub
+            .resolve_authority(None, Some(&s.token))
+            .is_building_admin());
+    }
+    drop(hub);
+    let after_first = dump(&Connection::open(&path).unwrap());
+    let schema = schema_dump(path.to_str().unwrap());
+    // The second open finds nothing to migrate and nothing to clean.
+    let second = Store::open(path.to_str()).expect("second open");
+    assert_eq!(dump(&second.conn().unwrap()), after_first, "a no-op");
+    drop(second);
+    assert_eq!(schema_dump(path.to_str().unwrap()), schema);
+    // And the sessions it restores are the same ones.
+    let hub = hub_on(Store::open(path.to_str()).expect("third open"));
+    for s in &sessions {
+        assert_eq!(
+            hub.session_identity(Some(&s.token))
+                .and_then(|identity| identity.principal_id),
+            s.live().then(|| s.principal_id.clone())
+        );
+    }
+}
+
+#[test]
+fn a_failed_admin_session_migration_leaves_the_old_table_and_fails_open() {
+    let read_old = |path: &std::path::Path| -> Vec<(String, String, String, u64)> {
+        let c = Connection::open(path).unwrap();
+        let mut statement = c
+            .prepare("SELECT token, name, kind, expires_at FROM admin_sessions ORDER BY token")
+            .expect("the old table is still readable in its old shape");
+        let rows = statement
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        rows
+    };
+    let nothing_left = |path: &std::path::Path| {
+        let c = Connection::open(path).unwrap();
+        let leftovers: i64 = c
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name = 'admin_sessions_hashed'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(leftovers, 0, "the new table rolled back");
+        let chores: i64 = c
+            .query_row(
+                "SELECT count(*) FROM storage_maintenance WHERE task = 'scrub_admin_session_tokens'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(chores, 0, "the chore rolled back with it");
+    };
+
+    // 1. Recording the clean-up chore is refused, after every hashed row was
+    //    written (a trigger, as the other fault-injection tests do).
+    let directory = tempfile::tempdir().unwrap();
+    let (path, _) = legacy_session_files(directory.path(), &[], LegacyLayout::PendingWal);
+    let expected = read_old(&path);
+    assert_eq!(expected.len(), 3);
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER refuse_session_scrub BEFORE INSERT ON storage_maintenance
+             WHEN NEW.task = 'scrub_admin_session_tokens'
+             BEGIN SELECT RAISE(ABORT, 'injected: session scrub refused'); END;",
+        )
+        .unwrap();
+    let error = match Store::open(path.to_str()) {
+        Ok(_) => panic!("open must fail when the migration fails"),
+        Err(error) => error.to_string(),
+    };
+    assert!(error.contains("injected: session scrub refused"), "{error}");
+    assert_eq!(read_old(&path), expected);
+    nothing_left(&path);
+
+    // 2. The rebuild itself fails: an operator's view over the old column
+    //    cannot follow the new table.
+    let directory = tempfile::tempdir().unwrap();
+    let (path, _) = legacy_session_files(directory.path(), &[], LegacyLayout::PendingWal);
+    let expected = read_old(&path);
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch("CREATE VIEW session_tokens AS SELECT token FROM admin_sessions;")
+        .unwrap();
+    let error = match Store::open(path.to_str()) {
+        Ok(_) => panic!("open must fail when the rebuild fails"),
+        Err(error) => error.to_string(),
+    };
+    assert!(error.contains("session_tokens"), "the real cause: {error}");
+    assert_eq!(read_old(&path), expected);
+    nothing_left(&path);
+}
+
+#[test]
+fn a_database_needing_both_migrations_ends_with_no_code_and_no_token_on_disk() {
+    for layout in [
+        LegacyLayout::PendingWal,
+        LegacyLayout::CheckpointedWithFreedPages,
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let smasters = legacy_smasters();
+        let (path, sessions) = legacy_session_files(directory.path(), &smasters, layout);
+        let secrets: Vec<String> = smasters
+            .iter()
+            .map(|s| s.secret_tail().to_string())
+            .chain(sessions.iter().map(|s| s.secret_tail().to_string()))
+            .collect();
+        assert!(secrets
+            .iter()
+            .all(|secret| !files_containing(&path, secret).is_empty()));
+
+        let store = Store::open(path.to_str()).expect("one open runs both migrations");
+        {
+            let c = store.conn().unwrap();
+            assert!(!super::table_has_column(&c, "smasters", "token").unwrap());
+            assert!(!super::table_has_column(&c, "admin_sessions", "token").unwrap());
+            let pending: i64 = c
+                .query_row("SELECT count(*) FROM storage_maintenance", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(pending, 0, "one clean-up cleared both chores");
+            for secret in &secrets {
+                assert_eq!(sql_values_containing(&c, secret), Vec::<String>::new());
+            }
+        }
+        for secret in &secrets {
+            assert_eq!(files_containing(&path, secret), Vec::<String>::new());
+        }
+        // The Smaster signs in with its code, and its session, taken before
+        // the upgrade, is still its own.
+        let hub = hub_on(store);
+        let smaster_session = &sessions[1];
+        assert_eq!(
+            hub.resolve_authority(None, Some(&smaster_session.token))
+                .principal_id
+                .as_deref(),
+            Some(smaster_session.principal_id.as_str())
+        );
+        drop(hub);
+        for secret in &secrets {
+            assert_eq!(files_containing(&path, secret), Vec::<String>::new());
+        }
+    }
+}
+
+#[test]
+fn a_busy_checkpoint_after_both_migrations_leaves_both_chores_for_the_next_open() {
+    let directory = tempfile::tempdir().unwrap();
+    let smasters = legacy_smasters();
+    let (path, sessions) =
+        legacy_session_files(directory.path(), &smasters, LegacyLayout::PendingWal);
+    let reader = Connection::open(&path).unwrap();
+    reader
+        .execute_batch("BEGIN; SELECT count(*) FROM admin_sessions;")
+        .unwrap();
+    let error = match Store::open(path.to_str()) {
+        Ok(_) => panic!("a busy checkpoint must not count as a removed residue"),
+        Err(error) => error.to_string(),
+    };
+    assert!(error.contains("checkpoint busy"), "{error}");
+    assert!(
+        error.contains("scrub_admin_session_tokens") && error.contains("scrub_smaster_codes"),
+        "{error}"
+    );
+    reader.execute_batch("COMMIT").unwrap();
+    drop(reader);
+    let mut chores: Vec<String> = {
+        let c = Connection::open(&path).unwrap();
+        let mut statement = c.prepare("SELECT task FROM storage_maintenance").unwrap();
+        let rows = statement
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        rows
+    };
+    chores.sort();
+    assert_eq!(
+        chores,
+        ["scrub_admin_session_tokens", "scrub_smaster_codes"]
+    );
+    let store = Store::open(path.to_str()).expect("the next open finishes the scrub");
+    let pending: i64 = store
+        .conn()
+        .unwrap()
+        .query_row("SELECT count(*) FROM storage_maintenance", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(pending, 0);
+    drop(store);
+    for secret in smasters
+        .iter()
+        .map(LegacySmaster::secret_tail)
+        .chain(sessions.iter().map(LegacySession::secret_tail))
+    {
+        assert_eq!(files_containing(&path, secret), Vec::<String>::new());
+    }
+}
+
+#[test]
+fn older_messages_are_attributed_once_and_only_from_a_smaster_seat() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("attribution.db");
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    let deputy = store
+        .add_smaster("sm_attrib", "deputy", 1)
+        .unwrap()
+        .principal_id;
+    {
+        // A database written before the column existed.
+        let c = store.conn().unwrap();
+        c.execute("ALTER TABLE messages DROP COLUMN sender_principal", [])
+            .unwrap();
+        let rows: [(u64, Option<String>); 7] = [
+            (1, Some(format!("sm:pr:{deputy}"))),
+            (2, Some("sm:pr:pr_nobody_has_this".into())),
+            (3, Some("mb:mb_synthetic_member_key".into())),
+            (4, Some("dv:dv_synthetic_davet".into())),
+            (5, Some("@master".into())),
+            (6, Some("user:deputy".into())),
+            (7, None),
+        ];
+        for (id, principal) in rows {
+            c.execute(
+                "INSERT INTO messages (id, room, sender, sender_type, text, ts, kind, principal, op_id)
+                 VALUES (?1, 'ops', 'deputy', 'user', 'old words', ?1, 'say', ?2,
+                         CASE WHEN ?2 IS NULL THEN NULL ELSE 'op-' || ?1 END)",
+                rusqlite::params![id, principal],
+            )
+            .unwrap();
+        }
+    }
+    drop(store);
+    let attributed = |store: &Store| -> Vec<(u64, Option<String>, Option<String>)> {
+        let c = store.conn().unwrap();
+        let mut statement = c
+            .prepare("SELECT id, principal, sender_principal FROM messages ORDER BY id")
+            .unwrap();
+        statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    };
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    let rows = attributed(&store);
+    let writer = |id: u64| rows.iter().find(|row| row.0 == id).unwrap().2.clone();
+    assert_eq!(
+        writer(1),
+        Some(deputy.clone()),
+        "a Smaster seat names its writer"
+    );
+    for id in 2..=7 {
+        assert_eq!(writer(id), None, "row {id} has no certain writer");
+    }
+    // The operation scope itself is untouched.
+    assert_eq!(
+        rows.iter().map(|row| row.1.clone()).collect::<Vec<_>>()[..2],
+        [
+            Some(format!("sm:pr:{deputy}")),
+            Some("sm:pr:pr_nobody_has_this".into())
+        ]
+    );
+
+    // Once: a later open does not attribute again.
+    store
+        .conn()
+        .unwrap()
+        .execute(
+            "INSERT INTO messages (id, room, sender, sender_type, text, ts, kind, principal, op_id)
+             VALUES (8, 'ops', 'deputy', 'user', 'later', 8, 'say', ?1, 'op-8')",
+            [format!("sm:pr:{deputy}")],
+        )
+        .unwrap();
+    drop(store);
+    let store = Store::open(Some(path.to_str().unwrap())).unwrap();
+    let rows = attributed(&store);
+    assert_eq!(rows.iter().find(|row| row.0 == 8).unwrap().2, None);
 }

@@ -105,7 +105,7 @@ async function openCallList() {
     const free = all.filter(p => !p.suspended && !here.has(p.name) && !(p.locas || []).includes(state.room)
       && (!inGroup || inGroup.has(p.name)));
     if (!free.length) {
-      box.innerHTML = `<div class="callnone">${inGroup ? "nobody else in this group to call — add them to the group first" : "nobody in the building to call"}</div>`;
+      box.innerHTML = `<div class="callnone">${inGroup ? "nobody else on this floor to call — add them to the floor first" : "nobody in the building to call"}</div>`;
       return;
     }
     box.innerHTML = free.map(p => {
@@ -122,17 +122,24 @@ async function openCallList() {
 /// Seat a member in this loca. They belong to the building already, so nothing
 /// is handed over and nobody re-runs setup — they are simply in.
 async function callIn(name) {
+  const gen = state.buildingGen;
   try {
     const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(state.room)}/call`, {
       method: "POST",
       headers: adminHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({ name }),
     });
+    if (buildingStale(gen)) return;
     if (r.ok) {
       const v = await r.json().catch(() => ({}));
-      if (v.already) addSys(`${name} already has a seat in this loca`);
-      else addSys(`${name} called into this loca`);
-      $("callList").classList.add("hidden");
+      if (buildingStale(gen)) return;
+      if (v.already) {
+        addSys(`${name} already has a seat in this loca`);
+        offerReissue(name);
+      } else {
+        addSys(`${name} called into this loca`);
+        $("callList").classList.add("hidden");
+      }
       refreshRooms();
       fetchLobby();
       fetchSeated();
@@ -141,14 +148,53 @@ async function callIn(name) {
       // never do it silently behind an invite.
       offerAdmitAndInvite(name);
     } else {
-      addSys(`could not call ${name}: ${await r.text()}`);
+      const why = await r.text();
+      if (!buildingStale(gen)) addSys(`could not call ${name}: ${why}`);
     }
-  } catch (e) { addSys("call failed to send"); }
+  } catch (e) { if (!buildingStale(gen)) addSys("call failed to send"); }
+}
+
+/// Someone who already holds a seat may have lost the invitation behind it
+/// (an agent that was offline, a reinstalled machine). Re-sending replaces it
+/// with a fresh one, delivered over their Lobby line like a call; the old one
+/// stops working and the seat stays theirs.
+function offerReissue(name) {
+  const box = $("callList");
+  box.classList.remove("hidden");
+  box.innerHTML =
+    `<div class="callnone">${esc(name)} already has a seat here. If their invitation was lost, send a fresh one; the current one stops working.</div>` +
+    `<button type="button" class="callrow" data-call-reissue="${esc(name)}" data-room="${esc(state.room)}"><span>Re-send invitation</span></button>` +
+    `<button type="button" class="callrow" data-call-cancel="1"><span>cancel</span></button>`;
+}
+
+async function reissueInvite(name, room) {
+  const gen = state.buildingGen;
+  try {
+    const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/call`, {
+      method: "POST",
+      headers: adminHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ name, reissue: true }),
+    });
+    if (buildingStale(gen)) return;
+    if (!r.ok) {
+      const why = await r.text();
+      if (!buildingStale(gen)) addSys(`could not re-send ${name}'s invitation: ${why}`);
+      return;
+    }
+    const v = await r.json().catch(() => ({}));
+    if (buildingStale(gen)) return;
+    $("callList").classList.add("hidden");
+    // An older server ignores the flag and answers as to a call. Nothing was
+    // re-sent then, and the person is told so.
+    if (v.already) addSys(`this server cannot re-send invitations yet; ${name}'s invitation was not changed`);
+    else addSys(`fresh invitation sent to ${name}; the previous one no longer works`);
+    fetchSeated();
+  } catch (e) { if (!buildingStale(gen)) addSys("re-send failed to send"); }
 }
 
 /// The open two-step for an outsider: admit to the building, then invite to
 /// this loca. Two explicit requests, two records — no identity is created as
-/// a side effect of a davet.
+/// a side effect of an invite.
 function offerAdmitAndInvite(name) {
   const box = $("callList");
   box.classList.remove("hidden");
@@ -201,7 +247,7 @@ function renderMembers() {
   ol.innerHTML = "";
   const muted = new Set(state.mod?.muted || []);
   // Everyone seated here, not only everyone currently connected. Somebody who
-  // holds a davet but is offline still occupies a seat — and until now there
+  // holds an invite but is offline still occupies a seat — and until now there
   // was no way to release them, because they were not on the list.
   const online = new Set(state.members.map(m => m.name));
   const seated = [
@@ -241,18 +287,18 @@ function renderMembers() {
         // Release first: finishing a job is the common case, and it must not
         // look like a punishment sitting next to kick and ban.
         moderation =
-          `<button class="release" data-mod="release" data-n="${esc(m.name)}" title="işi bitti — locadan çıkar, bina üyeliği kalır">release</button>` +
-          `${mu}<button data-mod="kick" data-n="${esc(m.name)}" title="kick — close the connection and stop the davet">👢</button>` +
-          `<button data-mod="ban" data-n="${esc(m.name)}" title="ban — bu locaya bir daha giremez">🚫</button>`;
+          `<button class="release" data-mod="release" data-n="${esc(m.name)}" title="work done — leaves the loca, Building membership stays">release</button>` +
+          `${mu}<button data-mod="kick" data-n="${esc(m.name)}" title="kick — close the connection and stop the invite">👢</button>` +
+          `<button data-mod="ban" data-n="${esc(m.name)}" title="ban — can never enter this loca again">🚫</button>`;
       }
       acts = `<span class="omacts">${leadAct}${moderation}</span>`;
     }
     // Anyone at the table may speak to one person privately — never from
-    // inside a birebir (there is nobody else to reach).
-    const dm = !isMe && !isBirebir(state.room)
-      ? `<button type="button" class="dmbtn" data-dm="${esc(m.name)}" aria-label="Message ${esc(m.name)} privately" data-tip="Message ${esc(m.name)}" data-tip-detail="A birebir: only the two of you see it.">${BIREBIR_ICON}</button>`
+    // inside a direct message (there is nobody else to reach).
+    const dm = !isMe && !isDm(state.room)
+      ? `<button type="button" class="dmbtn" data-dm="${esc(m.name)}" aria-label="Message ${esc(m.name)} privately" data-tip="Message ${esc(m.name)}" data-tip-detail="A private conversation: only the two of you see it.">${DM_ICON}</button>`
       : "";
-    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname">${esc(m.name)}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}</span><span class="otag">${m.type}</span>${dm}${acts}`;
+    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname"${cardOf(m)?.full_name ? ` title="${esc(cardOf(m).full_name)} (@${esc(m.name)})"` : ""}>${personLabelHtml(m.name, cardOf(m))}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}</span><span class="otag">${m.type}</span>${dm}${acts}`;
     ol.appendChild(d);
   }
   if (!seated.length) ol.innerHTML = `<div class="omem" style="color:var(--muted)">nobody seated</div>`;
@@ -281,6 +327,7 @@ function renderMembers() {
     o.value = m.name; o.textContent = "@" + m.name; sel.appendChild(o);
   }
   if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+  if (typeof refreshSenderCards === "function") refreshSenderCards();
 }
 
 function avatarColor(name) {
@@ -342,7 +389,7 @@ async function fetchPeople() {
       fetch(`${serverBase()}/admission-stock`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/building/ranks`, { headers: adminHeaders({}) }),
     ]);
-    if (!resPeople.ok) { if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">liste alınamadı</div>`; return; }
+    if (!resPeople.ok) { if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">could not load the list</div>`; return; }
     const people = await resPeople.json();
     if (!residentReadCurrent(scope)) return;
     // Each body below is one more await: a sign-out may land between any two.
@@ -368,7 +415,7 @@ async function fetchPeople() {
     const banRows = resBans.ok ? await resBans.json().catch(() => []) : [];
     if (buildingStale(scope.gen)) return;
     for (const row of Array.isArray(banRows) ? banRows : []) {
-      if (isBirebir(row.room)) continue;
+      if (isDm(row.room)) continue;
       (row.banned || []).forEach(n => { (bans[n] ||= []).push(row.room); });
     }
 
@@ -378,10 +425,10 @@ async function fetchPeople() {
     if (!applyResidentSnapshot(people, { people: true, scope })) return;
     state.bans = bans;
     renderPeople();
-    fetchBirebirOverview();
+    fetchDmOverview();
     fetchKeyLedger();
   } catch (e) {
-    if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">sunucuya ulaşılamadı</div>`;
+    if (residentReadCurrent(scope)) box.innerHTML = `<div class="callnone">could not reach the server</div>`;
   }
 }
 
@@ -459,7 +506,7 @@ function renderPeople() {
   // them. They are still part of the Building: show them first, by name.
   const ranksHtml = ranks.length
     ? `<section class="bblock"><div class="bsection">Ranks <span class="bcount">${ranks.length}</span></div>` +
-      `<div class="peoplehead"><span>name</span><span>seat</span><span>groups</span><span>location</span><span></span></div>` +
+      `<div class="peoplehead"><span>name</span><span>seat</span><span>floors</span><span>location</span><span></span></div>` +
       ranks.filter(r => r.role === "master" || personInGroupFilter(r.name)).map(r => {
         const seated = (r.locas || []).length;
         // Location already says where; the status only marks a live seat.
@@ -476,8 +523,8 @@ function renderPeople() {
           ? `<button type="button" class="btn" data-rename-smaster="${esc(r.name)}" title="Set this Smaster's real name">Rename</button>`
           : "";
         const groups = r.role === "master"
-          ? `<span class="pnowhere">sees every group</span>` : groupChipsHtml(r.name);
-        return `<div class="prow rankrow${r.unused ? " unusedcode" : ""}"><span class="pname">${kindMark("human")}${personNameHtml(r.name)}${rankBadge(r.role)}</span>` +
+          ? `<span class="pnowhere">sees every floor</span>` : groupChipsHtml(r.name);
+        return `<div class="prow rankrow${r.unused ? " unusedcode" : ""}"><span class="pname">${kindMark("human")}${personNameHtml(r.name, cardOf(r))}${rankBadge(r.role)}</span>` +
           `<span class="pstatuses">${status}</span><span class="pgroups">${groups}</span><span class="pwhere">${where}</span><span class="pacts">${rename}</span></div>`;
       }).join("") + `</section>`
     : "";
@@ -513,21 +560,105 @@ function renderPeople() {
       ? `<button type="button" class="btn" data-suspend-member="${esc(p.membership_id)}" data-suspended="${p.suspended ? "0" : "1"}" data-member-name="${esc(name)}">${p.suspended ? "Resume" : "Suspend"}</button>` +
         `<button type="button" class="btn danger" title="Revoke membership" data-revoke-member="${esc(p.membership_id)}" data-member-name="${esc(name)}">Revoke</button>` : "";
     return `<div class="prow${p?.suspended ? " suspended" : ""}">` +
-      `<span class="pname">${kindMark(kind)}${personNameHtml(name)}<span class="pkind">${kind}</span>${stage}</span>` +
+      `<span class="pname">${kindMark(kind)}${personNameHtml(name, cardOf(p))}<span class="pkind">${kind}</span>${stage}</span>` +
       `<span class="pstatuses">${residentStatusBadges(p)}</span>` +
       `<span class="pgroups">${groupChipsHtml(name)}</span>` +
       `<span class="pwhere">${suspended}${whereHtml(locas, fallback)}${banTxt}</span>` +
-      `<span class="pacts">${name !== state.name ? `<button type="button" class="btn" data-dm="${esc(name)}" title="Open a birebir with ${esc(name)}">Message</button>` : ""}${unban}${manage}</span></div>`;
+      `<span class="pacts">${name !== state.name ? `<button type="button" class="btn" data-dm="${esc(name)}" title="Write to ${esc(name)} privately">Message</button>` : ""}${unban}${manage}</span></div>`;
   }).join("");
   box.innerHTML = jrHtml + groupFilterHtml() + ranksHtml +
     `<section class="bblock"><div class="bsection">Members <span class="bcount">${shown.length}</span></div>` +
-    `<div class="peoplehead"><span>name</span><span>connection · wake</span><span>groups</span><span>location</span><span></span></div>` +
-    (membersHtml || `<div class="callnone">nobody in this group</div>`) + `</section>`;
+    `<div class="peoplehead"><span>name</span><span>connection · wake</span><span>floors</span><span>location</span><span></span></div>` +
+    (membersHtml || `<div class="callnone">nobody on this floor</div>`) + `</section>`;
 }
 
-// A name opens that person's card (who they are, and their groups).
-function personNameHtml(name) {
-  return `<button type="button" class="pnametext pnamebtn" data-person-card="${esc(name)}" title="Open ${esc(name)}'s card">${esc(name)}</button>`;
+// A name opens that person's card (who they are, and their groups). `card`
+// comes from the row itself, which the server resolved to its principal.
+function personNameHtml(name, card) {
+  return `<button type="button" class="pnametext pnamebtn" data-person-card="${esc(name)}" title="Open ${esc(name)}'s card">${personLabelHtml(name, card || null)}</button>`;
+}
+
+// ---- Full name and profile icon ------------------------------------------
+// Display only (docs/concepts.md "Full name and profile icon"): the @name is
+// who someone is, so wherever a full name is shown the @name stands beside
+// it. The icons are a closed list the server validates; each is drawn here,
+// once, in the app's line style.
+const PROFILE_ICONS = {
+  dot: `<circle cx="8" cy="8" r="3" fill="currentColor"/>`,
+  ring: `<circle cx="8" cy="8" r="5"/>`,
+  square: `<rect x="3.5" y="3.5" width="9" height="9" rx="1"/>`,
+  diamond: `<path d="M8 2.5 13.5 8 8 13.5 2.5 8Z"/>`,
+  triangle: `<path d="M8 3 13.5 12.5H2.5Z"/>`,
+  hexagon: `<path d="M8 2.5 12.8 5.25v5.5L8 13.5l-4.8-2.75v-5.5Z"/>`,
+  star: `<path d="M8 2.5 9.6 6.2l3.9.3-3 2.6.9 3.9L8 10.9 4.6 13l.9-3.9-3-2.6 3.9-.3Z"/>`,
+  spark: `<path d="M8 2.5v11M2.5 8h11M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"/>`,
+  leaf: `<path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10ZM3 13l6-6"/>`,
+  wave: `<path d="M2 9c2-3 4-3 6 0s4 3 6 0"/>`,
+  moon: `<path d="M11.5 10.5a5 5 0 0 1-6-6 5 5 0 1 0 6 6Z"/>`,
+  sun: `<circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>`,
+};
+
+function profileIconSvg(icon) {
+  if (!Object.hasOwn(PROFILE_ICONS, icon)) return "";
+  return `<svg class="picon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">${PROFILE_ICONS[icon]}</svg>`;
+}
+
+// The card a person-describing object carries, or null.
+function cardOf(person) {
+  if (!person) return null;
+  const fullName = typeof person.full_name === "string" ? person.full_name : "";
+  const icon = Object.hasOwn(PROFILE_ICONS, person.icon) ? person.icon : "";
+  return fullName || icon ? { full_name: fullName, icon } : null;
+}
+
+// The card of one principal, by id: what a message's writer wears. Only a
+// message the server recorded a verified writer for has an id; anything
+// else shows its plain name. A revoked person is in none of these lists.
+function personCardById(id) {
+  if (!id) return null;
+  const seated = (state.members || []).find(m => m.principal_id === id);
+  if (seated) return cardOf(seated);
+  if (state.profile?.principal?.id === id) return cardOf(state.profile.principal);
+  // The other side of a private conversation, seated here or not.
+  const peer = (state.dms || []).find(b => b.peer_principal === id);
+  if (peer) return dmPeerCard(peer);
+  const lists = [
+    [state.people, "principal_id"], [state.ranks, "principal_id"], [state.profilesList, "id"],
+  ];
+  for (const [list, key] of lists) {
+    const found = Array.isArray(list) ? list.find(p => p[key] === id) : null;
+    if (found) return cardOf(found);
+  }
+  return null;
+}
+
+// What this client knows about an @name, for what lists people (mention
+// completion, a person's card, the key ledger), never for words someone
+// wrote. The roster is authoritative for the people seated here: a seat the
+// server did not verify carries no card, and that is not overridden by
+// another list.
+function personCardFor(name) {
+  if (!name) return null;
+  const seated = (state.members || []).find(m => m.name === name);
+  if (seated) return cardOf(seated);
+  if (state.profile?.principal?.display_name === name) return cardOf(state.profile.principal);
+  const lists = [
+    [state.people, "name"], [state.ranks, "name"], [state.profilesList, "display_name"],
+  ];
+  for (const [list, key] of lists) {
+    const found = Array.isArray(list) ? list.find(p => p[key] === name) : null;
+    if (found) return cardOf(found);
+  }
+  return null;
+}
+
+// "[icon] Full Name @name" when a full name is set, "[icon] name" otherwise,
+// exactly "name" with neither. Escaped; the full name is isolated (<bdi>) so
+// right-to-left text cannot move what stands around it.
+function personLabelHtml(name, card) {
+  const icon = card?.icon ? profileIconSvg(card.icon) : "";
+  if (!card?.full_name) return `${icon}${esc(name)}`;
+  return `${icon}<bdi class="fullname">${esc(card.full_name)}</bdi> <span class="atname">@${esc(name)}</span>`;
 }
 
 // The Building header counts what the directory actually shows.

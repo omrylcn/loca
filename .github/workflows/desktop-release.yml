@@ -33,12 +33,12 @@ jobs:
     outputs:
       release_id: ${{ steps.mk.outputs.release_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ inputs.tag || github.ref }}
       - name: Create a single draft release
         id: mk
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const { data } = await github.rest.repos.createRelease({
@@ -70,16 +70,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           ref: ${{ inputs.tag || github.ref }}
 
-      - uses: dtolnay/rust-toolchain@stable
+      # >>> desktop build steps (identical in desktop-release.yml and desktop-test-build.yml; scripts/check-release.sh)
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # pinned action; toolchain below
         with:
           toolchain: "1.94.1" # keep aligned with rust-toolchain.toml
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: Linux system deps
         if: startsWith(matrix.os, 'ubuntu')
@@ -103,9 +104,10 @@ jobs:
           else
             cp target/release/room-server desktop/src-tauri/binaries/
           fi
+      # <<< desktop build steps
 
       - name: Build + upload installers
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ github.token }}
           LOCA_DEFAULT_SERVER: ${{ matrix.flavor == 'client' && 'https://loca.speakbetter.tech' || 'http://127.0.0.1:8787' }}
@@ -178,7 +180,7 @@ jobs:
             --repo "${{ github.repository }}" --clobber
 
       - name: Publish the release (un-draft)
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             await github.rest.repos.updateRelease({

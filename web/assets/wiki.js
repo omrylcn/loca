@@ -219,6 +219,7 @@ async function fetchWiki() {
   const room = state.room, context = state.locaContext;
   const sequence = ++wikiFetchSequence;
   const current = () => room === state.room && context === state.locaContext && sequence === wikiFetchSequence;
+  const gen = state.buildingGen;
   $("wikiPages").replaceChildren();
   $("wikiIndex").replaceChildren();
   if (wikiSnapshot?.room !== room) { wikiSnapshot = null; wikiPageSlug = "overview"; toggleWikiSettings(false); }
@@ -242,7 +243,7 @@ async function fetchWiki() {
     $("wikiInterval").value = wiki.interval_messages;
     renderWikiEditor(); renderWikiPages();
   } catch (error) {
-    if (current()) $("wikiStatus").textContent = String(error.message || error);
+    if (current() && !buildingStale(gen)) $("wikiStatus").textContent = String(error.message || error);
   }
 }
 
@@ -252,6 +253,7 @@ async function configureWiki() {
   const editor = $("wikiEditor").value, interval = wikiSnapshot?.interval_messages || 30;
   if (!editor) { renderWikiEditor(); return; }
   $("wikiEditor").disabled = true;
+  const gen = state.buildingGen;
   try {
     const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/wiki/config`, {
       method: "PUT", headers: adminHeaders({ "content-type": "application/json" }),
@@ -261,7 +263,7 @@ async function configureWiki() {
     if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
     await fetchWiki();
   } catch (error) {
-    if (room === state.room && context === state.locaContext) { renderWikiEditor(); $("wikiStatus").textContent = String(error.message || error); }
+    if (room === state.room && context === state.locaContext && !buildingStale(gen)) { renderWikiEditor(); $("wikiStatus").textContent = String(error.message || error); }
   } finally { $("wikiEditor").disabled = false; }
 }
 

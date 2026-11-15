@@ -12,7 +12,7 @@
 
 [package]
 name = "loca-desktop"
-version = "0.13.0"
+version = "0.14.0"
 edition = "2021"
 description = "Native desktop shell for Loca — thin Tauri wrapper over the shared web UI + room-server"
 license = "MIT"
@@ -23,7 +23,7 @@ license = "MIT"
 #   bundled-server -> option 3, "standalone": bundles + boots a local room-server
 #                     sidecar on 127.0.0.1, no external dependency.
 # Build the standalone flavor with:  cargo build --features bundled-server
-bundled-server = ["dep:ureq", "dep:getrandom"]
+bundled-server = ["dep:ureq", "dep:getrandom", "dep:libc"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -33,23 +33,28 @@ tauri = { version = "2", features = [] }
 skill-bundles = { path = "../../crates/skill-bundles" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# Faz 3 — native OS notifications for mentions / directed attention / actionable
+# Phase 3 — native OS notifications for mentions / directed attention / actionable
 # reminders (both flavors). Fired from a custom Rust command so no JS-side
 # plugin capability is needed.
 tauri-plugin-notification = "2"
-# Faz 2 — OS-native credential store (macOS Keychain / Windows Credential
-# Manager / Linux Secret Service). Keeps the davet/session OUT of the webview's
+# Phase 2 — OS-native credential store (macOS Keychain / Windows Credential
+# Manager / Linux Secret Service). Keeps the invite/session OUT of the webview's
 # on-disk localStorage. NOTE for loca-dev at build time: keyring v3 gates its
 # platform backends behind features and the Secret Service backend needs an
 # encryption feature — verify these compile on the target and adjust if the
 # exact feature names moved between v3 minors.
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 # Standalone flavor only (option 3): a tiny blocking HTTP client to probe the
-# local server's /health and drive first-run provisioning (admit + davet). No
+# local server's /health and drive first-run provisioning (admit + invite). No
 # TLS — the sidecar is plain http on 127.0.0.1. getrandom mints the local
 # ADMIN_TOKEN. Both are pulled in ONLY by the `bundled-server` feature.
 ureq = { version = "2", default-features = false, optional = true }
 getrandom = { version = "0.3", optional = true }
+
+# Standalone flavor on Linux only: prctl(PR_SET_PDEATHSIG) so the bundled
+# server ends with the Host even when the Host is killed by a signal.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { version = "0.2", optional = true }
 
 [dev-dependencies]
 muda = { version = "=0.19.3", default-features = false }

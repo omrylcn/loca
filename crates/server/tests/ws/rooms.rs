@@ -93,6 +93,10 @@ async fn closing_a_room_evicts_and_wipes_it() {
 
     // A watcher inside the room should be told it closed.
     let mut ws = connect_ws(port, "doomed", "watcher", "user").await;
+    // History is sent only after the seat is taken. Without this the seat
+    // could be taken after the delete below, which refuses it instead of
+    // telling it the room closed.
+    let _ = wait_for(&mut ws, |v| v["t"] == "history").await;
 
     // Without the admin token -> 401, room survives.
     let unauth = client
@@ -418,13 +422,13 @@ async fn loca_seats_seven() {
 /// the difference has to survive contact with the code.
 ///
 ///   mute    — stays, reads, cannot speak
-///   kick    — connection closed, davet stands, may walk back in
+///   kick    — connection closed, invite stands, may walk back in
 ///   ban     — the door is shut, reading included
 ///   release — the work is done; the seat goes back, the building does not
 #[tokio::test]
 async fn leaving_a_loca_has_four_distinct_meanings() {
     let (port, _guard) = spawn_server_env("MASTER", &[("ROOM_TOKEN", "building".into())]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -438,7 +442,7 @@ async fn leaving_a_loca_has_four_distinct_meanings() {
                 .await
                 .unwrap();
             let r: Value = c
-                .post(format!("{b}/rooms/oda/call"))
+                .post(format!("{b}/rooms/parlor/call"))
                 .header("x-admin-token", "MASTER")
                 .json(&serde_json::json!({ "name": name }))
                 .send()
@@ -453,7 +457,7 @@ async fn leaving_a_loca_has_four_distinct_meanings() {
     let act = |action: &'static str, name: &'static str| {
         let (c, b) = (client.clone(), base.clone());
         async move {
-            c.post(format!("{b}/rooms/oda/moderate"))
+            c.post(format!("{b}/rooms/parlor/moderate"))
                 .header("x-admin-token", "MASTER")
                 .json(&serde_json::json!({ "action": action, "name": name }))
                 .send()
@@ -464,7 +468,7 @@ async fn leaving_a_loca_has_four_distinct_meanings() {
     let can_read = |token: String| {
         let (c, b) = (client.clone(), base.clone());
         async move {
-            c.get(format!("{b}/rooms/oda/messages"))
+            c.get(format!("{b}/rooms/parlor/messages"))
                 .header("x-room-token", token)
                 .send()
                 .await
@@ -474,15 +478,15 @@ async fn leaving_a_loca_has_four_distinct_meanings() {
         }
     };
 
-    // kick (çıkar): the connection closes AND the davet stops — otherwise the
-    // same token walks right back in. PRINCIPLES: "çıkar — bağlantı kapanır,
-    // daveti durur." The membership stays (they can be called back in), but the
-    // loca door is shut until a fresh davet.
+    // kick: the connection closes AND the invite stops — otherwise the
+    // same token walks right back in. PRINCIPLES: "kick — connection closes
+    // and invitation stops". The membership stays (they can be called back in), but the
+    // loca door is shut until a fresh invite.
     let kicked = seat("kicked").await;
     act("kick", "kicked").await;
     assert!(
         !can_read(kicked).await,
-        "a kick stops the davet — the token no longer reads"
+        "a kick stops the invite — the token no longer reads"
     );
 
     // ban: the door is shut, and a shut door does not let you read.
@@ -519,7 +523,7 @@ async fn leaving_a_loca_has_four_distinct_meanings() {
     );
 
     let again = client
-        .post(format!("{base}/rooms/oda/call"))
+        .post(format!("{base}/rooms/parlor/call"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "name": "released" }))
         .send()
@@ -531,13 +535,169 @@ async fn leaving_a_loca_has_four_distinct_meanings() {
     );
 }
 
+/// What a seated member's two sockets hear when they stop being in a loca.
+/// The member holds an invite and sits in the loca over the invite header; their
+/// Lobby socket is open alongside. Returns every text frame the loca socket
+/// read before it closed, and whether the Lobby socket stayed open and silent.
+async fn leave_and_listen(action: &'static str) -> (Vec<Value>, bool) {
+    let (port, _guard) = spawn_server_env(
+        "leave-master",
+        &[
+            ("REQUIRE_INVITE", "1".into()),
+            ("LEGACY_WS_QUERY_AUTH", "0".into()),
+        ],
+    )
+    .await;
+    create_test_room(port, "leave-master", "leave-room").await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let member: Value = client
+        .post(format!("{base}/members"))
+        .header("x-admin-token", "leave-master")
+        .json(&serde_json::json!({ "name": "leave-agent", "kind": "agent" }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let key = member["token"].as_str().unwrap().to_string();
+    let mut lobby = connect_ws_protocols(
+        format!("ws://127.0.0.1:{port}/lobby/ws"),
+        &["loca.v1".into(), format!("loca.membership.{key}")],
+    )
+    .await;
+    wait_for(&mut lobby, |v| v["t"] == "lobby_ready").await;
+    let invite = invite_for(&base, "leave-master", "leave-room", "leave-agent").await;
+    wait_for(&mut lobby, |v| v["t"] == "called" && v["token"] == invite).await;
+    let mut seat = connect_ws_protocols(
+        format!("ws://127.0.0.1:{port}/ws?room=leave-room&name=leave-agent&type=agent"),
+        &["loca.v1".into(), format!("loca.room.{invite}")],
+    )
+    .await;
+    wait_for(&mut seat, |v| {
+        v["t"] == "members"
+            && v["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m["name"] == "leave-agent")
+    })
+    .await;
+    // Drain the loca bus up to now: a frame still queued for this socket when
+    // its credential dies closes it silently, which is not what is tested here.
+    client
+        .post(format!("{base}/rooms/leave-room/messages"))
+        .header("x-room-token", &invite)
+        .json(&serde_json::json!({ "sender": "leave-agent", "sender_type": "agent", "text": "seated" }))
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap();
+    wait_for(&mut seat, |v| {
+        v["t"] == "msg" && v["message"]["text"] == "seated"
+    })
+    .await;
+
+    let response = if action == "revoke" {
+        client
+            .delete(format!(
+                "{base}/rooms/leave-room/invites/{}",
+                invite_ref(&invite)
+            ))
+            .header("x-admin-token", "leave-master")
+            .send()
+            .await
+            .unwrap()
+    } else {
+        client
+            .post(format!("{base}/rooms/leave-room/moderate"))
+            .header("x-admin-token", "leave-master")
+            .json(&serde_json::json!({ "action": action, "name": "leave-agent" }))
+            .send()
+            .await
+            .unwrap()
+    };
+    assert!(
+        response.status().is_success(),
+        "{action}: {}",
+        response.status()
+    );
+
+    let mut heard = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match seat.next().await {
+                Some(Ok(WsMessage::Text(text))) => {
+                    let value: Value = serde_json::from_str(&text).unwrap();
+                    assert_listed_frame(&value);
+                    heard.push(value);
+                }
+                Some(Ok(WsMessage::Close(_))) | None | Some(Err(_)) => return,
+                Some(Ok(_)) => {}
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{action} must close the loca socket"));
+    // Leaving a loca is not leaving the building: the Lobby socket is told
+    // nothing and stays open.
+    let lobby_quiet = tokio::time::timeout(Duration::from_millis(700), lobby.next())
+        .await
+        .is_err();
+    (heard, lobby_quiet)
+}
+
+fn kicked_frames(heard: &[Value]) -> Vec<Value> {
+    heard
+        .iter()
+        .filter(|v| v["t"] == "kicked")
+        .cloned()
+        .collect()
+}
+
+/// A ban is not a kick. The banned person's connection must hear exactly one
+/// `kicked`, and it must say `banned: true`; ending the invite the ban also
+/// ends must not reach them first as a generic removal.
+#[tokio::test]
+async fn a_banned_member_holding_an_invite_is_told_they_were_banned() {
+    let (heard, lobby_quiet) = leave_and_listen("ban").await;
+    assert_eq!(
+        kicked_frames(&heard),
+        vec![serde_json::json!({ "t": "kicked", "name": "leave-agent", "banned": true })],
+        "the loca socket heard: {heard:?}"
+    );
+    assert!(
+        lobby_quiet,
+        "a ban says nothing on the Lobby socket and keeps it open"
+    );
+}
+
+/// Guard: kick, release and invite revocation keep sending what they send
+/// today — one `kicked` with `banned: false` (docs/protocol.md divergence 1).
+#[tokio::test]
+async fn kick_release_and_revoke_still_send_kicked_not_banned() {
+    for action in ["kick", "release", "revoke"] {
+        let (heard, lobby_quiet) = leave_and_listen(action).await;
+        assert_eq!(
+            kicked_frames(&heard),
+            vec![serde_json::json!({ "t": "kicked", "name": "leave-agent", "banned": false })],
+            "{action}: the loca socket heard: {heard:?}"
+        );
+        assert!(lobby_quiet, "{action} says nothing on the Lobby socket");
+    }
+}
+
 /// A lead is named out loud, by an operator, and everyone in the room learns of
 /// it at that moment. It advises; it does not command — so naming one changes
 /// what people know, not what anybody is allowed to do.
 #[tokio::test]
 async fn a_lead_is_named_in_the_open_and_only_by_an_operator() {
     let (port, _guard) = spawn_server_env("MASTER", &[]).await;
-    create_test_room(port, "MASTER", "genel").await;
+    create_test_room(port, "MASTER", "commons").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -545,7 +705,7 @@ async fn a_lead_is_named_in_the_open_and_only_by_an_operator() {
         let (c, b) = (client.clone(), base.clone());
         async move {
             let s: Value = c
-                .get(format!("{b}/rooms/genel/settings"))
+                .get(format!("{b}/rooms/commons/settings"))
                 .header("x-admin-token", "MASTER")
                 .send()
                 .await
@@ -557,12 +717,12 @@ async fn a_lead_is_named_in_the_open_and_only_by_an_operator() {
         }
     };
     // Naming a lead is an EXPLICIT action, not a parsed chat message
-    // (PRINCIPLES: "konuşmak yan etki üretmez"). The operator posts to the
+    // (PRINCIPLES: "Speaking must never create a hidden side effect"). The operator posts to the
     // lead endpoint; the master token is the operator here.
     let set_lead = |lead: Option<&'static str>, admin: bool| {
         let (c, b) = (client.clone(), base.clone());
         async move {
-            let mut req = c.post(format!("{b}/rooms/genel/lead"));
+            let mut req = c.post(format!("{b}/rooms/commons/lead"));
             if admin {
                 req = req.header("x-admin-token", "MASTER");
             }
@@ -596,7 +756,7 @@ async fn a_lead_is_named_in_the_open_and_only_by_an_operator() {
     assert_eq!(lead_now().await.as_deref(), Some("sb-feature"));
 
     let goal: Value = client
-        .post(format!("{base}/rooms/genel/goals"))
+        .post(format!("{base}/rooms/commons/goals"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({
             "outcome": "release is verified",
@@ -626,7 +786,7 @@ async fn a_lead_is_named_in_the_open_and_only_by_an_operator() {
     assert_eq!(lead_now().await.as_deref(), Some("release-lead"));
 
     // Typing "@lead x" in CHAT no longer mutates anything — talking is talking.
-    client.post(format!("{base}/rooms/genel/messages")).header("x-admin-token", "MASTER")
+    client.post(format!("{base}/rooms/commons/messages")).header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "operator", "sender_type": "user", "text": "@lead debug" }))
         .send().await.unwrap();
     assert_eq!(
@@ -636,7 +796,7 @@ async fn a_lead_is_named_in_the_open_and_only_by_an_operator() {
     );
 
     client
-        .patch(format!("{base}/rooms/genel/goals/{}", goal["id"]))
+        .patch(format!("{base}/rooms/commons/goals/{}", goal["id"]))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({
             "status": "cancelled",
@@ -662,39 +822,39 @@ async fn a_lead_is_named_in_the_open_and_only_by_an_operator() {
 #[tokio::test]
 async fn ban_shuts_the_door_and_updates_the_roster() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
-        .post(format!("{base}/rooms/oda/messages"))
+        .post(format!("{base}/rooms/parlor/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "m", "sender_type": "user", "text": "hi" }))
         .send()
         .await
         .unwrap();
-    let davet = davet_for(&base, "MASTER", "oda", "kotu").await;
+    let invite = invite_for(&base, "MASTER", "parlor", "rogue").await;
 
-    // Reads with the davet, then gets banned.
+    // Reads with the invite, then gets banned.
     assert_eq!(
-        rest_can(&base, "oda", &[("x-room-token", &davet)]).await,
+        rest_can(&base, "parlor", &[("x-room-token", &invite)]).await,
         200,
         "before ban: in"
     );
     client
-        .post(format!("{base}/rooms/oda/moderate"))
+        .post(format!("{base}/rooms/parlor/moderate"))
         .header("x-admin-token", "MASTER")
-        .json(&serde_json::json!({ "action": "ban", "name": "kotu" }))
+        .json(&serde_json::json!({ "action": "ban", "name": "rogue" }))
         .send()
         .await
         .unwrap();
     // A ban closes reading too — a door that still lets you read is not shut.
     assert_eq!(
-        rest_can(&base, "oda", &[("x-room-token", &davet)]).await,
+        rest_can(&base, "parlor", &[("x-room-token", &invite)]).await,
         401,
         "after ban: shut, reads included"
     );
     assert!(
-        !ws_can(port, "oda", &format!("token={davet}")).await,
+        !ws_can(port, "parlor", &format!("token={invite}")).await,
         "after ban: WS shut"
     );
 }
@@ -704,20 +864,20 @@ async fn ban_shuts_the_door_and_updates_the_roster() {
 #[tokio::test]
 async fn a_deleted_loca_does_not_come_back() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
-    create_test_room(port, "MASTER", "gecici").await;
+    create_test_room(port, "MASTER", "fleeting").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
     // Create, then archive, then delete a loca.
     client
-        .post(format!("{base}/rooms/gecici/messages"))
+        .post(format!("{base}/rooms/fleeting/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "m", "sender_type": "user", "text": "hi" }))
         .send()
         .await
         .unwrap();
     client
-        .put(format!("{base}/rooms/gecici/settings"))
+        .put(format!("{base}/rooms/fleeting/settings"))
         .header("x-admin-token", "MASTER")
         .json(
             &serde_json::json!({ "rate_limit": 10, "rate_window_secs": 30, "live": false,
@@ -727,7 +887,7 @@ async fn a_deleted_loca_does_not_come_back() {
         .await
         .unwrap();
     let del = client
-        .delete(format!("{base}/rooms/gecici"))
+        .delete(format!("{base}/rooms/fleeting"))
         .header("x-admin-token", "MASTER")
         .send()
         .await
@@ -736,7 +896,7 @@ async fn a_deleted_loca_does_not_come_back() {
 
     // A watch=1 listener connects to the deleted loca. It must NOT resurrect it.
     let _ = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{port}/ws?room=gecici&name=watcher&type=agent&admin=MASTER&watch=1"
+        "ws://127.0.0.1:{port}/ws?room=fleeting&name=watcher&type=agent&admin=MASTER&watch=1"
     ))
     .await;
     let rooms: Value = client
@@ -752,7 +912,7 @@ async fn a_deleted_loca_does_not_come_back() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|r| r["room"] == "gecici");
+        .any(|r| r["room"] == "fleeting");
     assert!(
         !alive,
         "the deleted loca stayed deleted despite a watcher touching it"
@@ -763,7 +923,7 @@ async fn a_deleted_loca_does_not_come_back() {
     admit(&base, "MASTER", "someone", "agent").await;
     for endpoint in ["invites", "call"] {
         let response = client
-            .post(format!("{base}/rooms/gecici/{endpoint}"))
+            .post(format!("{base}/rooms/fleeting/{endpoint}"))
             .header("x-admin-token", "MASTER")
             .json(&serde_json::json!({"name": "someone"}))
             .send()
@@ -772,7 +932,7 @@ async fn a_deleted_loca_does_not_come_back() {
         assert_eq!(response.status(), reqwest::StatusCode::CONFLICT);
     }
     let response = client
-        .post(format!("{base}/rooms/gecici/messages"))
+        .post(format!("{base}/rooms/fleeting/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "m", "sender_type": "user", "text": "reopened" }))
         .send()
@@ -793,7 +953,7 @@ async fn a_deleted_loca_does_not_come_back() {
             .as_array()
             .unwrap()
             .iter()
-            .any(|r| r["room"] == "gecici"),
+            .any(|r| r["room"] == "fleeting"),
         "an invitation must never lift a permanent seal"
     );
 }
@@ -807,13 +967,13 @@ async fn a_deleted_loca_does_not_come_back() {
 #[tokio::test]
 async fn ban_broadcasts_the_new_roster_live() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
     // Two members seated: a watcher (stays) and a victim (to be banned).
-    let mut watcher = connect_ws(port, "oda", "watcher", "agent").await;
-    let _victim = connect_ws(port, "oda", "victim", "agent").await;
+    let mut watcher = connect_ws(port, "parlor", "watcher", "agent").await;
+    let _victim = connect_ws(port, "parlor", "victim", "agent").await;
     // Drain until both are present in a members frame.
     let seen_both = wait_for(&mut watcher, |v| {
         v["t"] == "members"
@@ -826,7 +986,7 @@ async fn ban_broadcasts_the_new_roster_live() {
 
     // Ban the victim.
     client
-        .post(format!("{base}/rooms/oda/moderate"))
+        .post(format!("{base}/rooms/parlor/moderate"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "action": "ban", "name": "victim" }))
         .send()
@@ -851,22 +1011,22 @@ async fn ban_broadcasts_the_new_roster_live() {
     );
 }
 
-/// A loca seats seven — the seat IS the davet (Model A). The 8th davet is
-/// refused AT MINT, before anyone connects: the cap is on active davets, not
-/// on live sockets. No phantom davet can exist for a full loca.
+/// A loca seats seven — the seat IS the invite (Model A). The 8th invite is
+/// refused AT MINT, before anyone connects: the cap is on active invites, not
+/// on live sockets. No phantom invite can exist for a full loca.
 #[tokio::test]
-async fn a_full_loca_refuses_the_eighth_even_with_a_davet() {
+async fn a_full_loca_refuses_the_eighth_even_with_an_invite() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
-    create_test_room(port, "MASTER", "dolu").await;
+    create_test_room(port, "MASTER", "packed").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
-    // Seven davets fill the seven seats — minting each succeeds.
+    // Seven invites fill the seven seats — minting each succeeds.
     for i in 0..7 {
         let name = format!("a{i}");
         admit(&base, "MASTER", &name, "agent").await;
         let r = client
-            .post(format!("{base}/rooms/dolu/invites"))
+            .post(format!("{base}/rooms/packed/invites"))
             .header("x-admin-token", "MASTER")
             .json(&serde_json::json!({ "name": name }))
             .send()
@@ -875,10 +1035,10 @@ async fn a_full_loca_refuses_the_eighth_even_with_a_davet() {
         assert!(r.status().is_success(), "seat {i} mints");
     }
 
-    // The eighth davet is refused at mint — the loca is full.
+    // The eighth invite is refused at mint — the loca is full.
     admit(&base, "MASTER", "a8", "agent").await;
     let eighth = client
-        .post(format!("{base}/rooms/dolu/invites"))
+        .post(format!("{base}/rooms/packed/invites"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "name": "a8" }))
         .send()
@@ -887,12 +1047,12 @@ async fn a_full_loca_refuses_the_eighth_even_with_a_davet() {
     assert_eq!(
         eighth.status(),
         409,
-        "the eighth davet is refused — the seat is the davet"
+        "the eighth invite is refused — the seat is the invite"
     );
 
-    // Call-in (the UI path) is refused the same way — no phantom davet.
+    // Call-in (the UI path) is refused the same way — no phantom invite.
     let call8 = client
-        .post(format!("{base}/rooms/dolu/call"))
+        .post(format!("{base}/rooms/packed/call"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "name": "a8" }))
         .send()
@@ -901,12 +1061,12 @@ async fn a_full_loca_refuses_the_eighth_even_with_a_davet() {
     assert_eq!(
         call8.status(),
         409,
-        "call-in to a full loca mints no phantom davet"
+        "call-in to a full loca mints no phantom invite"
     );
 
-    // Only seven davets exist.
+    // Only seven invites exist.
     let invs: Vec<Value> = client
-        .get(format!("{base}/rooms/dolu/invites"))
+        .get(format!("{base}/rooms/packed/invites"))
         .header("x-admin-token", "MASTER")
         .send()
         .await
@@ -914,7 +1074,7 @@ async fn a_full_loca_refuses_the_eighth_even_with_a_davet() {
         .json()
         .await
         .unwrap();
-    assert_eq!(invs.len(), 7, "seven davets, no more");
+    assert_eq!(invs.len(), 7, "seven invites, no more");
 }
 
 /// Round-robin advances the turn as each speaker posts, wraps around the order,
@@ -987,18 +1147,18 @@ async fn round_robin_advances_wraps_and_refuses_out_of_turn() {
 #[tokio::test]
 async fn an_archived_loca_reads_but_refuses_posts() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
-    create_test_room(port, "MASTER", "eski").await;
+    create_test_room(port, "MASTER", "bygone").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
-        .post(format!("{base}/rooms/eski/messages"))
+        .post(format!("{base}/rooms/bygone/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "m", "sender_type": "user", "text": "kept" }))
         .send()
         .await
         .unwrap();
     client
-        .put(format!("{base}/rooms/eski/settings"))
+        .put(format!("{base}/rooms/bygone/settings"))
         .header("x-admin-token", "MASTER")
         .json(
             &serde_json::json!({ "rate_limit": 10, "rate_window_secs": 30, "live": false,
@@ -1010,18 +1170,18 @@ async fn an_archived_loca_reads_but_refuses_posts() {
 
     // Reading still works — the history is kept.
     assert_eq!(
-        rest_can(&base, "eski", &[("x-admin-token", "MASTER")]).await,
+        rest_can(&base, "bygone", &[("x-admin-token", "MASTER")]).await,
         200,
         "an archived loca is still readable"
     );
     // A WS connection still opens (you can watch a closed room).
     assert!(
-        ws_can(port, "eski", "admin=MASTER").await,
+        ws_can(port, "bygone", "admin=MASTER").await,
         "you can connect to an archived loca to read"
     );
     // But posting is refused.
     let post = client
-        .post(format!("{base}/rooms/eski/messages"))
+        .post(format!("{base}/rooms/bygone/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "m", "sender_type": "user", "text": "no" }))
         .send()
@@ -1039,8 +1199,8 @@ async fn the_untested_endpoints_answer_correctly() {
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
-    // whoami: a davet says which loca; the master's key says "building"; nothing says no.
-    let d = davet_for(&base, "MASTER", "general", "someone").await;
+    // whoami: an invite says which loca; the master's key says "building"; nothing says no.
+    let d = invite_for(&base, "MASTER", "general", "someone").await;
     let who: Value = client
         .get(format!("{base}/whoami"))
         .header("x-room-token", &d)
@@ -1137,7 +1297,7 @@ async fn the_untested_endpoints_answer_correctly() {
     client
         .post(format!("{base}/members"))
         .header("x-admin-token", "MASTER")
-        .json(&serde_json::json!({ "name": "gecici", "kind": "agent" }))
+        .json(&serde_json::json!({ "name": "fleeting", "kind": "agent" }))
         .send()
         .await
         .unwrap();
@@ -1154,7 +1314,7 @@ async fn the_untested_endpoints_answer_correctly() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|m| m["name"] == "gecici")
+        .find(|m| m["name"] == "fleeting")
         .and_then(|m| m["id"].as_str())
         .expect("member has a management id")
         .to_string();
@@ -1176,26 +1336,26 @@ async fn the_untested_endpoints_answer_correctly() {
 }
 
 /// A ban survives a restart. Without persistence the ban set empties on boot
-/// while davets reload, so a banned name walks right back in.
+/// while invites reload, so a banned name walks right back in.
 #[tokio::test]
 async fn a_ban_survives_a_restart() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("bans.db").to_string_lossy().to_string();
     let client = reqwest::Client::new();
-    // First boot: seat cyber via davet, then ban them.
+    // First boot: seat cyber via invite, then ban them.
     let d = {
         let (port, _g) = spawn_server_env(
             "MASTER",
             &[("DB_PATH", db.clone()), ("REQUIRE_INVITE", "1".into())],
         )
         .await;
-        create_test_room(port, "MASTER", "oda").await;
+        create_test_room(port, "MASTER", "parlor").await;
         let base = format!("http://127.0.0.1:{port}");
-        let d = davet_for(&base, "MASTER", "oda", "cyber").await;
+        let d = invite_for(&base, "MASTER", "parlor", "cyber").await;
         // Read works before the ban.
         assert_eq!(
             client
-                .get(format!("{base}/rooms/oda/messages"))
+                .get(format!("{base}/rooms/parlor/messages"))
                 .header("x-room-token", &d)
                 .send()
                 .await
@@ -1204,7 +1364,7 @@ async fn a_ban_survives_a_restart() {
             200
         );
         client
-            .post(format!("{base}/rooms/oda/moderate"))
+            .post(format!("{base}/rooms/parlor/moderate"))
             .header("x-admin-token", "MASTER")
             .json(&serde_json::json!({ "action": "ban", "name": "cyber" }))
             .send()
@@ -1217,7 +1377,7 @@ async fn a_ban_survives_a_restart() {
         spawn_server_env("MASTER", &[("DB_PATH", db), ("REQUIRE_INVITE", "1".into())]).await;
     let base = format!("http://127.0.0.1:{port}");
     let after = client
-        .get(format!("{base}/rooms/oda/messages"))
+        .get(format!("{base}/rooms/parlor/messages"))
         .header("x-room-token", &d)
         .send()
         .await
@@ -1225,7 +1385,7 @@ async fn a_ban_survives_a_restart() {
     assert_eq!(after.status(), 401, "a ban is not forgotten by a restart");
     // And the mod state still lists them.
     let modst: Value = client
-        .get(format!("{base}/rooms/oda/moderate"))
+        .get(format!("{base}/rooms/parlor/moderate"))
         .header("x-admin-token", "MASTER")
         .send()
         .await
@@ -1299,49 +1459,49 @@ async fn a_sealed_loca_stays_sealed_against_posts() {
 }
 
 /// Release drops the roster entry directly (like kick/ban) so a dead socket
-/// leaves no ghost — "işi bitti" means the seat is truly empty.
+/// leaves no ghost — "the work is done" means the seat is truly empty.
 #[tokio::test]
 async fn release_leaves_no_ghost() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     admit(&base, "MASTER", "worker", "agent").await;
     client
-        .post(format!("{base}/rooms/oda/call"))
+        .post(format!("{base}/rooms/parlor/call"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "name": "worker" }))
         .send()
         .await
         .unwrap();
-    let mut ws = connect_ws(port, "oda", "worker", "agent").await;
+    let mut ws = connect_ws(port, "parlor", "worker", "agent").await;
     let _ = wait_for(&mut ws, |v| v["t"] == "history").await;
     // Release them.
     client
-        .post(format!("{base}/rooms/oda/moderate"))
+        .post(format!("{base}/rooms/parlor/moderate"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "action": "release", "name": "worker" }))
         .send()
         .await
         .unwrap();
-    wait_for_member_absent(&client, &base, "oda", "worker").await;
+    wait_for_member_absent(&client, &base, "parlor", "worker").await;
 }
 
 /// The call is not merely a new row in the database: an agent keeps a
-/// membership-only lobby socket after release, receives the fresh davet there,
-/// and can immediately open the called loca. A reconnect also replays a call
-/// that happened while the socket was down.
+/// membership-only lobby socket after release, receives the fresh invite there,
+/// and can immediately open the called loca. A reconnect also delivers a call
+/// that happened while the socket was down (its invite not yet used).
 #[tokio::test]
 async fn release_to_lobby_and_one_click_recall_is_end_to_end() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    let first_davet = davet_for(&base, "MASTER", "oda", "worker").await;
+    let first_invite = invite_for(&base, "MASTER", "parlor", "worker").await;
 
     let claim: Value = client
         .post(format!("{base}/membership/claim"))
-        .header("x-room-token", &first_davet)
+        .header("x-room-token", &first_invite)
         .send()
         .await
         .unwrap()
@@ -1353,7 +1513,7 @@ async fn release_to_lobby_and_one_click_recall_is_end_to_end() {
 
     // The permanent membership is a lobby credential, not a skeleton key.
     let private_door = client
-        .get(format!("{base}/rooms/oda/messages"))
+        .get(format!("{base}/rooms/parlor/messages"))
         .header("x-room-token", &membership)
         .send()
         .await
@@ -1367,14 +1527,20 @@ async fn release_to_lobby_and_one_click_recall_is_end_to_end() {
     let lobby_url = format!("ws://127.0.0.1:{port}/lobby/ws?membership={membership}");
     let (mut lobby, _) = tokio_tungstenite::connect_async(&lobby_url).await.unwrap();
     let ready = wait_for(&mut lobby, |v| v["t"] == "lobby_ready").await;
-    assert_eq!(ready["invites"][0]["room"], "oda");
-    assert_eq!(ready["invites"][0]["token"], first_davet);
+    assert_eq!(ready["seats"][0]["room"], "parlor");
+    assert!(ready["seats"][0]["invite_id"]
+        .as_str()
+        .unwrap()
+        .starts_with("ivid_"));
+    assert!(ready.get("invites").is_none(), "no invite list: {ready}");
+    // Claiming and REST reads are not a use of the invite: no session or loca
+    // socket was taken with it, so its delivery is still owed.
     let initial = wait_for(&mut lobby, |v| v["t"] == "called").await;
-    assert_eq!(initial["token"], first_davet);
+    assert_eq!(initial["token"], first_invite);
 
     client
-        .post(format!("{base}/rooms/oda/release"))
-        .header("x-room-token", &first_davet)
+        .post(format!("{base}/rooms/parlor/release"))
+        .header("x-room-token", &first_invite)
         .send()
         .await
         .unwrap()
@@ -1398,7 +1564,7 @@ async fn release_to_lobby_and_one_click_recall_is_end_to_end() {
     );
 
     client
-        .post(format!("{base}/rooms/oda/call"))
+        .post(format!("{base}/rooms/parlor/call"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "name": "worker" }))
         .send()
@@ -1407,13 +1573,13 @@ async fn release_to_lobby_and_one_click_recall_is_end_to_end() {
         .error_for_status()
         .unwrap();
     let called = wait_for(&mut lobby, |v| v["t"] == "called").await;
-    assert_eq!(called["room"], "oda");
-    let second_davet = called["token"].as_str().unwrap().to_string();
-    assert_ne!(second_davet, first_davet);
+    assert_eq!(called["room"], "parlor");
+    let second_invite = called["token"].as_str().unwrap().to_string();
+    assert_ne!(second_invite, first_invite);
     assert_eq!(
         client
-            .get(format!("{base}/rooms/oda/messages"))
-            .header("x-room-token", &second_davet)
+            .get(format!("{base}/rooms/parlor/messages"))
+            .header("x-room-token", &second_invite)
             .send()
             .await
             .unwrap()
@@ -1422,19 +1588,19 @@ async fn release_to_lobby_and_one_click_recall_is_end_to_end() {
         "the privately delivered call opens exactly its loca"
     );
 
-    // Calls made during a brief lobby disconnect are not lost: the invite is
-    // persisted and replayed on the next lobby handshake.
+    // Calls made during a brief lobby disconnect are not lost: the invite's
+    // delivery copy is kept and it is sent on the next lobby handshake.
     lobby.send(WsMessage::Close(None)).await.unwrap();
     client
-        .post(format!("{base}/rooms/oda/release"))
-        .header("x-room-token", &second_davet)
+        .post(format!("{base}/rooms/parlor/release"))
+        .header("x-room-token", &second_invite)
         .send()
         .await
         .unwrap()
         .error_for_status()
         .unwrap();
     client
-        .post(format!("{base}/rooms/oda/call"))
+        .post(format!("{base}/rooms/parlor/call"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "name": "worker" }))
         .send()
@@ -1446,16 +1612,16 @@ async fn release_to_lobby_and_one_click_recall_is_end_to_end() {
     let (mut reconnected, _) = tokio_tungstenite::connect_async(&lobby_url).await.unwrap();
     wait_for(&mut reconnected, |v| v["t"] == "lobby_ready").await;
     let replayed = wait_for(&mut reconnected, |v| v["t"] == "called").await;
-    assert_eq!(replayed["room"], "oda");
-    assert_ne!(replayed["token"], second_davet);
+    assert_eq!(replayed["room"], "parlor");
+    assert_ne!(replayed["token"], second_invite);
 }
 
 /// `iye` is not a cosmetic alias. The migration moves the complete durable
 /// record atomically, marks the loca special in the API, and removes ordinary
 /// legacy seats. Rank (master/smaster) still enters; only the two caretakers
-/// may receive a davet.
+/// may receive an invite.
 #[tokio::test]
-async fn iye_migration_preserves_history_and_reserves_the_loca() {
+async fn care_loca_migration_preserves_history_and_reserves_the_loca() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("iye.db").to_string_lossy().to_string();
     let client = reqwest::Client::new();
@@ -1477,8 +1643,8 @@ async fn iye_migration_preserves_history_and_reserves_the_loca() {
             .unwrap()
             .error_for_status()
             .unwrap();
-        davet_for(&base, "MASTER", "general", "loca-dev").await;
-        davet_for(&base, "MASTER", "general", "cyber").await;
+        invite_for(&base, "MASTER", "general", "loca-dev").await;
+        invite_for(&base, "MASTER", "general", "cyber").await;
     }
 
     let (port, _g) = spawn_server_env(
@@ -1504,8 +1670,8 @@ async fn iye_migration_preserves_history_and_reserves_the_loca() {
         .await
         .unwrap();
     assert!(!rooms.iter().any(|r| r["room"] == "general"));
-    let iye = rooms.iter().find(|r| r["room"] == "iye").unwrap();
-    assert_eq!(iye["special"], true);
+    let care_loca = rooms.iter().find(|r| r["room"] == "iye").unwrap();
+    assert_eq!(care_loca["special"], true);
 
     let history: Vec<Value> = client
         .get(format!("{base}/rooms/iye/messages"))
@@ -1573,10 +1739,10 @@ async fn a_mute_survives_a_restart() {
     let client = reqwest::Client::new();
     {
         let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
-        create_test_room(port, "MASTER", "oda").await;
+        create_test_room(port, "MASTER", "parlor").await;
         let base = format!("http://127.0.0.1:{port}");
         client
-            .post(format!("{base}/rooms/oda/moderate"))
+            .post(format!("{base}/rooms/parlor/moderate"))
             .header("x-admin-token", "MASTER")
             .json(&serde_json::json!({ "action": "mute", "name": "cyber" }))
             .send()
@@ -1586,7 +1752,7 @@ async fn a_mute_survives_a_restart() {
     let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db)]).await;
     let base = format!("http://127.0.0.1:{port}");
     let modst: Value = client
-        .get(format!("{base}/rooms/oda/moderate"))
+        .get(format!("{base}/rooms/parlor/moderate"))
         .header("x-admin-token", "MASTER")
         .send()
         .await
@@ -1612,10 +1778,10 @@ async fn unban_after_restart_clears_the_row() {
     let client = reqwest::Client::new();
     {
         let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db.clone())]).await;
-        create_test_room(port, "MASTER", "oda").await;
+        create_test_room(port, "MASTER", "parlor").await;
         let base = format!("http://127.0.0.1:{port}");
         client
-            .post(format!("{base}/rooms/oda/moderate"))
+            .post(format!("{base}/rooms/parlor/moderate"))
             .header("x-admin-token", "MASTER")
             .json(&serde_json::json!({ "action": "ban", "name": "cyber" }))
             .send()
@@ -1626,14 +1792,14 @@ async fn unban_after_restart_clears_the_row() {
     let base = format!("http://127.0.0.1:{port}");
     // Still banned after restart, then lift it.
     client
-        .post(format!("{base}/rooms/oda/moderate"))
+        .post(format!("{base}/rooms/parlor/moderate"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "action": "unban", "name": "cyber" }))
         .send()
         .await
         .unwrap();
     let modst: Value = client
-        .get(format!("{base}/rooms/oda/moderate"))
+        .get(format!("{base}/rooms/parlor/moderate"))
         .header("x-admin-token", "MASTER")
         .send()
         .await
@@ -1699,26 +1865,26 @@ async fn a_sealed_loca_is_not_revived_by_a_watcher() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FAZ 3 — lifecycle + roller: arşiv read-only, operatör yetkisi, seal, @lead.
+// PHASE 3 — lifecycle + roles: archive read-only, operator authority, seal, @lead.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// An archived loca is read-only for EVERYONE — no note, task or journal write
-/// (PRINCIPLES: archived = read-only, hiçbir mutation).
+/// (PRINCIPLES: archived = read-only, no mutation).
 #[tokio::test]
 async fn archived_blocks_all_mutations() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
-        .post(format!("{base}/rooms/oda/messages"))
+        .post(format!("{base}/rooms/parlor/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "m", "sender_type": "user", "text": "hi" }))
         .send()
         .await
         .unwrap();
     let attention: Value = client
-        .post(format!("{base}/rooms/oda/attentions"))
+        .post(format!("{base}/rooms/parlor/attentions"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({
             "subject": "review", "audience": {"kind": "person", "name": "m"},
@@ -1733,7 +1899,7 @@ async fn archived_blocks_all_mutations() {
         .await
         .unwrap();
     client
-        .post(format!("{base}/rooms/oda/waits"))
+        .post(format!("{base}/rooms/parlor/waits"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({
             "by": "m", "waiting_for": "reviewer", "reason": "review"
@@ -1744,7 +1910,7 @@ async fn archived_blocks_all_mutations() {
         .error_for_status()
         .unwrap();
     client
-        .put(format!("{base}/rooms/oda/settings"))
+        .put(format!("{base}/rooms/parlor/settings"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "archived": true }))
         .send()
@@ -1752,7 +1918,7 @@ async fn archived_blocks_all_mutations() {
         .unwrap();
     // Every write path refuses.
     let note = client
-        .post(format!("{base}/rooms/oda/notes"))
+        .post(format!("{base}/rooms/parlor/notes"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "key": "k", "title": "t", "body": "b", "by": "master" }))
         .send()
@@ -1760,7 +1926,7 @@ async fn archived_blocks_all_mutations() {
         .unwrap();
     assert_eq!(note.status(), 409, "no note in an archived loca");
     let task = client
-        .post(format!("{base}/rooms/oda/tasks"))
+        .post(format!("{base}/rooms/parlor/tasks"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "title": "do", "by": "master" }))
         .send()
@@ -1768,7 +1934,7 @@ async fn archived_blocks_all_mutations() {
         .unwrap();
     assert_eq!(task.status(), 409, "no task in an archived loca");
     let jrnl = client
-        .post(format!("{base}/rooms/oda/journal"))
+        .post(format!("{base}/rooms/parlor/journal"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "text": "did", "by": "master" }))
         .send()
@@ -1776,7 +1942,7 @@ async fn archived_blocks_all_mutations() {
         .unwrap();
     assert_eq!(jrnl.status(), 409, "no journal in an archived loca");
     let msg = client
-        .post(format!("{base}/rooms/oda/messages"))
+        .post(format!("{base}/rooms/parlor/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "m", "sender_type": "user", "text": "more" }))
         .send()
@@ -1786,7 +1952,7 @@ async fn archived_blocks_all_mutations() {
     for action in ["claim", "resolve"] {
         let response = client
             .post(format!(
-                "{base}/rooms/oda/attentions/{}/{action}",
+                "{base}/rooms/parlor/attentions/{}/{action}",
                 attention["id"].as_str().unwrap()
             ))
             .header("x-admin-token", "MASTER")
@@ -1801,7 +1967,7 @@ async fn archived_blocks_all_mutations() {
         );
     }
     let clear_wait = client
-        .delete(format!("{base}/rooms/oda/waits/m"))
+        .delete(format!("{base}/rooms/parlor/waits/m"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "by": "master" }))
         .send()
@@ -1809,7 +1975,7 @@ async fn archived_blocks_all_mutations() {
         .unwrap();
     assert_eq!(clear_wait.status(), 409, "no wait mutation while archived");
     let attentions: Vec<Value> = client
-        .get(format!("{base}/rooms/oda/attentions"))
+        .get(format!("{base}/rooms/parlor/attentions"))
         .header("x-admin-token", "MASTER")
         .send()
         .await
@@ -1823,7 +1989,7 @@ async fn archived_blocks_all_mutations() {
     );
     // Un-archiving is still allowed (it is the way back).
     let un = client
-        .put(format!("{base}/rooms/oda/settings"))
+        .put(format!("{base}/rooms/parlor/settings"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "archived": false }))
         .send()
@@ -1894,33 +2060,38 @@ async fn a_sealed_loca_survives_restart_sealed() {
 }
 
 /// Naming a lead is an explicit endpoint action, and it announces itself — a
-/// chat "@lead x" no longer mutates anything (PRINCIPLES: konuşmak yan etki
-/// üretmez). Covered by a_lead_is_named_in_the_open_and_only_by_an_operator;
+/// chat "@lead x" no longer mutates anything (PRINCIPLES: speaking must never create
+/// a hidden side effect). Covered by a_lead_is_named_in_the_open_and_only_by_an_operator;
 /// here we assert the announcement is emitted and directly wakes the named
 /// mentions-only agent without waking everybody else.
 #[tokio::test]
 async fn lead_endpoint_announces() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    let mut ws = connect_ws(port, "oda", "watcher", "user").await;
+    let mut ws = connect_ws(port, "parlor", "watcher", "user").await;
     let _ = wait_for(&mut ws, |v| v["t"] == "history").await;
     let lead_url = format!(
-        "ws://127.0.0.1:{port}/ws?room=oda&name=debug&type=agent&filter=mentions\
+        "ws://127.0.0.1:{port}/ws?room=parlor&name=debug&type=agent&filter=mentions\
          &turn_max=3&turn_wait_ms=4000"
     );
     let other_url = format!(
-        "ws://127.0.0.1:{port}/ws?room=oda&name=other&type=agent&filter=mentions\
+        "ws://127.0.0.1:{port}/ws?room=parlor&name=other&type=agent&filter=mentions\
          &turn_max=3&turn_wait_ms=4000"
     );
     let (mut lead, _) = tokio_tungstenite::connect_async(lead_url).await.unwrap();
     let (mut other, _) = tokio_tungstenite::connect_async(other_url).await.unwrap();
+    // A mentions stream gets no history; its memory frame is the first thing
+    // the server sends after seating it. The lead must be seated before it is
+    // named, or the direct wake goes out before it listens.
+    let lead_memory = wait_for(&mut lead, |frame| frame["t"] == "memory").await;
+    assert_eq!(lead_memory["status"], "absent");
     let other_memory = wait_for(&mut other, |frame| frame["t"] == "memory").await;
     assert_eq!(other_memory["status"], "absent");
 
     client
-        .post(format!("{base}/rooms/oda/lead"))
+        .post(format!("{base}/rooms/parlor/lead"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "lead": "debug" }))
         .send()
@@ -2033,7 +2204,7 @@ async fn durable_backfill_pages_the_complete_archive_after_restart() {
 }
 
 #[tokio::test]
-async fn the_master_is_operator_by_rank_in_every_loca_but_not_in_a_birebir() {
+async fn the_master_is_operator_by_rank_in_every_loca_but_not_in_a_dm() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("master-operator.db");
     let (port, _guard) = spawn_server_env(
@@ -2126,7 +2297,7 @@ async fn the_master_is_operator_by_rank_in_every_loca_but_not_in_a_birebir() {
         .await
         .unwrap();
     assert_eq!(founder["loca"]["operator_source"], "appointed");
-    // In a birebir there is no operator, not even by rank.
+    // In a direct message there is no operator, not even by rank.
     let opened: Value = client
         .post(format!("{base}/birebirs"))
         .header("x-session-token", &master)

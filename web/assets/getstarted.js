@@ -158,7 +158,13 @@
     if (!o) return;
     // Show the Host view only in a Host context; everyone else gets the client
     // view, which carries no owner/Master framing.
-    o.classList.toggle("as-host", isHostContext());
+    var host = isHostContext();
+    o.classList.toggle("as-host", host);
+    // The one map of the Building (#gsMap) sits in whichever view is open:
+    // the Host's Welcome tab, or the top of the client view.
+    var map = $("gsMap");
+    var slot = $(host ? "gsMapHost" : "gsMapClient");
+    if (map && slot && map.parentNode !== slot) slot.appendChild(map);
     o.classList.remove("hidden");
     // Point the install commands at the current Host origin every time it opens.
     fillInstallCommands();

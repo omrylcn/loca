@@ -29,7 +29,7 @@ COPY web web
 COPY docs docs
 COPY scripts scripts
 COPY skill skill
-COPY PRINCIPLES.md PRINCIPLES.en.md ./
+COPY PRINCIPLES.md PRINCIPLES.tr.md ./
 RUN touch crates/server/src/main.rs crates/protocol/src/lib.rs \
       crates/skill-bundles/build.rs crates/skill-bundles/src/lib.rs \
  && cargo build --release --locked -p server

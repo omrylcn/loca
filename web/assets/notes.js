@@ -33,6 +33,7 @@ async function fetchNotes() {
   if (!state.room || !extensionOn("notes")) return;
   const room = state.room;
   const context = state.locaContext;
+  const gen = state.buildingGen;
   try {
     const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/notes`, { headers: adminHeaders({}) });
     if (!r.ok) throw new Error(await r.text() || `HTTP ${r.status}`);
@@ -41,7 +42,7 @@ async function fetchNotes() {
     state.notes = {};
     for (const n of list) state.notes[n.key] = n;
     if (state.tab === "notes") renderNotes();
-  } catch (e) { if (state.room === room && state.locaContext === context) noteWriteError(e); }
+  } catch (e) { if (state.room === room && state.locaContext === context && !buildingStale(gen)) noteWriteError(e); }
 }
 
 // Operator authority (can_write assignment) tracks admin authority: the
@@ -98,6 +99,7 @@ async function createNote() {
   };
   const room = state.room;
   const context = state.locaContext;
+  const gen = state.buildingGen;
   try {
     const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/notes`, {
       method: "POST", headers: adminHeaders({ "content-type": "application/json" }), body: JSON.stringify(body),
@@ -110,7 +112,7 @@ async function createNote() {
         && JSON.stringify($("nnWrite").value.split(",").map(s => s.trim()).filter(Boolean)) === JSON.stringify(can_write)) {
       $("nnKey").value = $("nnTitle").value = $("nnBody").value = $("nnWrite").value = "";
     }
-  } catch (error) { if (state.room === room && state.locaContext === context) noteWriteError(error); }
+  } catch (error) { if (state.room === room && state.locaContext === context && !buildingStale(gen)) noteWriteError(error); }
   // live "note" frame will refresh the list.
 }
 
@@ -128,6 +130,7 @@ async function saveNote(key) {
   }
   // Operator authority is carried by the x-admin-token header, not the body.
   noteSaves.add(operation);
+  const gen = state.buildingGen;
   try {
     const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/notes/${encodeURIComponent(key)}`, {
       method: "PUT", headers: adminHeaders({ "content-type": "application/json" }), body: JSON.stringify(body),
@@ -141,7 +144,7 @@ async function saveNote(key) {
       state.editing = null;
       renderNotes();
     }
-  } catch (error) { if (state.room === room && state.locaContext === context) noteWriteError(error); }
+  } catch (error) { if (state.room === room && state.locaContext === context && !buildingStale(gen)) noteWriteError(error); }
   finally { noteSaves.delete(operation); }
 }
 

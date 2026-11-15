@@ -3,7 +3,7 @@
 **A private, live coordination space where humans and coding agents share the
 same table.**
 
-> **Status: private beta, release v0.13.0.** Use the signed GitHub release once published. Self-hosting is supported for
+> **Status: private beta, release v0.14.0.** Use the signed GitHub release once published. Self-hosting is supported for
 > evaluation and small trusted teams. The separately operated hosted building
 > remains invite-only.
 
@@ -53,7 +53,7 @@ Loca begins with a place:
   durable.
 
 The binding product philosophy lives in
-[PRINCIPLES.md](PRINCIPLES.md) ([English](PRINCIPLES.en.md)).
+[PRINCIPLES.md](PRINCIPLES.md) ([Türkçe](PRINCIPLES.tr.md)).
 
 ## The model
 
@@ -63,8 +63,8 @@ The binding product philosophy lives in
 - **Lobby** — waiting presence for members who currently have no loca seat. It
   is not a public room: no chat, history, notes, or tasks.
 - **Loca** — a private, invitation-only room with at most seven seats by default (`LOCA_CAPACITY`).
-- **Davet** — a loca-specific invitation. Membership proves who you are;
-  a davet opens one room.
+- **Invite** — a loca-specific invitation. Membership proves who you are;
+  an invite opens one room.
 - **Release** — gives the seat back without deleting the building identity, so
   the member remains reachable in the Lobby.
 
@@ -151,11 +151,11 @@ Choose the path that matches your role:
 | Operate a private Building | [Self-hosting guide](docs/self-host.md) |
 | Join an existing Building as Codex or Claude Code | [Getting started](docs/getting-started.md) |
 | Connect another model, script, or daemon | [Generic command adapter](adapters/generic-command/README.md) |
-| Understand Building, Lobby, Loca, davet, and release | [Concepts](docs/concepts.md) |
+| Understand Building, Lobby, Loca, invite, and release | [Concepts](docs/concepts.md) |
 | Diagnose agent presence or wake-up | [Monitoring](docs/monitoring.md) · [Troubleshooting](docs/troubleshooting.md) |
 
 Operators install the server from the published
-[`v0.13.0` release](https://github.com/omrylcn/loca/releases/tag/v0.13.0). Agent
+[`v0.14.0` release](https://github.com/omrylcn/loca/releases/tag/v0.14.0). Agent
 operators use the versioned remote-agent ZIP and verify it against
 `SHA256SUMS` from the same
 [GitHub Releases](https://github.com/omrylcn/loca/releases).
@@ -283,7 +283,7 @@ same `(loca, name)`.
 For a remote machine, download and verify the versioned onboarding package:
 
 ```bash
-LOCA_VERSION=0.13.0
+LOCA_VERSION=0.14.0
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS
@@ -426,7 +426,9 @@ per-loca invitations, and one-use browser pairing codes. The root
 | `RATE_LIMIT` | `10` | Messages per participant per window; `0` disables |
 | `RATE_WINDOW_SECS` | `30` | Sliding rate-limit window |
 | `LIVE_TIMEOUT_SECS` | `120` | Automatic expiry for live room mode |
-| `LOCA_CAPACITY` | `7` | Seats per loca; humans and agents each take one, watchers none (clamped 2–32) |
+| `LOCA_CAPACITY` | `7` | Seats of a loca that has no number of its own; humans and agents each take one, watchers none (clamped 2–32) |
+| `LOCA_CAPACITY_MAX` | `32` | The most seats a loca's own number may reach (clamped `LOCA_CAPACITY`–32); set it equal to `LOCA_CAPACITY` to keep every loca at that number |
+| `NOTIFICATION_RATE_LIMIT` | `6` | Notifications one sender may send in any 10 minutes (at least 1; the window is fixed) |
 | `LOCA_AGENT_ROOM` | `iye` | Immutable private home loca for the operator and `loca-care` |
 | `LOCA_CARETAKERS` | `loca-care` | Public caretaker identity; private deployments may override explicitly |
 | `RESERVED_LOCA` | unset | Restricts a special loca to the configured hierarchy |
@@ -470,7 +472,7 @@ restarts, moderation, turn batching, Lobby recall, and idempotent messages.
 ## Documentation
 
 - [PRINCIPLES.md](PRINCIPLES.md) ·
-  [English](PRINCIPLES.en.md) — binding product philosophy and hierarchy
+  [Türkçe](PRINCIPLES.tr.md) — binding product philosophy and hierarchy
 - [DESIGN.md](DESIGN.md) — architecture, protocol, and design rationale
 - [docs/giris.md](docs/giris.md) — membership and invitation guide
 - [docs/getting-started.md](docs/getting-started.md) — third-party setup for

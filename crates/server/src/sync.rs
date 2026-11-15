@@ -20,6 +20,8 @@ pub(crate) trait RecoverMutex<T: ?Sized> {
 impl<T: ?Sized> RecoverMutex<T> for Mutex<T> {
     #[track_caller]
     fn lock_or_recover(&self) -> MutexGuard<'_, T> {
+        #[cfg(test)]
+        work::LOCKS.with(|taken| taken.set(taken.get() + 1));
         match self.lock() {
             Ok(guard) => guard,
             Err(poisoned) => {
@@ -34,6 +36,27 @@ impl<T: ?Sized> RecoverMutex<T> for Mutex<T> {
                 guard
             }
         }
+    }
+}
+
+/// Test-only tally of the work a request does on this thread: every state
+/// mutex taken (`lock_or_recover`) and every SQLite connection taken
+/// (`Store::conn`). Two requests that must be indistinguishable by timing
+/// (a loca hidden from the caller, an id naming nothing) are compared on it.
+/// Per thread, so tests running in parallel do not mix their counts.
+#[cfg(test)]
+pub(crate) mod work {
+    use std::cell::Cell;
+
+    thread_local! {
+        pub(crate) static LOCKS: Cell<u64> = const { Cell::new(0) };
+        pub(crate) static SQLITE: Cell<u64> = const { Cell::new(0) };
+    }
+
+    /// `(mutexes taken, SQLite connections taken)` on this thread since the
+    /// last call, and start counting again from zero.
+    pub(crate) fn take() -> (u64, u64) {
+        (LOCKS.with(|n| n.replace(0)), SQLITE.with(|n| n.replace(0)))
     }
 }
 

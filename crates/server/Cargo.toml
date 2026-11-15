@@ -32,6 +32,9 @@ libc = "0.2"
 windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
 
 [dev-dependencies]
+# `ServiceExt::oneshot`: drive the router's gates in process (tests count the
+# work a request does; see `routes/access/same_work.rs`).
+tower = { version = "0.5", features = ["util"] }
 tempfile = "3"
 rusqlite = { version = "0.41", features = ["bundled", "fallible_uint"] }
 tokio-tungstenite = "0.24"

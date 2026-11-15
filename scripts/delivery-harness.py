@@ -5,7 +5,7 @@ Answers one question that unit tests keep failing to answer:
     "when a reminder fires, does it actually reach each agent's runtime?"
 
 Nothing is mocked. It boots the real room-server binary, admits real members,
-mints real davets/sessions, runs the real listen.py for every agent, triggers a
+mints real invites/sessions, runs the real listen.py for every agent, triggers a
 real room-silence reminder, and then reports, per agent, whether the delivery
 landed in that agent's own listener output.
 
@@ -110,13 +110,13 @@ def main():
         info = wait_health(base)
         print(f"server up: version={info.get('version')}")
 
-        # 2. real members + davets + sessions + identity envs
+        # 2. real members + invites + sessions + identity envs
         admin_h = {"x-admin-token": ADMIN}
         http("POST", f"{base}/members", {"name": "harness", "kind": "user"}, admin_h)
         hc, hinv = http("POST", f"{base}/rooms/{args.room}/invites",
                         {"name": "harness"}, admin_h)
         if not isinstance(hinv, dict) or not hinv.get("token"):
-            raise SystemExit(f"harness davet failed: {hc} {hinv}")
+            raise SystemExit(f"harness invite failed: {hc} {hinv}")
         _, hs = http("POST", f"{base}/sessions",
                      {"name": "harness", "kind": "user", "loca": args.room},
                      {"x-room-token": hinv["token"]})
@@ -129,24 +129,24 @@ def main():
             http("POST", f"{base}/members", {"name": name, "kind": "agent"}, admin_h)
             code, inv = http("POST", f"{base}/rooms/{args.room}/invites", {"name": name}, admin_h)
             if code not in (200, 201) or not isinstance(inv, dict):
-                raise SystemExit(f"davet failed for {name}: {code} {inv}")
-            davet = inv["token"]
+                raise SystemExit(f"invite failed for {name}: {code} {inv}")
+            invite = inv["token"]
             scode, sess = http("POST", f"{base}/sessions",
                                {"name": name, "kind": "agent", "loca": args.room},
-                               {"x-room-token": davet})
+                               {"x-room-token": invite})
             token = sess.get("session_token") if isinstance(sess, dict) else None
             if not token:
                 raise SystemExit(f"session mint failed for {name}: {scode}")
             envp = work / f"{name}.env"
             envp.write_text(
                 f"ROOM_SERVER_URL={base}\nLOCA_NAME={name}\n"
-                f"DAVET_{args.room.replace('-', '_')}={davet}\n"
+                f"DAVET_{args.room.replace('-', '_')}={invite}\n"
                 f"LOCA_SESSION={token}\n",
                 encoding="utf-8",
             )
             envp.chmod(0o600)
             envs[name] = envp
-        print(f"admitted + davetted: {', '.join(agents)}")
+        print(f"admitted + invited: {', '.join(agents)}")
 
         # 3. real listeners, one per agent, each writing its own delivery log
         ws = base.replace("http://", "ws://")

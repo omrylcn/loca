@@ -5,6 +5,16 @@ function profileRoleLabel(role) {
   return String(role || "member").replaceAll("_", " ").toUpperCase();
 }
 
+// One's roles in a loca, as shown. Operator is a seat a person is appointed
+// to; the Master holds its authority in every loca by rank, not by
+// appointment (PRINCIPLES): that is shown as the rank, never as OPERATOR.
+function locaRoleLabels(loca) {
+  const roles = loca?.roles || [];
+  return roles
+    .filter(role => role !== "participant" || roles.length === 1)
+    .map(role => role === "operator" && loca?.operator_source === "master" ? "MASTER" : profileRoleLabel(role));
+}
+
 function profileKindLabel(kind) {
   return kind === "agent" ? "Agent" : "Human";
 }
@@ -19,10 +29,13 @@ function profileTime(value) {
 const APPEARANCE_LABELS = {
   theme: { dark: "Dark", light: "Light" },
   accent: { teal: "Teal", blue: "Blue", violet: "Violet", amber: "Amber", rose: "Rose" },
-  density: { comfortable: "Comfortable", compact: "Compact" },
-  font_size: { normal: "Normal", large: "Large" },
+  density: { compact: "Compact", comfortable: "Comfortable", spacious: "Spacious" },
+  font_size: { small: "Small", normal: "Normal", large: "Large", larger: "Larger" },
+  font_family: { mono: "Mono", sans: "Sans", serif: "Serif" },
 };
-const APPEARANCE_ROWS = [["theme", "Theme"], ["accent", "Accent"], ["density", "Density"], ["font_size", "Text"]];
+const APPEARANCE_ROWS = [
+  ["theme", "Theme"], ["accent", "Accent"], ["font_family", "Font"], ["font_size", "Text"], ["density", "Density"],
+];
 
 function currentAppearance() {
   return state.appearance || cachedAppearance();
@@ -36,16 +49,22 @@ function profileAppearanceHtml() {
     const options = APPEARANCE_CHOICES[key].map(value => {
       const name = APPEARANCE_LABELS[key][value];
       const checked = prefs[key] === value ? " checked" : "";
+      // A font choice is drawn in its own face, so the chip is its preview.
       const face = key === "accent"
         ? `<span class="swatch ${value}" title="${name}" aria-hidden="true"></span><span class="visuallyhidden">${name}</span>`
-        : `<span>${name}</span>`;
+        : key === "font_family" ? `<span class="fontface ${value}">${name}</span>` : `<span>${name}</span>`;
       return `<label class="appearanceopt"><input type="radio" name="appearance-${key}"` +
         ` data-appearance="${key}" value="${value}"${checked} />${face}</label>`;
     }).join("");
     return `<div class="appearancerow" role="radiogroup" aria-labelledby="${labelId}">` +
       `<span id="${labelId}">${title}</span><div class="appearanceopts">${options}</div></div>`;
   }).join("");
-  return `<div class="profileappearance" id="profileAppearance"><small>Appearance</small>${rows}` +
+  // The sample is drawn with the chat's own rules (font, text size, bubble
+  // padding), so each click previews here what it changes in the loca.
+  const sample = `<div class="appearancepreview" id="appearancePreview" aria-hidden="true">` +
+    `<div class="bubble"><div class="line"><span class="sender">${esc(state.name || "you")}</span></div>` +
+    `<div class="body">The table is set. 0O 1lI</div></div></div>`;
+  return `<div class="profileappearance" id="profileAppearance"><small>Appearance</small>${rows}${sample}` +
     `<div class="appearancestatus" id="appearanceStatus" role="status"></div></div>`;
 }
 
@@ -86,6 +105,7 @@ async function saveAppearance(key, value) {
   state.appearance = applyAppearance({ ...currentAppearance(), [key]: value });
   cacheAppearance(state.appearance);
   const sequence = ++appearanceSaveSequence;
+  const gen = state.buildingGen;
   try {
     const response = await fetch(`${serverBase()}/profile/preferences`, {
       method: "PUT",
@@ -99,30 +119,92 @@ async function saveAppearance(key, value) {
     cacheAppearance(state.appearance);
     setAppearanceStatus("");
   } catch (error) {
-    if (sequence === appearanceSaveSequence) setAppearanceStatus("Not saved to your profile; kept on this device.");
+    if (sequence === appearanceSaveSequence && !buildingStale(gen)) setAppearanceStatus("Not saved to your profile; kept on this device.");
   }
 }
 
-function renderProfile() {
+// The account menu's own part: the server this page is signed in to, and the
+// one way out, Sign out (app.js signOutHere). Shown whatever else the profile
+// could or could not say, so leaving never depends on the profile loading.
+function profileServerHtml() {
+  return `<div class="profilesession profileserver"><small>Server</small><span id="accountServer">${esc(state.server || serverBase())}</span></div>`;
+}
+function profileSignOutHtml() {
+  const master = state.profile?.building_role === "master";
+  return `<div class="profilesignout"><button type="button" class="leavebtn" id="leaveBtn">Sign out</button>` +
+    `<div class="leaveconfirm hidden" id="leaveConfirm" role="alertdialog" aria-label="Sign out of this browser">` +
+      `Sign out of this browser? Your loca sessions here close. Your membership and your key stay; ` +
+      (master ? "a fresh pairing code signs you in again." : "your key signs you in again.") +
+      `<div class="choices"><button type="button" class="no" id="leaveNo">Cancel</button>` +
+      `<button type="button" class="yes" id="leaveYes">Sign out</button></div></div></div>`;
+}
+
+// The account menu is redrawn whenever the profile is read again (a loca
+// switch, a lead change, every journal entry while the Building view is open).
+// A redraw for the same person keeps it as they had it: open, and with the
+// Sign out confirmation still asked, so a click aimed at it is not lost to a
+// menu that shut under the pointer. A new person (generation) starts closed.
+function accountMenuState(box) {
+  if (box.dataset.gen !== String(state.buildingGen)) return { open: false, confirming: false };
+  const menu = box.querySelector("details.profilemenu");
+  return {
+    open: !!menu?.open,
+    confirming: !!menu?.open && !!box.querySelector("#leaveConfirm:not(.hidden)"),
+  };
+}
+function restoreAccountMenu(box, kept) {
+  box.dataset.gen = String(state.buildingGen);
+  if (!kept.open) return;
+  const menu = box.querySelector("details.profilemenu");
+  if (menu) menu.open = true;
+  if (kept.confirming) $("leaveConfirm")?.classList.remove("hidden");
+}
+
+// While the person has the account menu open it is theirs: a name half
+// typed, an icon picked but not saved, the one-time view of a new key, an
+// opened section, the caret. A redraw that only follows the server (a
+// journal entry, a lead change, a profile read again) would wipe all of it,
+// so it waits until the menu closes. What the person did themselves (saved,
+// renamed, made or revoked a key) redraws at once: those paths pass `now`.
+// A new person (generation) is always drawn.
+let profileRedrawWaiting = false;
+function accountMenuInUse(box) {
+  return box.dataset.gen === String(state.buildingGen)
+    && !!box.querySelector("details.profilemenu")?.open;
+}
+function profileRedrawMustWait(box, now) {
+  if (now || !accountMenuInUse(box)) {
+    profileRedrawWaiting = false;
+    return false;
+  }
+  profileRedrawWaiting = true;
+  return true;
+}
+// `toggle` does not bubble: caught on the way down.
+$("whoami").addEventListener("toggle", event => {
+  if (!event.target.matches?.("details.profilemenu") || event.target.open) return;
+  if (profileRedrawWaiting) renderProfile();
+}, true);
+
+function renderProfile(now = false) {
   const box = $("whoami");
+  if (profileRedrawMustWait(box, now)) return;
   const profile = state.profile;
+  const kept = accountMenuState(box);
   if (!profile?.principal) {
     box.innerHTML = `<details class="profilemenu"><summary>` +
       `<span class="profileidentity"><span class="profileglyph">.</span>` +
       `<span><b>${esc(state.name)}</b><small>connected as ${esc(state.name)}</small></span></span>` +
       `<span class="profilechevron" aria-hidden="true">›</span></summary>` +
-      `<div class="profilepanel"><div class="profileempty">Profile is available after you take a seat.</div></div></details>`;
+      `<div class="profilepanel"><div class="profileempty">Profile is available after you take a seat.</div>${profileServerHtml()}${profileSignOutHtml()}</div></details>`;
+    restoreAccountMenu(box, kept);
     box.classList.add("on");
     return;
   }
   const principal = profile.principal;
   const loca = profile.loca;
-  const roles = loca?.roles || [];
-  const locaLabels = roles
-    .filter(role => role !== "participant" || roles.length === 1)
-    .map(profileRoleLabel);
-  const source = loca?.operator_source === "appointed" ? "appointed"
-    : loca?.operator_source === "master" ? "by rank (Master)" : "";
+  const locaLabels = locaRoleLabels(loca);
+  const source = loca?.operator_source === "appointed" ? "appointed" : "";
   const management = loca?.building_management ? "Building management access" : "";
   const locaText = locaLabels.length ? locaLabels.join(" · ") : "PARTICIPANT";
   const expiry = profile.session?.expires_at
@@ -139,13 +221,15 @@ function renderProfile() {
       `<span><b>${esc(credential.label)}</b><small>${esc(last)}</small></span>` +
       `<span class="credentialstate">${esc(stateText)}${credential.root_recovery ? " · recovery" : ""}</span>${action}</div>`;
   }).join("");
-  box.innerHTML = `<details class="profilemenu"><summary aria-label="Open your profile">` +
+  box.innerHTML = `<details class="profilemenu"><summary aria-label="Open your account menu">` +
     `<span class="profileidentity"><span class="profileglyph">${principal.kind === "agent" ? "*" : "."}</span>` +
-      `<span><b>${esc(principal.display_name)}</b><small>You · ${profileKindLabel(principal.kind)}</small></span></span>` +
+      `<span><b>${personLabelHtml(principal.display_name, cardOf(principal))}</b><small>You · ${profileKindLabel(principal.kind)}</small></span></span>` +
     `<span class="profilechevron" aria-hidden="true">›</span></summary>` +
     `<div class="profilepanel"><div class="profilepanelhead"><span>Profile</span><small>Identity &amp; access</small></div>` +
     `<div class="profileconnected">connected as <b>${esc(principal.display_name)}</b>${rankBadge(profile.building_role)} · You · ${profileKindLabel(principal.kind)}</div>` +
+    profileServerHtml() +
     profileRenameHtml(profile, principal) +
+    profileCardHtml(principal) +
     `<div class="profileroles">` +
       `<span><small>Building</small><b class="role building-${esc(profile.building_role)}">${profileRoleLabel(profile.building_role)}</b></span>` +
       `<span><small>This Loca</small><b class="role loca-role">${esc(locaText)}</b>${source ? `<em>${source}</em>` : ""}${management ? `<em>${management}</em>` : ""}</span>` +
@@ -158,7 +242,8 @@ function renderProfile() {
       `<div class="credentialcreate"><input id="credentialLabel" maxlength="64" placeholder="New key label, e.g. MacBook" />` +
       `<button type="button" id="credentialCreate">Create key</button></div>` +
       `<div class="credentialsecret hidden" id="credentialSecret" role="status"></div>` +
-    `</details></div></details>`;
+    `</details>${profileSignOutHtml()}</div></details>`;
+  restoreAccountMenu(box, kept);
   box.classList.add("on");
 }
 
@@ -168,8 +253,8 @@ function profileGroupsHtml(profile) {
   const groups = Array.isArray(profile.groups) ? profile.groups : [];
   const chips = groups.length
     ? groups.map(g => `<span class="grpchip">${esc(g.name)}</span>`).join("")
-    : `<span class="pnowhere">default group only</span>`;
-  return `<div class="profilegroups"><small>Groups</small><span class="grpchips">${chips}</span></div>`;
+    : `<span class="pnowhere">Ground floor only</span>`;
+  return `<div class="profilegroups"><small>Floors</small><span class="grpchips">${chips}</span></div>`;
 }
 
 // ---- A person's card: who they are and their groups ----------------------
@@ -190,7 +275,7 @@ function renderPersonCard() {
   const resident = (state.people || []).find(p => p.name === name);
   const kind = person?.kind === "agent" || resident?.kind === "agent" ? "agent" : "human";
   const role = person?.role || "member";
-  $("personCardTitle").innerHTML = `${esc(name)}${rankBadge(role)}<small>${kind === "agent" ? "Agent" : "Human"}</small>`;
+  $("personCardTitle").innerHTML = `${personLabelHtml(name, cardOf(person) || cardOf(resident))}${rankBadge(role)}<small>${kind === "agent" ? "Agent" : "Human"}</small>`;
   const theirs = groupsOfPerson(name);
   const chips = theirs.length ? theirs.map(g => {
     const founder = !g.owned_by_master && person && g.owner_id === person.id;
@@ -198,21 +283,21 @@ function renderPersonCard() {
       ? `<button type="button" class="btn danger grpremove" data-card-remove="${esc(g.id)}" aria-label="Remove ${esc(name)} from ${esc(g.name)}" title="Remove from ${esc(g.name)}">${GROUP_REMOVE_ICON}<span>Remove</span></button>`
       : "";
     return `<div class="grpmember"><span class="pname">${GROUP_ICON}<b>${esc(g.name)}</b>${founder ? `<span class="pkind">founder</span>` : ""}</span><span class="pacts">${remove}</span></div>`;
-  }).join("") : `<div class="bbempty">Default group only.</div>`;
+  }).join("") : `<div class="bbempty">Ground floor only.</div>`;
   let add = "";
   if (role === "master") {
-    add = `<p class="extnote">The Master sees every group and is never a member.</p>`;
+    add = `<p class="extnote">The Master sees every floor and is never a member of one.</p>`;
   } else if (person && person.id !== state.principalId) {
     const open = (state.groups || []).filter(g =>
       g.can_manage && !g.archived && !(g.members || []).some(m => m.principal_id === person.id));
     if (open.length) {
-      add = `<div class="grpadd"><select id="personCardGroup" aria-label="Group to add ${esc(name)} to">` +
+      add = `<div class="grpadd"><select id="personCardGroup" aria-label="Floor to add ${esc(name)} to">` +
         open.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("") +
-        `</select><button type="button" class="btn primary" id="personCardAdd">Add to group</button></div>`;
+        `</select><button type="button" class="btn primary" id="personCardAdd">Add to floor</button></div>`;
     }
   }
   $("personCardBody").innerHTML =
-    `<div class="extsectionhead">Groups</div><div class="grpmembers">${chips}</div>${add}`;
+    `<div class="extsectionhead">Floors</div><div class="grpmembers">${chips}</div>${add}`;
 }
 
 async function openPersonCard(name) {
@@ -273,6 +358,63 @@ function profileRenameHtml(profile, principal) {
     `<div class="profilerenamenote" id="profileRenameNote" role="status"></div></div>`;
 }
 
+// One's own full name and icon (PUT /profile/card). Anyone sets their own;
+// the @name, and everything it decides, stays as it is.
+function profileCardHtml(principal) {
+  const card = cardOf(principal) || { full_name: "", icon: "" };
+  const icons = ["", ...Object.keys(PROFILE_ICONS)].map(icon => {
+    const label = icon ? icon[0].toUpperCase() + icon.slice(1) : "No icon";
+    const face = icon
+      ? `${profileIconSvg(icon)}<span class="visuallyhidden">${label}</span>`
+      : "None";
+    return `<label class="appearanceopt iconopt" title="${label}"><input type="radio" name="profile-icon"` +
+      ` data-profile-icon value="${icon}"${card.icon === icon ? " checked" : ""} /><span>${face}</span></label>`;
+  }).join("");
+  return `<div class="profilerename profilecard" id="profileCard">` +
+    `<label for="profileFullName">Full name</label>` +
+    `<div class="profilerenamerow"><input id="profileFullName" maxlength="64" autocomplete="name" spellcheck="false"` +
+    ` placeholder="e.g. Ada Lovelace" value="${esc(card.full_name)}" />` +
+    `<button type="button" id="profileCardSave">Save</button></div>` +
+    `<div class="appearanceopts profileicons" role="radiogroup" aria-label="Profile icon">${icons}</div>` +
+    `<div class="profilecardhint">Shown beside @${esc(principal.display_name)}. People still call you @${esc(principal.display_name)}.</div>` +
+    `<div class="profilerenamenote" id="profileCardNote" role="status"></div></div>`;
+}
+
+async function saveProfileCard() {
+  const input = $("profileFullName");
+  const note = $("profileCardNote");
+  if (!input) return;
+  const icon = $("whoami").querySelector("input[data-profile-icon]:checked")?.value || "";
+  const gen = state.buildingGen;
+  let response;
+  try {
+    response = await fetch(`${serverBase()}/profile/card`, {
+      method: "PUT",
+      headers: adminHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ full_name: input.value, icon }),
+    });
+  } catch (e) {
+    if (note && !buildingStale(gen)) note.textContent = "could not reach the server — not saved";
+    return;
+  }
+  if (buildingStale(gen)) return;
+  if (!response.ok) {
+    const why = await response.text();
+    if (!buildingStale(gen) && $("profileCardNote")) $("profileCardNote").textContent = why;
+    return;
+  }
+  const saved = await response.json();
+  const principal = state.profile?.principal;
+  if (buildingStale(gen) || !principal) return;
+  principal.full_name = saved.full_name || undefined;
+  principal.icon = saved.icon || undefined;
+  renderProfile(true);
+  const menu = $("whoami").querySelector("details.profilemenu");
+  if (menu) menu.open = true;
+  const after = $("profileCardNote");
+  if (after) after.textContent = "Saved.";
+}
+
 // Set the display name chosen at sign-in. Returns "" on success, or the
 // server's reason when it is refused (a title, or a name someone else wears).
 async function applyChosenName(name) {
@@ -326,7 +468,7 @@ async function renameProfile() {
   // The server relabels history and tells every open feed; reconnecting
   // here covers a loca with nothing said yet (no frame arrives).
   if (before !== renamed.display_name && state.room) openWs();
-  await fetchProfile();
+  await fetchProfile(true);
   if (buildingStale(gen)) return;
   const menu = $("whoami").querySelector("details.profilemenu");
   if (menu) menu.open = true;
@@ -335,7 +477,7 @@ async function renameProfile() {
 }
 
 let profileFetchSequence = 0;
-async function fetchProfile() {
+async function fetchProfile(now = false) {
   const box = $("whoami");
   const room = state.room;
   const sequence = ++profileFetchSequence;
@@ -374,18 +516,25 @@ async function fetchProfile() {
     markLocaContextReady("profile", room);
     loadRoomPreferences();
     renderRooms();
-    renderProfile();
+    renderProfile(now);
     renderLocaSidebar();
     renderOperatorControls();
   } catch (error) {
     if (sequence !== profileFetchSequence || room !== state.room || buildingStale(gen)) return;
     state.profile = null;
     state.credentials = [];
+    if (profileRedrawMustWait(box, now)) {
+      markLocaContextReady("profile", room);
+      renderLocaSidebar();
+      return;
+    }
+    const kept = accountMenuState(box);
     box.innerHTML = `<details class="profilemenu"><summary>` +
       `<span class="profileidentity"><span class="profileglyph">.</span>` +
       `<span><b>${esc(state.name)}</b><small>connected as ${esc(state.name)}</small></span></span>` +
       `<span class="profilechevron" aria-hidden="true">›</span></summary>` +
-      `<div class="profilepanel"><div class="profileempty">Profile is unavailable.</div></div></details>`;
+      `<div class="profilepanel"><div class="profileempty">Profile is unavailable.</div>${profileServerHtml()}${profileSignOutHtml()}</div></details>`;
+    restoreAccountMenu(box, kept);
     box.classList.add("on");
     markLocaContextReady("profile", room);
     renderLocaSidebar();
@@ -412,7 +561,7 @@ async function createProfileCredential() {
   }
   const created = await response.json();
   if (buildingStale(gen)) return;
-  await fetchProfile();
+  await fetchProfile(true);
   if (buildingStale(gen)) return;
   $("whoami").querySelector("details.profilemenu").open = true;
   $("whoami").querySelector("details.profileaccess").open = true;
@@ -455,20 +604,23 @@ async function revokeProfileCredential(id, current) {
     state.profile = null;
     setLocked(true);
     clearBuildingData();
+    clearPersonWords();
     setConnOpen(true);
     return;
   }
-  await fetchProfile();
+  await fetchProfile(true);
 }
 
 $("whoami").addEventListener("keydown", event => {
   if (event.key === "Enter" && event.target.id === "profileNameInput") renameProfile();
+  if (event.key === "Enter" && event.target.id === "profileFullName") saveProfileCard();
 });
 
 $("whoami").addEventListener("click", event => {
   const create = event.target.closest("#credentialCreate");
   if (create) { createProfileCredential(); return; }
   if (event.target.closest("#profileRename")) { renameProfile(); return; }
+  if (event.target.closest("#profileCardSave")) { saveProfileCard(); return; }
   const revoke = event.target.closest("[data-revoke-credential]");
   if (revoke) revokeProfileCredential(
     revoke.dataset.revokeCredential,

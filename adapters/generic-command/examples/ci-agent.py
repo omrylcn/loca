@@ -31,9 +31,9 @@ cwd = os.environ.get("CI_DIR", ".")
 
 # A tiny bit of intent, no model needed: only run on test-ish requests;
 # otherwise explain what we do (still a polite room citizen).
-if not any(w in text for w in ("test", "run", "ci", "check", "koş", "kos")):
+if not any(w in text for w in ("test", "run", "ci", "check")):
     print(json.dumps({
-        "text": f"ben ci — '@{req.get('agent','ci')} test' dersen `{cmd}` koşar, sonucu buraya yazarım."
+        "text": f"I am ci — say '@{req.get('agent','ci')} test' and I run `{cmd}` and post the result here."
     }, ensure_ascii=False))
     sys.exit(0)
 
@@ -48,6 +48,6 @@ try:
 except subprocess.TimeoutExpired:
     body = f"⏱ timeout — `{cmd}` 600s'de bitmedi"
 except Exception as e:
-    body = f"⚠ çalıştıramadım: {e}"
+    body = f"⚠ could not run it: {e}"
 
 print(json.dumps({"text": body}, ensure_ascii=False))

@@ -98,13 +98,21 @@ class LocaMock(BaseHTTPRequestHandler):
                 self._json({"error": "unauthorized"}, 401)
             return
         if self.path.startswith("/join-requests/"):
+            if "poll" in st["unavailable"]:
+                self._json({"error": "storage"}, 503)
+                return
             rid = self.path.rsplit("/", 1)[-1]
             r = st["reqs"].get(rid)
             if not r or r["secret"] != self.headers.get("x-join-secret"):
                 self._json({"error": "unknown"}, 404)
                 return
+            if st["expire"] and r["status"] == "approved" and not r["acked"]:
+                # The server's delivery window closed: the copy is gone.
+                r["mb"] = None
+                r["expired"] = True
             ready = r["status"] == "approved" and r["mb"] is not None and not r["acked"]
-            self._json({"status": r["status"], "bootstrap_ready": ready})
+            self._json({"status": r["status"], "bootstrap_ready": ready,
+                        "bootstrap_expired": bool(r.get("expired")) and not r["acked"]})
             return
         self._json({"error": "not found"}, 404)
 
@@ -136,13 +144,22 @@ class LocaMock(BaseHTTPRequestHandler):
             rid, action = parts[1], parts[2]
             r = st["reqs"].get(rid)
             good = r and r["secret"] == self.headers.get("x-join-secret")
+            if action in st["unavailable"]:
+                self._json({"error": "storage"}, 503)
+                return
             if action == "bootstrap":
+                if good and r["status"] == "approved" and not r["acked"] and (
+                        r.get("expired") or st["expire_on_bootstrap"]):
+                    r["mb"] = None
+                    r["expired"] = True
+                    self._json({"error": "gone"}, 410)
+                    return
                 if not (good and r["status"] == "approved" and r["mb"] and not r["acked"]):
                     self._json({"error": "closed"}, 404)
                     return
                 if st["bootstrap_malformed"]:
                     # A 201 that carries the mb_ credential under the WRONG key:
-                    # join_request sees no "davet" and must log ONLY the status,
+                    # join_request sees no "invite" and must log ONLY the status,
                     # never this body (which holds the credential).
                     self._json({"unexpected": r["mb"]}, 201)
                     return
@@ -163,11 +180,14 @@ class LocaMock(BaseHTTPRequestHandler):
 
 
 def start_server(auto_approve=True, ack_forbidden=False, deny=False, wrong_name=False,
-                 bootstrap_malformed=False):
+                 bootstrap_malformed=False, expire=False, expire_on_bootstrap=False,
+                 unavailable=()):
     srv = ThreadingHTTPServer(("127.0.0.1", 0), LocaMock)
     srv.state = {"reqs": {}, "members": {}, "created": 0, "auto_approve": auto_approve,
                  "ack_forbidden": ack_forbidden, "deny": deny, "wrong_name": wrong_name,
-                 "bootstrap_malformed": bootstrap_malformed}
+                 "bootstrap_malformed": bootstrap_malformed, "expire": expire,
+                 "expire_on_bootstrap": expire_on_bootstrap,
+                 "unavailable": set(unavailable)}
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, "http://127.0.0.1:%d" % srv.server_address[1]
 
@@ -266,7 +286,9 @@ class OnboardTest(unittest.TestCase):
 
             r = self._onboard(base, "erin", home)
             self.assertEqual(r.returncode, 5, r.stderr)
-            self.assertIn("re-admit", r.stderr)
+            # Admitting the name again hands out no key; only an invite does.
+            self.assertIn("invite for this same name", r.stderr)
+            self.assertNotIn("re-admit", r.stderr)
             self.assertFalse((home / ".loca" / "env").exists())
         finally:
             srv.shutdown(); srv.server_close()
@@ -310,7 +332,7 @@ class OnboardTest(unittest.TestCase):
 
     def test_no_secret_in_stderr_when_bootstrap_response_is_malformed(self):
         # A malformed bootstrap 201 carries the mb_ credential under the wrong
-        # key, so join_request finds no "davet" and takes the error path. It must
+        # key, so join_request finds no "invite" and takes the error path. It must
         # log ONLY the status — the credential must never reach stderr.
         srv, base = start_server(bootstrap_malformed=True)
         try:
@@ -368,6 +390,171 @@ class OnboardTest(unittest.TestCase):
             srv.shutdown(); srv.server_close()
 
 
+class DeliveryWindowTest(unittest.TestCase):
+    """The server keeps an approved key for collection for 24 hours after the
+    approval. After that the poll says `bootstrap_expired` and a collection
+    answers 410: the helper must stop and say what a person can do, not poll
+    for ever, report success, or claim the request was finalized."""
+
+    def _onboard(self, base, name, home, timeout="8"):
+        return subprocess.run(
+            onboard_cmd(base, name, home),
+            env=hermetic_env(home, LOCA_JOIN_POLL_TIMEOUT=timeout),
+            capture_output=True, text=True, timeout=40,
+        )
+
+    def _tmp(self):
+        d = Path(self.enterContext(_TmpDir()))
+        (d / ".loca").mkdir()
+        return d
+
+    def _assert_expired_message(self, r):
+        self.assertEqual(r.returncode, 7, r.stderr)
+        self.assertIn("24 hours", r.stderr)
+        self.assertIn("ask a Master", r.stderr)
+        self.assertIn("membership was kept", r.stderr)
+        self.assertNotIn("finalized", r.stderr)
+        # A membership for an existing name carries no key; only an invite
+        # (and setup with it) leads back.
+        self.assertIn("invite for this same name", r.stderr)
+        self.assertNotIn("a membership or", r.stderr)
+
+    def test_an_expired_window_seen_by_the_poll_stops_with_its_own_exit(self):
+        srv, base = start_server(expire=True)
+        try:
+            home = self._tmp()
+            r = self._onboard(base, "late", home)
+            self._assert_expired_message(r)
+            self.assertFalse((home / ".loca" / "env").exists())
+            # The request is kept, so a re-run says the same instead of filing
+            # a new request the server would refuse.
+            self.assertTrue((home / ".loca" / "late.request").exists())
+            again = self._onboard(base, "late", home)
+            self._assert_expired_message(again)
+            self.assertEqual(srv.state["created"], 1)
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_a_collection_answered_410_stops_with_its_own_exit(self):
+        # The poll said ready a moment before the deadline; the collection
+        # came after it.
+        srv, base = start_server(expire_on_bootstrap=True)
+        try:
+            home = self._tmp()
+            r = self._onboard(base, "racer", home)
+            self._assert_expired_message(r)
+            self.assertFalse((home / ".loca" / "env").exists())
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_connect_request_join_tells_the_person_what_to_do(self):
+        srv, base = start_server(expire=True)
+        try:
+            home = self._tmp()
+            proc = subprocess.run(
+                [str(SKILL_DIR / "connect.sh"), "request-join", base, "late"],
+                env=hermetic_env(home, LOCA_JOIN_POLL_TIMEOUT="8"),
+                capture_output=True, text=True, timeout=40,
+            )
+            self.assertEqual(proc.returncode, 1, proc.stderr)
+            self.assertIn("not collected within", proc.stderr)
+            self.assertIn("24 hours", proc.stderr)
+            self.assertIn("ask a Master for an invite for", proc.stderr)
+            self.assertNotIn("a membership or a davet", proc.stderr)
+            self.assertNotIn("RESULT: LOBBY", proc.stdout)
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_a_kept_key_whose_ack_was_lost_finishes_after_the_window(self):
+        # Collected and stored in time, ACK lost; the window then closes. The
+        # re-run finds the stored key valid and its late ACK is accepted.
+        srv, base = start_server(ack_forbidden=True)
+        try:
+            home = self._tmp()
+            self.assertEqual(self._onboard(base, "kept", home).returncode, 6)
+            srv.state["expire"] = True
+            srv.state["ack_forbidden"] = False
+            again = self._onboard(base, "kept", home)
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertIn("already onboarded", again.stderr)
+            self.assertFalse((home / ".loca" / "kept.request").exists())
+        finally:
+            srv.shutdown(); srv.server_close()
+
+
+class StorageUnavailableTest(unittest.TestCase):
+    """A 503 from the server means it could not read the request just now.
+    The helper keeps its request (no new one is filed) and says re-run."""
+
+    def _onboard(self, base, name, home, timeout="2"):
+        return subprocess.run(
+            onboard_cmd(base, name, home),
+            env=hermetic_env(home, LOCA_JOIN_POLL_TIMEOUT=timeout),
+            capture_output=True, text=True, timeout=40,
+        )
+
+    def _tmp(self):
+        d = Path(self.enterContext(_TmpDir()))
+        (d / ".loca").mkdir()
+        return d
+
+    def _state(self, home, name):
+        return (home / ".loca" / ("%s.request" % name)).read_text()
+
+    def test_a_503_poll_keeps_the_request_and_files_no_new_one(self):
+        srv, base = start_server(auto_approve=False)
+        try:
+            home = self._tmp()
+            self.assertEqual(self._onboard(base, "steady", home, timeout="1").returncode, 1)
+            before = self._state(home, "steady")
+            srv.state["unavailable"] = {"poll"}
+            r = self._onboard(base, "steady", home)
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertEqual(self._state(home, "steady"), before)
+            self.assertEqual(srv.state["created"], 1)
+            # The server recovers and approves: the same request completes.
+            srv.state["unavailable"] = set()
+            req = srv.state["reqs"]["jr_1"]
+            req["status"], req["mb"] = "approved", "mb_steady"
+            srv.state["members"]["mb_steady"] = "steady"
+            done = self._onboard(base, "steady", home, timeout="8")
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(srv.state["created"], 1)
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_a_503_collection_says_re_run_and_keeps_the_request(self):
+        srv, base = start_server(unavailable={"bootstrap"})
+        try:
+            home = self._tmp()
+            r = self._onboard(base, "patient", home)
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertIn("re-run to retry", r.stderr)
+            self.assertNotIn("invite for this same name", r.stderr)
+            self.assertTrue((home / ".loca" / "patient.request").exists())
+            srv.state["unavailable"] = set()
+            again = self._onboard(base, "patient", home, timeout="8")
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertEqual(srv.state["created"], 1)
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_a_503_ack_keeps_the_request_and_a_re_run_finishes_it(self):
+        srv, base = start_server(unavailable={"ack"})
+        try:
+            home = self._tmp()
+            r = self._onboard(base, "acker", home)
+            self.assertEqual(r.returncode, 6, r.stderr)
+            self.assertIn("LOCA_MEMBERSHIP=mb_acker", (home / ".loca" / "env").read_text())
+            self.assertTrue((home / ".loca" / "acker.request").exists())
+            srv.state["unavailable"] = set()
+            again = self._onboard(base, "acker", home)
+            self.assertEqual(again.returncode, 0, again.stderr)
+            self.assertFalse((home / ".loca" / "acker.request").exists())
+        finally:
+            srv.shutdown(); srv.server_close()
+
+
 class ConnectRequestJoinTest(unittest.TestCase):
     """Drive connect.sh request-join so the DETERMINISTIC per-identity env path
     (not the shared default) is exercised, and two agents cannot collide."""
@@ -403,6 +590,60 @@ class ConnectRequestJoinTest(unittest.TestCase):
             srv.shutdown(); srv.server_close()
 
 
+class ConnectRequestJoinExitTest(unittest.TestCase):
+    """connect.sh runs under `set -e`; the helper's exit code must reach the
+    case that explains it instead of ending the script silently."""
+
+    def test_a_pending_finalize_still_reports_the_lobby_next_step(self):
+        srv, base = start_server(ack_forbidden=True)
+        try:
+            home = Path(self.enterContext(_TmpDir()))
+            (home / ".loca").mkdir()
+            proc = subprocess.run(
+                [str(SKILL_DIR / "connect.sh"), "request-join", base, "pending"],
+                env=hermetic_env(home, LOCA_JOIN_POLL_TIMEOUT="8"),
+                capture_output=True, text=True, timeout=40,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("RESULT: LOBBY", proc.stdout)
+            self.assertIn("finalize (ack) is still pending", proc.stdout)
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_success_names_the_identity_file_and_what_an_agent_can_check(self):
+        # A Lobby agent can read no roster; it can check doctor's OK line and
+        # its listener's log. The identity lives in a side file, so the
+        # export line setup prints is printed here too.
+        srv, base = start_server()
+        try:
+            home = Path(self.enterContext(_TmpDir()))
+            (home / ".loca").mkdir()
+            proc = subprocess.run(
+                [str(SKILL_DIR / "connect.sh"), "request-join", base, "fresh"],
+                env=hermetic_env(home, LOCA_JOIN_POLL_TIMEOUT="8"),
+                capture_output=True, text=True, timeout=40,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("RESULT: LOBBY", proc.stdout)
+            self.assertIn("export LOCA_ENV=%s" % (home / ".loca" / "fresh.env"), proc.stdout)
+            self.assertIn("OK: 'fresh' has a live listener", proc.stdout)
+            self.assertIn("[lobby] connected", proc.stdout)
+            self.assertNotIn("roster ONLINE", proc.stdout)
+            self.assertNotIn("roster shows", proc.stdout)
+        finally:
+            srv.shutdown(); srv.server_close()
+
+    def test_status_without_an_identity_points_at_request_join(self):
+        home = Path(self.enterContext(_TmpDir()))
+        proc = subprocess.run(
+            [str(SKILL_DIR / "connect.sh"), "status", "http://127.0.0.1:9", "newcomer"],
+            env=hermetic_env(home), capture_output=True, text=True, timeout=20,
+        )
+        self.assertEqual(proc.returncode, 3, proc.stderr)
+        self.assertIn("not onboarded", proc.stderr)
+        self.assertIn("connect.sh request-join http://127.0.0.1:9 newcomer", proc.stderr)
+
+
 class CredentialsOwnershipTest(unittest.TestCase):
     def setUp(self):
         if str(SKILL_DIR) not in sys.path:
@@ -424,6 +665,57 @@ class CredentialsOwnershipTest(unittest.TestCase):
         # Re-writing the SAME identity is allowed (session renewal etc.).
         self.cred.update_env_values(str(envp), {"LOCA_NAME": "one", "LOCA_SESSION": "st_x"})
         self.assertIn("LOCA_SESSION=st_x", envp.read_text())
+
+
+class RefusedNameTest(unittest.TestCase):
+    """Against the real room-server: a name no door admits (`all`) is refused
+    with 400 when the request is filed. Re-running cannot change that, so
+    request-join must stop as a permanent refusal, not say "re-run"."""
+
+    MASTER = "refused-name-e2e-master"
+
+    def setUp(self):
+        from test_listener_backfill_e2e import SERVER_BIN, free_port
+
+        if not SERVER_BIN.is_file():
+            subprocess.run(["cargo", "build", "-q", "-p", "server"],
+                           cwd=SKILL_DIR.parents[1], check=True, timeout=600)
+        root = Path(self.enterContext(_TmpDir()))
+        port = free_port()
+        self.base = "http://127.0.0.1:%d" % port
+        env = {k: v for k, v in os.environ.items() if k != "ROOM_TOKEN"}
+        env.update(PORT=str(port), BIND_ADDR="127.0.0.1",
+                   DB_PATH=str(root / "loca.sqlite3"), ADMIN_TOKEN=self.MASTER,
+                   REQUIRE_INVITE="1", REQUIRE_SESSIONS="1", RUST_LOG="warn")
+        log = open(root / "server.log", "ab")
+        self.addCleanup(log.close)
+        server = subprocess.Popen([str(SERVER_BIN)], cwd=SKILL_DIR.parents[1],
+                                  env=env, stdout=log, stderr=subprocess.STDOUT)
+        self.addCleanup(reap, server)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen(self.base + "/health", timeout=2):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            self.fail("room-server did not become healthy")
+        self.home = root / "home"
+        (self.home / ".loca").mkdir(parents=True)
+
+    def test_request_join_stops_on_a_name_the_server_refuses(self):
+        proc = subprocess.run(
+            [str(SKILL_DIR / "connect.sh"), "request-join", self.base, "all"],
+            env=hermetic_env(self.home, LOCA_JOIN_POLL_TIMEOUT="5"),
+            capture_output=True, text=True, timeout=40,
+        )
+        self.assertEqual(proc.returncode, 3, proc.stderr)
+        self.assertIn("Choose another name", proc.stderr)
+        self.assertNotIn("re-run to retry", proc.stderr)
+        self.assertNotIn("RESULT: LOBBY", proc.stdout)
+        self.assertEqual(list((self.home / ".loca").glob("*.request")), [])
+        self.assertFalse((self.home / ".loca" / "all.env").exists())
 
 
 class DocParityTest(unittest.TestCase):

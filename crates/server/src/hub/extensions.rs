@@ -15,8 +15,8 @@ use crate::sync::RecoverMutex;
 pub enum ExtensionError {
     /// A name that is not in the catalog.
     Unknown(String),
-    /// A birebir is conversation; it has no extensions.
-    Birebir,
+    /// A direct message is conversation; it has no extensions.
+    Dm,
     /// The loca is closed (read-only) or sealed.
     NotWritable,
     Storage,
@@ -26,7 +26,7 @@ impl ExtensionError {
     pub fn message(&self) -> String {
         match self {
             Self::Unknown(name) => format!("unknown extension: {name}"),
-            Self::Birebir => "a birebir has no extensions".into(),
+            Self::Dm => "a birebir has no extensions".into(),
             Self::NotWritable => "this loca is closed — read-only".into(),
             Self::Storage => "could not save extensions — try again".into(),
         }
@@ -101,10 +101,10 @@ pub fn opened_line(enabled: &[String]) -> String {
 }
 
 impl Hub {
-    /// Whether extension `id` is on in `room`. A birebir has none, whatever
+    /// Whether extension `id` is on in `room`. A direct message has none, whatever
     /// its stored settings say.
     pub fn extension_enabled(&self, room: &str, id: &str) -> bool {
-        if self.is_birebir(room) || room.starts_with(Self::BIREBIR_PREFIX) {
+        if self.is_dm(room) || room.starts_with(Self::DM_PREFIX) {
             return false;
         }
         self.settings(room).extension_enabled(id)
@@ -112,7 +112,7 @@ impl Hub {
 
     /// The enabled extension ids of `room`, in catalog order.
     pub fn enabled_extensions(&self, room: &str) -> Vec<String> {
-        if self.is_birebir(room) || room.starts_with(Self::BIREBIR_PREFIX) {
+        if self.is_dm(room) || room.starts_with(Self::DM_PREFIX) {
             return Vec::new();
         }
         self.settings(room).enabled_extensions()
@@ -144,8 +144,8 @@ impl Hub {
         by: &str,
         by_type: SenderType,
     ) -> Result<ExtensionChange, ExtensionError> {
-        if self.is_birebir(room) || room.starts_with(Self::BIREBIR_PREFIX) {
-            return Err(ExtensionError::Birebir);
+        if self.is_dm(room) || room.starts_with(Self::DM_PREFIX) {
+            return Err(ExtensionError::Dm);
         }
         // Refuse an unknown id before anything else, whatever the loca's state.
         match edit {
@@ -209,12 +209,21 @@ impl Hub {
         .map_err(|_| ExtensionError::Storage)?;
         if s != r.settings {
             r.settings = s.clone();
-            let _ = r.tx.send(ServerFrame::Settings { settings: s });
+            let _ = r.tx.send(ServerFrame::Settings {
+                settings: self.shown_settings(s),
+            });
         }
         if let Some(entry) = entry {
             r.next_journal_id = entry.id + 1;
             r.journal.push(entry.clone());
-            let _ = r.tx.send(ServerFrame::Journal { entry });
+            // The line is always written ("Changes are known"). It is pushed
+            // to open sockets only while the Journal is on in this loca: an
+            // extension that is off is refused, not merely hidden, and that
+            // includes the line that records the Journal being turned off.
+            // Whoever turns the Journal on again reads it there.
+            if r.settings.extension_enabled("journal") {
+                let _ = r.tx.send(ServerFrame::Journal { entry });
+            }
         }
         let change = ExtensionChange {
             enabled,

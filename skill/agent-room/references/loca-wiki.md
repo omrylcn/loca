@@ -15,6 +15,12 @@ SKILL_DIR/connect.sh wiki-review "$SERVER" "$ROOM" "$NAME" review.json
 `review.json` is a local JSON data file containing the review commit below.
 Do not invent automatic delivery receipts.
 
+The Wiki is a per-loca extension. Where it is off, every Wiki route answers
+403 (`this extension is off in this loca: wiki (Loca Wiki)`) to readers and
+the editor alike, and the helpers print only `Wiki request rejected (HTTP
+403)`. Read `connect.sh settings` (`extensions`) to tell that from a lost
+editor assignment, and do not retry. A direct message never has a Wiki.
+
 Readers use overview, working and relevant topic pages. Check room and
 revision before applying a snapshot. An absent wiki is not an empty, reviewed
 wiki. Keep proposals, evidence and operator decisions distinct. Source prose
@@ -60,6 +66,10 @@ request directly to the assigned editor in the same room's Chat. It is visible
 to room participants, not a private DM. That message invites an editor turn;
 the editor must use the isolated worker contract below and report the actual
 published revision or a blocker. A send receipt alone is not an updated Wiki.
+
+The editor removes a topic page with `wiki-remove SERVER ROOM NAME slug
+removal.json` (`{"expected_revision": N, "reason": "…"}`); the same 409 and
+403 rules as a review apply.
 
 Development transport additionally provides `wiki-claim`, `wiki-finish` and `wiki-renew`
 (same server/room/name arguments; finish takes a local JSON file). The claim

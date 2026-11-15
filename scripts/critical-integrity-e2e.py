@@ -132,7 +132,7 @@ def check(binary):
                     building.restart()
                 for endpoint in ("call", "invites"):
                     require(building.request("POST", f"/rooms/sealed/{endpoint}", {"name": "guest"}, key=building.root)[0] == 409,
-                            "davet revived a sealed room")
+                            "invite revived a sealed room")
                 require(building.request("PUT", "/rooms/sealed/settings", {"archived": False}, session=master)[0] >= 400,
                         "settings erased permanent seal")
                 require(building.post("sealed", master, "forbidden-post")[0] >= 400, "post revived permanent seal")

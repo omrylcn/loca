@@ -127,16 +127,16 @@ def main():
             progress()
             server=launch_server()
             identities={}
-            davets={}
+            invites={}
             for name,kind in (("editor","agent"),("reader","agent"),("operator","user")):
                 member=protocol.http(base,"POST","/members",{"name":name,"kind":kind},admin)
-                davet=protocol.http(base,"POST","/rooms/general/invites",{"name":name},admin)["token"]
-                davets[name]=davet
-                session=protocol.http(base,"POST","/sessions",{"name":name,"kind":kind,"loca":"general"},{"x-room-token":davet})["session_token"]
+                invite=protocol.http(base,"POST","/rooms/general/invites",{"name":name},admin)["token"]
+                invites[name]=invite
+                session=protocol.http(base,"POST","/sessions",{"name":name,"kind":kind,"loca":"general"},{"x-room-token":invite})["session_token"]
                 home=work/name; (home/".loca").mkdir(parents=True,mode=0o700)
                 identity=home/".loca"/(name+".env")
                 identity.write_text("ROOM_SERVER_URL="+base+"\nLOCA_NAME="+name+"\nLOCA_MEMBERSHIP="+member["token"]+
-                    "\nLOCA_SESSION="+session+"\nDAVET_general="+davet+"\n")
+                    "\nLOCA_SESSION="+session+"\nDAVET_general="+invite+"\n")
                 identity.chmod(0o600)
                 identities[name]=(dict(env,HOME=str(home),LOCA_ENV=str(identity),LOCA_NAME=name),{"x-session-token":session})
             editor_env,editor_headers=identities["editor"]
@@ -158,7 +158,7 @@ def main():
                     # Browser/operator fixture re-authentication is not agent
                     # recovery. Sessions are intentionally memory-only. Agent
                     # listeners below must refresh via the real Lobby path.
-                    session=protocol.http(base,"POST","/sessions",{"name":"operator","kind":"user","loca":"general"},{"x-room-token":davets["operator"]})["session_token"]
+                    session=protocol.http(base,"POST","/sessions",{"name":"operator","kind":"user","loca":"general"},{"x-room-token":invites["operator"]})["session_token"]
                     operator_headers["x-session-token"]=session
                     return protocol.http(base,"POST","/rooms/general/messages",payload,operator_headers)["id"]
             say("Operator decision: PostgreSQL is the product database. SQLite is used only in tests.")

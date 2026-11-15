@@ -26,6 +26,25 @@ PROTECTED_PRIORITIES = {"security_control", "care_signal", "explicit_task"}
 DEFER_MAX_ATTEMPTS = 8
 DEFER_MAX_DELAY_MS = 30_000
 
+# Accepted Building notices kept per Codex thread. Only the most recent are
+# ever released again (compaction releases four, a lost turn its own), and a
+# record of an unfinished turn is always kept, so this bounds the table
+# without forgetting a notice that may still be owed.
+NOTIFICATION_CONTEXT_KEEP = 16
+
+# Lowers a thread's floor to the oldest notice a released turn carried, so
+# the release offers it again (the floor moves past notices as they are
+# given). Run before the turn's records are deleted.
+LOWER_FLOOR_FOR_TURN = """
+    UPDATE notification_threads SET floor_id = MIN(floor_id, (
+        SELECT MIN(notification_id) FROM notification_context AS c
+        WHERE c.identity = notification_threads.identity
+          AND c.thread_id = notification_threads.thread_id AND c.turn_id = ?))
+    WHERE identity = ? AND thread_id IN (
+        SELECT thread_id FROM notification_context
+        WHERE identity = ? AND turn_id = ?)
+"""
+
 
 class LeaseBusy(RuntimeError):
     """Another non-expired adapter currently owns this identity."""
@@ -250,6 +269,27 @@ class AttentionStore:
                     ON relay_items (identity, status, created_at_ms);
                 CREATE INDEX IF NOT EXISTS relay_items_turn_item
                     ON relay_items (turn_id, item_id);
+
+                -- Building notices one Codex thread's model context holds.
+                -- Written only with that input's accepted dispatch; the most
+                -- recent are released by compaction, and a turn Codex lost
+                -- releases its own. Never a server read receipt.
+                CREATE TABLE IF NOT EXISTS notification_context (
+                    identity TEXT NOT NULL,
+                    thread_id TEXT NOT NULL,
+                    notification_id INTEGER NOT NULL,
+                    turn_id TEXT NOT NULL,
+                    accepted_at_ms INTEGER NOT NULL,
+                    PRIMARY KEY (identity, thread_id, notification_id)
+                );
+
+                -- The oldest notice id a thread's context is still owed.
+                CREATE TABLE IF NOT EXISTS notification_threads (
+                    identity TEXT NOT NULL,
+                    thread_id TEXT NOT NULL,
+                    floor_id INTEGER NOT NULL,
+                    PRIMARY KEY (identity, thread_id)
+                );
                 """
             )
         os.chmod(self.path, 0o600)
@@ -563,6 +603,15 @@ class AttentionStore:
                     """,
                     (now, reason, turn_id),
                 )
+                # Absent from recovered history: its notices are not in the
+                # thread's context.
+                connection.execute(
+                    LOWER_FLOOR_FOR_TURN, (turn_id, identity, identity, turn_id)
+                )
+                connection.execute(
+                    "DELETE FROM notification_context WHERE identity = ? AND turn_id = ?",
+                    (identity, turn_id),
+                )
                 connection.execute(
                     """
                     UPDATE attentions SET turn_completed_at_ms = ?,
@@ -763,6 +812,12 @@ class AttentionStore:
                 """,
                 (identity, thread_id),
             )
+            # The context is gone; its replacement thread starts fresh.
+            for table in ("notification_context", "notification_threads"):
+                connection.execute(
+                    f"DELETE FROM {table} WHERE identity = ? AND thread_id = ?",
+                    (identity, thread_id),
+                )
             return requeued
 
     def requeue_missing_turn(
@@ -798,6 +853,18 @@ class AttentionStore:
             ).fetchone()
             if turn is None:
                 return 0
+            # The turn is absent from Codex's history, so its input, and
+            # the notices in it, are not in the thread's context.
+            connection.execute(
+                LOWER_FLOOR_FOR_TURN, (turn_id, identity, identity, turn_id)
+            )
+            connection.execute(
+                """
+                DELETE FROM notification_context
+                WHERE identity = ? AND thread_id = ? AND turn_id = ?
+                """,
+                (identity, thread_id, turn_id),
+            )
             output = connection.execute(
                 "SELECT 1 FROM relay_items WHERE turn_id = ? LIMIT 1",
                 (turn_id,),
@@ -1067,9 +1134,21 @@ class AttentionStore:
         epoch: int,
         *,
         reconciled: bool = False,
+        notification_ids: Iterable[int] = (),
+        notification_floor: int | None = None,
+        notification_accepted: Iterable[int] | None = None,
         now_ms: int | None = None,
     ) -> None:
-        """Atomically bind an accepted Codex RPC to its attention and turn."""
+        """Atomically bind an accepted Codex RPC to its attention and turn.
+
+        ``notification_ids`` are the Building notices in that accepted input
+        and ``notification_floor`` the oldest id the thread is still owed.
+        Both are recorded in this transaction, never before acceptance: a
+        crash before commit offers them again rather than losing them.
+        ``notification_accepted`` are the ids the floor was planned from: one
+        released since (compaction or a lost turn read during the RPC) keeps
+        the floor at it, so recording this input cannot skip it.
+        """
         now = wall_time_ms() if now_ms is None else now_ms
         with self.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -1102,6 +1181,116 @@ class AttentionStore:
                     epoch,
                     attention_id,
                 ),
+            )
+            identity = str(connection.execute(
+                "SELECT identity FROM attentions WHERE attention_id = ?",
+                (attention_id,),
+            ).fetchone()["identity"])
+            connection.executemany(
+                """
+                INSERT OR REPLACE INTO notification_context (
+                    identity, thread_id, notification_id, turn_id,
+                    accepted_at_ms
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                [(identity, thread_id, int(notice), turn_id, now)
+                 for notice in notification_ids],
+            )
+            if notification_floor is not None and notification_accepted is not None:
+                kept = {int(row["notification_id"]) for row in connection.execute(
+                    """
+                    SELECT notification_id FROM notification_context
+                    WHERE identity = ? AND thread_id = ?
+                    """,
+                    (identity, thread_id),
+                ).fetchall()}
+                released = {int(n) for n in notification_accepted} - kept
+                if released:
+                    notification_floor = min(int(notification_floor), min(released))
+            if notification_floor is not None:
+                connection.execute(
+                    """
+                    INSERT INTO notification_threads (identity, thread_id, floor_id)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(identity, thread_id) DO UPDATE SET
+                        floor_id = excluded.floor_id
+                    """,
+                    (identity, thread_id, int(notification_floor)),
+                )
+            # The floor is past what was given; a release lowers it again,
+            # and only the most recent records can be released.
+            connection.execute(
+                """
+                DELETE FROM notification_context
+                WHERE identity = ? AND thread_id = ? AND notification_id NOT IN (
+                    SELECT notification_id FROM notification_context
+                    WHERE identity = ? AND thread_id = ?
+                    ORDER BY notification_id DESC LIMIT ?
+                ) AND EXISTS (
+                    SELECT 1 FROM turns
+                    WHERE turns.turn_id = notification_context.turn_id
+                      AND turns.completed_at_ms IS NOT NULL
+                )
+                """,
+                (identity, thread_id, identity, thread_id, NOTIFICATION_CONTEXT_KEEP),
+            )
+
+    def notification_state(
+        self, identity: str, thread_id: str
+    ) -> tuple[int | None, set[int]]:
+        """(oldest id still owed or None for a new context, accepted ids)."""
+        with self.connect() as connection:
+            floor = connection.execute(
+                """
+                SELECT floor_id FROM notification_threads
+                WHERE identity = ? AND thread_id = ?
+                """,
+                (identity, thread_id),
+            ).fetchone()
+            rows = connection.execute(
+                """
+                SELECT notification_id FROM notification_context
+                WHERE identity = ? AND thread_id = ?
+                """,
+                (identity, thread_id),
+            ).fetchall()
+        return (
+            int(floor["floor_id"]) if floor else None,
+            {int(row["notification_id"]) for row in rows},
+        )
+
+    def reset_notification_context(self, identity: str, thread_id: str) -> None:
+        """Compaction discarded the thread's earlier input.
+
+        The four most recent accepted notices are offered again, as to a new
+        context; anything still owed stays owed. Older accepted ones are not
+        repeated: the prompt points at connect.sh notifications for them.
+        """
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                UPDATE notification_threads SET floor_id = MIN(floor_id, (
+                    SELECT MIN(notification_id) FROM (
+                        SELECT notification_id FROM notification_context
+                        WHERE identity = ? AND thread_id = ?
+                        ORDER BY notification_id DESC LIMIT 4)))
+                WHERE identity = ? AND thread_id = ? AND EXISTS (
+                    SELECT 1 FROM notification_context
+                    WHERE identity = ? AND thread_id = ?)
+                """,
+                (identity, thread_id) * 3,
+            )
+            connection.execute(
+                """
+                DELETE FROM notification_context
+                WHERE identity = ? AND thread_id = ? AND notification_id IN (
+                    SELECT notification_id FROM notification_context
+                    WHERE identity = ? AND thread_id = ?
+                    ORDER BY notification_id DESC LIMIT 4
+                )
+                """,
+                (identity, thread_id, identity, thread_id),
             )
 
     def unresolved_dispatches(
@@ -1428,6 +1617,17 @@ class AttentionStore:
                 """,
                 (reason, identity, server, room),
             )
+            # The closed room's thread is forgotten, and with it what that
+            # context was given; a reopened room starts a new thread.
+            for table in ("notification_context", "notification_threads"):
+                connection.execute(
+                    f"""
+                    DELETE FROM {table} WHERE identity = ? AND thread_id IN (
+                        SELECT thread_id FROM threads
+                        WHERE identity = ? AND server = ? AND room = ?)
+                    """,
+                    (identity, identity, server, room),
+                )
             connection.execute(
                 """
                 DELETE FROM threads
@@ -1536,6 +1736,41 @@ class AttentionStore:
                     last_error = ?, next_attempt_at_ms = ? WHERE op_id = ?
                 """,
                 (error, now + delay, op_id),
+            )
+
+    def mark_relay_refused(
+        self,
+        op_id: str,
+        error: str,
+        owner: str,
+        epoch: int,
+        *,
+        now_ms: int | None = None,
+    ) -> None:
+        """The server will never post this op_id (409): end the relay.
+
+        The covered attentions keep their open response milestones, so a
+        required reply stays overdue and visible (ADR 0001).
+        """
+        now = wall_time_ms() if now_ms is None else now_ms
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT identity FROM relay_items WHERE op_id = ?", (op_id,)
+            ).fetchone()
+            if row is None:
+                return
+            self._assert_fence(
+                connection, str(row["identity"]), owner, epoch, now
+            )
+            connection.execute(
+                """
+                UPDATE relay_items SET status = 'refused',
+                    attempts = attempts + 1, last_error = ?,
+                    next_attempt_at_ms = 0
+                WHERE op_id = ? AND status = 'pending'
+                """,
+                (error, op_id),
             )
 
     def mark_relay_accepted(

@@ -4,12 +4,12 @@
 // configurable loca-server over WS+REST, exactly like the browser client. There
 // is no forked UI and no forked backend here.
 //
-// Faz 1: window shell + the server-URL shim (SERVER_SHIM).
-// Faz 2 (this file): move the two credential-bearing localStorage keys off the
+// Phase 1: window shell + the server-URL shim (SERVER_SHIM).
+// Phase 2 (this file): move the two credential-bearing localStorage keys off the
 //   webview's on-disk store into the OS keychain, WITHOUT forking the web UI.
 //
 //   The web UI (measured in web/assets/) persists exactly two sensitive keys:
-//     - "loca-seat"          => { name, roomToken (=davet), room }   (api.js)
+//     - "loca-seat"          => { name, roomToken (=invite), room }   (api.js)
 //     - "loca-admin-session" => { token, expiresAt }                 (state.js)
 //   Everything else in localStorage is non-secret (preferences, read cursors,
 //   lobby height) and stays in plain localStorage untouched.
@@ -64,26 +64,67 @@ fn apply_zoom(app: &tauri::AppHandle, direction: i8) {
 // The standalone flavor uses a SEPARATE namespace so its auto-provisioned local
 // seat never collides with the client flavor's hosted seat on the same machine
 // (a shared "loca-seat" would make standalone skip provisioning and hand the
-// local server a foreign davet).
+// local server a foreign invite).
 #[cfg(not(feature = "bundled-server"))]
 const KC_SERVICE: &str = "tech.speakbetter.loca.desktop";
 #[cfg(feature = "bundled-server")]
 const KC_SERVICE: &str = "tech.speakbetter.loca.desktop.standalone";
 const KC_KEYS: [&str; 2] = ["loca-seat", "loca-admin-session"];
 
-// Baked at build time so the public desktop opens ALREADY pointed at a server
-// instead of an empty box (the "esprisi yok" complaint). Two flavors set it
-// differently at build:
-//   - client flavor  : LOCA_DEFAULT_SERVER=https://loca.speakbetter.tech (the
-//                       shared hosted server)
-//   - full/standalone: LOCA_DEFAULT_SERVER=http://127.0.0.1:8787 (the local
-//                       sidecar room-server this app boots)
-// Unset -> empty -> the field just prompts (current dev behaviour). The user
-// can always override via the #server field (persisted as loca-desktop-server).
+// Baked at build time so the public desktop client opens ALREADY pointed at a
+// server instead of an empty box (the "it has no charm" complaint):
+// LOCA_DEFAULT_SERVER=https://loca.speakbetter.tech (the shared hosted
+// server). Unset -> empty -> the field just prompts (current dev behaviour).
+// The user can always override via the #server field (persisted as
+// loca-desktop-server). The Host never uses it: its page talks only to the
+// server it started (standalone::page_server), so a baked address such as
+// http://127.0.0.1:8787 would hand the Host UI and its credentials to
+// whatever listens there.
+#[cfg(not(feature = "bundled-server"))]
 const DEFAULT_SERVER: &str = match option_env!("LOCA_DEFAULT_SERVER") {
     Some(s) => s,
     None => "",
 };
+
+// The one origin this window is built to show: the app's own bundled assets,
+// served by Tauri's custom protocol, tauri://localhost, or on Windows its
+// http://tauri.localhost stand-in (tauri::manager tauri_protocol_url; this app
+// sets no useHttpsScheme). Neither flavor shows anything else at the top
+// level: the window opens WebviewUrl::default(), the servers (the Host's own,
+// the client's chosen one) are reached by fetch and WebSocket, and the page's
+// links leave through target="_blank". The keychain hand-over is given only
+// to this origin (KEYCHAIN_SHIM) and the window is not let navigate away
+// from it (may_navigate).
+const APP_ORIGIN: &str = if cfg!(windows) {
+    "http://tauri.localhost"
+} else {
+    "tauri://localhost"
+};
+
+// scheme://host[:port] of a URL, as location.origin spells it for the app's
+// own origin (url::Url::origin() is opaque for the custom tauri scheme).
+fn url_origin(url: &tauri::Url) -> String {
+    let host = url.host_str().unwrap_or("");
+    match url.port() {
+        Some(port) => format!("{}://{host}:{port}", url.scheme()),
+        None => format!("{}://{host}", url.scheme()),
+    }
+}
+
+// A top-level navigation stays in the app's own origin, or is refused. A blob:
+// URL the page itself made (blob:<app origin>/<uuid>) is the app's own: the
+// web UI saves and opens attachments through such URLs (chat.js
+// attachmentChip, openAttachment), and some engines ask this handler about
+// them. The server serves attachments only as png, jpeg, webp, pdf and
+// text/plain, so such a document runs no script.
+fn may_navigate(url: &tauri::Url) -> bool {
+    if url.scheme() == "blob" {
+        return tauri::Url::parse(url.path())
+            .map(|inner| url_origin(&inner) == APP_ORIGIN)
+            .unwrap_or(false);
+    }
+    url_origin(url) == APP_ORIGIN
+}
 
 fn kc_entry(key: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(KC_SERVICE, key).map_err(|e| e.to_string())
@@ -130,7 +171,7 @@ fn kc_delete(key: String) -> Result<(), String> {
     }
 }
 
-// ── Faz 3: native notifications ─────────────────────────────────────────────
+// ── Phase 3: native notifications ─────────────────────────────────────────────
 // Fired from JS via invoke("notify", {kind, sender, loca, msgId}). PRIVACY: the
 // notification shows only WHO and WHAT KIND of event — never the message body,
 // so a lock screen never leaks room text. (loca, msgId) ride along only so a
@@ -169,12 +210,46 @@ fn notify(app: tauri::AppHandle, payload: NotifyPayload) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// The one window the shell builds, and the only one the Host's Master session
+// is given to (host_master_session).
+const MAIN_WINDOW: &str = "main";
+
+fn is_host_window(label: &str) -> bool {
+    label == MAIN_WINDOW
+}
+
+// Loca Host only: a new Master session for the Host's own page when the one it
+// was given has ended (web/assets/state.js hostMasterSession). It is the start
+// provisioning again (standalone::renew_master_session): the page gets the
+// bounded session, never the admin token. Only the window this app built
+// can invoke it; the client flavor has no Host to ask and refuses.
+//
+// Tauri offers an app's commands to every window and webview of the app. The
+// shell builds one window today (MAIN_WINDOW); the command says so itself, so
+// a window added later does not get the Host's Master session by default.
+#[tauri::command]
+async fn host_master_session(window: tauri::WebviewWindow) -> Result<String, String> {
+    if !is_host_window(window.label()) {
+        return Err("only Loca Host's own window renews its Master session".to_string());
+    }
+    #[cfg(feature = "bundled-server")]
+    {
+        tauri::async_runtime::spawn_blocking(standalone::renew_master_session)
+            .await
+            .map_err(|e| e.to_string())?
+    }
+    #[cfg(not(feature = "bundled-server"))]
+    {
+        Err("only Loca Host renews its own Master session".to_string())
+    }
+}
+
 // ── Option 3 (standalone flavor): bundled room-server sidecar ────────────────
 // Only compiled with `--features bundled-server`. Boots a LOCAL, CLOSED-door
 // room-server on 127.0.0.1 at launch, provisions the user's own seat, and points
 // the UI there — so the app has no dependency on an external server. The whole
 // HTTP flow below was verified against a real closed-door room-server before it
-// was written (admit -> davet -> session, HTTP 201).
+// was written (admit -> invite -> session, HTTP 201).
 #[cfg(feature = "bundled-server")]
 mod standalone {
     use std::process::{Child, Command};
@@ -189,17 +264,35 @@ mod standalone {
                                     // straight into it.
     const LOCAL_ROOM: &str = "iye";
 
-    fn canonical_host_seat() -> String {
-        format!("{{\"name\":\"{LOCAL_NAME}\",\"roomToken\":\"\",\"room\":\"{LOCAL_ROOM}\"}}")
+    fn canonical_host_seat(room: &str) -> String {
+        serde_json::json!({ "name": LOCAL_NAME, "roomToken": "", "room": room }).to_string()
     }
 
-    fn provision_host<M, W>(mut mint_master: M, mut write_seat: W) -> Result<String, String>
+    // The loca the Host's page goes back to: the last one its owner was in
+    // (the page keeps it in the seat, web/assets/api.js rememberLastLoca), when
+    // the remembered seat is the Host's own, with no invite; else iye. Only the
+    // room is carried over, and the page checks it may still enter it
+    // (landingRoom), falling back to iye.
+    fn host_seat_room(previous: Option<&str>) -> String {
+        previous
+            .and_then(|seat| serde_json::from_str::<serde_json::Value>(seat).ok())
+            .filter(|seat| seat.get("roomToken").and_then(|t| t.as_str()) == Some(""))
+            .and_then(|seat| seat.get("room")?.as_str().map(str::to_string))
+            .filter(|room| !room.is_empty())
+            .unwrap_or_else(|| LOCAL_ROOM.to_string())
+    }
+
+    fn provision_host<M, W>(
+        previous_seat: Option<&str>,
+        mut mint_master: M,
+        mut write_seat: W,
+    ) -> Result<String, String>
     where
         M: FnMut() -> Result<String, String>,
         W: FnMut(&str) -> Result<(), String>,
     {
         let admin_session = mint_master()?;
-        write_seat(&canonical_host_seat())?;
+        write_seat(&canonical_host_seat(&host_seat_room(previous_seat)))?;
         Ok(admin_session)
     }
 
@@ -225,7 +318,7 @@ mod standalone {
     }
 
     // Get-or-create the local server's master token in the OS keychain (reuses
-    // the Faz 2 store). It NEVER reaches the webview — only the davet does.
+    // the Phase 2 store). It NEVER reaches the webview — only the invite does.
     // FAIL-CLOSED: if a freshly minted token can't be persisted, return Err so
     // the caller aborts — silently continuing would mint a DIFFERENT token next
     // launch that no longer matches the persistent server DB's master.
@@ -259,6 +352,11 @@ mod standalone {
         Ok(dir.join("binaries").join(name))
     }
 
+    // Starts the error spawn() returns when the OS keychain could not give or
+    // keep the local admin token (locked, or no keyring service), so setup can
+    // tell the owner what to fix instead of a general failure.
+    pub const KEYCHAIN_FAILED: &str = "keychain unavailable: ";
+
     // Spawn the local server CLOSED by default. Returns (child, base_url) where
     // base_url is the dynamic 127.0.0.1:<port> the UI must use.
     pub fn spawn(app: &tauri::App) -> Result<(Child, String), String> {
@@ -271,13 +369,14 @@ mod standalone {
         let db = data_dir.join("loca-standalone.sqlite3");
         let port = free_port()?;
         let base = format!("http://127.0.0.1:{port}");
-        let admin = local_admin_token()?;
+        let _ = SERVER_URL.set(base.clone());
+        let admin = local_admin_token().map_err(|e| format!("{KEYCHAIN_FAILED}{e}"))?;
         let mut cmd = Command::new(&bin);
         cmd.env("BIND_ADDR", "127.0.0.1") // SECURITY: localhost only, never 0.0.0.0
             .env("PORT", port.to_string()) // dynamic: never a fixed, occupiable port
             .env("DB_PATH", &db) // persistent across restarts
             .env("ADMIN_TOKEN", &admin) // closed: admin actions need the token
-            .env("REQUIRE_INVITE", "1") // closed: every loca needs a davet
+            .env("REQUIRE_INVITE", "1") // closed: every loca needs an invite
             .env("REQUIRE_SESSIONS", "1") // closed: posting needs a server-derived session
             .env("PUBLIC_SERVER_URL", &base)
             .env("LOCA_AGENT_ROOM", LOCAL_ROOM) // home loca = iye
@@ -299,6 +398,21 @@ mod standalone {
                 "CORS_ALLOW_ORIGIN",
                 "tauri://localhost,http://tauri.localhost",
             );
+        prepare(&mut cmd);
+        // Kept so supervise() can start it again exactly like this.
+        let _ = LAUNCH.set((
+            bin.clone(),
+            cmd.get_envs()
+                .filter_map(|(k, v)| Some((k.to_owned(), v?.to_owned())))
+                .collect(),
+        ));
+        let child = cmd
+            .spawn()
+            .map_err(|e| format!("spawn {}: {e}", bin.display()))?;
+        Ok((child, base))
+    }
+
+    fn prepare(cmd: &mut Command) {
         // Windows: the room-server is a console binary; without this it pops a
         // separate terminal window next to the app. CREATE_NO_WINDOW keeps the
         // sidecar headless so the user sees only the app.
@@ -308,10 +422,124 @@ mod standalone {
             const CREATE_NO_WINDOW: u32 = 0x0800_0000;
             cmd.creation_flags(CREATE_NO_WINDOW);
         }
-        let child = cmd
-            .spawn()
-            .map_err(|e| format!("spawn {}: {e}", bin.display()))?;
-        Ok((child, base))
+        // A Host ended by a signal (logout, `kill`, a crash) never reaches the
+        // run-loop's stop(); without this its server keeps listening, owned
+        // by nobody.
+        #[cfg(target_os = "linux")]
+        end_with_this_thread(cmd);
+    }
+
+    // The binary and environment the server was started with: same port,
+    // database and token, so a restarted server answers at the address the
+    // page already uses and the page reconnects on its own.
+    #[allow(clippy::type_complexity)]
+    static LAUNCH: std::sync::OnceLock<(
+        std::path::PathBuf,
+        Vec<(std::ffi::OsString, std::ffi::OsString)>,
+    )> = std::sync::OnceLock::new();
+    // Set by stop(): once the Host is closing, nothing is started again.
+    static STOPPING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    // The wait before the next start, and the one after it. `ran_for` is how
+    // long the server that just exited had run, or None when the last start
+    // itself failed. A server that ran for more than a minute was healthy:
+    // the wait starts again at 1 s, once, for that exit. Otherwise (it keeps
+    // exiting soon after a start, or a start keeps failing) the wait doubles,
+    // up to 30 s.
+    fn restart_wait(delay: &mut Duration, ran_for: Option<Duration>) -> Duration {
+        if ran_for.is_some_and(|ran| ran > Duration::from_secs(60)) {
+            *delay = Duration::from_secs(1);
+        }
+        let wait = *delay;
+        *delay = (*delay * 2).min(Duration::from_secs(30));
+        wait
+    }
+
+    // Start the server again whenever it exits while the Host runs, waiting
+    // as restart_wait says. The thread lives as long as the Host, which on
+    // Linux is also what keeps a restarted server tied to it
+    // (end_with_this_thread).
+    pub fn supervise(app: tauri::AppHandle) {
+        std::thread::spawn(move || {
+            use std::sync::atomic::Ordering::SeqCst;
+            let mut delay = Duration::from_secs(1);
+            let mut started = Instant::now();
+            // The child in the state is still the one that exited when the
+            // last start failed: its run time says nothing any more.
+            let mut start_failed = false;
+            loop {
+                std::thread::sleep(Duration::from_millis(500));
+                let Some(state) = app.try_state::<ServerProc>() else {
+                    return;
+                };
+                let exited = match state.child.lock() {
+                    Ok(mut guard) => match guard.as_mut() {
+                        None => return, // stopped
+                        Some(child) => matches!(child.try_wait(), Ok(Some(_))),
+                    },
+                    Err(_) => return,
+                };
+                if !exited || STOPPING.load(SeqCst) {
+                    continue;
+                }
+                let ran_for = (!start_failed).then(|| started.elapsed());
+                let wait = restart_wait(&mut delay, ran_for);
+                eprintln!("local server exited; restarting it in {}s", wait.as_secs());
+                std::thread::sleep(wait);
+                let Some((bin, envs)) = LAUNCH.get() else {
+                    return;
+                };
+                let mut cmd = Command::new(bin);
+                cmd.envs(envs.iter().map(|(k, v)| (k, v)));
+                prepare(&mut cmd);
+                match cmd.spawn() {
+                    Ok(mut child) => {
+                        started = Instant::now();
+                        start_failed = false;
+                        let Ok(mut guard) = state.child.lock() else {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            return;
+                        };
+                        if STOPPING.load(SeqCst) || guard.is_none() {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            return;
+                        }
+                        *guard = Some(child);
+                    }
+                    Err(e) => {
+                        start_failed = true;
+                        eprintln!("restarting the local server failed: {e}");
+                    }
+                }
+            }
+        });
+    }
+
+    // Linux: the kernel sends the child SIGTERM when the thread that spawned
+    // it ends. spawn() runs in setup on the main thread, which lives exactly
+    // as long as the Host process, so the server goes when the Host goes,
+    // however it goes.
+    #[cfg(target_os = "linux")]
+    fn end_with_this_thread(cmd: &mut Command) {
+        use std::os::unix::process::CommandExt;
+        let parent = std::process::id() as libc::pid_t;
+        // SAFETY: the closure runs in the forked child before exec and makes
+        // only async-signal-safe calls (prctl, getppid); it does not allocate.
+        unsafe {
+            cmd.pre_exec(move || {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                // The Host may have gone between fork and prctl; then nobody
+                // would ever send the signal.
+                if libc::getppid() != parent {
+                    return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
+                }
+                Ok(())
+            });
+        }
     }
 
     // Poll /health until the child answers or we time out. Bails early if the
@@ -335,18 +563,21 @@ mod standalone {
     }
 
     // Host provisioning is authoritative on every launch. A previous install
-    // may have left a davet-backed loca-seat in the OS keychain while its local
+    // may have left an invite-backed loca-seat in the OS keychain while its local
     // database was removed. Reusing that stale seat makes the Host choose the
-    // davet before its freshly minted Master session and fall back to the door.
-    // Always replace it with the canonical Host seat: iye navigation with no
-    // davet. Identity and authority come exclusively from the derived Master
-    // session below; the raw admin token never reaches the webview.
+    // invite before its freshly minted Master session and fall back to the door.
+    // Always replace it with the canonical Host seat: no invite, and the last
+    // loca of the Host's own seat (else iye) to go back to. Identity and
+    // authority come exclusively from the derived Master session below; the
+    // raw admin token never reaches the webview.
     pub fn provision_if_needed(base: &str) -> Result<String, String> {
+        let previous = super::kc_read("loca-seat").ok().flatten();
         provision_host(
+            previous.as_deref(),
             // The owner of the local server is its MASTER — refresh the admin
             // session on every launch so master survives restart/expiry.
             || provision_master_session(base),
-            // The seat carries only iye with an EMPTY davet. This write is
+            // The seat carries only iye with an EMPTY invite. This write is
             // unconditional so a stale keychain seat cannot win after reinstall.
             |seat| {
                 super::kc_entry("loca-seat")?
@@ -354,6 +585,21 @@ mod standalone {
                     .map_err(|e| e.to_string())
             },
         )
+    }
+
+    // The address of the server this Host started. Only that server is ever
+    // asked for a new Master session (renew_master_session).
+    static SERVER_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+    // The page's Master session ended (its 12-hour lifetime ran out, or it was
+    // ended on the server): mint the next one exactly as at start, from the
+    // admin token in the keychain, at the server this Host started. The page
+    // receives only the bounded session, as at start; the token stays here.
+    pub fn renew_master_session() -> Result<String, String> {
+        let base = SERVER_URL
+            .get()
+            .ok_or_else(|| "the Host's server was not started".to_string())?;
+        provision_master_session(base)
     }
 
     // Mint a time-limited admin session from the raw ADMIN_TOKEN and store it as
@@ -368,9 +614,24 @@ mod standalone {
             &format!("{{\"name\":\"{LOCAL_NAME}\",\"kind\":\"user\"}}"),
         )
         .map_err(|e| format!("mint admin session: {e}"))?;
-        parse_master_session(&resp)
+        let admin_session = parse_master_session(&resp)?;
+        // Persistence is recovery convenience, not an authority boundary. The
+        // freshly minted bounded session is returned to this launch even when
+        // keychain persistence is unavailable; the raw ADMIN_TOKEN stays here.
+        match super::kc_entry("loca-admin-session") {
+            Ok(entry) => {
+                if let Err(e) = entry.set_password(&admin_session) {
+                    eprintln!("cannot persist bounded admin session: {e}");
+                }
+            }
+            Err(e) => eprintln!("cannot open bounded admin session keychain entry: {e}"),
+        }
+        Ok(admin_session)
     }
 
+    // Pure: validates the minted session and builds the value the webview
+    // reads. It touches no keychain, so its unit test cannot reach the
+    // machine's real one.
     fn parse_master_session(resp: &str) -> Result<String, String> {
         let v: serde_json::Value =
             serde_json::from_str(resp).map_err(|e| format!("parse session: {e}"))?;
@@ -388,20 +649,9 @@ mod standalone {
             .get("expires_at")
             .and_then(|e| e.as_i64())
             .ok_or_else(|| "admin session has no finite expires_at".to_string())?;
-        let admin_session =
-            format!("{{\"token\":\"{token}\",\"expiresAt\":{expires},\"name\":\"{name}\"}}");
-        // Persistence is recovery convenience, not an authority boundary. The
-        // freshly minted bounded session is returned to this launch even when
-        // keychain persistence is unavailable; the raw ADMIN_TOKEN stays here.
-        match super::kc_entry("loca-admin-session") {
-            Ok(entry) => {
-                if let Err(e) = entry.set_password(&admin_session) {
-                    eprintln!("cannot persist bounded admin session: {e}");
-                }
-            }
-            Err(e) => eprintln!("cannot open bounded admin session keychain entry: {e}"),
-        }
-        Ok(admin_session)
+        Ok(format!(
+            "{{\"token\":\"{token}\",\"expiresAt\":{expires},\"name\":\"{name}\"}}"
+        ))
     }
 
     fn post_json(url: &str, admin: &str, body: &str) -> Result<String, String> {
@@ -413,6 +663,12 @@ mod standalone {
             .map_err(|e| e.to_string())?
             .into_string()
             .map_err(|e| e.to_string())
+    }
+
+    // The only server the Host's page may talk to: the one this Host started.
+    // When it did not start there is none, never a baked or default address.
+    pub fn page_server(started: Option<&str>) -> &str {
+        started.unwrap_or("")
     }
 
     pub fn write_host_env(
@@ -446,6 +702,7 @@ mod standalone {
 
     // Best-effort stop; called from the run-loop on exit so we don't orphan it.
     pub fn stop(app: &tauri::AppHandle) {
+        STOPPING.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(state) = app.try_state::<ServerProc>() {
             if let Ok(mut guard) = state.child.lock() {
                 if let Some(mut child) = guard.take() {
@@ -478,6 +735,78 @@ mod standalone {
                     "must reject unbounded or non-admin session: {invalid}"
                 );
             }
+        }
+
+        // The mechanism stop() cannot provide: the server child is signalled
+        // when the thread that started it ends, even though nothing ran a
+        // shutdown path.
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn server_child_ends_when_the_thread_that_started_it_ends() {
+            use std::os::unix::process::ExitStatusExt;
+            let mut child = std::thread::spawn(|| {
+                let mut cmd = std::process::Command::new("sleep");
+                cmd.arg("30");
+                super::end_with_this_thread(&mut cmd);
+                cmd.spawn().expect("spawn sleep")
+            })
+            .join()
+            .expect("spawning thread");
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let status = loop {
+                if let Some(status) = child.try_wait().expect("try_wait") {
+                    break Some(status);
+                }
+                if std::time::Instant::now() > deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            };
+            assert_eq!(
+                status.and_then(|s| s.signal()),
+                Some(libc::SIGTERM),
+                "the child must be ended with SIGTERM once its starting thread is gone"
+            );
+        }
+
+        // After a healthy run (longer than a minute) the first restart waits
+        // 1 s; starts that keep failing then wait 2, 4, 8, ... up to 30 s,
+        // not 1 s each: the reset after the healthy run applies once.
+        #[test]
+        fn failed_restarts_after_a_healthy_run_back_off() {
+            use std::time::Duration;
+            let mut delay = Duration::from_secs(8);
+            let mut waits = vec![super::restart_wait(
+                &mut delay,
+                Some(Duration::from_secs(90)),
+            )];
+            for _ in 0..7 {
+                waits.push(super::restart_wait(&mut delay, None));
+            }
+            let secs: Vec<u64> = waits.iter().map(|w| w.as_secs()).collect();
+            assert_eq!(secs, [1, 2, 4, 8, 16, 30, 30, 30]);
+            // A server that keeps exiting soon after a start backs off too.
+            let mut delay = Duration::from_secs(1);
+            let secs: Vec<u64> = (0..4)
+                .map(|_| super::restart_wait(&mut delay, Some(Duration::from_secs(2))).as_secs())
+                .collect();
+            assert_eq!(secs, [1, 2, 4, 8]);
+            // A later healthy run starts the waits again.
+            assert_eq!(
+                super::restart_wait(&mut delay, Some(Duration::from_secs(61))).as_secs(),
+                1
+            );
+        }
+
+        #[test]
+        fn host_page_talks_only_to_the_server_the_host_started() {
+            assert_eq!(
+                super::page_server(Some("http://127.0.0.1:41234")),
+                "http://127.0.0.1:41234"
+            );
+            assert_eq!(super::page_server(None), "", "no server: no address at all");
         }
 
         #[test]
@@ -530,7 +859,7 @@ mod standalone {
         }
 
         #[test]
-        fn host_provisioning_overwrites_a_stale_davet_seat() {
+        fn host_provisioning_overwrites_a_stale_invite_seat() {
             for initial in [
                 r#"{"name":"you","roomToken":"dv_stale","room":"old"}"#,
                 r#"{"name":"you","roomToken":"","room":"iye"}"#,
@@ -538,7 +867,9 @@ mod standalone {
                 let stored = std::cell::RefCell::new(initial.to_string());
                 let mut minted = 0;
                 let mut writes = 0;
+                let previous = stored.borrow().clone();
                 let session = super::provision_host(
+                    Some(&previous),
                     || {
                         minted += 1;
                         Ok("bounded-session".to_string())
@@ -558,7 +889,44 @@ mod standalone {
                     serde_json::from_str(&stored.borrow()).expect("valid seat JSON");
                 assert_eq!(seat["name"], "you");
                 assert_eq!(seat["room"], "iye");
-                assert_eq!(seat["roomToken"], "", "no stale davet can be selected");
+                assert_eq!(seat["roomToken"], "", "no stale invite can be selected");
+            }
+        }
+
+        #[test]
+        fn host_provisioning_keeps_the_last_loca_of_its_own_seat() {
+            for (previous, room) in [
+                (
+                    Some(r#"{"name":"Master","roomToken":"","room":"demo"}"#),
+                    "demo",
+                ),
+                (
+                    Some(r#"{"name":"you","roomToken":"dv_stale","room":"old"}"#),
+                    "iye",
+                ),
+                (Some(r#"{"name":"Master","roomToken":"","room":""}"#), "iye"),
+                (
+                    Some(r#"{"name":"Master","roomToken":"","room":null}"#),
+                    "iye",
+                ),
+                (Some("not json"), "iye"),
+                (None, "iye"),
+            ] {
+                let mut written = String::new();
+                super::provision_host(
+                    previous,
+                    || Ok("bounded-session".to_string()),
+                    |seat| {
+                        written = seat.to_string();
+                        Ok(())
+                    },
+                )
+                .expect("host provisioning");
+                let seat: serde_json::Value =
+                    serde_json::from_str(&written).expect("valid seat JSON");
+                assert_eq!(seat["room"], room, "from {previous:?}");
+                assert_eq!(seat["name"], "you");
+                assert_eq!(seat["roomToken"], "");
             }
         }
     }
@@ -606,6 +974,16 @@ const SERVER_SHIM: &str = r#"
 const KEYCHAIN_SHIM: &str = r#"
 (function () {
   try {
+    // This window shows one origin, the app's own (main.rs APP_ORIGIN), which
+    // the shell names next to the boot values. The init script runs on every
+    // top-level page, so on any other origin nothing is handed over and
+    // nothing is installed: no cache, no storage override, no window.name.
+    var origins = window.__LOCA_KC_ORIGINS__;
+    try { delete window.__LOCA_KC_ORIGINS__; } catch (e) {}
+    if (!Array.isArray(origins) || origins.indexOf(location.origin) === -1) {
+      try { delete window.__LOCA_KC_BOOT__; } catch (e) {}
+      return;
+    }
     var KC_KEYS = ["loca-seat", "loca-admin-session"];
     var boot = window.__LOCA_KC_BOOT__ || {};
     var cache = {};
@@ -617,19 +995,92 @@ const KEYCHAIN_SHIM: &str = r#"
       var fn = (t && t.core && t.core.invoke) || (t && t.invoke);
       return fn ? fn : null;
     }
-    function isKc(k) { return KC_KEYS.indexOf(k) !== -1; }
+    // Only localStorage holds the credentials. The override sits on
+    // Storage.prototype, which sessionStorage shares; the web UI clears a
+    // legacy sessionStorage copy right after saving the localStorage one
+    // (state.js), and that must not delete the credential it just saved.
+    function isKc(store, k) { return store === window.localStorage && KC_KEYS.indexOf(k) !== -1; }
 
     var proto = window.Storage && window.Storage.prototype;
     if (!proto) return; // no Web Storage -> nothing to guard
     var rawGet = proto.getItem, rawSet = proto.setItem, rawRemove = proto.removeItem;
 
+    // The boot values are the shell's one-time hand-over to this window: what
+    // it read from the keychain when the window was built. The init script
+    // brings back exactly those on every load of the page, so only the first
+    // load may take them. After that the window's current values are the ones
+    // its page last stored, kept in its own sessionStorage (in memory, this
+    // window only, gone with it): the web UI reloads itself when its server
+    // restarts and must come back as whoever is signed in now, not as whoever
+    // was at launch.
+    //
+    // Two records say which load this is, and each checks the other: a
+    // counter in window.name (it survives a reload of this window, and
+    // assigning it cannot fail on a full or refused storage) and the kept
+    // copy, stored under the same counter. Every change moves the counter and
+    // stores the copy again. The hand-over is taken only when sessionStorage
+    // can be read and neither record exists: a new window. Matching records
+    // give the kept copy. Anything else (a copy that could not be stored, a
+    // cleared name next to a kept copy, a counter with no copy or another
+    // one's, sessionStorage unreadable) starts signed out and says why. It
+    // never falls back to the launch-time values or to an older copy: either
+    // may be someone who signed out since. The keychain still gets every
+    // change (kc_set, kc_delete) for the next launch.
+    var LIVE = "loca-desktop-credentials", MARK = "loca-desktop-credentials:";
+    var generation = 0, lost = false;
+    function keep() {
+      generation += 1;
+      try { window.name = MARK + generation; } catch (e) {}
+      try {
+        rawSet.call(window.sessionStorage, LIVE, JSON.stringify({ generation: generation, values: cache }));
+      } catch (e) { /* the counters stay apart: the next load starts signed out */ }
+    }
+    var marked = typeof window.name === "string" && window.name.indexOf(MARK) === 0;
+    var mark = marked ? Number(window.name.slice(MARK.length)) : NaN;
+    var kept, readable = false;
+    try { kept = rawGet.call(window.sessionStorage, LIVE); readable = true; } catch (e) {}
+    if (readable && !marked && kept == null) {
+      keep(); // a new window: the hand-over, recorded as taken
+    } else {
+      cache = {};
+      lost = true;
+      var live = null;
+      try { live = JSON.parse(kept); } catch (e) {}
+      if (mark > 0 && live && live.generation === mark && live.values && typeof live.values === "object") {
+        KC_KEYS.forEach(function (k) { if (typeof live.values[k] === "string") cache[k] = live.values[k]; });
+        generation = mark;
+        lost = false;
+      }
+      if (lost) {
+        // Start from nothing and record that, past both counters: if this
+        // record cannot be stored either, the next load is lost again rather
+        // than matching an older copy.
+        generation = Math.max(mark > 0 ? mark : 0, live && live.generation > 0 ? live.generation : 0);
+        keep();
+      }
+    }
+    // Why this load starts signed out, kept for the sign-in view until the
+    // person signs in again (a credential is stored, below): the web UI shows
+    // it instead of its general door text (state.js lockRefusedSession).
+    if (lost) {
+      window.__LOCA_SIGNIN_NOTICE__ = "this window could not keep your sign-in across a reload, so it is signed out. Sign in again, or restart the app.";
+      window.addEventListener("DOMContentLoaded", function () {
+        try {
+          var door = document.getElementById("doorline");
+          if (door && window.__LOCA_SIGNIN_NOTICE__) door.textContent = window.__LOCA_SIGNIN_NOTICE__;
+        } catch (e) {}
+      });
+    }
+
     proto.getItem = function (k) {
-      if (isKc(k)) return Object.prototype.hasOwnProperty.call(cache, k) ? cache[k] : null;
+      if (isKc(this, k)) return Object.prototype.hasOwnProperty.call(cache, k) ? cache[k] : null;
       return rawGet.call(this, k);
     };
     proto.setItem = function (k, v) {
-      if (isKc(k)) {
+      if (isKc(this, k)) {
         cache[k] = String(v);
+        keep();
+        try { window.__LOCA_SIGNIN_NOTICE__ = null; } catch (e) {} // signed in again
         var fn = invoke();
         // If Tauri invoke isn't ready yet, keep it in the session cache only;
         // it is NEVER written to plain localStorage (no plaintext on disk).
@@ -639,8 +1090,9 @@ const KEYCHAIN_SHIM: &str = r#"
       return rawSet.call(this, k, v);
     };
     proto.removeItem = function (k) {
-      if (isKc(k)) {
+      if (isKc(this, k)) {
         delete cache[k];
+        keep();
         var fn = invoke();
         if (fn) { try { fn("kc_delete", { key: k }).catch(function () {}); } catch (e) {} }
         return;
@@ -761,7 +1213,8 @@ fn main() {
             kc_set,
             kc_get,
             kc_delete,
-            notify
+            notify,
+            host_master_session
         ])
         .setup(|app| {
             // Standalone flavor: boot the local room-server BEFORE the window,
@@ -779,6 +1232,7 @@ fn main() {
                                 app.manage(standalone::ServerProc {
                                     child: std::sync::Mutex::new(Some(child)),
                                 });
+                                standalone::supervise(app.handle().clone());
                                 (Some(base), serde_json::json!({ "state": "ready" }), Some(session))
                             }
                             Err(e) => {
@@ -802,7 +1256,12 @@ fn main() {
                 }
                 Err(e) => {
                     eprintln!("bundled room-server failed to start: {e}");
-                    (None, serde_json::json!({ "state": "error", "stage": "server_start" }), None)
+                    let stage = if e.starts_with(standalone::KEYCHAIN_FAILED) {
+                        "keychain"
+                    } else {
+                        "server_start"
+                    };
+                    (None, serde_json::json!({ "state": "error", "stage": stage }), None)
                 }
             };
             #[cfg(not(feature = "bundled-server"))]
@@ -834,10 +1293,11 @@ fn main() {
             let boot_json = serde_json::to_string(&serde_json::Value::Object(boot))
                 .unwrap_or_else(|_| "{}".to_string());
             // Standalone points the UI at the just-booted local server (dynamic
-            // port); if it failed to start, fall back to the baked default. The
-            // client flavor always uses the build-time baked default.
+            // port); if it failed to start, at none (the page then shows the
+            // failure and talks to nobody). The client flavor always uses the
+            // build-time baked default.
             #[cfg(feature = "bundled-server")]
-            let effective_default = standalone_url.as_deref().unwrap_or(DEFAULT_SERVER);
+            let effective_default = standalone::page_server(standalone_url.as_deref());
             #[cfg(not(feature = "bundled-server"))]
             let effective_default = DEFAULT_SERVER;
             let default_server = serde_json::to_string(effective_default)
@@ -848,6 +1308,13 @@ fn main() {
             let lock_server = "true";
             #[cfg(not(feature = "bundled-server"))]
             let lock_server = "false";
+            // The Host's window belongs to the Host's owner, the Master, with or
+            // without a Master session yet: the Getting Started guide opens its
+            // Host view there at once (web/assets/getstarted.js isHostContext).
+            #[cfg(feature = "bundled-server")]
+            let is_host = "true";
+            #[cfg(not(feature = "bundled-server"))]
+            let is_host = "false";
             // Extract the embedded skill library to a versioned, read-only local
             // path so an agent can install a skill straight from disk — no server,
             // no network. On failure we do NOT hide the reason: the error is
@@ -896,20 +1363,28 @@ fn main() {
             let host_provisioning_json = serde_json::to_string(&host_provisioning)
                 .unwrap_or_else(|_| "{\"state\":\"error\",\"stage\":\"bootstrap\"}".to_string());
 
+            // The keychain values are written into the page only on the app's own
+            // origin; the script runs on every top-level page of the window.
+            let origins_json =
+                serde_json::to_string(&[APP_ORIGIN]).unwrap_or_else(|_| "[]".to_string());
             let init = format!(
-                "window.__LOCA_LOCK_SERVER__ = {lock_server};\n\
+                "window.__LOCA_HOST__ = {is_host};\n\
+                 window.__LOCA_LOCK_SERVER__ = {lock_server};\n\
                  window.__LOCA_DEFAULT_SERVER__ = {default_server};\n\
                  window.__LOCA_SKILL_LIBRARY__ = {skill_library_json};\n\
                  window.__LOCA_SKILL_LIBRARY_ERROR__ = {skill_library_error_json};\n\
                  window.__LOCA_HOST_PROVISIONING__ = {host_provisioning_json};\n\
-                 window.__LOCA_KC_BOOT__ = {boot_json};\n{KEYCHAIN_SHIM}\n{SERVER_SHIM}\n{NOTIFY_SHIM}"
+                 (function () {{ var o = {origins_json}; if (o.indexOf(location.origin) === -1) return;\n\
+                   window.__LOCA_KC_ORIGINS__ = o; window.__LOCA_KC_BOOT__ = {boot_json}; }})();\n\
+                 {KEYCHAIN_SHIM}\n{SERVER_SHIM}\n{NOTIFY_SHIM}"
             );
 
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+            WebviewWindowBuilder::new(app, MAIN_WINDOW, WebviewUrl::default())
                 .title("Loca")
                 .inner_size(1100.0, 760.0)
                 .min_inner_size(720.0, 520.0)
                 .initialization_script(&init)
+                .on_navigation(may_navigate)
                 .build()?;
             Ok(())
         })
@@ -932,6 +1407,40 @@ fn main() {
 mod admin_token_boundary {
     use super::*;
 
+    #[test]
+    fn the_window_navigates_only_within_the_app_origin() {
+        let own = |path: &str| tauri::Url::parse(&format!("{APP_ORIGIN}{path}")).unwrap();
+        assert!(may_navigate(&own("/")));
+        assert!(may_navigate(&own("/index.html?x=1#y")));
+        assert!(may_navigate(&tauri::Url::parse(APP_ORIGIN).unwrap()));
+        // A blob the page itself made (an attachment saved or opened).
+        let own_blob = format!("blob:{APP_ORIGIN}/0b5c1f2e-3d4a-4b6c-8d7e-9f0a1b2c3d4e");
+        assert!(may_navigate(&tauri::Url::parse(&own_blob).unwrap()));
+        for other in [
+            "blob:https://loca.speakbetter.tech/0b5c1f2e-3d4a-4b6c-8d7e-9f0a1b2c3d4e",
+            "blob:http://127.0.0.1:8787/0b5c1f2e-3d4a-4b6c-8d7e-9f0a1b2c3d4e",
+            "blob:null/0b5c1f2e-3d4a-4b6c-8d7e-9f0a1b2c3d4e",
+            "https://loca.speakbetter.tech/",
+            "http://127.0.0.1:8787/",
+            "http://tauri.localhost.example.com/",
+            "tauri://localhost.evil/",
+            "about:blank",
+            "file:///etc/passwd",
+        ] {
+            assert!(
+                !may_navigate(&tauri::Url::parse(other).unwrap()),
+                "must refuse {other}"
+            );
+        }
+        // The other OS's spelling of the app origin is someone else's here.
+        let elsewhere = if cfg!(windows) {
+            "tauri://localhost/"
+        } else {
+            "http://tauri.localhost/"
+        };
+        assert!(!may_navigate(&tauri::Url::parse(elsewhere).unwrap()));
+    }
+
     // The Host's local ADMIN_TOKEN lives in the OS keychain under this key
     // (standalone::ADMIN_KEY). The raw master token must stay in Rust/keychain and
     // NEVER cross to the webview, the process argv, chat, or logs. These two
@@ -941,6 +1450,16 @@ mod admin_token_boundary {
     // is the read fence. (argv: the token is handed to the child via Command::env,
     // never an argument; chat/log: the desktop never posts or logs the token.)
     const ADMIN_TOKEN_KEY: &str = "loca-local-admin"; // must match standalone::ADMIN_KEY
+
+    // The Host's Master session is renewed for the window the shell builds
+    // and for no other label: a window added later must be let in on purpose.
+    #[test]
+    fn the_host_session_is_given_only_to_the_main_window() {
+        assert!(is_host_window(MAIN_WINDOW));
+        for other in ["", "Main", "main ", "main2", "settings", "popup"] {
+            assert!(!is_host_window(other), "must refuse window {other:?}");
+        }
+    }
 
     #[test]
     fn admin_token_key_is_not_mirrored_into_the_webview() {

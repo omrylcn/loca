@@ -5,3 +5,8 @@ useDefault = true
 description = "RFC 6455 example Sec-WebSocket-Key used by the historical smoke test"
 regexTarget = "secret"
 regexes = ['''^dGhlIHNhbXBsZQ==$''']
+
+[[allowlists]]
+description = "Synthetic keys, hashes and join-request secrets in the v0.13.0 upgrade fixture (crates/server/tests/fixtures/upgrade-v0.13.0/README.md)"
+targetRules = ["generic-api-key"]
+paths = ['''^crates/server/tests/fixtures/upgrade-v0\.13\.0/(v0\.13\.0\.sql|expected\.json)$''']

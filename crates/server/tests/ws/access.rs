@@ -198,10 +198,10 @@ async fn sessions_bind_identity_and_can_be_required() {
     assert_eq!(r.status(), 401);
 }
 
-/// A davet opens ONE loca. This is the rule the whole invitation model rests
+/// An invite opens ONE loca. This is the rule the whole invitation model rests
 /// on: the master lets you into a room, not into the building's every room.
 #[tokio::test]
-async fn davet_opens_one_loca_only() {
+async fn invite_opens_one_loca_only() {
     let (port, _guard) = spawn_server_env("master", &[("ROOM_TOKEN", "building".into())]).await;
     for room in ["mobile", "general"] {
         create_test_room(port, "master", room).await;
@@ -222,16 +222,16 @@ async fn davet_opens_one_loca_only() {
             .unwrap();
     }
 
-    // The master issues a davet for `mobile` — and only the master can.
+    // The master issues an invite for `mobile` — and only the master can.
     let refused = client
         .post(format!("{base}/rooms/mobile/invites"))
         .json(&serde_json::json!({ "name": "sb-feature" }))
         .send()
         .await
         .unwrap();
-    assert_eq!(refused.status(), 401, "only the master issues a davet");
+    assert_eq!(refused.status(), 401, "only the master issues an invite");
 
-    // A davet seats a member — admit first, then invite.
+    // An invite seats a member — admit first, then invite.
     admit(&base, "master", "sb-feature", "agent").await;
     let inv: Value = client
         .post(format!("{base}/rooms/mobile/invites"))
@@ -243,20 +243,20 @@ async fn davet_opens_one_loca_only() {
         .json()
         .await
         .unwrap();
-    let davet = inv["token"].as_str().unwrap().to_string();
+    let invite = inv["token"].as_str().unwrap().to_string();
     assert_eq!(inv["room"], "mobile");
 
     // Its own loca: open, for reading and for speaking.
     let r = client
         .get(format!("{base}/rooms/mobile/messages"))
-        .header("x-room-token", &davet)
+        .header("x-room-token", &invite)
         .send()
         .await
         .unwrap();
-    assert_eq!(r.status(), 200, "a davet opens its own loca");
+    assert_eq!(r.status(), 200, "an invite opens its own loca");
     let w = client
         .post(format!("{base}/rooms/mobile/messages"))
-        .header("x-room-token", &davet)
+        .header("x-room-token", &invite)
         .json(
             &serde_json::json!({ "sender": "sb-feature", "sender_type": "agent", "text": "hello" }),
         )
@@ -265,7 +265,7 @@ async fn davet_opens_one_loca_only() {
         .unwrap();
     assert!(
         w.status().is_success(),
-        "a davet lets you speak in your loca"
+        "an invite lets you speak in your loca"
     );
 
     // The loca next door: shut. Reading included — a room's history is the
@@ -278,27 +278,30 @@ async fn davet_opens_one_loca_only() {
     ] {
         let r = client
             .get(format!("{base}{path}"))
-            .header("x-room-token", &davet)
+            .header("x-room-token", &invite)
             .send()
             .await
             .unwrap();
-        assert_eq!(r.status(), 401, "a mobile davet must not open {path}");
+        assert_eq!(r.status(), 401, "a mobile invite must not open {path}");
     }
     let w = client
         .post(format!("{base}/rooms/general/messages"))
-        .header("x-room-token", &davet)
+        .header("x-room-token", &invite)
         .json(
             &serde_json::json!({ "sender": "sb-feature", "sender_type": "agent", "text": "leak" }),
         )
         .send()
         .await
         .unwrap();
-    assert_eq!(w.status(), 401, "a mobile davet must not speak in general");
+    assert_eq!(w.status(), 401, "a mobile invite must not speak in general");
 
-    // Revoking ends it — the davet is the invitation, so taking it back is
+    // Revoking ends it — the invite is the invitation, so taking it back is
     // taking the invitation back.
     let del = client
-        .delete(format!("{base}/rooms/mobile/invites/{davet}"))
+        .delete(format!(
+            "{base}/rooms/mobile/invites/{}",
+            invite_ref(&invite)
+        ))
         .header("x-admin-token", "master")
         .send()
         .await
@@ -306,18 +309,18 @@ async fn davet_opens_one_loca_only() {
     assert!(del.status().is_success());
     let after = client
         .get(format!("{base}/rooms/mobile/messages"))
-        .header("x-room-token", &davet)
+        .header("x-room-token", &invite)
         .send()
         .await
         .unwrap();
-    assert_eq!(after.status(), 401, "a revoked davet opens nothing");
+    assert_eq!(after.status(), 401, "a revoked invite opens nothing");
 }
 
-/// Taking a session must not widen a davet. The invited need an identity to
-/// speak at all, so `/sessions` accepts a davet — but the session it hands
-/// back reaches exactly one loca, otherwise the davet would mean nothing.
+/// Taking a session must not widen an invite. The invited need an identity to
+/// speak at all, so `/sessions` accepts an invite — but the session it hands
+/// back reaches exactly one loca, otherwise the invite would mean nothing.
 #[tokio::test]
-async fn a_session_never_widens_a_davet() {
+async fn a_session_never_widens_an_invite() {
     let (port, _guard) = spawn_server_env("master", &[("ROOM_TOKEN", "building".into())]).await;
     for room in ["mobile", "general"] {
         create_test_room(port, "master", room).await;
@@ -325,13 +328,13 @@ async fn a_session_never_widens_a_davet() {
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
-    let davet_owned = davet_for(&base, "master", "mobile", "sb-feature").await;
-    let davet = davet_owned.as_str();
+    let invite_owned = invite_for(&base, "master", "mobile", "sb-feature").await;
+    let invite = invite_owned.as_str();
 
     // The invited can take an identity — refusing this would leave them mute.
     let sess: Value = client
         .post(format!("{base}/sessions"))
-        .header("x-room-token", davet)
+        .header("x-room-token", invite)
         .json(&serde_json::json!({ "name": "sb-feature", "kind": "agent" }))
         .send()
         .await
@@ -347,7 +350,7 @@ async fn a_session_never_widens_a_davet() {
         .send()
         .await
         .unwrap();
-    assert_eq!(own.status(), 200, "the session opens the davet's loca");
+    assert_eq!(own.status(), 200, "the session opens the invite's loca");
 
     let other = client
         .get(format!("{base}/rooms/general/messages"))
@@ -386,7 +389,7 @@ async fn a_session_never_widens_a_davet() {
 }
 
 /// The browser connects with a session and no ?token=. If the WS door judges
-/// the davet before reading the session, every seated operator is turned away
+/// the invite before reading the session, every seated operator is turned away
 /// — which is exactly what happened on prod: join/leave twice a second, the
 /// page reloading forever.
 #[tokio::test]
@@ -419,7 +422,7 @@ async fn a_session_alone_opens_the_ws_door() {
     assert_eq!(frame["t"], "history");
 }
 
-/// A smaster is a second master: everything a master does — issue davets, run
+/// A smaster is a second master: everything a master does — issue invites, run
 /// a loca — except that the master has the last word. So a smaster cannot undo
 /// what the master decided, and cannot appoint another smaster.
 #[tokio::test]
@@ -451,7 +454,7 @@ async fn a_smaster_does_everything_but_the_master_has_the_last_word() {
         .unwrap();
     let key = sm["token"].as_str().unwrap().to_string();
 
-    // Everything a master does. (The members exist first — a davet seats a
+    // Everything a master does. (The members exist first — an invite seats a
     // member, for smasters exactly as for the master.)
     admit(&base, "MASTER", "veli", "agent").await;
     admit(&base, "MASTER", "ali", "agent").await;
@@ -467,13 +470,13 @@ async fn a_smaster_does_everything_but_the_master_has_the_last_word() {
         .unwrap();
     assert!(
         own["token"].as_str().unwrap().starts_with("dv_"),
-        "a smaster issues davets"
+        "a smaster issues invites"
     );
 
     let mine = client
         .delete(format!(
             "{base}/rooms/general/invites/{}",
-            own["token"].as_str().unwrap()
+            own["id"].as_str().unwrap()
         ))
         .header("x-admin-token", &key)
         .send()
@@ -492,7 +495,7 @@ async fn a_smaster_does_everything_but_the_master_has_the_last_word() {
         .json()
         .await
         .unwrap();
-    let mtoken = masters["token"].as_str().unwrap();
+    let mtoken = masters["id"].as_str().unwrap();
 
     let blocked = client
         .delete(format!("{base}/rooms/general/invites/{mtoken}"))
@@ -503,7 +506,7 @@ async fn a_smaster_does_everything_but_the_master_has_the_last_word() {
     assert_eq!(
         blocked.status(),
         403,
-        "the master's davet is the master's to end"
+        "the master's invite is the master's to end"
     );
 
     let allowed = client
@@ -551,7 +554,7 @@ async fn a_smaster_does_everything_but_the_master_has_the_last_word() {
 #[tokio::test]
 async fn the_hierarchy_holds_at_every_door() {
     let (port, _guard) = spawn_server_env("MASTER", &[("ROOM_TOKEN", "building".into())]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
@@ -567,10 +570,10 @@ async fn the_hierarchy_holds_at_every_door() {
         .unwrap();
     let smaster = sm["token"].as_str().unwrap().to_string();
 
-    // A smaster reaches every loca without a davet — they are meant to run any
+    // A smaster reaches every loca without an invite — they are meant to run any
     // room, so being stopped at the door would make the title hollow.
     let reach = client
-        .get(format!("{base}/rooms/oda/messages"))
+        .get(format!("{base}/rooms/parlor/messages"))
         .header("x-admin-token", &smaster)
         .send()
         .await
@@ -582,12 +585,12 @@ async fn the_hierarchy_holds_at_every_door() {
     );
 
     // A loca operator's authority stops at their own door: no membership, no
-    // davets, no smasters, and no writing themselves further powers.
+    // invites, no smasters, and no writing themselves further powers.
     for (method, path, body) in [
         ("POST", "/members", serde_json::json!({ "name": "x" })),
         (
             "POST",
-            "/rooms/oda/invites",
+            "/rooms/parlor/invites",
             serde_json::json!({ "name": "x" }),
         ),
         ("POST", "/smasters", serde_json::json!({ "name": "x" })),
@@ -611,7 +614,7 @@ async fn the_hierarchy_holds_at_every_door() {
     let set_lead = |token: String, who: &'static str| {
         let (c, b) = (client.clone(), base.clone());
         async move {
-            c.post(format!("{b}/rooms/oda/lead"))
+            c.post(format!("{b}/rooms/parlor/lead"))
                 .header("x-admin-token", token)
                 .json(&serde_json::json!({ "lead": who }))
                 .send()
@@ -623,7 +626,7 @@ async fn the_hierarchy_holds_at_every_door() {
         let (c, b) = (client.clone(), base.clone());
         async move {
             let s: Value = c
-                .get(format!("{b}/rooms/oda/settings"))
+                .get(format!("{b}/rooms/parlor/settings"))
                 .header("x-admin-token", "MASTER")
                 .send()
                 .await
@@ -650,10 +653,10 @@ async fn the_hierarchy_holds_at_every_door() {
     );
 }
 
-/// THE core smoke test: davet-only mode (no building key). This is prod.
+/// THE core smoke test: invite-only mode (no building key). This is prod.
 /// Every combination of who × where × how, checked at once.
 #[tokio::test]
-async fn door_matrix_davet_only_mode() {
+async fn door_matrix_invite_only_mode() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
     create_test_room(port, "MASTER", "general").await;
     create_test_room(port, "MASTER", "sb-dev").await;
@@ -671,17 +674,17 @@ async fn door_matrix_davet_only_mode() {
             .unwrap();
     }
 
-    // cyber holds a davet for general only.
-    let cyber_davet = davet_for(&base, "MASTER", "general", "cyber").await;
+    // cyber holds an invite for general only.
+    let cyber_invite = invite_for(&base, "MASTER", "general", "cyber").await;
     let cyber_session = session_with(
         &base,
-        ("x-room-token", &cyber_davet),
+        ("x-room-token", &cyber_invite),
         "cyber",
         Some("general"),
     )
     .await;
 
-    // --- MASTER: every loca, no davet, both channels ---
+    // --- MASTER: every loca, no invite, both channels ---
     assert_eq!(
         rest_can(&base, "general", &[("x-admin-token", "MASTER")]).await,
         200,
@@ -699,14 +702,14 @@ async fn door_matrix_davet_only_mode() {
 
     // --- cyber: their own loca opens, the neighbour's does not (THE bug) ---
     assert_eq!(
-        rest_can(&base, "general", &[("x-room-token", &cyber_davet)]).await,
+        rest_can(&base, "general", &[("x-room-token", &cyber_invite)]).await,
         200,
-        "cyber davet -> general"
+        "cyber invite -> general"
     );
     assert_eq!(
-        rest_can(&base, "sb-dev", &[("x-room-token", &cyber_davet)]).await,
+        rest_can(&base, "sb-dev", &[("x-room-token", &cyber_invite)]).await,
         401,
-        "cyber davet -> sb-dev shut"
+        "cyber invite -> sb-dev shut"
     );
     // The exact hole: a building-key-less session must NOT open another loca.
     assert_eq!(
@@ -725,8 +728,8 @@ async fn door_matrix_davet_only_mode() {
         "cyber session -> general"
     );
     assert!(
-        ws_can(port, "general", &format!("token={cyber_davet}")).await,
-        "cyber davet WS -> general"
+        ws_can(port, "general", &format!("token={cyber_invite}")).await,
+        "cyber invite WS -> general"
     );
 
     // --- stranger: nothing ---
@@ -787,74 +790,74 @@ async fn door_matrix_building_key_mode() {
         "building-key session WS reaches any loca"
     );
 
-    // A davet still scopes to one loca even here.
-    let davet = davet_for(&base, "MASTER", "general", "cyber").await;
-    let scoped = session_with(&base, ("x-room-token", &davet), "cyber", Some("general")).await;
+    // An invite still scopes to one loca even here.
+    let invite = invite_for(&base, "MASTER", "general", "cyber").await;
+    let scoped = session_with(&base, ("x-room-token", &invite), "cyber", Some("general")).await;
     assert_eq!(
         rest_can(&base, "sb-dev", &[("x-session-token", &scoped)]).await,
         401,
-        "a davet-scoped session stays in its loca even in key mode"
+        "an invite-scoped session stays in its loca even in key mode"
     );
 }
 
 /// A banned name must stay out even holding a valid session token — the ban is
 /// judged against the session's own name (enter_decision resolves it there),
-/// not only against a davet or a ?name= query. In davet-only prod a session is
+/// not only against an invite or a ?name= query. In invite-only prod a session is
 /// the common credential, so this is the path that matters.
 #[tokio::test]
 async fn a_ban_holds_against_a_valid_session() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     client
-        .post(format!("{base}/rooms/oda/messages"))
+        .post(format!("{base}/rooms/parlor/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "m", "sender_type": "user", "text": "hi" }))
         .send()
         .await
         .unwrap();
 
-    // kotu holds a davet and a session scoped to oda.
-    let davet = davet_for(&base, "MASTER", "oda", "kotu").await;
-    let sess = session_with(&base, ("x-room-token", &davet), "kotu", Some("oda")).await;
+    // rogue holds an invite and a session scoped to parlor.
+    let invite = invite_for(&base, "MASTER", "parlor", "rogue").await;
+    let sess = session_with(&base, ("x-room-token", &invite), "rogue", Some("parlor")).await;
     assert_eq!(
-        rest_can(&base, "oda", &[("x-session-token", &sess)]).await,
+        rest_can(&base, "parlor", &[("x-session-token", &sess)]).await,
         200,
         "before ban: session works"
     );
 
     // Ban the name. The session token is still valid, but the name is barred.
     client
-        .post(format!("{base}/rooms/oda/moderate"))
+        .post(format!("{base}/rooms/parlor/moderate"))
         .header("x-admin-token", "MASTER")
-        .json(&serde_json::json!({ "action": "ban", "name": "kotu" }))
+        .json(&serde_json::json!({ "action": "ban", "name": "rogue" }))
         .send()
         .await
         .unwrap();
 
     assert_eq!(
-        rest_can(&base, "oda", &[("x-session-token", &sess)]).await,
+        rest_can(&base, "parlor", &[("x-session-token", &sess)]).await,
         401,
-        "a ban holds against the session's own name, not just davet/?name="
+        "a ban holds against the session's own name, not just invite/?name="
     );
     assert!(
-        !ws_can(port, "oda", &format!("session={sess}")).await,
+        !ws_can(port, "parlor", &format!("session={sess}")).await,
         "and the same over WS"
     );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FAZ 1 — anayasa uyumu: izolasyon, watcher, ban kalıcılığı, dirilme,
-// kick-durdurur-daveti, release-hayalet-bırakmaz.
+// PHASE 1 — constitution compliance: isolation, watcher, ban persistence, revival,
+// kick-stops-the-invite, release-leaves-no-ghost.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A davet for one loca cannot read another loca's internals — mode, settings,
+/// An invite for one loca cannot read another loca's internals — mode, settings,
 /// moderation lists, a note by key, or the task list. This is the isolation
 /// leak the RoomAccess extractor closes: any of these used to answer to any
-/// davet holder regardless of which loca it opened.
+/// invite holder regardless of which loca it opened.
 #[tokio::test]
-async fn a_davet_for_one_loca_cannot_read_another() {
+async fn an_invite_for_one_loca_cannot_read_another() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
     create_test_room(port, "MASTER", "mine").await;
     create_test_room(port, "MASTER", "yours").await;
@@ -870,7 +873,7 @@ async fn a_davet_for_one_loca_cannot_read_another() {
             .await
             .unwrap();
     }
-    let d = davet_for(&base, "MASTER", "mine", "cyber").await;
+    let d = invite_for(&base, "MASTER", "mine", "cyber").await;
     // Its own loca: readable.
     let own = client
         .get(format!("{base}/rooms/mine/mode"))
@@ -878,7 +881,7 @@ async fn a_davet_for_one_loca_cannot_read_another() {
         .send()
         .await
         .unwrap();
-    assert_eq!(own.status(), 200, "a davet reads its own loca's mode");
+    assert_eq!(own.status(), 200, "an invite reads its own loca's mode");
     // The loca next door: every member-level read protected by RoomAccess is
     // shut. Keep this list broad so a future route cannot silently fall back
     // to the building-wide middleware and leak another loca.
@@ -903,7 +906,7 @@ async fn a_davet_for_one_loca_cannot_read_another() {
             .send()
             .await
             .unwrap();
-        assert_eq!(r.status(), 401, "a mine-davet must not read yours/{path}");
+        assert_eq!(r.status(), 401, "a mine-invite must not read yours/{path}");
     }
     // The same invariant covers every ordinary member mutation. Bodies are
     // intentionally minimal: RoomAccess must reject the request before a
@@ -932,11 +935,11 @@ async fn a_davet_for_one_loca_cannot_read_another() {
         assert_eq!(
             r.status(),
             401,
-            "a mine-davet must not {} yours/{path}",
+            "a mine-invite must not {} yours/{path}",
             method.as_str()
         );
     }
-    // And the loca list shows only what the davet opens.
+    // And the loca list shows only what the invite opens.
     let rooms: Vec<Value> = client
         .get(format!("{base}/rooms"))
         .header("x-room-token", &d)
@@ -957,17 +960,21 @@ async fn a_davet_for_one_loca_cannot_read_another() {
 #[tokio::test]
 async fn a_watcher_cannot_speak() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     // A real member is seated to receive.
-    let mut member = connect_ws(port, "oda", "member", "agent").await;
+    let mut member = connect_ws(port, "parlor", "member", "agent").await;
     let _ = wait_for(&mut member, |v| v["t"] == "history").await;
     // A watcher joins and tries to speak.
     let (mut watcher, _) = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{port}/ws?room=oda&name=ghost&type=agent&watch=1"
+        "ws://127.0.0.1:{port}/ws?room=parlor&name=ghost&type=agent&watch=1"
     ))
     .await
     .unwrap();
+    // A watcher's history arrives after its connection reached the room (and
+    // would have taken a seat, if it wrongly did). Only then do the silence
+    // window and the roster check below say anything.
+    let _ = wait_for(&mut watcher, |v| v["t"] == "history").await;
     use futures_util::SinkExt;
     watcher
         .send(tokio_tungstenite::tungstenite::Message::Text(
@@ -993,7 +1000,7 @@ async fn a_watcher_cannot_speak() {
     assert!(!heard, "a watcher's words never reach the table");
     // And it never took a seat.
     let members: Vec<Value> = reqwest::Client::new()
-        .get(format!("{base}/rooms/oda/members"))
+        .get(format!("{base}/rooms/parlor/members"))
         .header("x-admin-token", "MASTER")
         .send()
         .await
@@ -1014,11 +1021,11 @@ async fn a_watcher_cannot_speak() {
 #[tokio::test]
 async fn a_seat_change_never_evicts_a_watcher_on_the_same_identity() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
-    create_test_room(port, "MASTER", "kapi").await;
+    create_test_room(port, "MASTER", "portal").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let (mut watcher, _) = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{port}/ws?room=kapi&name=boss&type=user&admin=MASTER&watch=1"
+        "ws://127.0.0.1:{port}/ws?room=portal&name=boss&type=user&admin=MASTER&watch=1"
     ))
     .await
     .unwrap();
@@ -1026,13 +1033,13 @@ async fn a_seat_change_never_evicts_a_watcher_on_the_same_identity() {
     // The same identity sits down in another tab, then again under a new label
     // — the second join evicts the first seat holder, never the watcher.
     let (mut seated, _) = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{port}/ws?room=kapi&name=boss&type=user&admin=MASTER"
+        "ws://127.0.0.1:{port}/ws?room=portal&name=boss&type=user&admin=MASTER"
     ))
     .await
     .unwrap();
     let _ = wait_for(&mut seated, |v| v["t"] == "history").await;
     let (mut renamed, _) = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{port}/ws?room=kapi&name=boss2&type=user&admin=MASTER"
+        "ws://127.0.0.1:{port}/ws?room=portal&name=boss2&type=user&admin=MASTER"
     ))
     .await
     .unwrap();
@@ -1040,7 +1047,7 @@ async fn a_seat_change_never_evicts_a_watcher_on_the_same_identity() {
     wait_for_member(
         &client,
         &base,
-        "kapi",
+        "portal",
         "boss2",
         Some(("x-admin-token", "MASTER")),
     )
@@ -1049,7 +1056,7 @@ async fn a_seat_change_never_evicts_a_watcher_on_the_same_identity() {
     let _ = wait_for(&mut seated, |v| v["t"] == "evicted").await;
     // The watcher still hears the table.
     let posted = client
-        .post(format!("{base}/rooms/kapi/messages"))
+        .post(format!("{base}/rooms/portal/messages"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "sender": "boss2", "sender_type": "user", "text": "still there?" }))
         .send()
@@ -1066,7 +1073,7 @@ async fn a_seat_change_never_evicts_a_watcher_on_the_same_identity() {
     );
     // And it never appeared in the roster.
     let members: Vec<Value> = client
-        .get(format!("{base}/rooms/kapi/members"))
+        .get(format!("{base}/rooms/portal/members"))
         .header("x-admin-token", "MASTER")
         .send()
         .await
@@ -1078,20 +1085,20 @@ async fn a_seat_change_never_evicts_a_watcher_on_the_same_identity() {
     drop(renamed);
 }
 
-/// Revoking a DAVET kills the session minted from it: the old session token no
+/// Revoking an INVITE kills the session minted from it: the old session token no
 /// longer opens the loca. The door is shut in fact, not just on paper.
 #[tokio::test]
-async fn revoking_a_davet_kills_its_session() {
+async fn revoking_an_invite_kills_its_session() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_INVITE", "1".into())]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    let d = davet_for(&base, "MASTER", "oda", "cyber").await;
+    let d = invite_for(&base, "MASTER", "parlor", "cyber").await;
     let st = session_with(&base, ("x-room-token", &d), "cyber", None).await;
     // The session opens the loca.
     assert_eq!(
         client
-            .get(format!("{base}/rooms/oda/messages"))
+            .get(format!("{base}/rooms/parlor/messages"))
             .header("x-session-token", &st)
             .send()
             .await
@@ -1099,38 +1106,38 @@ async fn revoking_a_davet_kills_its_session() {
             .status(),
         200
     );
-    // Revoke the davet.
+    // Revoke the invite.
     client
-        .delete(format!("{base}/rooms/oda/invites/{d}"))
+        .delete(format!("{base}/rooms/parlor/invites/{}", invite_ref(&d)))
         .header("x-admin-token", "MASTER")
         .send()
         .await
         .unwrap();
-    // The session is dead too — cascade, not just the davet.
+    // The session is dead too — cascade, not just the invite.
     assert_eq!(
         client
-            .get(format!("{base}/rooms/oda/messages"))
+            .get(format!("{base}/rooms/parlor/messages"))
             .header("x-session-token", &st)
             .send()
             .await
             .unwrap()
             .status(),
         401,
-        "a revoked davet's session stops working"
+        "a revoked invite's session stops working"
     );
 }
 
 /// A loca operator (not the master) runs their own loca's mode and moderation,
-/// and only their own (PRINCIPLES: operator manages mod/moderasyon).
+/// and only their own (PRINCIPLES: operator manages mode/moderation).
 #[tokio::test]
 async fn operator_manages_own_loca_not_others() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_SESSIONS", "1".into())]).await;
-    create_test_room(port, "MASTER", "oda1").await;
-    create_test_room(port, "MASTER", "oda2").await;
+    create_test_room(port, "MASTER", "parlor1").await;
+    create_test_room(port, "MASTER", "parlor2").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    // Two locas; "op" is operator of oda1 only.
-    for r in ["oda1", "oda2"] {
+    // Two locas; "op" is operator of parlor1 only.
+    for r in ["parlor1", "parlor2"] {
         client
             .post(format!("{base}/rooms/{r}/messages"))
             .header("x-admin-token", "MASTER")
@@ -1140,20 +1147,20 @@ async fn operator_manages_own_loca_not_others() {
             .unwrap();
     }
     client
-        .put(format!("{base}/rooms/oda1/settings"))
+        .put(format!("{base}/rooms/parlor1/settings"))
         .header("x-admin-token", "MASTER")
         .json(&serde_json::json!({ "operators": ["op"] }))
         .send()
         .await
         .unwrap();
-    // op is a real member with a davet — its session is its OWN identity, NOT an
+    // op is a real member with an invite — its session is its OWN identity, NOT an
     // admin session (that would make it master everywhere, which is the bug the
-    // admin-session work must not introduce). op is operator of oda1 only.
-    let d1 = davet_for(&base, "MASTER", "oda1", "op").await;
+    // admin-session work must not introduce). op is operator of parlor1 only.
+    let d1 = invite_for(&base, "MASTER", "parlor1", "op").await;
     let st = session_with(&base, ("x-room-token", &d1), "op", None).await;
     // op sets the mode in their own loca.
     let own = client
-        .put(format!("{base}/rooms/oda1/mode"))
+        .put(format!("{base}/rooms/parlor1/mode"))
         .header("x-session-token", &st)
         .json(&serde_json::json!({ "mode": { "mode": "paused" } }))
         .send()
@@ -1165,7 +1172,7 @@ async fn operator_manages_own_loca_not_others() {
     );
     // But not in a loca they don't operate.
     let other = client
-        .put(format!("{base}/rooms/oda2/mode"))
+        .put(format!("{base}/rooms/parlor2/mode"))
         .header("x-session-token", &st)
         .json(&serde_json::json!({ "mode": { "mode": "paused" } }))
         .send()
@@ -1242,8 +1249,8 @@ async fn master_pairing_is_one_use_and_logout_revokes_session() {
     let response = client
         .post(format!("{base}/sessions"))
         .header("x-pairing-code", code)
-        // A stale davet field cannot override the explicit master pairing.
-        .header("x-room-token", "stale-davet")
+        // A stale invite field cannot override the explicit master pairing.
+        .header("x-room-token", "stale-invite")
         .json(&serde_json::json!({ "name": "master", "kind": "user" }))
         .send()
         .await
@@ -1304,7 +1311,7 @@ async fn master_pairing_is_one_use_and_logout_revokes_session() {
 async fn admin_session_grants_admin_without_raw_key() {
     let (port, _g) = spawn_server_env("MASTER", &[]).await;
     create_test_room(port, "MASTER", "general").await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     // Exchange the master key for an admin session ONCE.
@@ -1331,11 +1338,11 @@ async fn admin_session_grants_admin_without_raw_key() {
         ok.status().is_success(),
         "an admin session grants admin without the raw key"
     );
-    // A NON-admin session (davet-scoped) does NOT grant admin.
-    let d = davet_for(&base, "MASTER", "oda", "cyber").await;
+    // A NON-admin session (invite-scoped) does NOT grant admin.
+    let d = invite_for(&base, "MASTER", "parlor", "cyber").await;
     let dsess = session_with(&base, ("x-room-token", &d), "cyber", None).await;
     let denied = client
-        .put(format!("{base}/rooms/oda/mode"))
+        .put(format!("{base}/rooms/parlor/mode"))
         .header("x-session-token", &dsess)
         .json(&serde_json::json!({ "mode": { "mode": "paused" } }))
         .send()
@@ -1344,7 +1351,7 @@ async fn admin_session_grants_admin_without_raw_key() {
     assert_eq!(
         denied.status(),
         401,
-        "a davet session is not an admin session"
+        "an invite session is not an admin session"
     );
     // The raw key still works too (the old path is not broken).
     let key_ok = client
@@ -1359,7 +1366,9 @@ async fn admin_session_grants_admin_without_raw_key() {
 
 /// A deploy restarts the process, not the master's working day. The browser's
 /// expiring admin stand-in survives through SQLite, while explicit logout is
-/// still final and stays revoked after another restart.
+/// still final and stays revoked after another restart. The database keeps
+/// the session under its token's hash, never the token, and logout removes
+/// that row.
 #[tokio::test]
 async fn admin_session_survives_restart_but_logout_survives_too() {
     let dir = tempfile::tempdir().unwrap();
@@ -1389,6 +1398,11 @@ async fn admin_session_survives_restart_but_logout_survives_too() {
             .unwrap();
         token = session["session_token"].as_str().unwrap().to_string();
     }
+    assert_eq!(
+        stored_admin_sessions(&db),
+        vec![session_hash(&token)],
+        "the row is keyed by the token's hash"
+    );
     {
         let (port, _g) = spawn_server_env(
             "MASTER",
@@ -1417,6 +1431,20 @@ async fn admin_session_survives_restart_but_logout_survives_too() {
                 .status(),
             204
         );
+        assert_eq!(
+            stored_admin_sessions(&db),
+            Vec::<String>::new(),
+            "logout of a restored session removes its row"
+        );
+        let revoked: bool = rusqlite::Connection::open(&db)
+            .unwrap()
+            .query_row(
+                "SELECT revoked_at IS NOT NULL FROM principal_sessions WHERE id = ?1",
+                [session_hash(&token)],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(revoked, "and revokes its principal session");
     }
     let (port, _g) =
         spawn_server_env("MASTER", &[("DB_PATH", db), ("REQUIRE_INVITE", "1".into())]).await;
@@ -1434,14 +1462,146 @@ async fn admin_session_survives_restart_but_logout_survives_too() {
     );
 }
 
-/// The prod scenario the first admin-session test MISSED: in davet-only mode
+/// SHA-256 of a session token, as hex: what the server stores in its place.
+fn session_hash(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// The keys of the persisted admin sessions, read from the database file.
+fn stored_admin_sessions(db: &str) -> Vec<String> {
+    let conn = rusqlite::Connection::open(db).unwrap();
+    let mut statement = conn
+        .prepare("SELECT secret_hash FROM admin_sessions ORDER BY secret_hash")
+        .expect("admin_sessions is keyed by the token's hash");
+    let rows = statement
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    rows
+}
+
+/// What the database keeps in place of a session token is not a session
+/// token: not over HTTP, not at the WebSocket door, not to sign out, and not
+/// after a restart, when the server has nothing but these hashes.
+#[tokio::test]
+async fn a_stored_session_hash_is_not_a_session_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("hash.db").to_string_lossy().to_string();
+    let env = [
+        ("DB_PATH", db.clone()),
+        ("REQUIRE_INVITE", "1".to_string()),
+        ("LEGACY_WS_QUERY_AUTH", "0".to_string()),
+    ];
+    let client = reqwest::Client::new();
+    let (port, guard) = spawn_server_env("MASTER", &env).await;
+    create_test_room(port, "MASTER", "general").await;
+    let pairing: Value = client
+        .post(format!("http://127.0.0.1:{port}/pairings?ttl_hours=1"))
+        .header("x-admin-token", "MASTER")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let session: Value = client
+        .post(format!("http://127.0.0.1:{port}/sessions"))
+        .header("x-pairing-code", pairing["pairing_code"].as_str().unwrap())
+        .json(&serde_json::json!({ "name": "", "kind": "user" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let token = session["session_token"].as_str().unwrap().to_string();
+    // The value the database holds, read from the file, is the token's hash.
+    let stored = stored_admin_sessions(&db);
+    assert_eq!(stored, vec![session_hash(&token)]);
+    let hash = stored[0].clone();
+
+    let check = |port: u16| {
+        let client = client.clone();
+        let token = token.clone();
+        let hash = hash.clone();
+        async move {
+            let base = format!("http://127.0.0.1:{port}");
+            let profile = |credential: String| {
+                let client = client.clone();
+                let base = base.clone();
+                async move {
+                    client
+                        .get(format!("{base}/profile"))
+                        .header("x-session-token", credential)
+                        .send()
+                        .await
+                        .unwrap()
+                        .status()
+                        .as_u16()
+                }
+            };
+            assert_eq!(profile(token.clone()).await, 200, "the token works");
+            for path in ["/profile", "/rooms", "/building/ranks"] {
+                let status = client
+                    .get(format!("{base}{path}"))
+                    .header("x-session-token", &hash)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status()
+                    .as_u16();
+                assert_eq!(status, 401, "the hash reaches {path}");
+            }
+            let sign_out = client
+                .delete(format!("{base}/sessions"))
+                .header("x-session-token", &hash)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16();
+            assert_eq!(sign_out, 401, "the hash signs nobody out");
+            assert_eq!(
+                profile(token.clone()).await,
+                200,
+                "the session is untouched"
+            );
+            let url = format!("ws://127.0.0.1:{port}/ws?room=general&name=probe&type=user");
+            let door = |credential: &str| {
+                let mut request = url.clone().into_client_request().unwrap();
+                request.headers_mut().insert(
+                    "Sec-WebSocket-Protocol",
+                    HeaderValue::from_str(&format!("loca.v1, loca.session.{credential}")).unwrap(),
+                );
+                tokio_tungstenite::connect_async(request)
+            };
+            assert!(
+                door(&hash).await.is_err(),
+                "the hash opens the WebSocket door"
+            );
+            assert!(door(&token).await.is_ok(), "the token opens it");
+        }
+    };
+    check(port).await;
+    drop(guard);
+    wait_for_server_shutdown(port).await;
+    let (port, _restart) = spawn_server_env("MASTER", &env).await;
+    check(port).await;
+}
+
+/// The prod scenario the first admin-session test MISSED: in invite-only mode
 /// (REQUIRE_INVITE=1) an admin session must open the door too — read a loca's
 /// messages, list rooms, connect over WS. Before the fix `enter_decision`
 /// ignored `SessionIdentity.admin`, so the master's session 401'd at every room
 /// gate while non-door acts (mode) still worked — the browser saw no locas and
 /// the WS handshake was refused.
 #[tokio::test]
-async fn admin_session_opens_the_door_in_davet_mode() {
+async fn admin_session_opens_the_door_in_invite_mode() {
     let (port, _g) = spawn_server_env(
         "MASTER",
         &[
@@ -1451,10 +1611,10 @@ async fn admin_session_opens_the_door_in_davet_mode() {
     )
     .await;
     create_test_room(port, "MASTER", "general").await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    // Exchange the key for an admin session (pure admin, no davet).
+    // Exchange the key for an admin session (pure admin, no invite).
     let sess: Value = client
         .post(format!("{base}/sessions"))
         .header("x-admin-token", "MASTER")
@@ -1506,23 +1666,23 @@ async fn admin_session_opens_the_door_in_davet_mode() {
         "ws://127.0.0.1:{port}/ws?room=general&name=master&type=user&session={st}"
     ))
     .await;
-    assert!(ok.is_ok(), "admin session opens the WS door in davet mode");
-    // Revoking a davet and moderation also work by session alone.
-    let d = davet_for(&base, "MASTER", "oda", "cyber").await;
+    assert!(ok.is_ok(), "admin session opens the WS door in invite mode");
+    // Revoking an invite and moderation also work by session alone.
+    let d = invite_for(&base, "MASTER", "parlor", "cyber").await;
     assert_eq!(
         client
-            .delete(format!("{base}/rooms/oda/invites/{d}"))
+            .delete(format!("{base}/rooms/parlor/invites/{}", invite_ref(&d)))
             .header("x-session-token", st)
             .send()
             .await
             .unwrap()
             .status(),
         200,
-        "admin session revokes a davet"
+        "admin session revokes an invite"
     );
 }
 
-/// Public clients keep bearer credentials out of URLs. A davet presented in
+/// Public clients keep bearer credentials out of URLs. An invite presented in
 /// the protocol header also owns its authoritative server-side name, so an
 /// alias cannot survive revocation under a label the revoke broadcast misses.
 #[tokio::test]
@@ -1538,17 +1698,18 @@ async fn websocket_header_auth_hides_bearer_and_revoke_closes_alias() {
     create_test_room(port, "MASTER", "secret").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
-    let davet = davet_for(&base, "MASTER", "secret", "real-agent").await;
+    let invite = invite_for(&base, "MASTER", "secret", "real-agent").await;
 
     let legacy_url =
-        format!("ws://127.0.0.1:{port}/ws?room=secret&name=alias&type=agent&token={davet}");
+        format!("ws://127.0.0.1:{port}/ws?room=secret&name=alias&type=agent&token={invite}");
     assert!(
         tokio_tungstenite::connect_async(legacy_url).await.is_err(),
         "query-string bearer auth must be refused by default"
     );
 
     let url = format!("ws://127.0.0.1:{port}/ws?room=secret&name=alias&type=agent");
-    let mut ws = connect_ws_protocols(url, &["loca.v1".into(), format!("loca.room.{davet}")]).await;
+    let mut ws =
+        connect_ws_protocols(url, &["loca.v1".into(), format!("loca.room.{invite}")]).await;
     let roster = wait_for(&mut ws, |value| value["t"] == "members").await;
     assert!(roster["members"]
         .as_array()
@@ -1562,7 +1723,10 @@ async fn websocket_header_auth_hides_bearer_and_revoke_closes_alias() {
         .any(|member| member["name"] == "alias"));
 
     client
-        .delete(format!("{base}/rooms/secret/invites/{davet}"))
+        .delete(format!(
+            "{base}/rooms/secret/invites/{}",
+            invite_ref(&invite)
+        ))
         .header("x-admin-token", "MASTER")
         .send()
         .await
@@ -1767,7 +1931,7 @@ async fn loca_moderation_refuses_to_reach_up_the_building_ranks() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("rank.db").to_string_lossy().to_string();
     let (port, _g) = spawn_server_env("MASTER", &[("DB_PATH", db)]).await;
-    create_test_room(port, "MASTER", "oda").await;
+    create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     let mut keys = Vec::new();
@@ -1806,7 +1970,7 @@ async fn loca_moderation_refuses_to_reach_up_the_building_ranks() {
         let base = base.clone();
         async move {
             client
-                .post(format!("{base}/rooms/oda/moderate"))
+                .post(format!("{base}/rooms/parlor/moderate"))
                 .header("x-admin-token", key)
                 .json(&serde_json::json!({ "action": action, "name": name }))
                 .send()

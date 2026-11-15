@@ -23,6 +23,8 @@ pub(super) const SCHEMA: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS notifications_sender
         ON notifications(sender_principal, id);
+    CREATE INDEX IF NOT EXISTS notifications_sender_time
+        ON notifications(sender_principal, created_at);
     CREATE TABLE IF NOT EXISTS notification_receipts (
         notification_id INTEGER NOT NULL REFERENCES notifications(id),
         principal_id TEXT NOT NULL,
@@ -85,9 +87,37 @@ pub struct CreatedNotification {
     pub agents: u64,
 }
 
+/// How many notifications one sender may have stored within a window.
+#[derive(Debug, Clone, Copy)]
+pub struct SendLimit<'a> {
+    /// Every `sender_principal` this sender's earlier sends may be stored
+    /// under; they share one count. Empty counts `sender_principal` alone.
+    pub senders: &'a [String],
+    pub max: u32,
+    pub window_ms: u64,
+}
+
+/// The outcome of a send that reached the database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationSend {
+    Created(CreatedNotification),
+    /// The sender already has `max` notifications in the window; nothing was
+    /// written. A slot frees in `retry_after_ms`, when the oldest of the
+    /// counted ones leaves the window.
+    Limited {
+        retry_after_ms: u64,
+    },
+}
+
 impl Store {
     /// Persist a notification and one unread receipt per recipient in one
     /// transaction, and count in that same transaction who it went to.
+    ///
+    /// The sending limit is checked in that same transaction, from the stored
+    /// notifications themselves: a restart does not reset it, and the
+    /// transaction is IMMEDIATE (the write lock is taken before the count), so
+    /// two sends racing for the last slot cannot both see it free. A refused
+    /// send writes nothing.
     ///
     /// The counts are part of the answer to the sender, so they are read
     /// before the commit: a failure here rolls the notification back, and the
@@ -104,11 +134,47 @@ impl Store {
         body: &str,
         created_at: u64,
         recipients: &[String],
-    ) -> rusqlite::Result<Option<CreatedNotification>> {
+        limit: SendLimit<'_>,
+    ) -> rusqlite::Result<Option<NotificationSend>> {
         let Some(mut c) = self.conn() else {
             return Ok(None);
         };
-        let tx = c.transaction()?;
+        let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // The `max` newest of this sender's notifications still inside the
+        // window. When there are `max` of them, the oldest decides when the
+        // next send fits: the moment it is `window_ms` old.
+        let placeholders = vec!["?"; limit.senders.len().max(1)].join(", ");
+        let in_window: Vec<i64> = {
+            let mut st = tx.prepare(&format!(
+                "SELECT created_at FROM notifications
+                  WHERE sender_principal IN ({placeholders}) AND created_at > ?
+                  ORDER BY created_at DESC
+                  LIMIT ?"
+            ))?;
+            let mut args: Vec<rusqlite::types::Value> = if limit.senders.is_empty() {
+                vec![rusqlite::types::Value::Text(sender_principal.to_string())]
+            } else {
+                limit
+                    .senders
+                    .iter()
+                    .map(|s| rusqlite::types::Value::Text(s.clone()))
+                    .collect()
+            };
+            args.push(rusqlite::types::Value::Integer(
+                created_at.saturating_sub(limit.window_ms) as i64,
+            ));
+            args.push(rusqlite::types::Value::Integer(i64::from(limit.max)));
+            let rows = st.query_map(rusqlite::params_from_iter(args), |r| r.get(0))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        if in_window.len() as u64 >= u64::from(limit.max) {
+            let oldest = in_window.last().copied().unwrap_or(0).max(0) as u64;
+            let retry_after_ms = oldest
+                .saturating_add(limit.window_ms)
+                .saturating_sub(created_at)
+                .max(1);
+            return Ok(Some(NotificationSend::Limited { retry_after_ms }));
+        }
         tx.execute(
             "INSERT INTO notifications
                 (sender_principal, sender_name, audience, title, body, created_at)
@@ -141,11 +207,11 @@ impl Store {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         tx.commit()?;
-        Ok(Some(CreatedNotification {
+        Ok(Some(NotificationSend::Created(CreatedNotification {
             id,
             recipients: written.max(0) as u64,
             agents: agents.max(0) as u64,
-        }))
+        })))
     }
 
     /// A person's notifications, newest first, plus their unread count.

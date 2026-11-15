@@ -158,17 +158,17 @@ _load_credential_file() {
 }
 
 # Machine-local credentials: ~/.loca/env (600) holds ROOM_SERVER_URL,
-# LOCA_NAME, the permanent lobby membership, LOCA_SESSION, and one davet per
+# LOCA_NAME, the permanent lobby membership, LOCA_SESSION, and one invite per
 # loca:
 #
 #   LOCA_MEMBERSHIP=mb_...
 #   DAVET_general=dv_...
 #   DAVET_mobile=dv_...
 #
-# A davet belongs to a loca, not to a person — being in two locas means holding
-# two davets, because you were invited to two places. Revoking one leaves the
+# An invite belongs to a loca, not to a person — being in two locas means holding
+# two invites, because you were invited to two places. Revoking one leaves the
 # other standing. ROOM_TOKEN (no suffix) is the older building key: still read,
-# still works, used when no per-loca davet matches.
+# still works, used when no per-loca invite matches.
 #
 # Keeping them in a 600 file means they are never pasted into a room or a chat
 # — the room is the wrong channel for secrets.
@@ -177,7 +177,7 @@ _load_credential_file() {
 # selection as their final credential boundary.
 _requested_identity=""
 case "${1:-}" in
-  listen|send|release|note-create|note-update|memory-short|memory-append|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|announce|attention-claim|attention-resolve)
+  listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
   session|status|reconnect|notifications)
@@ -234,9 +234,9 @@ _jq_raw() { jq -r "$@" | tr -d '\r'; }
 
 cmd="${1:-}"; shift || true
 
-# Pick the davet for a given loca, falling back to the building key. Bash
+# Pick the invite for a given loca, falling back to the building key. Bash
 # cannot index a variable name directly, so go through the environment.
-davet_for() {
+invite_for() {
   local loca="$1" var val
   var="DAVET_$(_var "$loca")"
   val=$(printf '%s' "${!var:-}")
@@ -246,7 +246,7 @@ davet_for() {
 # Verify the exact loca credential held by this client. Membership /whoami
 # only says that the Building currently has an invitation for the identity;
 # it does not prove that the DAVET_<loca> value on disk is the current token.
-_davet_is_live() {
+_invite_is_live() {
   local server="$1" loca="$2" token="$3" response code body kind opened
   [ -n "$token" ] || return 1
   response=$(curl -sS -m 5 -H "x-room-token: $token" -w $'\n%{http_code}' \
@@ -259,7 +259,37 @@ _davet_is_live() {
   [ "$kind" = "building" ] || { [ "$kind" = "davet" ] && [ "$opened" = "$loca" ]; }
 }
 
-# A davet proves that the seat may enter a loca. Posting uses a separate,
+# Locas where the listener found a seat but no kept invite that fits it. The
+# server no longer re-sends an invite it has already delivered, so these wait for
+# the Master. listen.py writes the file next to the identity; it holds loca
+# names only, never a credential.
+_needs_fresh_davet() {
+  local file="$1.davet-status.json"
+  [ -f "$file" ] || return 0
+  _jq_raw '.needs_fresh_davet[]? | strings' "$file" 2>/dev/null || true
+}
+
+# Whether the listener was told by the server that this membership is
+# suspended. A current server says so itself (`/whoami` answers 403
+# `membership suspended`); an older one refuses a suspended and a revoked
+# membership alike (401), so only the listener, which received
+# `membership_suspended`, knows.
+_membership_suspended() {
+  local file="$1.davet-status.json"
+  [ -f "$file" ] || return 1
+  [ "$(_jq_raw '.membership_suspended // false' "$file" 2>/dev/null)" = "true" ]
+}
+
+_in_list() {
+  local needle="$1" item
+  shift
+  for item in "$@"; do
+    [ "$item" = "$needle" ] && return 0
+  done
+  return 1
+}
+
+# An invite proves that the seat may enter a loca. Posting uses a separate,
 # short-lived session. Reporting those as one generic "verified" state hid a
 # common half-failure: delivery still arrived while every reply got 401.
 _session_loca() {
@@ -290,11 +320,11 @@ if [ -n "${LOCA_SESSION:-}" ]; then
   tok_args+=(-H "x-session-token: $LOCA_SESSION")
 fi
 
-# Point every following call at one loca's davet. Called once a command knows
+# Point every following call at one loca's invite. Called once a command knows
 # which loca it is talking to — before that we only hold the fallback.
 use_loca() {
   local d
-  d=$(davet_for "$1")
+  d=$(invite_for "$1")
   tok_args=()
   [ -n "$d" ] && tok_args=(-H "x-room-token: $d")
   [ -n "${LOCA_SESSION:-}" ] && tok_args+=(-H "x-session-token: $LOCA_SESSION")
@@ -303,7 +333,36 @@ use_loca() {
 
 curl_json() { curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" "$@"; }
 # Reading is as private as writing — every GET carries the key as well.
-curl_get()  { curl -sS -m 10 "${tok_args[@]}" "$@"; }
+# Only an accepted read reaches stdout. A refusal leaves stdout empty, says the
+# server's own sentence on stderr and exits with the code `send` uses for the
+# same cause: 7 for 401, 4 for 403, 5 for 429, 8 for anything else (404 and an
+# unreachable server included). A read does not renew a session: the loca's
+# invite opens a read by itself, so a 401 here means that invite was refused.
+curl_get() {
+  local response code body said rc=0
+  response=$(curl -sS -m 10 "${tok_args[@]}" -w $'\n%{http_code}' "$@") || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "READ FAILED: no answer from the server (curl exit $rc); nothing was read" >&2
+    return 8
+  fi
+  code=$(printf '%s' "$response" | tail -n1)
+  body=$(printf '%s' "$response" | sed '$d')
+  if [[ "$code" =~ ^2[0-9][0-9]$ ]]; then
+    printf '%s' "$body"
+    return 0
+  fi
+  said=$(printf '%s' "$body" | tr '\r\n' '  ')
+  said="${said:0:300}"
+  case "$code" in
+    401)
+      echo "UNAUTHORIZED (401): ${said:-no reason given}. Nothing was read. 'davet required' usually means the wrong identity file: set LOCA_ENV to this agent's ~/.loca/<name>.env" >&2
+      return 7 ;;
+    403) echo "REFUSED (403): ${said:-no reason given}. Nothing was read; do not retry" >&2; return 4 ;;
+    429) echo "RATE-LIMITED (429): ${said:-no reason given}. Back off; do NOT loop-retry" >&2; return 5 ;;
+    404) echo "NOT FOUND (404): ${said:-no reason given}. Nothing was read" >&2; return 8 ;;
+    *) echo "READ FAILED (HTTP $code): ${said:-no reason given}. Nothing was read" >&2; return 8 ;;
+  esac
+}
 
 # Guess an attachment's content-type from its filename. Empty means "let the
 # server sniff": we then send an EMPTY content-type header so curl's default
@@ -320,13 +379,13 @@ _mime_for() {
   esac
 }
 
-# Mint a fresh session for $1=room as $2=name from this loca's davet, updating
+# Mint a fresh session for $1=room as $2=name from this loca's invite, updating
 # LOCA_SESSION + tok_args in place. Returns 0 on success. Used by the attachment
 # upload path when a stale session 401s before the message post (the message
 # post has its own inline renewal).
 _renew_session() {
   local room="$1" who="$2" key resp code body new
-  key=$(davet_for "$room")
+  key=$(invite_for "$room")
   [ -z "$key" ] && return 1
   resp=$(curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $key" \
     -w $'\n%{http_code}' -X POST "$server/sessions" \
@@ -414,7 +473,8 @@ case "$cmd" in
     if [ -z "$membership" ]; then
       requested_name="${2:-${LOCA_NAME:-<name>}}"
       echo "not onboarded — no Building identity for '$requested_name'" >&2
-      echo "the operator must create a private membership (Lobby) or davet (one loca) for this exact name; then run setup" >&2
+      echo "file a join request for this exact name and wait for a Master to approve it: connect.sh request-join $server $requested_name" >&2
+      echo "or, if the operator gave you a private membership (Lobby) or invite (one loca) for this exact name, run setup with it" >&2
       echo "do not reuse another agent's env or ask loca-dev/loca-care to create the identity" >&2
       exit 3
     fi
@@ -424,21 +484,34 @@ case "$cmd" in
     identity=$(printf '%s' "$response" | sed '$d')
     if [ "$code" != "200" ] \
       || [ "$(printf '%s' "$identity" | _jq_raw '.kind // empty')" != "member" ]; then
+      if [ "$code" = "403" ] && [ "$identity" = "membership suspended" ]; then
+        echo "membership suspended — the server says the Master suspended this membership; it resumes when the Master resumes it, and a running listener reconnects by itself. Kept invites no longer work; a new call is needed" >&2
+        exit 3
+      fi
+      if _membership_suspended "${LOCA_ENV:-}"; then
+        echo "membership suspended — the listener was told the Master suspended this membership; it resumes when the Master resumes it, and a running listener reconnects by itself. Kept invites no longer work; a new call is needed" >&2
+        exit 3
+      fi
       echo "membership rejected — ask the master to check building membership" >&2
       exit 3
     fi
     who=$(printf '%s' "$identity" | _jq_raw '.name')
     mapfile -t server_locas < <(printf '%s' "$identity" | _jq_raw '.locas[]?')
-    verified=(); pending=(); stale=(); expected_keys=" "
+    mapfile -t needs_fresh < <(_needs_fresh_davet "$LOCA_ENV")
+    verified=(); pending=(); refresh=(); stale=(); expected_keys=" "
     for loca in "${server_locas[@]}"; do
       expected_keys+="DAVET_$(_var "$loca") "
-      token=$(davet_for "$loca")
-      if [ -n "$token" ] && _davet_is_live "$server" "$loca" "$token"; then
+      token=$(invite_for "$loca")
+      if [ -n "$token" ] && _invite_is_live "$server" "$loca" "$token"; then
         verified+=("$loca")
+      elif _in_list "$loca" ${needs_fresh[@]+"${needs_fresh[@]}"}; then
+        # The listener saw this seat and holds no invite that fits it. A
+        # server that keeps only invite hashes cannot send it again by itself.
+        refresh+=("$loca")
       else
         # The SERVER lists this member in this loca, but the local cache has no
-        # live davet for it. That is the Master having CALLED the member in: the
-        # davet is delivered over the Lobby SOCKET, so it is PENDING a live
+        # live invite for it. That is the Master having CALLED the member in: the
+        # invite is delivered over the Lobby SOCKET, so it is PENDING a live
         # listener — NOT revoked. Never send the agent to "ask the master".
         pending+=("$loca")
       fi
@@ -449,6 +522,11 @@ case "$cmd" in
       # expired, or replaced); the Lobby listener drops it.
       case "$expected_keys" in *" $key "*) ;; *) stale+=("${key#DAVET_}") ;; esac
     done < <(compgen -A variable DAVET_ || true)
+    refresh_line=""
+    if [ "${#refresh[@]}" -gt 0 ]; then
+      refresh_list=$(IFS=,; printf '%s' "${refresh[*]}")
+      refresh_line="NEEDS FRESH DAVET — '$who' is seated in: $refresh_list, but no invite kept here fits that seat, so the listener cannot re-enter it. It needs a fresh invite — ask the Master to re-send. (Keep the listener running; a re-sent invite arrives over the Lobby socket.)"
+    fi
     if [ "${#verified[@]}" -gt 0 ]; then
       verified_list=$(IFS=,; printf '%s' "${verified[*]}")
       echo "INVITED (davet verified) — '$who' has: $verified_list"
@@ -460,26 +538,31 @@ case "$cmd" in
       fi
       if [ "${#pending[@]}" -gt 0 ]; then
         pending_list=$(IFS=,; printf '%s' "${pending[*]}")
-        echo "PENDING DAVET (start your listener) — the Master has called '$who' into: $pending_list; the davet arrives over the Lobby socket, not a status refresh"
+        echo "PENDING DAVET (start your listener) — the Master has called '$who' into: $pending_list; the invite arrives over the Lobby socket, not a status refresh"
       fi
+      [ -z "$refresh_line" ] || echo "$refresh_line"
       if [ "${#stale[@]}" -gt 0 ]; then
         stale_list=$(IFS=,; printf '%s' "${stale[*]}")
-        echo "STALE LOCAL CACHE (ignored) — replaced, expired, or missing davet credentials for: $stale_list; the Lobby listener will remove them"
+        echo "STALE LOCAL CACHE (ignored) — replaced, expired, or missing invite credentials for: $stale_list; the Lobby listener will remove them"
       fi
     elif [ "${#pending[@]}" -gt 0 ]; then
       # Membership valid + the Master has called this member in, but no live
-      # listener has received the davet yet. This is the "start your listener"
+      # listener has received the invite yet. This is the "start your listener"
       # state — NOT an error, and NOT a reason to ask the master (the old
       # STALE/exit-4 message sent agents down the wrong path here).
       pending_list=$(IFS=,; printf '%s' "${pending[*]}")
       echo "LOBBY (membership valid) — the Master has CALLED '$who' into: $pending_list"
-      echo "the davet arrives over the Lobby SOCKET, not a status refresh — start your listener/Monitor and it becomes INVITED (verified)."
+      echo "the invite arrives over the Lobby SOCKET, not a status refresh — start your listener/Monitor and it becomes INVITED (verified)."
       echo "  Claude Code: one native persistent Monitor (monitor_listener.py). Codex/generic: runtime.sh start '$who'."
+      [ -z "$refresh_line" ] || echo "$refresh_line"
+    elif [ "${#refresh[@]}" -gt 0 ]; then
+      echo "LOBBY (membership valid) — no loca can be entered from here yet."
+      echo "$refresh_line"
     elif [ "${#stale[@]}" -gt 0 ]; then
       stale_list=$(IFS=,; printf '%s' "${stale[*]}")
-      echo "STALE LOCAL CACHE — '$who' membership is valid but local davet(s) for $stale_list are replaced/expired; the Lobby listener drops them. If you expected access there, ask the master to call you in."
+      echo "STALE LOCAL CACHE — '$who' membership is valid but local invite(s) for $stale_list are replaced/expired; the Lobby listener drops them. If you expected access there, ask the master to call you in."
     else
-      echo "LOBBY — '$who' membership is valid; no loca davet is active. Start your listener so the Master's call can reach you over the Lobby socket."
+      echo "LOBBY — '$who' membership is valid; no loca invite is active. Start your listener so the Master's call can reach you over the Lobby socket."
     fi
     ;;
 
@@ -847,12 +930,12 @@ case "$cmd" in
       -X POST "$server/rooms/$(_room_path "$room")/messages" -d "$body")
     code=$(printf '%s' "$resp" | tail -n1)
     # Sessions live in the server's memory: a restart invalidates them. A lobby
-    # call also delivers a fresh DAVET but deliberately no session. In both
-    # cases mint one from THIS loca's davet and retry once. Requiring an old
+    # call also delivers a fresh INVITE but deliberately no session. In both
+    # cases mint one from THIS loca's invite and retry once. Requiring an old
     # LOCA_SESSION here deadlocked every first post after lobby -> call:
     # the server required a session, while the client refused to mint one
     # because it did not already have one.
-    renew_key=$(davet_for "$room")
+    renew_key=$(invite_for "$room")
     if [ "$code" = "401" ] && [ -n "$renew_key" ]; then
       # Renew as whoever this call is for — not as whatever LOCA_NAME happens to
       # hold. On a box running two agents, an inherited LOCA_NAME from the other
@@ -869,14 +952,16 @@ case "$cmd" in
       if [ "$renew_code" = "201" ]; then
         new=$(printf '%s' "$renew_body" | _jq_raw '.session_token // empty' 2>/dev/null || true)
       else
-        echo >&2 "session renewal rejected (HTTP $renew_code): reconnect through Lobby to refresh this loca's davet"
+        echo >&2 "session renewal rejected (HTTP $renew_code): reconnect through Lobby to refresh this loca's invite"
       fi
       if [ -n "$new" ]; then
         export LOCA_SESSION="$new"
         if [ -f "$LOCA_ENV" ]; then
           printf 'LOCA_SESSION\0%s\0' "$new" | _credential_patch
         fi
-        echo >&2 "session renewed (server had restarted)"
+        # Many things end a session (its 12 hours, a newer session for the
+        # same key, a restart, a first post after a call); do not guess which.
+        echo >&2 "session renewed"
         tok_args=(-H "x-room-token: $renew_key" -H "x-session-token: $new")
         resp=$(curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" -w $'\n%{http_code}' \
           -X POST "$server/rooms/$(_room_path "$room")/messages" -d "$body")
@@ -885,14 +970,23 @@ case "$cmd" in
     fi
     printf '%s' "$resp" | sed '$d'
     if [ "$code" = "403" ]; then
-      echo >&2 "REJECTED (403): chat mode forbids you right now. Run 'mode' to see who may talk; wait or ask the admin."
+      # The server's sentence says which refusal it is (paused, restricted,
+      # round-robin, muted, banned, closed, suspended, extension off).
+      said=$(printf '%s' "$resp" | sed '$d' | tr '\r\n' '  ')
+      said="${said:0:300}"
+      echo >&2 "REJECTED (403): ${said:-no reason given} — not posted; do not loop-retry. For a chat mode, run 'mode' to see who may talk."
       exit 4
     elif [ "$code" = "429" ]; then
       echo >&2 "RATE-LIMITED (429): you are posting too fast. Back off; do NOT loop-retry."
       exit 5
     elif [ "$code" = "401" ]; then
-      echo >&2 "UNAUTHORIZED (401): stale session/davet; reconnect through Lobby before retrying"
+      echo >&2 "UNAUTHORIZED (401): stale session/invite; reconnect through Lobby before retrying"
       exit 7
+    elif [ "$code" = "409" ]; then
+      # The server cannot prove this op_id's earlier use was ours; the same
+      # op_id will never post. Only a new operation can.
+      echo >&2 "NOT POSTED (409): the server cannot tell whether this operation id was already used by you. Read recent messages with 'since'; if your words are not there, send them again with a new LOCA_OP_ID"
+      exit 8
     elif ! [[ "$code" =~ ^2[0-9][0-9]$ ]]; then
       echo >&2 "SEND FAILED (HTTP $code): message was not accepted; retain the same operation id for a retry"
       exit 8
@@ -920,18 +1014,18 @@ case "$cmd" in
     ;;
 
   release)
-    # release <server> <room> <name> — "işim bitti". End THIS identity's
-    # davet/seat without punishment; building membership remains in lobby.
+    # release <server> <room> <name> — "my work is done". End THIS identity's
+    # invite/seat without punishment; building membership remains in lobby.
     server="$1"; room="$2"; name="$3"
     use_loca "$room"
     code=$(curl -sS -o /dev/null -w '%{http_code}' -m 10 \
       -H 'content-type: application/json' "${tok_args[@]}" \
       -X POST "$server/rooms/$(_room_path "$room")/release")
     if [ "$code" != "204" ]; then
-      echo "release failed (HTTP $code): your own davet/session for '$room' is required" >&2
+      echo "release failed (HTTP $code): your own invite/session for '$room' is required" >&2
       exit 7
     fi
-    # The server ended both davet and session. Remove their stale local copies
+    # The server ended both invite and session. Remove their stale local copies
     # so the next command cannot keep presenting a dead credential.
     if [ -f "$LOCA_ENV" ]; then
       {
@@ -951,14 +1045,14 @@ case "$cmd" in
     # filter=msg -> server sends only real chat messages (no typing/members noise).
     url="$ws/ws?room=$(_room_path "$room")&name=$(_room_path "$name")&type=agent&filter=msg"
     # Keep credentials out of argv/process listings. listen.py selects the
-    # name-specific env, validates its server origin, then adds the loca's davet
+    # name-specific env, validates its server origin, then adds the loca's invite
     # and session internally.
     echo "listening on $server room=$room name=$name -> $log" >&2
     exec python3 "$SCRIPT_DIR/listen.py" "$url" "$log"
     ;;
 
   setup)
-    # setup <server> <name> — prepare THIS machine once. The davet
+    # setup <server> <name> — prepare THIS machine once. The invite
     # opens one loca; the master issues it (scripts/invite.sh) and hands it
     # over privately. It is read from stdin, never argv/process listings.
     # Writes ~/.loca/env (600), takes a session, verifies access.
@@ -983,7 +1077,7 @@ case "$cmd" in
     fi
     token=""
     if [ -t 0 ]; then
-      printf 'private membership/davet for %s as %s: ' "$server" "$name" >&2
+      printf 'private membership/invite for %s as %s: ' "$server" "$name" >&2
       IFS= read -r -s token
       printf '\n' >&2
     else
@@ -994,7 +1088,7 @@ case "$cmd" in
     # credential, and would otherwise produce a misleading HTTP 400.
     token=${token%$'\r'}
     if [ -z "$token" ]; then
-      echo "a private membership or davet is required" >&2
+      echo "a private membership or invite is required" >&2
       exit 2
     fi
     # One machine can host several agents (a prod box running a debug agent and
@@ -1007,70 +1101,98 @@ case "$cmd" in
         echo "note: default identity is '$existing'; using separate file $LOCA_ENV for '$name'"
       fi
     fi
-    # Validate before touching the identity file. A mistyped/revoked davet must
+    # Validate before touching the identity file. A mistyped/revoked invite must
     # not leave a poisoned <name>.env that shadows a later valid setup.
     if ! curl -sf -m 10 "$server/health" >/dev/null; then
       echo "cannot reach $server" >&2; exit 1
     fi
     code=$(curl -s -o /dev/null -w '%{http_code}' -m 10 -H "x-room-token: $token" "$server/rooms")
     if [ "$code" != "200" ]; then
-      echo "that davet was not accepted (HTTP $code); no identity file was changed." >&2
+      echo "that invite was not accepted (HTTP $code); no identity file was changed." >&2
       echo "ask the master: it may have been revoked, mistyped, or issued for another member." >&2
       exit 1
     fi
     mkdir -p "$(dirname "$LOCA_ENV")"
     umask 177
-    # Which loca is this davet for? The server knows; ask before writing, so
-    # the davet is filed under its own loca instead of overwriting another.
+    # Which loca is this invite for? The server knows; ask before writing, so
+    # the invite is filed under its own loca instead of overwriting another.
     who=$(curl -s -m 10 -H "x-room-token: $token" "$server/whoami" || true)
-    davet_loca=$(printf '%s' "$who" | _jq_raw '.loca // empty' 2>/dev/null || true)
+    invite_loca=$(printf '%s' "$who" | _jq_raw '.loca // empty' 2>/dev/null || true)
     who_kind=$(printf '%s' "$who" | _jq_raw '.kind // empty' 2>/dev/null || true)
     membership=""
+    membership_filed=0
     authoritative_name=""
+    had_identity=0
+    if [ -f "$LOCA_ENV" ] && grep -q '^ROOM_SERVER_URL=' "$LOCA_ENV" 2>/dev/null; then
+      had_identity=1
+    fi
     if [ "$who_kind" = "member" ]; then
       membership="$token"
       authoritative_name=$(printf '%s' "$who" | _jq_raw '.name // empty' 2>/dev/null || true)
-    elif [ -n "$davet_loca" ]; then
-      # A davet proves which building member is holding it. Claim that
-      # permanent lobby identity once, so release can end the loca seat while
-      # the agent remains reachable for the next one-click call.
-      claim=$(curl -sS -m 10 -H 'content-type: application/json' \
-        -H "x-room-token: $token" -X POST "$server/membership/claim" || true)
-      membership=$(printf '%s' "$claim" | _jq_raw '.membership_token // empty' 2>/dev/null || true)
-      authoritative_name=$(printf '%s' "$claim" | _jq_raw '.name // empty' 2>/dev/null || true)
-      if [ -z "$membership" ]; then
-        echo "could not claim building membership; no identity file was changed." >&2
-        exit 1
-      fi
+    elif [ -n "$invite_loca" ]; then
+      # An invite proves which building member is holding it. Claim this
+      # set-up's own Lobby key with it, so release can end the loca seat while
+      # the agent remains reachable for the next one-click call. The helper
+      # keeps the set-up's claim id in a 600 file (a re-run resumes the same
+      # set-up), files the verified key straight into the identity env and
+      # acknowledges it; the invite reaches it on stdin, never argv.
+      mkdir -p "$HOME/.loca"
+      claim_file="$HOME/.loca/$(_identity_stem "$name").claim"
+      rc=0
+      printf '%s\n' "$token" | python3 "$SCRIPT_DIR/join_request.py" claim \
+        "$server" "$name" "$claim_file" "$LOCA_ENV" || rc=$?
+      case "$rc" in
+        0|6)
+          membership_filed=1
+          authoritative_name="$name"
+          if [ "$rc" = 6 ]; then
+            echo "note: run setup again once to finish the claim (the key is already filed)." >&2
+          fi
+          ;;
+        4)
+          echo "credential belongs to another identity, not requested identity '$name'; no identity file was changed." >&2
+          echo "ask the operator for a membership or invite issued to the exact name '$name'." >&2
+          exit 1
+          ;;
+        1)
+          echo "could not finish claiming the building membership; run setup again to resume the same set-up." >&2
+          exit 1
+          ;;
+        *)
+          # 3, 7, 8, 9: the helper said what happened and what to do.
+          echo "no building membership was claimed; no identity file was changed." >&2
+          exit 1
+          ;;
+      esac
     fi
-    if { [ "$who_kind" = "member" ] || [ -n "$davet_loca" ]; } \
+    if { [ "$who_kind" = "member" ] || [ -n "$invite_loca" ]; } \
        && [ -z "$authoritative_name" ]; then
       echo "could not verify the server-bound identity; no identity file was changed." >&2
       exit 1
     fi
     if [ -n "$authoritative_name" ] && [ "$authoritative_name" != "$name" ]; then
       echo "credential belongs to '$authoritative_name', not requested identity '$name'; no identity file was changed." >&2
-      echo "ask the operator for a membership or davet issued to the exact name '$name'." >&2
+      echo "ask the operator for a membership or invite issued to the exact name '$name'." >&2
       exit 1
     fi
-    if [ -f "$LOCA_ENV" ] && grep -q '^ROOM_SERVER_URL=' "$LOCA_ENV" 2>/dev/null; then
-      # Already set up here: keep the davets already held and add this one.
-      # Being in two locas means holding two davets, not replacing the first.
+    if [ "$had_identity" = 1 ]; then
+      # Already set up here: keep the invites already held and add this one.
+      # Being in two locas means holding two invites, not replacing the first.
       {
         printf 'LOCA_SESSION\0\0'
         if [ "$who_kind" = "member" ]; then
           # A permanent building membership opens the lobby only. Storing it
-          # as ROOM_TOKEN would make it look like a room davet.
+          # as ROOM_TOKEN would make it look like a room invite.
           printf 'ROOM_TOKEN\0\0'
-        elif [ -n "$davet_loca" ]; then
-          printf 'DAVET_%s\0%s\0' "$(_var "$davet_loca")" "$token"
+        elif [ -n "$invite_loca" ]; then
+          printf 'DAVET_%s\0%s\0' "$(_var "$invite_loca")" "$token"
         else
           printf 'ROOM_TOKEN\0%s\0' "$token"
         fi
         [ -z "$membership" ] || printf 'LOCA_MEMBERSHIP\0%s\0' "$membership"
       } | _credential_patch
-      if [ -n "$davet_loca" ] && [ "$who_kind" != "member" ]; then
-        echo "added your davet for '$davet_loca' (existing ones kept)"
+      if [ -n "$invite_loca" ] && [ "$who_kind" != "member" ]; then
+        echo "added your invite for '$invite_loca' (existing ones kept)"
       fi
     else
       {
@@ -1081,8 +1203,8 @@ case "$cmd" in
         fi
         if [ "$who_kind" = "member" ]; then
           :
-        elif [ -n "$davet_loca" ]; then
-          printf 'DAVET_%s\0%s\0' "$(_var "$davet_loca")" "$token"
+        elif [ -n "$invite_loca" ]; then
+          printf 'DAVET_%s\0%s\0' "$(_var "$invite_loca")" "$token"
         else
           printf 'ROOM_TOKEN\0%s\0' "$token"
         fi
@@ -1090,10 +1212,10 @@ case "$cmd" in
     fi
     chmod 600 "$LOCA_ENV"
     echo "wrote $LOCA_ENV (600)"
-    if [ -n "$membership" ]; then
-      echo "lobby membership bound — release sonrası tek tıkla geri çağrılabilirsin"
+    if [ -n "$membership" ] || [ "$membership_filed" = 1 ]; then
+      echo "lobby membership bound — after a release you can be called back with one click"
     fi
-    # Which loca does it actually open? A davet is loca-scoped, so "the server
+    # Which loca does it actually open? An invite is loca-scoped, so "the server
     # let me in" is not the same as "I can enter a room". Find out now rather
     # than at the first 401.
     opens=""
@@ -1105,12 +1227,14 @@ case "$cmd" in
     done
     # A Building membership authenticates Lobby presence only. It cannot mint
     # a loca-scoped session until the master calls this member into a loca and
-    # the listener receives that fresh davet. Asking /sessions with an mb_...
-    # token returns a non-JSON 401 on a closed server and used to abort fresh
-    # installation after the identity file had already been written.
+    # the listener receives that fresh invite. Asking /sessions with an mb_...
+    # token gives a member session that opens only where the member already
+    # holds an invite, not the loca session bound here; older servers answered it
+    # with a non-JSON 401, which aborted fresh installation after the identity
+    # file had already been written.
     if [ "$who_kind" != "member" ]; then
       sess=$(curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $token" \
-        -X POST "$server/sessions" -d "$(jq -n --arg n "$name" --arg l "${davet_loca:-}" '{name:$n, kind:"agent"} + (if $l == "" then {} else {loca:$l} end)')" | _jq_raw '.session_token // empty')
+        -X POST "$server/sessions" -d "$(jq -n --arg n "$name" --arg l "${invite_loca:-}" '{name:$n, kind:"agent"} + (if $l == "" then {} else {loca:$l} end)')" | _jq_raw '.session_token // empty')
       if [ -n "$sess" ]; then
         printf 'LOCA_SESSION\0%s\0' "$sess" | _credential_patch
         echo "session bound for '$name' — identity is now server-derived"
@@ -1119,11 +1243,11 @@ case "$cmd" in
     echo "ready: $server as '$name'"
     held=$(sed -n 's/^DAVET_\([^=]*\)=.*/\1/p' "$LOCA_ENV" | tr '\n' ' ')
     if [ -n "$held" ]; then
-      echo "your davets open: $held"
+      echo "your invites open: $held"
     elif [ -n "$opens" ]; then
-      echo "your davet opens:$opens"
+      echo "your invite opens:$opens"
     else
-      echo "note: your davet opens no loca yet — ask the master to invite you to one." >&2
+      echo "note: your invite opens no loca yet — ask the master to invite you to one." >&2
     fi
     if [ "$LOCA_ENV" != "$HOME/.loca/env" ]; then
       echo
@@ -1183,8 +1307,10 @@ case "$cmd" in
     # ALL secret-bearing work AND the atomic env write happen inside the helper.
     # It prints only human progress to stderr; no credential (request secret or
     # membership) ever reaches stdout, argv, or an environment block.
-    python3 "$SCRIPT_DIR/join_request.py" onboard "$server" "$name" "$req_file" "$env_path"
-    rc=$?
+    # `|| rc=$?`: under `set -e` a bare non-zero exit would end the script
+    # here, before the case below could explain it.
+    rc=0
+    python3 "$SCRIPT_DIR/join_request.py" onboard "$server" "$name" "$req_file" "$env_path" || rc=$?
     case "$rc" in
       0|6)
         # Onboarded. rc 6 = membership persisted AND verified, but the server
@@ -1209,10 +1335,19 @@ case "$cmd" in
         echo "      connect.sh reconnect $server $name"
         echo
         echo "  THEN VERIFY (do not claim connected until this passes):"
-        echo "      connect.sh doctor $server      # expect: 'OK: $name has a live listener' + roster ONLINE"
-        echo "Until doctor shows a live listener and the roster shows '$name' ONLINE, your"
-        echo "state stays 'LOBBY — monitor setup required'. Only then can the Master CALL you"
-        echo "into a loca (the davet then arrives over the Lobby socket, not a status refresh)."
+        echo "      LOCA_ENV=$env_path connect.sh doctor $server"
+        echo "    expect the line \"OK: '$name' has a live listener\", and the listener's log"
+        echo "    line \"[lobby] connected — waiting for calls\". (A Lobby agent has no roster"
+        echo "    it can read; the Master sees you in the People view.)"
+        echo "Until both show, your state stays 'LOBBY — monitor setup required'. Only then"
+        echo "can the Master CALL you into a loca (the invite then arrives over the Lobby"
+        echo "socket, not a status refresh)."
+        if [ "$env_path" != "$HOME/.loca/env" ]; then
+          echo
+          echo "this identity lives in a side file, so every command must point at it:"
+          echo "  export LOCA_ENV=$env_path"
+          echo "put that line in this agent's shell profile, or prefix each call."
+        fi
         if [ "$rc" = 6 ]; then
           echo
           echo "note: the server finalize (ack) is still pending — re-run request-join once you"
@@ -1223,7 +1358,15 @@ case "$cmd" in
       5)
         echo "cannot onboard '$name': its request was finalized on the server but no valid" >&2
         echo "local membership exists, and the credential can no longer be re-fetched." >&2
-        echo "ask the operator to re-admit '$name' (a fresh membership or davet), then retry." >&2
+        echo "admitting '$name' again hands out no key: ask a Master for an invite for '$name'," >&2
+        echo "then run setup with it; setup claims a key of this agent's own." >&2
+        exit 1
+        ;;
+      7)
+        echo "cannot onboard '$name': it was approved, but its key was not collected within" >&2
+        echo "24 hours of the approval, so the server no longer holds it. The membership was" >&2
+        echo "kept, so a new request for '$name' is refused: ask a Master for an invite for" >&2
+        echo "'$name', then run setup with it; setup claims a key of this agent's own." >&2
         exit 1
         ;;
       *)
@@ -1299,16 +1442,23 @@ case "$cmd" in
     # Are we set up for THIS server? The question every agent actually asks
     # before joining, and the one setup answers.
     echo "── identity ──"
-    # Look where setup actually writes: $LOCA_ENV if pinned, else every
-    # ~/.loca/*.env, because one machine can host several agents (a prod box
-    # running cyber and debug side by side).
+    # Look where setup actually writes. With $LOCA_ENV pinned, that file is
+    # the whole question: an agent checks its own identity and must not open
+    # another identity's file or present its key. Without it (an operator
+    # looking at the machine), every ~/.loca/*.env, because one machine can
+    # host several agents (a prod box running cyber and debug side by side).
     found=0
     seen=""
     invited_names_file="/tmp/loca-doctor-invited.$$"
     listener_names_file="/tmp/loca-doctor-listeners.$$"
     : > "$invited_names_file"
     : > "$listener_names_file"
-    for f in ${LOCA_ENV:+"$LOCA_ENV"} "$HOME"/.loca/env "$HOME"/.loca/*.env; do
+    if [ "$_LOCA_ENV_PINNED" -eq 1 ] && [ -n "${LOCA_ENV:-}" ]; then
+      identity_files=("$LOCA_ENV")
+    else
+      identity_files=("$HOME"/.loca/env "$HOME"/.loca/*.env)
+    fi
+    for f in "${identity_files[@]}"; do
       [ -f "$f" ] || continue
       # ~/.loca/env matches both the explicit path and the glob; report once.
       case " $seen " in *" $f "*) continue ;; esac
@@ -1330,28 +1480,56 @@ case "$cmd" in
       sess=$(sed -n 's/^LOCA_SESSION=//p' "$f" | tr -d '"' | head -1)
       membership=$(sed -n 's/^LOCA_MEMBERSHIP=//p' "$f" | tr -d '"' | head -1)
       if [ -n "$membership" ]; then
-        identity=$(curl -sfS -m 5 -H "x-room-token: $membership" "$server/whoami" 2>/dev/null || true)
-        if [ "$(printf '%s' "$identity" | _jq_raw '.kind // empty' 2>/dev/null)" = "member" ]; then
+        identity=$(curl -sS -m 5 -H "x-room-token: $membership" -w $'\n%{http_code}' \
+          "$server/whoami" 2>/dev/null || true)
+        identity_code=$(printf '%s' "$identity" | tail -n1)
+        identity=$(printf '%s' "$identity" | sed '$d')
+        if [ "$identity_code" = "200" ] \
+          && [ "$(printf '%s' "$identity" | _jq_raw '.kind // empty' 2>/dev/null)" = "member" ]; then
+          # Only a complete loca list may decide what is stale: the field must
+          # be there, be a list, and hold loca names. A missing or malformed
+          # `locas` is not "seated nowhere"; reading it as an empty list would
+          # let --fix delete every kept invite, and a server that keeps only
+          # invite hashes cannot send them again.
+          locas_complete=$(printf '%s' "$identity" | _jq_raw \
+            'if (.locas | type) == "array" and (.locas | all(type == "string" and length > 0)) then "yes" else "no" end' \
+            2>/dev/null || true)
+          if [ "$locas_complete" != "yes" ]; then
+            echo "  UNVERIFIED: '${env_name:-?}' — membership valid, but the server's loca list was missing or malformed; nothing was checked or removed ($f)"
+            continue
+          fi
+          # A valid membership needs a live listener whether or not it is
+          # seated: the Lobby connection is what a call reaches.
+          [ -z "$env_name" ] || printf '%s\n' "$env_name" >> "$invited_names_file"
           mapfile -t invited_locas < <(printf '%s' "$identity" | _jq_raw '.locas[]?' 2>/dev/null)
-          verified=(); stale=(); expected_keys=" "
+          mapfile -t needs_fresh < <(_needs_fresh_davet "$f")
+          verified=(); stale=(); refresh=(); unlisted=(); expected_keys=" "
           for loca in "${invited_locas[@]}"; do
             key="DAVET_$(_var "$loca")"
             expected_keys+="$key "
             token=$(_credential_value "$f" "$key" 2>/dev/null || true)
-            if _davet_is_live "$server" "$loca" "$token"; then
+            if _invite_is_live "$server" "$loca" "$token"; then
               verified+=("$loca")
+            elif _in_list "$loca" ${needs_fresh[@]+"${needs_fresh[@]}"}; then
+              refresh+=("$loca")
             else
               stale+=("$loca")
             fi
           done
           while IFS= read -r key; do
             [ -n "$key" ] || continue
-            case "$expected_keys" in *" $key "*) ;; *) stale+=("${key#DAVET_}") ;; esac
+            case "$expected_keys" in
+              *" $key "*) ;;
+              *) stale+=("${key#DAVET_}"); unlisted+=("${key#DAVET_}") ;;
+            esac
           done < <(sed -n 's/^\(DAVET_[A-Za-z0-9_]*\)=.*/\1/p' "$f")
+          if [ "${#refresh[@]}" -gt 0 ]; then
+            refresh_list=$(IFS=,; printf '%s' "${refresh[*]}")
+            echo "  NEEDS FRESH DAVET: '${env_name:-?}' — ${refresh_list}: no kept invite fits the seat; it needs a fresh invite — ask the Master to re-send ($f)"
+          fi
           if [ "${#verified[@]}" -gt 0 ]; then
             verified_list=$(IFS=,; printf '%s' "${verified[*]}")
             echo "  INVITED (davet verified): '${env_name:-?}' — ${verified_list} ($f)"
-            [ -z "$env_name" ] || printf '%s\n' "$env_name" >> "$invited_names_file"
             session_loca=$(_session_loca "$server" "$env_name" "$sess" || true)
             if [ -n "$session_loca" ]; then
               echo "  POSTING SESSION: ready for $session_loca ($f)"
@@ -1364,31 +1542,42 @@ case "$cmd" in
             fi
           elif [ "${#stale[@]}" -gt 0 ]; then
             stale_list=$(IFS=,; printf '%s' "${stale[*]}")
-            echo "  STALE: '${env_name:-?}' — revoked, expired, missing, or replaced davet credentials: $stale_list ($f)"
-          else
-            echo "  LOBBY: '${env_name:-?}' — membership valid, no active loca davet ($f)"
+            echo "  STALE: '${env_name:-?}' — revoked, expired, missing, or replaced invite credentials: $stale_list ($f)"
+          elif [ "${#refresh[@]}" -eq 0 ]; then
+            echo "  LOBBY: '${env_name:-?}' — membership valid, no active loca invite ($f)"
           fi
-          if [ "$fix" = "--fix" ] && [ "${#stale[@]}" -gt 0 ]; then
+          # Only a loca the server no longer lists is certainly gone. A seated
+          # loca's invite that did not verify may have met a network fault, and
+          # a server that keeps only invite hashes cannot send it again.
+          if [ "$fix" = "--fix" ] && [ "${#unlisted[@]}" -gt 0 ]; then
             {
-              for loca in "${stale[@]}"; do
+              for loca in "${unlisted[@]}"; do
                 printf 'DAVET_%s\0\0' "$(_var "$loca")"
               done
               printf 'LOCA_SESSION\0\0'
             } | _credential_patch_file "$f"
-            echo "  fixed: removed stale local davet/session cache; the Lobby listener will replay live calls"
+            echo "  fixed: removed local invite/session cache for locas the server no longer lists; invites for seated locas are kept"
           fi
+          continue
+        fi
+        if [ "$identity_code" = "403" ] && [ "$identity" = "membership suspended" ]; then
+          echo "  SUSPENDED: '${env_name:-?}' — the server says the Master suspended this membership; it resumes when the Master resumes it, and a running listener reconnects by itself ($f)"
+          continue
+        fi
+        if _membership_suspended "$f"; then
+          echo "  SUSPENDED: '${env_name:-?}' — the listener was told the Master suspended this membership; it resumes when the Master resumes it, and a running listener reconnects by itself ($f)"
           continue
         fi
       fi
       if curl -sfS -m 5 -H "X-Session-Token: $sess" "$server/rooms" >/dev/null 2>&1; then
-        echo "  ready: '${env_name:-?}' — davets: ${locas:-none} ($f)"
+        echo "  ready: '${env_name:-?}' — invites: ${locas:-none} ($f)"
       else
         echo "  '${env_name:-?}' — session stale, renews on next use ($f)"
       fi
     done
     if [ "$found" = 0 ]; then
       echo "  no identity for $server — run: connect.sh setup $server <name>"
-      echo "  (a davet comes from the master, privately — never from a room)"
+      echo "  (an invite comes from the master, privately — never from a room)"
     fi
     echo "── loca client processes (all servers) ──"
     found=0
@@ -1397,13 +1586,17 @@ case "$cmd" in
       process_probe_available=0
       echo "  UNKNOWN: process inspection unavailable (pgrep/ps missing); listener state was not checked"
     fi
-    # pid \t age \t cmd  for every listener/bot/adapter
+    # pid \t age \t cmd  for every listener/bot/adapter. Leave out doctor's
+    # own process and its subshells (same pid or same exact command line),
+    # never a line merely because a name in it holds the word "doctor".
+    doctor_cmd=$(ps -ww -o args= -p $$ 2>/dev/null || true)
     while [ "$process_probe_available" = 1 ] && IFS= read -r line; do
       pid="${line%% *}"
       cmd="${line#* }"
       age=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')
-      # room+name extracted from the ws url in the args
-      key=$(printf '%s' "$cmd" | grep -oE 'room=[^& ]+&name=[^& "]+' | head -1)
+      # room+name extracted from the ws url in the args. A Lobby listener's
+      # room= is empty: it still serves every loca the Lobby seats it in.
+      key=$(printf '%s' "$cmd" | grep -oE 'room=[^& ]*&name=[^& "]+' | head -1)
       echo "  pid=$pid age=$age ${key:-?} :: $(printf '%s' "$cmd" | cut -c1-90)"
       listener_name=$(printf '%s' "$key" | sed -n 's/.*&name=//p')
       [ -z "$listener_name" ] || printf '%s\n' "$listener_name" >> "$listener_names_file"
@@ -1412,7 +1605,11 @@ case "$cmd" in
     done < <(
       if [ "$process_probe_available" = 1 ]; then
         pgrep -af 'listen\.py|bot\.py|agentd\.py' |
-          grep -v doctor |
+          DOCTOR_PID=$$ DOCTOR_CMD="$doctor_cmd" awk '{
+            cmd = $0; sub(/^[0-9]+ /, "", cmd)
+            if ($1 == ENVIRON["DOCTOR_PID"] || cmd == ENVIRON["DOCTOR_CMD"]) next
+            print
+          }' |
           grep -v 'runtime_agent\.py' |
           grep -v 'monitor_listener\.py' |
           grep -vE '^[0-9]+ +(/bin/)?(ba)?sh '
@@ -1429,10 +1626,10 @@ case "$cmd" in
       elif grep -Fxq "$invited_name" "$listener_names_file"; then
         echo "  OK: '$invited_name' has a live listener"
       else
-        echo "  MISSING LISTENER: '$invited_name' has a verified davet but no live listener; delivery/presence/session renewal can silently split"
+        echo "  MISSING LISTENER: '$invited_name' has a valid membership but no live listener; calls, delivery, presence and session renewal cannot reach it"
       fi
     done < <(sort -u "$invited_names_file")
-    [ "$coverage" = 1 ] || echo "  no invited identities to check"
+    [ "$coverage" = 1 ] || echo "  no member identities to check"
     rm -f "$invited_names_file" "$listener_names_file"
     echo "── duplicates (same room+name — the older one is a ghost) ──"
     dup=0

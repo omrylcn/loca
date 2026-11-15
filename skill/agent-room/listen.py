@@ -17,6 +17,7 @@ listener backfills anything missed via REST (?since=), so a message that
 arrived while the connection was down is not lost.
 """
 import base64
+import hashlib
 import json
 import os
 import re
@@ -39,12 +40,80 @@ from credentials import (
     validate_server_scope,
 )
 from wiki_state import agent_event
-from notification_state import NotificationCache, NotificationRecovery
+from notification_state import (
+    CACHE_LIMIT as NOTIFICATION_CACHE_LIMIT,
+    NotificationCache,
+    NotificationRecovery,
+    context_ids,
+    plan_context,
+)
 
 ADAPTER_PROTOCOL_VERSION = "1"
 DELIVERY_DEADLINE_MS = 4000
 BACKFILL_PAGE_SIZE = 200
 DEFAULT_TURN_MAX_MESSAGES = 4
+# A server that no longer stores invites in clear text sends `lobby_ready` with
+# `seats` and may follow it with `called` frames for invites whose delivery is
+# still pending.  Wait this long before saying a seat has no matching invite,
+# so a replay that is already on the wire is not reported as missing.
+SEAT_REPORT_GRACE_SECONDS = 2.0
+NEEDS_FRESH_INVITE = "needs a fresh invite — ask the Master to re-send"
+# A suspended membership comes back when the Master resumes it, and until then
+# the server refuses the Lobby handshake with 403 `membership suspended` (an
+# older server: 401, exactly as for a revoked one). After the server said
+# `membership_suspended`, in a frame or at the handshake, the listener keeps
+# running and retries the Lobby with this slow, bounded backoff, so the agent
+# is back in the Lobby by itself after Resume.
+SUSPENDED_RETRY_BASE_SECONDS = 5.0
+SUSPENDED_RETRY_MAX_SECONDS = 60.0
+MEMBERSHIP_SUSPENDED = (
+    "[lobby] this membership was suspended by the Master; it resumes when the "
+    "Master resumes it. Kept invites no longer work and a new call is needed. "
+    "The listener keeps the membership key and reconnects by itself after Resume."
+)
+
+# What this listener does with every server frame in docs/protocol-frames.json
+# (docs/protocol.md), plus the "not_sent_yet" frames it already dispatches on.
+# "handled" means watch() / lobby_watch() dispatch on it;
+# any other value says why it is deliberately ignored. A frame type missing
+# here fails tests/test_protocol_frames.py: none may fall through unexamined.
+_FILTERED = "ignored: the server does not send it on the filter=mentions/msg socket the kit opens"
+LOCA_FRAMES = {
+    "msg": "handled",
+    "turn": "handled",
+    "control": "handled",
+    "care": "handled",
+    "reaction": "handled",
+    "kicked": "handled",
+    "evicted": "handled",
+    "memory": "ignored: retired knowledge role; must neither wake a model nor be injected",
+    "memoryversion": "ignored: retired knowledge role; must neither wake a model nor be injected",
+    "caretaker": "ignored: never on the wire; the server delivers it as msg",
+    "history": _FILTERED + "; missed messages come from REST ?since= backfill",
+    "members": _FILTERED,
+    "renamed": _FILTERED,
+    "relabelled": _FILTERED,
+    "settings": _FILTERED + "; the lead is re-read over REST on an announce",
+    "note": _FILTERED,
+    "notewarn": _FILTERED,
+    "mode": _FILTERED,
+    "typing": _FILTERED,
+    "mod": _FILTERED,
+    "journal": _FILTERED,
+    "task": _FILTERED,
+    "goal": _FILTERED,
+    "attention": _FILTERED,
+    "wait": _FILTERED,
+}
+LOBBY_FRAMES = {
+    "lobby_ready": "handled",
+    "called": "handled",
+    "notification": "handled",
+    "membership_revoked": "handled",
+    "seats": "handled",
+    "credential_revoked": "handled",
+    "membership_suspended": "handled",
+}
 
 
 def configure_protocol_streams():
@@ -123,21 +192,49 @@ def save_cursor_state(path, state):
             pass
 
 
+# One lock for every check-then-write on this identity's kept credentials.
+# The env file has its own cross-process lock, but each helper below first
+# compares against ``os.environ`` and updates it after the file: without a
+# process-wide lock a room thread forgetting an ended invite could run between
+# the Lobby thread's file write and its ``os.environ`` update, and erase the
+# fresh invite from the file while the process went on using it until restart.
+CREDENTIAL_LOCK = threading.RLock()
+
+# One listener process may sit in several locas, and a session minted from a
+# loca's invite opens that loca only. The env file has a single compatibility
+# ``LOCA_SESSION`` slot, so the sessions this process mints are also kept
+# here, one per loca (by the loca's ``DAVET_`` key). Without that, two locas
+# renewing at the same time overwrite each other's session in the one slot:
+# each then presents the other's, is refused, renews and overwrites again,
+# for as long as their retries stay in step.
+ROOM_SESSIONS = {}
+
+
+def session_for_room(room):
+    """The session to present for ``room``.
+
+    The one this process minted for that loca; before it has minted one, the
+    compatibility slot (what the env file held when the process started).
+    """
+    return ROOM_SESSIONS.get(room_env_key(room)) or os.environ.get("LOCA_SESSION")
+
+
 def persist_env_value(key, value):
     """Atomically replace one credential in this identity's 0600 env file."""
-    path = os.environ.get("LOCA_ENV") or os.path.join(
-        os.path.expanduser("~"), ".loca", "env"
-    )
-    try:
-        update_env_values(path, {key: value or None})
-    except (CredentialError, OSError) as e:
-        sys.stderr.write(f"credential update failed: {e}\n")
-        return False
-    if value:
-        os.environ[key] = value
-    else:
-        os.environ.pop(key, None)
-    return True
+    with CREDENTIAL_LOCK:
+        path = os.environ.get("LOCA_ENV") or os.path.join(
+            os.path.expanduser("~"), ".loca", "env"
+        )
+        try:
+            update_env_values(path, {key: value or None})
+        except (CredentialError, OSError) as e:
+            sys.stderr.write(f"credential update failed: {e}\n")
+            return False
+        if value:
+            os.environ[key] = value
+        else:
+            os.environ.pop(key, None)
+        return True
 
 
 def durable_flush(sinks):
@@ -154,7 +251,14 @@ def room_env_key(room):
 
 
 def claim_membership(url):
-    """Claim the permanent lobby identity behind one of our live davets."""
+    """Claim this identity's own Lobby key with one of its live invites.
+
+    The claim runs as `connect.sh setup` runs it (`join_request.claim_key`):
+    the set-up's claim id lives in ~/.loca/<name>.claim, so a listener that
+    restarts after a lost answer asks for the same key instead of minting
+    another, and the key is verified, filed in the identity env and only then
+    acknowledged. Nothing here prints the key or the claim id.
+    """
     current = os.environ.get("LOCA_MEMBERSHIP")
     if current:
         return current
@@ -163,41 +267,41 @@ def claim_membership(url):
     # entry made migration to the lobby depend on file ordering: a stale
     # DAVET_sb_dev before a valid DAVET_sb_mobile permanently kept the agent
     # out of the lobby.
-    davets = list(
+    invites = list(
         dict.fromkeys(
             value
             for key, value in os.environ.items()
             if key.startswith("DAVET_") and value
         )
     )
-    if not davets:
+    if not invites:
         return None
+    import join_request
+
     parsed = urlparse(url)
     scheme = "https" if parsed.scheme == "wss" else "http"
     rest = (
         f"{scheme}://{parsed.hostname}:"
         f"{parsed.port or (443 if parsed.scheme == 'wss' else 80)}"
     )
-    last_error = None
-    for davet in davets:
-        req = urllib.request.Request(
-            f"{rest}/membership/claim", data=b"", method="POST"
-        )
-        req.add_header("x-room-token", davet)
-        try:
-            with urllib.request.urlopen(req, timeout=10) as response:
-                body = json.loads(response.read().decode())
-        except Exception as e:
-            last_error = e
+    name = os.environ.get("LOCA_NAME", "")
+    path = os.environ.get("LOCA_ENV") or os.path.join(
+        os.path.expanduser("~"), ".loca", "env"
+    )
+    state_file = os.path.join(
+        os.path.expanduser("~"),
+        ".loca",
+        re.sub(r"[^A-Za-z0-9_-]", "_", name) + ".claim",
+    )
+    for invite in invites:
+        if join_request.claim_key(rest, name, invite, state_file, path) not in (0, 6):
             continue
-        membership = body.get("membership_token")
-        if not membership:
-            continue
-        if not persist_env_value("LOCA_MEMBERSHIP", membership):
-            return None
-        sys.stderr.write("building lobby membership claimed\n")
-        return membership
-    sys.stderr.write(f"lobby membership claim failed: {last_error or 'no live davet'}\n")
+        membership = join_request.read_env_membership(path)
+        if membership:
+            os.environ["LOCA_MEMBERSHIP"] = membership
+            sys.stderr.write("building lobby membership claimed\n")
+            return membership
+    sys.stderr.write("lobby membership claim failed: no live invite\n")
     return None
 
 
@@ -205,76 +309,81 @@ def store_room_invite(room, token):
     """Persist a call and discard a session scoped to an older seat.
 
     There is one compatibility ``LOCA_SESSION`` slot but an identity may hold
-    several loca davets.  A Lobby call is authoritative and can replace a
+    several loca invites.  A Lobby call is authoritative and can replace a
     revoked seat, so carrying the old session into the new room makes the
-    first write fail even though the fresh davet is valid.
+    first write fail even though the fresh invite is valid.
     """
-    key = room_env_key(room)
-    # Replayed lobby snapshots are deliberately idempotent.  Rewriting an
-    # unchanged davet would also discard the live room session on every lobby
-    # reconnect, producing the periodic 401/rejoin loop users experienced.
-    if os.environ.get(key) == token:
-        return False
-    path = os.environ.get("LOCA_ENV") or os.path.join(
-        os.path.expanduser("~"), ".loca", "env"
-    )
-    try:
-        update_env_values(path, {key: token, "LOCA_SESSION": None})
-    except (CredentialError, OSError) as error:
-        sys.stderr.write(f"credential update failed: {error}\n")
-        return False
-    os.environ[key] = token
-    os.environ.pop("LOCA_SESSION", None)
-    return True
+    with CREDENTIAL_LOCK:
+        key = room_env_key(room)
+        # Replayed lobby snapshots are deliberately idempotent.  Rewriting an
+        # unchanged invite would also discard the live room session on every lobby
+        # reconnect, producing the periodic 401/rejoin loop users experienced.
+        if os.environ.get(key) == token:
+            return False
+        path = os.environ.get("LOCA_ENV") or os.path.join(
+            os.path.expanduser("~"), ".loca", "env"
+        )
+        try:
+            update_env_values(path, {key: token, "LOCA_SESSION": None})
+        except (CredentialError, OSError) as error:
+            sys.stderr.write(f"credential update failed: {error}\n")
+            return False
+        os.environ[key] = token
+        os.environ.pop("LOCA_SESSION", None)
+        ROOM_SESSIONS.pop(key, None)
+        return True
 
 
 def reconcile_room_invite_snapshot(invites):
-    """Atomically replace the local davet cache from one lobby snapshot.
+    """Atomically replace the local invite cache from one lobby snapshot.
 
-    Room names alone are insufficient: a revoked/re-issued davet can keep the
+    Room names alone are insufficient: a revoked/re-issued invite can keep the
     same room while changing token.  Applying the full authoritative snapshot
     in one env-file transaction prevents a listener from observing a mixture
     of old and new credentials.
     """
-    if not isinstance(invites, list):
-        raise ValueError("lobby invite snapshot must be a list")
-    current = {}
-    for invite in invites:
-        if not isinstance(invite, dict):
-            raise ValueError("lobby invite snapshot contains a non-object")
-        room = str(invite.get("room") or "").strip()
-        token = str(invite.get("token") or "").strip()
-        if not room or not token:
-            raise ValueError("lobby invite snapshot contains an empty room/token")
-        current[room_env_key(room)] = token
+    with CREDENTIAL_LOCK:
+        if not isinstance(invites, list):
+            raise ValueError("lobby invite snapshot must be a list")
+        current = {}
+        for invite in invites:
+            if not isinstance(invite, dict):
+                raise ValueError("lobby invite snapshot contains a non-object")
+            room = str(invite.get("room") or "").strip()
+            token = str(invite.get("token") or "").strip()
+            if not room or not token:
+                raise ValueError("lobby invite snapshot contains an empty room/token")
+            current[room_env_key(room)] = token
 
-    local_keys = {key for key in os.environ if key.startswith("DAVET_")}
-    updates = {key: None for key in local_keys - set(current)}
-    updates.update(current)
-    changed = any(os.environ.get(key) != value for key, value in current.items())
-    changed = changed or bool(local_keys - set(current))
-    if not changed:
-        return []
-    updates["LOCA_SESSION"] = None
-    path = os.environ.get("LOCA_ENV") or os.path.join(
-        os.path.expanduser("~"), ".loca", "env"
-    )
-    update_env_values(path, updates)
-    for key in local_keys - set(current):
-        os.environ.pop(key, None)
-    os.environ.update(current)
-    os.environ.pop("LOCA_SESSION", None)
-    return [key.removeprefix("DAVET_") for key in sorted(local_keys - set(current))]
+        local_keys = {key for key in os.environ if key.startswith("DAVET_")}
+        updates = {key: None for key in local_keys - set(current)}
+        updates.update(current)
+        changed = any(os.environ.get(key) != value for key, value in current.items())
+        changed = changed or bool(local_keys - set(current))
+        if not changed:
+            return []
+        updates["LOCA_SESSION"] = None
+        path = os.environ.get("LOCA_ENV") or os.path.join(
+            os.path.expanduser("~"), ".loca", "env"
+        )
+        update_env_values(path, updates)
+        for key in local_keys - set(current):
+            os.environ.pop(key, None)
+            ROOM_SESSIONS.pop(key, None)
+        for key, value in current.items():
+            if os.environ.get(key) != value:
+                ROOM_SESSIONS.pop(key, None)
+        os.environ.update(current)
+        os.environ.pop("LOCA_SESSION", None)
+        return [key.removeprefix("DAVET_") for key in sorted(local_keys - set(current))]
 
 
-def reconcile_room_invites(url, membership):
-    """Drop local davets absent from the membership's server snapshot.
+def fetch_member_locas(url, membership):
+    """Return the locas ``/whoami`` lists for this membership, or ``None``.
 
-    A room can be released while this process is down.  Without reconciliation
-    the dead ``DAVET_*`` line survives forever and ``status`` reports the whole
-    identity as stale even after a later, valid call into another loca.
-    Network or schema errors are non-destructive: only a successful member
-    response is authoritative enough to remove local credentials.
+    ``None`` means "no authoritative answer": a network fault, a timeout, an
+    HTTP error, an unparsable body, or an answer that is not a complete member
+    snapshot.  Callers must never remove a kept invite on ``None``.
     """
     validate_server_scope(url)
     parsed = urlparse(url)
@@ -290,41 +399,148 @@ def reconcile_room_invites(url, membership):
             identity = json.loads(response.read().decode())
     except Exception as error:
         sys.stderr.write(f"[lobby] invite reconciliation skipped: {error}\n")
-        return []
-    if identity.get("kind") != "member" or not isinstance(identity.get("locas"), list):
+        return None
+    locas = identity.get("locas") if isinstance(identity, dict) else None
+    if (
+        not isinstance(identity, dict)
+        or identity.get("kind") != "member"
+        or not isinstance(locas, list)
+        or not all(isinstance(room, str) and room for room in locas)
+    ):
         sys.stderr.write("[lobby] invite reconciliation skipped: invalid membership snapshot\n")
-        return []
+        return None
+    return list(locas)
 
-    active = {room_env_key(str(room)) for room in identity["locas"]}
-    stale = sorted(
-        key
-        for key in list(os.environ)
-        if key.startswith("DAVET_") and key not in active
-    )
-    if not stale:
+
+def drop_unlisted_room_invites(rooms):
+    """Remove kept invites for locas absent from an authoritative list.
+
+    Only a complete answer from the server (a ``seats`` list or a valid
+    ``/whoami`` member snapshot) may be passed here.
+    """
+    with CREDENTIAL_LOCK:
+        active = {room_env_key(str(room)) for room in rooms}
+        stale = sorted(
+            key
+            for key in list(os.environ)
+            if key.startswith("DAVET_") and key not in active
+        )
+        if not stale:
+            return []
+        path = os.environ.get("LOCA_ENV") or os.path.join(
+            os.path.expanduser("~"), ".loca", "env"
+        )
+        updates = {key: None for key in stale}
+        updates["LOCA_SESSION"] = None
+        try:
+            update_env_values(path, updates)
+        except (CredentialError, OSError) as error:
+            sys.stderr.write(f"credential update failed: {error}\n")
+            return []
+        for key in stale:
+            os.environ.pop(key, None)
+            ROOM_SESSIONS.pop(key, None)
+        os.environ.pop("LOCA_SESSION", None)
+        return [key.removeprefix("DAVET_") for key in stale]
+
+
+def reconcile_room_invites(url, membership):
+    """Drop local invites absent from the membership's server snapshot.
+
+    A room can be released while this process is down.  Without reconciliation
+    the dead ``DAVET_*`` line survives forever and ``status`` reports the whole
+    identity as stale even after a later, valid call into another loca.
+    Network or schema errors are non-destructive: only a successful member
+    response is authoritative enough to remove local credentials.
+    """
+    rooms = fetch_member_locas(url, membership)
+    if rooms is None:
         return []
-    path = os.environ.get("LOCA_ENV") or os.path.join(
+    return drop_unlisted_room_invites(rooms)
+
+
+def invite_management_id(token):
+    """Return the server's public id (``ivid_``) for one invite.
+
+    Mirrors the server's ``invite_management_id``: ``"ivid_"`` followed by the
+    first 16 bytes of SHA-256(``"invite:" + invite``) in lower-case hex.  The
+    id is not a secret and is safe to compare; the invite never leaves here.
+    """
+    digest = hashlib.sha256(("invite:" + token).encode("utf-8")).hexdigest()
+    return "ivid_" + digest[:32]
+
+
+def parse_seat_snapshot(seats):
+    """Validate a ``seats`` list into ``{room: invite_id}``.
+
+    Raises ``ValueError`` (with a message that holds no value from the frame)
+    when the list is not a complete, well-formed answer.  Extra fields on a
+    seat are ignored.
+    """
+    if not isinstance(seats, list):
+        raise ValueError("lobby seat list must be a list")
+    parsed = {}
+    for seat in seats:
+        if not isinstance(seat, dict):
+            raise ValueError("lobby seat list contains a non-object")
+        room = seat.get("room")
+        expected = seat.get("invite_id")
+        if not isinstance(room, str) or not room.strip():
+            raise ValueError("lobby seat list contains an empty room")
+        if not isinstance(expected, str) or not expected.strip():
+            raise ValueError("lobby seat list contains an empty invite_id")
+        room, expected = room.strip(), expected.strip()
+        if parsed.get(room, expected) != expected:
+            raise ValueError("lobby seat list names one loca twice")
+        parsed[room] = expected
+    return parsed
+
+
+def kept_invite_matches(room, expected_id):
+    """True when this identity keeps an invite for ``room`` that fits its seat.
+
+    ``expected_id`` is the seat's ``invite_id``; ``None`` means the server
+    named the loca without an id (``/whoami``), so any kept invite is tried.
+    """
+    token = os.environ.get(room_env_key(room))
+    if not token:
+        return False
+    return expected_id is None or invite_management_id(token) == expected_id
+
+
+def invite_status_path():
+    """Non-secret per-identity file read by ``connect.sh status``/``doctor``."""
+    env_path = os.environ.get("LOCA_ENV") or os.path.join(
         os.path.expanduser("~"), ".loca", "env"
     )
-    updates = {key: None for key in stale}
-    updates["LOCA_SESSION"] = None
+    return env_path + ".davet-status.json"
+
+
+def write_invite_status(needs_fresh, suspended=False):
+    """Record which seated locas need a fresh invite (loca names only), or that
+    the server said this membership is suspended."""
+    path = invite_status_path()
     try:
-        update_env_values(path, updates)
-    except (CredentialError, OSError) as error:
-        sys.stderr.write(f"credential update failed: {error}\n")
-        return []
-    for key in stale:
-        os.environ.pop(key, None)
-    os.environ.pop("LOCA_SESSION", None)
-    return [key.removeprefix("DAVET_") for key in stale]
+        if suspended:
+            save_cursor_state(path, {"membership_suspended": True})
+        elif needs_fresh:
+            save_cursor_state(path, {"needs_fresh_davet": sorted(needs_fresh)})
+        else:
+            os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        sys.stderr.write(f"[lobby] invite status not written: {error}\n")
 
 
 def clear_room_invite(room, expected_token=None):
     """Forget a revoked seat without erasing a newer raced-in call."""
-    key = room_env_key(room)
-    if expected_token is not None and os.environ.get(key) != expected_token:
-        return
-    persist_env_value(key, "")
+    with CREDENTIAL_LOCK:
+        key = room_env_key(room)
+        if expected_token is not None and os.environ.get(key) != expected_token:
+            return
+        persist_env_value(key, "")
+        ROOM_SESSIONS.pop(key, None)
 
 
 RENEW_BASE_BACKOFF = 1.0
@@ -392,6 +608,47 @@ def renew_backoff_plan(
     return sleep_seconds, next_attempts
 
 
+REFUSED_BASE_BACKOFF = 2.0
+REFUSED_MAX_BACKOFF = 60.0
+LOCA_FULL_PREFIX = "loca full"
+
+
+def refused_retry_delay(streak, *, base=REFUSED_BASE_BACKOFF, cap=REFUSED_MAX_BACKOFF):
+    """Seconds before the next handshake of a loca whose door said no.
+
+    ``streak`` counts consecutive refusals: a handshake answered with a
+    status other than 401 (banned, no such loca, any other decision), or a
+    seat refused because the loca is full. Asking again two seconds later
+    cannot change a decision, so the wait doubles from ``base`` to ``cap``.
+    A server that is unreachable is not a refusal and keeps the short retry:
+    it must be found again quickly after a restart.
+    """
+    if streak <= 0:
+        return base
+    # The exponent is bounded: a door that refuses for a day is asked over a
+    # thousand times, and 2 ** 1024 no longer fits a float. The thread that
+    # computes this must never die of its own arithmetic.
+    return min(cap, base * (2 ** min(streak - 1, 16)))
+
+
+def is_door_refusal(error):
+    """A handshake the server answered with a decision, not a dead session."""
+    return isinstance(error, HandshakeRefused) and error.status != 401
+
+
+def is_loca_full(event):
+    """The control frame a full loca sends before it closes the socket."""
+    return str((event or {}).get("cmd") or "").startswith(LOCA_FULL_PREFIX)
+
+
+def suspended_retry_delay(attempts):
+    """Seconds to wait before the next Lobby handshake of a suspended member."""
+    return min(
+        SUSPENDED_RETRY_MAX_SECONDS,
+        SUSPENDED_RETRY_BASE_SECONDS * (2 ** min(attempts, 16)),
+    )
+
+
 def renew_session(url):
     """Mint a fresh session token from the room key and rewrite the URL.
 
@@ -403,7 +660,7 @@ def renew_session(url):
     validate_server_scope(url)
     u = urlparse(url)
     q = parse_qs(u.query)
-    # Renew against the davet for THIS loca — that is what proves entry.
+    # Renew against the invite for THIS loca — that is what proves entry.
     room = q.get("room", ["general"])[0]
     tok = token_for_room(room)
     if not tok:
@@ -412,7 +669,7 @@ def renew_session(url):
     rest = f"{scheme}://{u.hostname}:{u.port or (443 if u.scheme == 'wss' else 80)}"
     name = os.environ.get("LOCA_NAME") or q.get("name", ["agent"])[0]
     # Scope the session to this loca, matching connect.sh. Without `loca` the
-    # server can only give a building-key session, which davet mode refuses to
+    # server can only give a building-key session, which invite mode refuses to
     # widen — so the renewed session would open nothing.
     body = json.dumps({"name": name, "kind": "agent", "loca": room}).encode()
     req = urllib.request.Request(f"{rest}/sessions", data=body, method="POST")
@@ -424,7 +681,7 @@ def renew_session(url):
     except HTTPError as e:
         if e.code in (401, 403):
             raise RoomAccessRevoked(
-                f"loca davet rejected while renewing session (HTTP {e.code})"
+                f"loca invite rejected while renewing session (HTTP {e.code})"
             ) from e
         sys.stderr.write(f"session renew failed: {e}\n")
         return None
@@ -433,11 +690,71 @@ def renew_session(url):
         return None
     if not new:
         return None
-    os.environ["LOCA_SESSION"] = new
-    # persist so a restart of THIS process doesn't have to renew again
-    persist_env_value("LOCA_SESSION", new)
+    with CREDENTIAL_LOCK:
+        # The answer was out while other threads ran. If this loca's invite was
+        # replaced or removed meanwhile (a new call, a revoked seat), the
+        # session belongs to the seat that is gone: publishing it would put
+        # back what that change had just cleared, here and in the shared slot.
+        if token_for_room(room) != tok:
+            sys.stderr.write(
+                f"[{room}] invite changed while its session was being renewed; "
+                "the renewed session is discarded\n"
+            )
+            return None
+        # This loca's own session: what its handshake and its REST calls
+        # present, whatever another loca's renewal writes to the shared slot
+        # meanwhile.
+        ROOM_SESSIONS[room_env_key(room)] = new
+        os.environ["LOCA_SESSION"] = new
+        # persist so a restart of THIS process doesn't have to renew again
+        persist_env_value("LOCA_SESSION", new)
     sys.stderr.write("session renewed (server had restarted)\n")
     return u._replace(query=urlencode({k: v[0] for k, v in q.items()})).geturl()
+
+
+class HandshakeRefused(ConnectionError):
+    """A WebSocket handshake the server answered with something other than
+    101. ``status`` is the HTTP status (or ``None``); ``body`` holds at most
+    the first 1 KiB of the answer's body."""
+
+    def __init__(self, message, status=None, body=b""):
+        super().__init__(message)
+        self.status = status
+        self.body = body
+
+
+def refusal_says_suspended(error):
+    """Did the server refuse this handshake because the membership is
+    suspended (403 ``membership suspended``)? A 403 from anything else, such
+    as a proxy, does not count."""
+    return (
+        isinstance(error, HandshakeRefused)
+        and error.status == 403
+        and error.body.strip() == b"membership suspended"
+    )
+
+
+def read_refusal(s, buf):
+    """Return (status, body) of a refused handshake; the body is read up to
+    its Content-Length, at most 1 KiB, and only as far as it arrives."""
+    head, _, body = buf.partition(b"\r\n\r\n")
+    lines = head.split(b"\r\n")
+    parts = lines[0].split()
+    status = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+    length = 0
+    for line in lines[1:]:
+        name, _, value = line.partition(b":")
+        if name.strip().lower() == b"content-length" and value.strip().isdigit():
+            length = min(int(value.strip()), 1024)
+    try:
+        while len(body) < length:
+            chunk = s.recv(length - len(body))
+            if not chunk:
+                break
+            body += chunk
+    except OSError:
+        pass
+    return status, body[:1024]
 
 
 def connect(url, protocols=None):
@@ -471,7 +788,12 @@ def connect(url, protocols=None):
             raise ConnectionError("closed during handshake")
         buf += chunk
     if b" 101 " not in buf.split(b"\r\n", 1)[0]:
-        raise ConnectionError("handshake failed: " + buf.split(b"\r\n", 1)[0].decode(errors="replace"))
+        status, body = read_refusal(s, buf)
+        raise HandshakeRefused(
+            "handshake failed: " + buf.split(b"\r\n", 1)[0].decode(errors="replace"),
+            status,
+            body,
+        )
     # A healthy server sends WebSocket pings regularly. Keep a bounded read
     # timeout so a half-open nginx/TCP connection cannot make an agent look
     # alive locally while it has vanished from the server roster forever.
@@ -820,7 +1142,7 @@ class BackfillError(RuntimeError):
 
 
 class RoomAccessRevoked(RuntimeError):
-    """The server rejected the room's durable davet, not merely its session."""
+    """The server rejected the room's durable invite, not merely its session."""
 
 
 def backfill_pages(url, last_id, skip_own, is_lead=False):
@@ -836,7 +1158,7 @@ def backfill_pages(url, last_id, skip_own, is_lead=False):
     room = q.get("room", ["general"])[0]
     name = q.get("name", [""])[0]
     # Credentials no longer live in WS query strings. REST backfill must use
-    # the same room-scoped local davet as the WebSocket subprotocol.
+    # the same room-scoped local invite as the WebSocket subprotocol.
     token = token_for_room(room)
     scheme = "https" if u.scheme == "wss" else "http"
     rest = f"{scheme}://{u.hostname}:{u.port or (443 if u.scheme == 'wss' else 80)}"
@@ -847,8 +1169,8 @@ def backfill_pages(url, last_id, skip_own, is_lead=False):
         req = urllib.request.Request(f"{rest}/rooms/{quote(room, safe='')}/messages?{params}")
         if token:
             req.add_header("x-room-token", token)
-        if os.environ.get("LOCA_SESSION"):
-            req.add_header("x-session-token", os.environ["LOCA_SESSION"])
+        if session_for_room(room):
+            req.add_header("x-session-token", session_for_room(room))
         try:
             with urllib.request.urlopen(req, timeout=10) as r:
                 msgs = json.loads(r.read().decode())
@@ -907,8 +1229,8 @@ def fetch_room_settings(url):
     req = urllib.request.Request(f"{rest}/rooms/{quote(room, safe='')}/settings")
     if token:
         req.add_header("x-room-token", token)
-    if os.environ.get("LOCA_SESSION"):
-        req.add_header("x-session-token", os.environ["LOCA_SESSION"])
+    if session_for_room(room):
+        req.add_header("x-session-token", session_for_room(room))
     with urllib.request.urlopen(req, timeout=10) as response:
         settings = json.loads(response.read().decode())
     if not isinstance(settings, dict):
@@ -940,8 +1262,8 @@ def acknowledge_care(url, signal_id, name):
     req.add_header("content-type", "application/json")
     if token:
         req.add_header("x-room-token", token)
-    if os.environ.get("LOCA_SESSION"):
-        req.add_header("x-session-token", os.environ["LOCA_SESSION"])
+    if session_for_room(room):
+        req.add_header("x-session-token", session_for_room(room))
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             return "ok" if response.status == 204 else "error"
@@ -996,7 +1318,7 @@ def room_protocols(room):
     token = token_for_room(room)
     if token:
         protocols.append(f"loca.room.{token}")
-    session = os.environ.get("LOCA_SESSION")
+    session = session_for_room(room)
     if session:
         protocols.append(f"loca.session.{session}")
     return protocols
@@ -1078,8 +1400,17 @@ def main():
     last = load_cursor_state(cursor, rooms)
 
     lock = threading.Lock()   # one writer at a time: history, inbox, cursor
+    # Set while the server has said this membership is suspended: no loca
+    # listener runs, and the Lobby waits for Resume (lobby_watch).
+    suspended = threading.Event()
     notification_cache = None
     notification_recovery = None
+    # Notices this process already wrote to Claude Monitor stdout, and the
+    # oldest one its session is still owed. One Monitor process feeds one
+    # session, so a new process (a new session, or a restart) starts from the
+    # recent window again. Kept in memory on purpose.
+    monitor_notices = set()
+    monitor_floor = [None]
     if membership:
         # Separate scope and cursor: a Building id must never advance a chat
         # watermark or be relayed as an invented room message.
@@ -1144,7 +1475,25 @@ def main():
                 else:
                     # Claude Monitor treats stdout as the wake channel: exactly
                     # one line here means exactly one model turn.
-                    print(json.dumps(event, ensure_ascii=False), flush=True)
+                    line = {k: v for k, v in event.items() if k != "notification_context"}
+                    window = event.get("notification_context")
+                    cached = notification_cache.rows() if notification_cache is not None else None
+                    if cached is None:
+                        rows = (window or {}).get("items") or []
+                        complete = not (window or {}).get("more_available")
+                    else:
+                        rows, complete = cached, len(cached) < NOTIFICATION_CACHE_LIMIT
+                    notices, floor = plan_context(rows, monitor_floor[0], monitor_notices, complete)
+                    if notices:
+                        line["notification_context"] = {"recipient": requested_name, **notices}
+                    print(json.dumps(line, ensure_ascii=False), flush=True)
+                    # Recorded only after the line was accepted by stdout. A
+                    # failed write exits below, so nothing is marked shown.
+                    monitor_notices.update(context_ids(notices))
+                    monitor_floor[0] = floor
+                    if floor is not None:
+                        monitor_notices.difference_update(
+                            [n for n in monitor_notices if n < floor])
                 if turn_sink is not None:
                     turn_sink.write(json.dumps(delivery, ensure_ascii=False) + "\n")
                 durable_flush((sink, turn_sink))
@@ -1207,8 +1556,17 @@ def main():
         # backoff actually grows across attempts instead of resetting to 2s
         # every time the connection is rebuilt.
         ack_auth_state = {"count": 0, "first": None, "last": None, "reason": None}
+        # Consecutive times this loca's door said no (see refused_retry_delay).
+        # It lives here, not in the socket loop, so the wait grows across
+        # attempts; one attempt that is not refused clears it.
+        refused_streak = 0
         while True:
+            if suspended.is_set():
+                # The membership is suspended and its invites ended with it.
+                # Stop this loca; after Resume the Lobby says what is seated.
+                return
             s = None
+            refused = False
             try:
                 s, leftover = connect(wurl, room_protocols(room))
                 if runtime_health is not None:
@@ -1281,6 +1639,14 @@ def main():
                     if t == "control":
                         event = dict(f)
                         event.setdefault("room", room)
+                        if is_loca_full(event):
+                            # The server closes the socket after this frame.
+                            # Say it once: every retry gets the same frame,
+                            # and each printed line can wake a model.
+                            refused = True
+                            if refused_streak == 0:
+                                emit_immediate(event)
+                            continue
                         emit_immediate(event)
                         continue
                     if t == "care":
@@ -1374,8 +1740,8 @@ def main():
             except Exception as e:
                 # A 401 on the handshake means our session died with the
                 # server's memory: renew it instead of retrying a dead token.
-                # Renew if we hold ANY key — a per-loca davet or the old building
-                # key. The old check required ROOM_TOKEN, so in davet mode (no
+                # Renew if we hold ANY key — a per-loca invite or the old building
+                # key. The old check required ROOM_TOKEN, so in invite mode (no
                 # building key) it never renewed and the listener spun forever on
                 # a dead token. This is exactly where sb-feature got stuck.
                 have_key = os.environ.get("ROOM_TOKEN") or any(
@@ -1406,7 +1772,16 @@ def main():
                             sys.stderr.flush()
                         time.sleep(backoff)
                         continue
-                sys.stderr.write(f"[{room}] reconnect after error: {e}\n"); sys.stderr.flush()
+                if is_door_refusal(e):
+                    refused = True
+                    if refused_streak == 0:
+                        sys.stderr.write(
+                            f"[{room}] the door refused the handshake ({e}); "
+                            "asking again less and less often\n"
+                        )
+                        sys.stderr.flush()
+                else:
+                    sys.stderr.write(f"[{room}] reconnect after error: {e}\n"); sys.stderr.flush()
             finally:
                 if s is not None and runtime_health is not None:
                     runtime_health.disconnected()
@@ -1419,15 +1794,26 @@ def main():
                         s.close()
                     except OSError:
                         pass
-            time.sleep(2)
+            if refused:
+                refused_streak += 1
+                delay = refused_retry_delay(refused_streak)
+                if delay >= REFUSED_MAX_BACKOFF and refused_streak > 1:
+                    sys.stderr.write(
+                        f"[{room}] still refused; next attempt in {delay:.0f}s\n"
+                    )
+                    sys.stderr.flush()
+                time.sleep(delay)
+            else:
+                refused_streak = 0
+                time.sleep(2)
 
     active = {}
     active_lock = threading.Lock()
 
     def start_room(room):
-        """Start at most one listener for the loca's current davet."""
+        """Start at most one listener for the loca's current invite."""
         token = token_for_room(room)
-        if not token:
+        if not token or suspended.is_set():
             return
         with active_lock:
             current = active.get(room)
@@ -1444,7 +1830,7 @@ def main():
                         if active.get(room) is threading.current_thread():
                             active.pop(room, None)
                         # A call may race the old socket's release frame. If a
-                        # newer davet is already present, start it after this
+                        # newer invite is already present, start it after this
                         # generation has fully stepped aside.
                         newer = token_for_room(room)
                         restart = bool(newer and newer != token)
@@ -1457,15 +1843,131 @@ def main():
             active[room] = thread
             thread.start()
 
+    # What the server last said about this member's seats.  ``seats`` is
+    # ``{room: invite_id or None}`` while the server speaks the seat shape and
+    # ``None`` while it sends full invite snapshots (``invites``).
+    seat_lock = threading.Lock()
+    seat_state = {"seats": None, "timer": None, "reported": set(), "missing": None}
+
+    def report_missing_seats():
+        """Say once per seat which locas cannot be re-entered from here."""
+        with seat_lock:
+            seats = dict(seat_state["seats"] or {})
+            missing = sorted(
+                room
+                for room, expected in seats.items()
+                if not kept_invite_matches(room, expected)
+            )
+            fresh = [
+                room for room in missing
+                if (room, seats[room]) not in seat_state["reported"]
+            ]
+            seat_state["reported"].update((room, seats[room]) for room in fresh)
+            changed = missing != seat_state["missing"]
+            seat_state["missing"] = missing
+        for room in fresh:
+            sys.stderr.write(
+                f"[lobby] {room}: {NEEDS_FRESH_INVITE}. No invite kept here "
+                "matches this seat, so the listener cannot re-enter it.\n"
+            )
+        if fresh:
+            sys.stderr.flush()
+        if changed:
+            write_invite_status(missing)
+
+    def track_seats(seats):
+        """Remember the seat list and check it once pending calls had time."""
+        with seat_lock:
+            seat_state["seats"] = dict(seats) if seats is not None else None
+            if seat_state["timer"] is not None:
+                seat_state["timer"].cancel()
+                seat_state["timer"] = None
+            if seats is None:
+                seat_state["missing"] = None
+            else:
+                timer = threading.Timer(
+                    SEAT_REPORT_GRACE_SECONDS, report_missing_seats
+                )
+                timer.daemon = True
+                seat_state["timer"] = timer
+                timer.start()
+        if seats is None:
+            # The server re-sends invites again (or the key was revoked): no
+            # seat is waiting on the Master, so clear what status reports.
+            write_invite_status([])
+
+    def seat_invite_arrived(room, token):
+        """A live call fits its seat by definition; settle a missing report."""
+        with seat_lock:
+            seats = seat_state["seats"]
+            if seats is None:
+                return
+            seats[room] = invite_management_id(token)
+            settled = room in (seat_state["missing"] or [])
+        if settled:
+            sys.stderr.write(f"[lobby] {room}: fresh invite received\n")
+            sys.stderr.flush()
+            report_missing_seats()
+
+    def enter_seats(frame, lobby_url):
+        """Apply a seat-shaped frame: no ``invites``, maybe ``seats``.
+
+        The server no longer re-sends invites, so a seated loca is entered from
+        the invite kept in the identity file once it fits the seat.  Lines are
+        dropped only on a complete answer; nothing is dropped, started, or
+        reported when the server's answer is missing or unreadable.
+        """
+        seats = None
+        if "seats" in frame:
+            try:
+                seats = parse_seat_snapshot(frame.get("seats"))
+            except ValueError as error:
+                sys.stderr.write(
+                    f"[lobby] seat list rejected: {error}; asking /whoami\n"
+                )
+        if seats is None:
+            rooms = fetch_member_locas(lobby_url, membership)
+            if rooms is None:
+                return []
+            seats = {room: None for room in rooms}
+        removed = drop_unlisted_room_invites(list(seats))
+        track_seats(seats)
+        for room in sorted(seats):
+            if kept_invite_matches(room, seats[room]):
+                start_room(room)
+        return removed
+
+    def note_suspended():
+        """Enter the suspended-waiting state: no loca listener runs, the key
+        is kept, and the Lobby waits for Resume."""
+        suspended.set()
+        track_seats(None)
+        write_invite_status([], suspended=True)
+        sys.stderr.write(MEMBERSHIP_SUSPENDED + "\n")
+        sys.stderr.flush()
+
     def lobby_watch():
         parsed = urlparse(url)
         lobby_url = parsed._replace(path="/lobby/ws", query="").geturl()
+        suspended_attempts = 0
+        # Set once this server has refused the handshake as "suspended" during
+        # the current suspension: from then on a plain 401 means revoked. An
+        # older server never says it, so its 401 stays ambiguous.
+        door_says_suspended = False
         while True:
             sock = None
             try:
                 sock, leftover = connect(
                     lobby_url, ["loca.v1", f"loca.membership.{membership}"]
                 )
+                if suspended.is_set():
+                    suspended.clear()
+                    suspended_attempts = 0
+                    door_says_suspended = False
+                    write_invite_status([])
+                    sys.stderr.write(
+                        "[lobby] membership resumed — back in the Lobby\n"
+                    )
                 if runtime_health is not None:
                     runtime_health.connected()
                 sys.stderr.write("[lobby] connected — waiting for calls\n")
@@ -1479,9 +1981,15 @@ def main():
                         frame = json.loads(raw)
                     except Exception:
                         continue
+                    if not isinstance(frame, dict):
+                        continue
                     kind = frame.get("t")
                     if kind == "lobby_ready":
                         snapshot = frame.get("invites")
+                        if "invites" in frame:
+                            # The current server re-sends every invite; it stays
+                            # the authority exactly as before.
+                            track_seats(None)
                         if isinstance(snapshot, list):
                             try:
                                 removed = reconcile_room_invite_snapshot(snapshot)
@@ -1493,12 +2001,28 @@ def main():
                                 continue
                             for invite in snapshot:
                                 start_room(str(invite["room"]))
-                        else:
-                            # Backward compatibility with pre-snapshot servers.
+                        elif "invites" in frame:
+                            # An unreadable `invites` value: reconcile through
+                            # /whoami only, exactly as before.
                             removed = reconcile_room_invites(lobby_url, membership)
+                        else:
+                            # No `invites` key: a server that keeps only invite
+                            # hashes sends `seats`; an older one sends neither
+                            # and /whoami answers instead.
+                            removed = enter_seats(frame, lobby_url)
                         if removed:
                             sys.stderr.write(
-                                "[lobby] removed stale local davet cache: "
+                                "[lobby] removed stale local invite cache: "
+                                + ", ".join(removed)
+                                + "\n"
+                            )
+                            sys.stderr.flush()
+                    elif kind == "seats":
+                        # Seat list re-sent after the server's bus lagged.
+                        removed = enter_seats(frame, lobby_url)
+                        if removed:
+                            sys.stderr.write(
+                                "[lobby] removed stale local invite cache: "
                                 + ", ".join(removed)
                                 + "\n"
                             )
@@ -1506,10 +2030,17 @@ def main():
                     elif kind == "called":
                         room = str(frame.get("room") or "").strip()
                         token = str(frame.get("token") or "").strip()
-                        if room and token and store_room_invite(room, token):
-                            sys.stderr.write(f"[lobby] called into {room}\n")
-                            sys.stderr.flush()
-                            start_room(room)
+                        if room and token:
+                            if store_room_invite(room, token):
+                                sys.stderr.write(f"[lobby] called into {room}\n")
+                                sys.stderr.flush()
+                            # A call may repeat the invite already kept (a
+                            # reconnect while its delivery is pending).  That
+                            # is never an error and never a second listener,
+                            # but the loca must end up listened to.
+                            if os.environ.get(room_env_key(room)) == token:
+                                seat_invite_arrived(room, token)
+                                start_room(room)
                     elif kind == "notification":
                         # This private Lobby frame is a recovery hint, not a
                         # task/mention. REST proves the recipient and catches
@@ -1519,8 +2050,67 @@ def main():
                         persist_env_value("LOCA_MEMBERSHIP", "")
                         sys.stderr.write("[lobby] building membership revoked — exiting\n")
                         return
+                    elif kind == "membership_suspended":
+                        # Not a revoke: the key is kept, because Resume makes
+                        # it work again. The server ended every invite and
+                        # session; kept DAVET_ lines are left for the next
+                        # Lobby snapshot after Resume to settle.
+                        note_suspended()
+                        break
+                    elif kind == "credential_revoked":
+                        # Door B: this one membership key was revoked (for
+                        # example from the profile page).  The membership and
+                        # its invites may live on, but this key will only meet
+                        # 401 from now on, so stop instead of reconnecting.
+                        # The key is not replaced here: claiming a new one
+                        # behind the operator's back would undo the revoke.
+                        track_seats(None)
+                        credential = frame.get("credential_id")
+                        label = (
+                            f" ({credential})"
+                            if isinstance(credential, str)
+                            and re.fullmatch(r"cr_[0-9a-f]{1,64}", credential)
+                            else ""
+                        )
+                        sys.stderr.write(
+                            f"[lobby] this membership key was revoked{label} — "
+                            "the Lobby listener stops and is not retrying. Kept "
+                            "invites were left in place. Ask the Master for a new "
+                            "membership key, then run connect.sh setup again.\n"
+                        )
+                        sys.stderr.flush()
+                        return
             except Exception as e:
+                if refusal_says_suspended(e):
+                    # The handshake itself says "suspended": wait for Resume
+                    # whether or not the frame arrived (a listener started
+                    # while the membership was already suspended never got it).
+                    door_says_suspended = True
+                    if not suspended.is_set():
+                        note_suspended()
+                if suspended.is_set() and (
+                    refusal_says_suspended(e)
+                    or ("401" in str(e) and not door_says_suspended)
+                ):
+                    # An older server answers a suspended and a revoked
+                    # membership alike (401); only the frame it sent before
+                    # tells them apart, so its 401 keeps the listener waiting.
+                    delay = suspended_retry_delay(suspended_attempts)
+                    if suspended_attempts == 0:
+                        sys.stderr.write(
+                            "[lobby] still suspended — checking again with a "
+                            f"backoff of at most {SUSPENDED_RETRY_MAX_SECONDS:.0f}s\n"
+                        )
+                        sys.stderr.flush()
+                    suspended_attempts += 1
+                    time.sleep(delay)
+                    continue
                 if "401" in str(e):
+                    if suspended.is_set():
+                        # This server said "suspended" before and now says
+                        # 401: the membership was revoked while it waited.
+                        suspended.clear()
+                        write_invite_status([])
                     sys.stderr.write(f"[lobby] membership rejected: {e}\n")
                     return
                 sys.stderr.write(f"[lobby] reconnect after error: {e}\n")
@@ -1542,7 +2132,8 @@ def main():
             # arrive and release returns the member here. Do not start from cached
             # DAVET_* values first: after a revoke/re-call that token can be stale,
             # and its forever-retrying thread would block the fresh lobby token
-            # from starting for the same room.
+            # from starting for the same room. A kept invite is started only after
+            # the Lobby's seat list (or /whoami) says the loca is still seated.
             lobby_watch()
             return 0
 

@@ -259,7 +259,8 @@ start_runtime() {
       --inbox "$inbox_file" --state-db "$state_db" --identity "$name" \
       --workdir "$start_dir" --codex-bin "$codex_bin" \
       --connect-sh "$SKILL_DIR/connect.sh" --health-file "$v2_health" \
-      --relay-mode "$relay_mode")"
+      --relay-mode "$relay_mode" \
+      --notification-cache "$cursor_file.notifications.sqlite3")"
     if [ "$codex_sandbox" != inherit ]; then
       v2_hook+="$(printf '%q ' --sandbox "$codex_sandbox")"
     fi

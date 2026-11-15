@@ -18,10 +18,31 @@ use std::sync::Arc;
 use protocol::SenderType;
 
 use super::{BuildingRole, Hub, LobbyEvent, RequestAuthority};
-use crate::store::{NotificationPage, NotificationRow, SentNotificationRow};
+use crate::store::{
+    NotificationPage, NotificationRow, NotificationSend, SendLimit, SentNotificationRow,
+};
 
 pub const NOTIFICATION_TITLE_MAX: usize = 120;
 pub const NOTIFICATION_BODY_MAX: usize = 2000;
+
+/// The sending limit: at most this many notifications from one sender in any
+/// [`NOTIFICATION_SEND_WINDOW_MS`]; the next is refused (429) until the
+/// oldest of them leaves the window.
+///
+/// Every notification writes one row per recipient and lands in everyone's
+/// list, so a runaway or hostile client could otherwise flood the whole
+/// Building without bound. Six in ten minutes is more than anyone announcing
+/// things by hand needs, and few enough that a person would call more a
+/// flood. It applies to the Master too: it guards against a runaway client,
+/// not against authority. It is counted from the stored notifications, in the
+/// transaction that would store the next one, so a restart does not reset it
+/// and two sends at once cannot both take the last place.
+///
+/// `NOTIFICATION_RATE_LIMIT` changes the count at start-up (a shared test
+/// server sends more than six); the window stays fixed.
+pub const NOTIFICATION_SEND_LIMIT: u32 = 6;
+/// The window [`NOTIFICATION_SEND_LIMIT`] counts over: ten minutes.
+pub const NOTIFICATION_SEND_WINDOW_MS: u64 = 10 * 60 * 1000;
 const PAGE_DEFAULT: u32 = 50;
 const PAGE_MAX: u32 = 100;
 
@@ -51,6 +72,12 @@ pub enum NotificationError {
     /// A memory-only server keeps no notifications.
     Unavailable,
     Storage,
+    /// The sender already sent `max` in the window; the next fits in
+    /// `retry_after_secs` (rounded up, at least 1).
+    RateLimited {
+        max: u32,
+        retry_after_secs: u64,
+    },
 }
 
 impl NotificationError {
@@ -69,6 +96,9 @@ impl NotificationError {
             Self::NotFound => "no such notification",
             Self::Unavailable => "notifications need a persistent database (DB_PATH)",
             Self::Storage => "could not save — try again",
+            Self::RateLimited { .. } => {
+                "too many notifications sent recently — wait, then try again"
+            }
         }
     }
 }
@@ -299,7 +329,9 @@ impl Hub {
             return Err(NotificationError::NoRecipients);
         }
         let created_at = self.now();
-        let created = self
+        let max = self.notification_send_limit();
+        let counted = self.notification_count_keys(viewer, &sender_id);
+        let created = match self
             .store
             .create_notification(
                 &sender_id,
@@ -309,9 +341,23 @@ impl Hub {
                 &body,
                 created_at,
                 &recipients,
+                SendLimit {
+                    senders: &counted,
+                    max,
+                    window_ms: NOTIFICATION_SEND_WINDOW_MS,
+                },
             )
             .map_err(|_| NotificationError::Storage)?
-            .ok_or(NotificationError::Unavailable)?;
+            .ok_or(NotificationError::Unavailable)?
+        {
+            NotificationSend::Created(created) => created,
+            NotificationSend::Limited { retry_after_ms } => {
+                return Err(NotificationError::RateLimited {
+                    max,
+                    retry_after_secs: retry_after_ms.div_ceil(1000).max(1),
+                })
+            }
+        };
         let id = created.id;
         // Agents hear it on their Lobby line. The frame carries no credential
         // and no group name: one frame goes to every recipient's socket.
@@ -347,6 +393,25 @@ impl Hub {
             agents: created.agents,
             read: 0,
         })
+    }
+
+    /// Every `sender_principal` this sender's notifications may be stored
+    /// under, for the sending limit. Anyone but the Master is its principal.
+    /// A Master is stored as its principal when it has one and as `"master"`
+    /// when it has none (no `ADMIN_TOKEN`, or a session without a profile),
+    /// so a Master is counted over both: however it signs in, one count.
+    /// What is stored, and whose Sent list shows it, does not change.
+    fn notification_count_keys(&self, viewer: &RequestAuthority, sender_id: &str) -> Vec<String> {
+        let mut keys = vec![sender_id.to_string()];
+        if viewer.is_master() {
+            let master = self.store.active_master_principal().map(|p| p.id);
+            for key in ["master".to_string()].into_iter().chain(master) {
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
+            }
+        }
+        keys
     }
 
     fn reader_of(viewer: &RequestAuthority) -> Result<String, NotificationError> {

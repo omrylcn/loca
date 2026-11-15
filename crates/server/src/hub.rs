@@ -7,18 +7,23 @@
 //! runtimes remain single-writer and replace a stale predecessor on reconnect.
 
 mod attention;
-mod birebir;
+mod claims;
+mod dm;
 mod extensions;
 mod groups;
+mod identity;
 mod keys;
 mod notifications;
+mod profile_card;
 mod work;
 
-pub use birebir::{BirebirCandidate, BirebirError, BirebirView};
+pub use claims::ClaimRefusal;
+pub use dm::{DmCandidate, DmError, DmView};
 pub use extensions::{normalize_extensions, ExtensionEdit, ExtensionError};
 pub use groups::{GroupError, GroupView};
+pub use identity::{IdentityEdit, IdentityError};
 pub use keys::KeyRevokeError;
-pub use notifications::{NotificationAudience, NotificationError};
+pub use notifications::{NotificationAudience, NotificationError, NOTIFICATION_SEND_LIMIT};
 pub use work::{GoalError, TaskError, WaitError};
 
 use std::collections::HashMap;
@@ -30,9 +35,9 @@ use tokio::sync::broadcast;
 
 use protocol::{
     Attention, AttentionAudience, AttentionStatus, CareReason, CareSignal, ChatMode, CreateGoal,
-    CreateNote, CreateTask, Goal, GoalCompletion, GoalStatus, Invite, Member, Message, Note,
-    PostMessage, ReminderRecipient, RoomSettings, RoomSummary, SenderType, ServerFrame, SetWait,
-    Task, TaskStatus, UpdateGoal, UpdateNote, UpdateTask, WaitState,
+    CreateNote, CreateTask, Goal, GoalCompletion, GoalStatus, Member, Message, Note, PostMessage,
+    ReminderRecipient, RoomSettings, RoomSummary, SenderType, ServerFrame, SetWait, Task,
+    TaskStatus, UpdateGoal, UpdateNote, UpdateTask, WaitState,
 };
 
 #[derive(Debug, Clone)]
@@ -51,8 +56,8 @@ struct RuntimeRecord {
 }
 
 use crate::store::{
-    BuildingRole, CredentialError, CredentialSummary, LocaOperatorAssignment, LocaOperatorError,
-    PrincipalIdentity, Store,
+    secret_hash, BuildingRole, CredentialError, CredentialSummary, InviteRecord,
+    LocaOperatorAssignment, LocaOperatorError, MemberRecord, PrincipalIdentity, Store,
 };
 use crate::sync::RecoverMutex;
 
@@ -120,14 +125,19 @@ struct Room {
     operations: HashMap<(String, String), Message>,
     operation_order: VecDeque<(String, String)>,
     tx: broadcast::Sender<ServerFrame>,
-    /// seat identity -> (display name, kind, live connection count).
+    /// seat identity -> (display name, kind, live connections by session id).
     /// One key = one seat: the map is keyed by IDENTITY (derived from the
     /// credential at the door — "@master", "mb:…", "sm:…", "st:…", "name:…"),
     /// never by the free-text display name. The same key reconnecting under a
     /// new name takes over its old seat; it cannot sit twice. Two human web
-    /// clients under the same identity+name share that one seat by reference
-    /// count. The name is just the label the seat currently wears.
-    members: HashMap<String, (String, SenderType, usize)>,
+    /// clients under the same identity+name share that one seat, each listed
+    /// by its session. The name is just the label the seat currently wears.
+    members: HashMap<String, (String, SenderType, std::collections::HashSet<u64>)>,
+    /// seat identity -> the principal the door verified for it (the same id
+    /// its messages are attributed to). Only such a seat wears that person's
+    /// full name and icon (`Hub::prove_seat`); a seat taken by typing a name
+    /// has no entry and shows its plain name.
+    seat_principals: HashMap<String, String>,
     /// Living notes, keyed by `Note::key`.
     notes: HashMap<String, Note>,
     /// What has already been done here, oldest first. Append-only: entries are
@@ -171,6 +181,7 @@ impl Room {
             operation_order: VecDeque::new(),
             tx,
             members: HashMap::new(),
+            seat_principals: HashMap::new(),
             notes: HashMap::new(),
             journal: Vec::new(),
             next_journal_id: 1,
@@ -191,14 +202,24 @@ impl Room {
         }
     }
 
-    fn member_list(&self) -> Vec<Member> {
+    /// The roster. `cards` (`Hub::profile_cards`, by principal) adds a
+    /// person's full name and icon to a seat whose principal the door
+    /// verified; every other seat is listed exactly as before.
+    fn member_list(&self, cards: &HashMap<String, crate::store::ProfileCard>) -> Vec<Member> {
         let mut list: Vec<Member> = self
             .members
             .iter()
-            .map(|(identity, (name, kind, _))| Member {
-                name: name.clone(),
-                kind: *kind,
-                role: seat_rank(identity).map(str::to_string),
+            .map(|(identity, (name, kind, _))| {
+                let principal = self.seat_principals.get(identity);
+                let card = principal.and_then(|principal| cards.get(principal));
+                Member {
+                    name: name.clone(),
+                    kind: *kind,
+                    role: seat_rank(identity).map(str::to_string),
+                    principal_id: principal.cloned(),
+                    full_name: card.and_then(|c| c.full_name.clone()),
+                    icon: card.and_then(|c| c.icon.clone()),
+                }
             })
             .collect();
         list.sort_by(|a, b| a.name.cmp(&b.name));
@@ -219,6 +240,10 @@ pub(crate) fn seat_rank(identity: &str) -> Option<&'static str> {
     }
 }
 
+/// A test-only pause point (see `Hub::set_reissue_swapped_hook`).
+#[cfg(test)]
+pub type TestHook = Arc<dyn Fn() + Send + Sync>;
+
 /// The whole server's room state. Cheap to clone (`Arc` inside).
 #[derive(Clone)]
 pub struct Hub {
@@ -229,8 +254,8 @@ pub struct Hub {
     /// name is deleted, do not resurrect it"; it is cleared when the master
     /// explicitly opens the loca again.
     deleted: Arc<Mutex<std::collections::HashSet<String>>>,
-    /// Birebirs by room id (PRINCIPLES "Birebir"): private two-person locas.
-    birebirs: Arc<Mutex<HashMap<String, crate::store::Birebir>>>,
+    /// Direct messages by room id (PRINCIPLES "Birebir"): private two-person locas.
+    dms: Arc<Mutex<HashMap<String, crate::store::Dm>>>,
     /// Each loca's active Loca Operator principal, mirrored from
     /// `room_operator_assignments`. The door asks on every request (and
     /// `GET /rooms` once per loca), so it must not cost a SQLite query.
@@ -240,8 +265,6 @@ pub struct Hub {
     /// Groups, their members and their locas (PRINCIPLES "Groups"). A leaf
     /// lock; see `hub/groups.rs` for the order rules.
     groups: Arc<Mutex<groups::GroupBook>>,
-    /// Membership (mb_) token -> principal id. The binding never changes.
-    member_principals: Arc<Mutex<HashMap<String, String>>>,
     next_id: Arc<AtomicU64>,
     /// Monotonic product-state generation. Wall clocks can repeat or move
     /// backwards; Attention identities must still advance after real progress.
@@ -260,15 +283,29 @@ pub struct Hub {
     /// Server boot id: changes every process start so clients can detect a
     /// restart (and the state reset that comes with memory-only mode).
     epoch: u64,
-    /// Live membership keys -> who belongs to the building. Separate from
-    /// invites: a davet seats a member in a loca, membership is the identity
-    /// itself and survives every room they leave.
-    members: Arc<Mutex<HashMap<String, protocol::Membership>>>,
-    /// Live legacy Smaster credentials -> the principal holding them. A Smaster is a second
+    /// Live memberships, keyed by their management id (`mbid_`), never by
+    /// their key: who belongs to the building. Separate from invites: an
+    /// invite seats a member in a loca, membership is the identity itself and
+    /// survives every room they leave. A record holds no key; a presented
+    /// key is found through its credential (persistent) or `member_keys`.
+    members: Arc<Mutex<HashMap<String, MemberRecord>>>,
+    /// A memory-only Building's membership keys: each key's `secret_hash` ->
+    /// the membership's id. A persistent Building finds a presented key
+    /// through `credentials` instead and keeps nothing here.
+    member_keys: Arc<Mutex<HashMap<String, String>>>,
+    /// Membership keys claimed with an invite while the Building has no
+    /// database (memory-only mode); a persistent Building keeps them in
+    /// `credentials` and `membership_claims`. See `hub/claims.rs`.
+    memory_claims: Arc<Mutex<claims::MemoryClaims>>,
+    /// Live legacy Smaster codes, keyed by the code's `secret_hash` (never by
+    /// the code), -> name, principal and management id. A Smaster is a second
     /// master: same powers, but the master has the last word (see `is_master`).
-    smasters: Arc<Mutex<HashMap<String, String>>>,
-    /// Issued session tokens -> bound identity. Davet sessions are ephemeral;
-    /// browser admin sessions survive a deploy until their normal expiry.
+    smasters: Arc<Mutex<HashMap<String, crate::store::SmasterRecord>>>,
+    /// Issued sessions, keyed by the token's `secret_hash` (never by the
+    /// token), -> bound identity. A presented token is hashed and looked up;
+    /// the hash itself is not a token. Invite sessions are ephemeral; browser
+    /// admin sessions survive a deploy until their normal expiry, and after
+    /// a restart the server has only their hashes.
     sessions: Arc<Mutex<HashMap<String, SessionIdentity>>>,
     /// Current one-use browser pairing code and the lifetime chosen for the
     /// admin session it will mint. The root key stays in the server's
@@ -279,28 +316,58 @@ pub struct Hub {
     // affecting anyone else (review re-blocker #3).
     join_create_times: Arc<Mutex<std::collections::HashMap<std::net::IpAddr, Vec<u64>>>>,
     /// When true, posting requires a valid session token: `sender` can no
-    /// longer be spoofed via the request body (PRODUCTION.md Aşama 0).
+    /// longer be spoofed via the request body (PRODUCTION.md stage 0).
     require_sessions: bool,
-    /// Seats per loca (`LOCA_CAPACITY`, default [`Hub::LOCA_KAPASITE`]).
+    /// Seats per loca (`LOCA_CAPACITY`, default [`Hub::DEFAULT_LOCA_CAPACITY`]).
     /// Shared across clones so one configured value governs every handler.
     loca_capacity: Arc<std::sync::atomic::AtomicUsize>,
-    /// When true, an empty room_token means 'davet-only', not 'open house'.
+    /// The most seats a loca's own number may reach (`LOCA_CAPACITY_MAX`,
+    /// default [`Hub::LOCA_CAPACITY_MAX`]); read through
+    /// `loca_capacity_max()`, which never answers below `loca_capacity`.
+    loca_capacity_max: Arc<std::sync::atomic::AtomicUsize>,
+    /// Notifications one sender may send per window
+    /// (`NOTIFICATION_RATE_LIMIT`, default [`NOTIFICATION_SEND_LIMIT`]).
+    notification_send_limit: Arc<std::sync::atomic::AtomicU32>,
+    /// When true, an empty room_token means 'invite-only', not 'open house'.
     /// This is how the building key is retired: no key, but the door still
-    /// demands a davet for every loca.
+    /// demands an invite for every loca.
     require_invite: bool,
-    /// Live davetler, keyed by token. Unlike sessions these are persisted:
-    /// a restart must not un-invite anyone.
-    invites: Arc<Mutex<HashMap<String, Invite>>>,
+    /// Live invites, keyed by the invite's `secret_hash` (never by the
+    /// invite): a presented invite is hashed and looked up, and the hash itself
+    /// is not an invite. Unlike sessions these are persisted: a restart must
+    /// not un-invite anyone.
+    invites: Arc<Mutex<HashMap<String, InviteRecord>>>,
+    /// Live invites whose delivery copy is still held (`invites.delivery_token`
+    /// in a persistent store), by their hash -> the invite, the one thing a
+    /// delivery needs in clear text: minted for delivery and neither used nor
+    /// past `INVITE_DELIVERY_WINDOW_MS`. Every Lobby connect of the member is
+    /// sent these again. Never held while taking the `invites` lock.
+    deliveries: Arc<Mutex<HashMap<String, String>>>,
     /// Building-lobby signal bus. Lobby sockets never join a loca; they wait
-    /// here for a davet addressed to their permanent membership.
+    /// here for an invite addressed to their permanent membership.
     lobby_tx: broadcast::Sender<LobbyEvent>,
-    /// Serialize membership access cutoffs with davet persistence/cache writes.
+    /// Serialize membership access cutoffs with invite persistence/cache writes.
     member_lifecycle: Arc<Mutex<()>>,
+    /// Makes "nobody wears this name in any letter case" and "now someone
+    /// does" one step. Held from the clash check until the name is written,
+    /// in the store and in memory, by every path that brings a name into
+    /// being: `admit_member` (direct admission and the master desk),
+    /// `approve_join_request`, `create_join_request` (a pending request
+    /// holds its name), `add_smaster` (both Smaster doors) and
+    /// `rename_profile` (a rank's own rename and the Master's rename of a
+    /// Smaster). Lock order: `name_claims`, then `member_lifecycle` (only the
+    /// rename takes it), then `moderation_ranks`, then the data locks
+    /// (`members`, `smasters`, `sessions`, `rooms`), then the store's
+    /// connection. It is taken only by those six functions, first, while no
+    /// other hub lock is held, and none of them calls another while it holds
+    /// it (it is not re-entrant).
+    name_claims: Arc<Mutex<()>>,
     /// Serialize restriction checks and writes; keep provenance in memory-only
     /// mode too. Persistent decisions restore this mirror before serving.
     moderation_ranks: Arc<Mutex<ModerationRanks>>,
-    /// Live lobby sockets per membership token. A count (rather than a set)
-    /// keeps presence correct while one identity is reconnecting.
+    /// Live lobby sockets per membership, by its management id (`mbid_`). A
+    /// count (rather than a set) keeps presence correct while one identity is
+    /// reconnecting.
     lobby_online: Arc<Mutex<HashMap<String, usize>>>,
     /// Adapter health is ephemeral and deliberately separate from transport
     /// presence. Heartbeats never become membership or room history.
@@ -310,10 +377,15 @@ pub struct Hub {
     care_deliveries: Arc<Mutex<HashMap<String, String>>>,
     /// The building's private governance/caretaker loca (production: `iye`).
     home_room: Arc<String>,
-    /// When set, only configured caretakers may receive a davet for this loca;
-    /// master and smaster enter by rank and need no davet.
+    /// When set, only configured caretakers may receive an invite for this loca;
+    /// master and smaster enter by rank and need no invite.
     reserved_room: Arc<String>,
     caretakers: Arc<std::collections::HashSet<String>>,
+    /// Test-only: runs inside `reissue_invite` right after the swap, before
+    /// the old seat's clean-up and the delivery, so a test can hold one
+    /// re-issue there while another runs.
+    #[cfg(test)]
+    reissue_swapped_hook: Arc<Mutex<Option<TestHook>>>,
 }
 
 #[derive(Clone)]
@@ -326,9 +398,11 @@ struct AdminPairing {
     log_id: Option<String>,
 }
 
-/// A private signal delivered only to the lobby socket carrying `member`.
-/// The davet remains persisted in `invites`; this bus is merely the immediate
-/// wake-up path, and a reconnect receives the persisted snapshot.
+/// A private signal delivered only to the lobby socket of the membership
+/// `member` (its id, `mbid_`). The invite remains persisted in `invites`; this
+/// bus is merely the immediate wake-up path, and `Called.token` is the invite
+/// being delivered, held only for that. A reconnect receives the seat list
+/// and the invites whose delivery is still owed (`Hub::pending_deliveries`).
 #[derive(Debug, Clone)]
 pub enum LobbyEvent {
     Called {
@@ -342,6 +416,12 @@ pub enum LobbyEvent {
     MembershipSuspended {
         member: String,
     },
+    /// One credential was revoked at the profile door (door B): the Lobby
+    /// sockets that authenticated with it close. The membership and the
+    /// member's other credentials are untouched.
+    CredentialRevoked {
+        credential_id: String,
+    },
     /// A Building notification (docs/concepts.md "Notifications"), addressed
     /// by principal id: one event reaches every recipient's Lobby socket.
     /// `frame` is the ready `{"t":"notification",…}` text; it carries no
@@ -353,14 +433,14 @@ pub enum LobbyEvent {
 }
 
 impl LobbyEvent {
-    /// The membership token a per-member event is for; `None` for an event
-    /// addressed by principal (a notification).
+    /// The membership (its id) a per-member event is for; `None` for an
+    /// event addressed by principal (a notification) or by credential.
     pub fn member(&self) -> Option<&str> {
         match self {
             Self::Called { member, .. }
             | Self::MembershipRevoked { member }
             | Self::MembershipSuspended { member } => Some(member),
-            Self::Notification { .. } => None,
+            Self::CredentialRevoked { .. } | Self::Notification { .. } => None,
         }
     }
 }
@@ -381,35 +461,61 @@ impl EnterDecision {
     }
 }
 
-/// Why a davet could not be issued (see [`Hub::invite_member_to_room`]).
-/// A davet never creates identity — it seats an existing member.
+/// What an id names at the door of a private loca (see `Hub::private_door`).
+enum PrivateDoor {
+    /// A direct message or a group loca, and the door's answer for it.
+    Private(EnterDecision),
+    /// The direct message id space, naming no direct message: nobody enters there.
+    Reserved,
+    /// Anything else: the ordinary door decides.
+    Ordinary,
+}
+
+/// Why an invite could not be issued (see [`Hub::invite_member_to_room`]).
+/// An invite never creates identity — it seats an existing member.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InviteError {
     /// Closed Buildings require an explicitly created loca before an invitation.
     MissingRoom,
     /// The name is not a building member — admit them first.
     MemberNotFound,
-    /// This member already holds a live davet for this loca.
+    /// This member already holds a live invite for this loca.
     AlreadyInvited,
     /// The loca is full — every configured seat is already handed out.
     Full,
-    /// The davet could not be persisted.
+    /// The invite could not be persisted.
     Storage,
     /// This is the building's private governance/caretaker loca.
     Reserved,
-    /// Sealed rooms retain their records and cannot be reopened by a davet.
+    /// Sealed rooms retain their records and cannot be reopened by an invite.
     Sealed,
     /// A group loca seats only its group's members.
     NotInGroup,
-    /// Birebir admission is internal and bound to its two principals.
+    /// Direct message admission is internal and bound to its two principals.
     PrivatePair,
 }
 
-/// Why `Hub::create_loca_in` refused.
+/// Why an invite could not be re-issued (see [`Hub::reissue_invite`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReissueError {
+    /// Refused for a reason a call is refused for too (sealed or missing
+    /// loca, not a live member, reserved loca, group gate, direct message, storage).
+    Invite(InviteError),
+    /// The member holds no live invite for this loca: there is nothing to
+    /// re-issue, and a re-issue never turns into a first call.
+    NotHeld,
+    /// The caller may not end the invite it would replace.
+    Forbidden,
+}
+
+/// Why `Hub::create_loca_in` refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CreateLocaError {
     Operator(OperatorAssignmentError),
     Group(GroupError),
+    /// An identity field (description, seats, icon, colour, labels) broke
+    /// its rule.
+    Identity(IdentityError),
 }
 
 impl From<OperatorAssignmentError> for CreateLocaError {
@@ -455,32 +561,120 @@ pub struct SessionIdentity {
     pub building_role: BuildingRole,
     pub name: String,
     pub kind: SenderType,
-    /// The loca this session is confined to, when it was taken with a davet.
-    /// `None` = taken with the building key, so it reaches as far as that key
-    /// does. Without this a davet holder could take a session and walk the
-    /// whole building — the davet would mean nothing.
+    /// The loca this session is confined to, when it was taken with an invite.
+    /// `None` = taken with a Building-level credential: the building key, the
+    /// admin key or pairing, or a member's own key or profile credential.
+    /// Without this an invite holder could take a session and walk the whole
+    /// building — the invite would mean nothing.
     pub loca: Option<String>,
-    /// The building membership (mb_ token) this session proves, when it was
-    /// taken with a davet. The seat key derives from this: one member, one
-    /// seat, whatever display name the connection claims.
+    /// The building membership this session proves, by its management id
+    /// (`mbid_`, never the key), when it was taken with an invite — or with the
+    /// member's own key in a memory-only store, where there is no principal
+    /// to bind instead. Empty for an unbound legacy invite, which has no
+    /// membership. The seat key derives from this: one member, one seat,
+    /// whatever display name the connection claims.
     pub member: Option<String>,
+    /// The `secret_hash` of the invite this session was taken with. An invite
+    /// session lives while that invite is live and the member's principal is
+    /// active; it is not bound to any of the member's credentials, so
+    /// revoking one of them (the original key included) leaves it alone.
+    pub invite: Option<String>,
+    /// Was this session taken with a credential that reaches the whole
+    /// Building through the legacy building key (`ROOM_TOKEN` itself)? Only
+    /// such a session inherits that reach; one taken with a member's own key
+    /// or profile credential reaches what that member is entitled to.
+    pub building_key: bool,
     /// Does this bounded session authenticate the Master principal? It lets
     /// the browser prove Master authority without retaining or repeatedly
     /// transmitting the root/bootstrap/recovery credential. It expires so a
     /// leaked session dies on its own.
     pub admin: bool,
-    /// Unix-ms after which this session is no longer valid. `0` = never expires
-    /// (davet/building sessions keep their old behaviour). Admin sessions get a
-    /// finite TTL so the key's stand-in cannot outlive the sitting.
+    /// Unix-ms from which this session is no longer valid. Every session has
+    /// one: [`Hub::ADMIN_SESSION_TTL_MS`] after it was taken, or the lifetime
+    /// chosen for a Master pairing. A leaked or forgotten session dies on its
+    /// own, and the background sweep removes it. `0` is never issued and
+    /// reads as already expired.
     pub expires_at: u64,
+}
+
+/// The key an `op_id` is remembered under (`messages.principal`), built by
+/// `Hub::operation_scope`.
+#[derive(Clone, Debug)]
+pub struct OperationScope {
+    /// What a new operation is stored under: `pr:<principal id>`,
+    /// `mb:<membership>` or `label:<kind>:<name>`.
+    key: String,
+    /// The verified principal behind `key`, when there is one.
+    principal: Option<String>,
+    /// The key the REST route stored this request's operations under before
+    /// this version, when it differs from `key`. Read only.
+    legacy: Option<String>,
+}
+
+/// Whose a record found under a legacy operation key is, as far as the
+/// server can prove (see `Hub::legacy_operation_owner`).
+enum LegacyOwner {
+    /// The sender now re-sending: the record answers the re-send.
+    Sender,
+    /// Somebody else, by the writer the record names: it is not this
+    /// sender's operation, and the sender's own is posted.
+    Other,
+    /// A record that names no writer under a key several senders could have
+    /// built. Neither answering with it nor posting again is safe.
+    Unknown,
 }
 
 /// Words that name a rank, a title or an addressing keyword. A person's name
 /// is only a label, so it must never read as a title: "smaster" on the roster
-/// says nothing about who is sitting there, and `@all` is not a person.
+/// says nothing about who is sitting there, and `@all` is not a person. The
+/// address words themselves are `ADDRESS_WORDS`, refused here too.
 const RESERVED_NAMES: &[&str] = &[
-    "master", "smaster", "operator", "lead", "admin", "root", "all", "everyone", "here", "goal",
+    "master", "smaster", "operator", "lead", "admin", "root", "everyone", "here", "goal",
 ];
+
+/// Words that address a message instead of naming a person: a `target` of
+/// `all`, or `@all` in the text, calls everyone at the table (`msg_addresses`
+/// in main.rs). Somebody named so could never be addressed alone, so no door
+/// admits a new name that is one of these, in any letter case. The admission
+/// doors' refusal names the word (`ADDRESS_WORD_RULE`).
+const ADDRESS_WORDS: &[&str] = &["all"];
+
+/// Is `name` an address word (`ADDRESS_WORDS`), compared without case?
+pub(crate) fn is_address_word(name: &str) -> bool {
+    ADDRESS_WORDS
+        .iter()
+        .any(|word| name.eq_ignore_ascii_case(word))
+}
+
+/// Why `valid_agent_name` refused a name, said the same way at every door.
+pub(crate) const AGENT_NAME_RULE: &str =
+    "name must be 1-64 ASCII letters, digits, dot, dash, or underscore";
+
+pub(crate) fn valid_agent_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Why an address word (`is_address_word`) is refused as a new name.
+pub(crate) const ADDRESS_WORD_RULE: &str = "\"all\" is an address that calls everyone, not a name";
+
+/// Why a name being admitted now is refused, said the same way at every
+/// admission door: the character rule first, then the address words. The
+/// join-request door applies it to the name it files; `Hub::admit_member`
+/// and `Hub::approve_join_request` apply it under `name_claims`, where the
+/// name is written.
+pub(crate) fn admission_name_refusal(name: &str) -> Option<&'static str> {
+    if !valid_agent_name(name) {
+        Some(AGENT_NAME_RULE)
+    } else if is_address_word(name) {
+        Some(ADDRESS_WORD_RULE)
+    } else {
+        None
+    }
+}
 
 /// Why a display name is refused (see `validate_display_name`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -505,7 +699,7 @@ pub fn validate_display_name(name: &str) -> Result<&str, NameError> {
         return Err(NameError::Invalid);
     }
     let folded = crate::store::search_fold(name);
-    if RESERVED_NAMES.contains(&folded.as_str()) {
+    if RESERVED_NAMES.contains(&folded.as_str()) || is_address_word(name) {
         return Err(NameError::Reserved);
     }
     Ok(name)
@@ -592,6 +786,19 @@ impl From<rusqlite::Error> for ModerationError {
     }
 }
 
+/// The rank an invite's issuer holds, on the scale of
+/// `RequestAuthority::moderation_rank`. Master, internal (`group-move`,
+/// `direct message`) and unknown legacy issuers fail closed at the Master's rank.
+fn invite_issuer_rank(issued_by: &str) -> u8 {
+    if issued_by.starts_with("smaster:") {
+        2
+    } else if issued_by == "operator" || issued_by.starts_with("operator:") {
+        1
+    } else {
+        3
+    }
+}
+
 fn authority_from_principal(principal: Option<PrincipalIdentity>) -> Option<RequestAuthority> {
     principal.map(|identity| RequestAuthority {
         principal_id: Some(identity.id),
@@ -653,10 +860,9 @@ impl Hub {
         let hub = Hub {
             rooms: Arc::new(Mutex::new(HashMap::new())),
             deleted: Arc::new(Mutex::new(std::collections::HashSet::new())),
-            birebirs: Arc::new(Mutex::new(HashMap::new())),
+            dms: Arc::new(Mutex::new(HashMap::new())),
             operators: Arc::new(Mutex::new(HashMap::new())),
             groups: Arc::new(Mutex::new(groups::GroupBook::default())),
-            member_principals: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicU64::new(1)),
             condition_generation: Arc::new(AtomicU64::new(0)),
             now_ms: default_now_ms,
@@ -666,6 +872,8 @@ impl Hub {
             default_settings,
             epoch,
             members: Arc::new(Mutex::new(HashMap::new())),
+            member_keys: Arc::new(Mutex::new(HashMap::new())),
+            memory_claims: Arc::new(Mutex::new(claims::MemoryClaims::default())),
             smasters: Arc::new(Mutex::new(HashMap::new())),
             sessions: Arc::new(Mutex::new(HashMap::new())),
             admin_pairing: Arc::new(Mutex::new(AdminPairing {
@@ -676,11 +884,21 @@ impl Hub {
             })),
             join_create_times: Arc::new(Mutex::new(std::collections::HashMap::new())),
             require_sessions,
-            loca_capacity: Arc::new(std::sync::atomic::AtomicUsize::new(Self::LOCA_KAPASITE)),
+            loca_capacity: Arc::new(std::sync::atomic::AtomicUsize::new(
+                Self::DEFAULT_LOCA_CAPACITY,
+            )),
+            loca_capacity_max: Arc::new(std::sync::atomic::AtomicUsize::new(
+                Self::LOCA_CAPACITY_MAX,
+            )),
+            notification_send_limit: Arc::new(std::sync::atomic::AtomicU32::new(
+                NOTIFICATION_SEND_LIMIT,
+            )),
             require_invite,
             invites: Arc::new(Mutex::new(HashMap::new())),
+            deliveries: Arc::new(Mutex::new(HashMap::new())),
             lobby_tx,
             member_lifecycle: Arc::new(Mutex::new(())),
+            name_claims: Arc::new(Mutex::new(())),
             moderation_ranks: Arc::new(Mutex::new(HashMap::new())),
             lobby_online: Arc::new(Mutex::new(HashMap::new())),
             runtime_health: Arc::new(Mutex::new(HashMap::new())),
@@ -688,13 +906,33 @@ impl Hub {
             home_room: Arc::new(home_room),
             reserved_room: Arc::new(reserved_room),
             caretakers: Arc::new(caretakers),
+            #[cfg(test)]
+            reissue_swapped_hook: Arc::new(Mutex::new(None)),
         };
 
-        // Davetler survive restarts — load them before anyone knocks.
+        // Invites survive restarts — load them before anyone knocks. An
+        // unreadable table stops the start: it must not read as "no invites".
         {
             let mut inv = hub.invites.lock_or_recover();
-            for i in hub.store.load_invites() {
-                inv.insert(i.token.clone(), i);
+            for i in hub
+                .store
+                .load_invites()
+                .expect("persistent invites are unreadable; refusing to start")
+            {
+                inv.insert(i.secret_hash.clone(), i);
+            }
+            // The deliveries still owed: `Store::open` has already cleared
+            // every copy whose window closed while the server was stopped.
+            let mut held = hub.deliveries.lock_or_recover();
+            for invite_key in hub
+                .store
+                .load_invite_deliveries()
+                .expect("persistent invite deliveries are unreadable; refusing to start")
+            {
+                let hash = secret_hash(&invite_key);
+                if inv.contains_key(&hash) {
+                    held.insert(hash, invite_key);
+                }
             }
         }
 
@@ -770,14 +1008,25 @@ impl Hub {
             .store(max_generation, Ordering::Relaxed);
         {
             let mut mem = hub.members.lock_or_recover();
-            for m in hub.store.load_members() {
-                mem.insert(m.token.clone(), m);
+            for m in hub
+                .store
+                .load_members()
+                .expect("persistent memberships are unreadable; refusing to start")
+            {
+                mem.insert(m.id.clone(), m);
             }
         }
         {
+            // Only after `Store::open` committed any registry migration. An
+            // unreadable registry stops the start: it must not read as "no
+            // Smasters".
             let mut sm = hub.smasters.lock_or_recover();
-            for (token, name) in hub.store.load_smasters() {
-                sm.insert(token, name);
+            for record in hub
+                .store
+                .load_smasters()
+                .expect("persistent Smaster registry is unreadable; refusing to start")
+            {
+                sm.insert(record.secret_hash.clone(), record);
             }
         }
 
@@ -860,23 +1109,34 @@ impl Hub {
         }
         {
             let mut sessions = hub.sessions.lock_or_recover();
-            for (token, _name, _kind, expires_at) in hub.store.load_admin_sessions(hub.now()) {
-                let Some(principal) = hub.store.principal_for_session(&token, hub.now()) else {
+            for record in hub
+                .store
+                .load_admin_sessions(hub.now())
+                .expect("persisted admin sessions are unreadable; refusing to start")
+            {
+                let crate::store::AdminSessionRecord {
+                    secret_hash: session_hash,
+                    expires_at,
+                } = record;
+                let Some(principal) = hub
+                    .store
+                    .principal_for_session_by_hash(&session_hash, hub.now())
+                else {
                     // Unbound legacy sessions cannot prove their original role.
                     // Fail closed rather than promoting them to the current Master.
                     hub.store
-                        .delete_admin_session(&token)
+                        .delete_admin_session_by_hash(&session_hash)
                         .expect("invalid persisted session cleanup failed; refusing to start");
                     continue;
                 };
                 if !matches!(principal.role, BuildingRole::Master | BuildingRole::Smaster) {
                     hub.store
-                        .delete_admin_session(&token)
+                        .delete_admin_session_by_hash(&session_hash)
                         .expect("non-admin persisted session cleanup failed; refusing to start");
                     continue;
                 }
                 sessions.insert(
-                    token,
+                    session_hash,
                     SessionIdentity {
                         principal_id: Some(principal.id),
                         building_role: principal.role,
@@ -884,6 +1144,8 @@ impl Hub {
                         kind: principal.kind,
                         loca: None,
                         member: None,
+                        invite: None,
+                        building_key: false,
                         admin: true,
                         expires_at,
                     },
@@ -891,44 +1153,47 @@ impl Hub {
             }
         }
 
-        // Migration: a davet now seats a MEMBER, but legacy davets predate the
-        // link (empty `member`). Bind each to the membership carrying its name;
-        // when none exists, mint one marked `migration:legacy-invite` — the
-        // invite-only identities of the old model become real members, so no
-        // one loses a seat they already held. After this pass every live davet
-        // points at a membership and the new invariant holds building-wide.
+        // Migration: an invite now seats a MEMBER, but legacy invites predate the
+        // link (empty `member_id`). Bind each to the membership carrying its
+        // name; when none exists, mint one marked `migration:legacy-invite` —
+        // the invite-only identities of the old model become real members, so
+        // no one loses a seat they already held. Such a membership's key is
+        // never handed to anyone: its holder enters with the invite it holds.
+        // After this pass every live invite points at a membership and the new
+        // invariant holds building-wide. A write that fails stops the start.
         {
             let mut inv = hub.invites.lock_or_recover();
             let mut mem = hub.members.lock_or_recover();
             let orphans: Vec<String> = inv
                 .values()
-                .filter(|i| i.member.is_empty())
-                .map(|i| i.token.clone())
+                .filter(|i| i.member_id.is_empty())
+                .map(|i| i.secret_hash.clone())
                 .collect();
-            for token in orphans {
+            for hash in orphans {
                 let (name, kind) = {
-                    let i = &inv[&token];
+                    let i = &inv[&hash];
                     (i.name.clone(), i.kind.clone())
                 };
-                let member_token = match mem.values().find(|m| m.name == name) {
-                    Some(m) => m.token.clone(),
+                let member_id = match mem.values().find(|m| m.name == name) {
+                    Some(m) => m.id.clone(),
                     None => {
-                        let m = protocol::Membership {
-                            token: hub.new_invite_token().replacen("dv_", "mb_", 1),
-                            name: name.clone(),
-                            kind,
-                            joined_at: hub.now(),
-                            admitted_by: "migration:legacy-invite".into(),
-                        };
-                        let _ = hub.store.add_member(&m);
-                        let t = m.token.clone();
-                        mem.insert(t.clone(), m);
-                        t
+                        let key = hub.new_invite_token().replacen("dv_", "mb_", 1);
+                        let m = hub
+                            .store
+                            .add_member(&key, &name, &kind, hub.now(), "migration:legacy-invite")
+                            .expect(
+                                "binding a legacy invite to a new membership failed; refusing to start",
+                            );
+                        let id = m.id.clone();
+                        mem.insert(id.clone(), m);
+                        id
                     }
                 };
-                if let Some(i) = inv.get_mut(&token) {
-                    i.member = member_token;
-                    let _ = hub.store.insert_invite(i);
+                hub.store
+                    .bind_invite_member_by_hash(&hash, &member_id)
+                    .expect("binding a legacy invite to its membership failed; refusing to start");
+                if let Some(i) = inv.get_mut(&hash) {
+                    i.member_id = member_id;
                 }
             }
         }
@@ -945,13 +1210,13 @@ impl Hub {
                 .filter(|invite| {
                     invite.room == *hub.reserved_room && !hub.caretakers.contains(&invite.name)
                 })
-                .map(|invite| invite.token.clone())
+                .map(|invite| invite.secret_hash.clone())
                 .collect();
-            for token in stale {
+            for hash in stale {
                 hub.store
-                    .revoke_invite(&token, hub.now())
+                    .revoke_invite_by_hash(&hash, hub.now())
                     .expect("persist reserved-loca seat cleanup");
-                hub.invites.lock_or_recover().remove(&token);
+                hub.invites.lock_or_recover().remove(&hash);
             }
         }
 
@@ -973,9 +1238,9 @@ impl Hub {
             }
         }
 
-        // Bans and mutes survive the restart (PRINCIPLES: "restart odayı
-        // öldürmez"). Load them into their rooms so the door is exactly as the
-        // operator left it — otherwise a banned name's davet reloads and walks
+        // Bans and mutes survive the restart (PRINCIPLES: "a restart does not
+        // kill the room"). Load them into their rooms so the door is exactly as the
+        // operator left it — otherwise a banned name's invite reloads and walks
         // back in.
         {
             let mut rooms = hub.rooms.lock_or_recover();
@@ -1020,13 +1285,13 @@ impl Hub {
             }
         }
         {
-            let mut birebirs = hub.birebirs.lock_or_recover();
+            let mut dms = hub.dms.lock_or_recover();
             for b in hub
                 .store
-                .load_birebirs()
-                .expect("persistent birebirs are unreadable; refusing to start")
+                .load_dms()
+                .expect("persistent direct messages are unreadable; refusing to start")
             {
-                birebirs.insert(b.room.clone(), b);
+                dms.insert(b.room.clone(), b);
             }
         }
         // After the legacy operator migration above, so it sees its result.
@@ -1042,7 +1307,7 @@ impl Hub {
 
     /// True if `token` authorizes admin actions. When no token is configured,
     /// any request is treated as admin (dev mode).
-    /// May this token act — issue davets, run a loca, change settings?
+    /// May this token act — issue invites, run a loca, change settings?
     /// True for the master and for every smaster: a smaster does everything a
     /// master does.
     pub fn is_admin(&self, token: Option<&str>) -> bool {
@@ -1070,7 +1335,7 @@ impl Hub {
         session_token: Option<&str>,
     ) -> RequestAuthority {
         if let Some(session) = self.session_identity(session_token) {
-            // A davet proves identity only inside one room. Never turn that
+            // An invite proves identity only inside one room. Never turn that
             // proof into Building/profile authority (including key issuance).
             if session.loca.is_some() {
                 return RequestAuthority {
@@ -1211,6 +1476,11 @@ impl Hub {
         self.store.credential_is_revoked(credential)
     }
 
+    /// The id (`cr_`) of the live credential this secret is, if any.
+    pub fn credential_id_for_secret(&self, credential: &str) -> Option<String> {
+        self.store.credential_id_for_secret(credential)
+    }
+
     pub fn create_profile_credential(
         &self,
         principal_id: &str,
@@ -1233,91 +1503,113 @@ impl Hub {
             .legacy_credential_source(principal_id, credential_id);
         self.store
             .revoke_credential(principal_id, credential_id, self.now())?;
-        self.sessions
-            .lock_or_recover()
-            .retain(|session, _| !self.store.session_uses_credential(session, credential_id));
+        self.sessions.lock_or_recover().retain(|session_hash, _| {
+            !self
+                .store
+                .session_uses_credential_by_hash(session_hash, credential_id)
+        });
+        // Door B: the Lobby sockets opened with this credential close. Its
+        // reconnect is refused at the handshake (the credential is revoked).
+        let _ = self.lobby_tx.send(LobbyEvent::CredentialRevoked {
+            credential_id: credential_id.to_string(),
+        });
         // v2 authority is DB-backed, but a legacy Smaster key also lives in
         // the in-memory compatibility map. Retire that fallback only after the
         // credential transaction commits, so "revoked" cannot still mean
         // "Smaster through the old path".
-        if let Some((role, token)) = legacy {
+        if let Some((role, hash)) = legacy {
             if role == "smaster" {
-                self.smasters.lock_or_recover().remove(&token);
+                self.smasters.lock_or_recover().remove(&hash);
             }
         }
         Ok(())
     }
 
+    /// The live Smaster a presented code belongs to. The code is hashed and
+    /// looked up by its hash; nothing else (the hash itself, a `pr_` or a
+    /// `smid_`) is a code.
+    pub fn smaster_for_code(&self, code: Option<&str>) -> Option<crate::store::SmasterRecord> {
+        let code = code.filter(|code| !code.is_empty())?;
+        self.smasters
+            .lock_or_recover()
+            .get(&crate::store::secret_hash(code))
+            .cloned()
+    }
+
     /// The smaster behind this token, if it is a live one.
     pub fn smaster_name(&self, token: Option<&str>) -> Option<String> {
-        let token = token?;
-        if token.is_empty() {
-            return None;
-        }
-        self.smasters.lock_or_recover().get(token).cloned()
+        self.smaster_for_code(token).map(|record| record.name)
     }
 
     /// Mint a second master. Only the master may call this — the caller checks.
-    pub fn add_smaster(&self, name: &str) -> rusqlite::Result<String> {
-        let token = self.new_invite_token().replacen("dv_", "sm_", 1);
+    /// The code is returned once, to the response that hands it over. A name
+    /// someone already wears in any letter case (`rank_name_clashes`) is
+    /// refused; the check and the write happen under `name_claims`.
+    pub fn add_smaster(&self, name: &str) -> Result<String, NameClaimError> {
+        let _claim = self.name_claims.lock_or_recover();
+        if self.rank_name_clashes(name) {
+            return Err(NameClaimError::Worn);
+        }
+        let code = self.new_invite_token().replacen("dv_", "sm_", 1);
         let now = (self.now_ms)();
-        self.store.add_smaster(&token, name, now)?;
+        let record = self.store.add_smaster(&code, name, now)?;
         self.smasters
             .lock_or_recover()
-            .insert(token.clone(), name.to_string());
-        Ok(token)
+            .insert(record.secret_hash.clone(), record);
+        Ok(code)
     }
 
-    /// Take one back. The row survives, so "who could act, and when" stays
-    /// answerable.
-    pub fn revoke_smaster(&self, token: &str) -> rusqlite::Result<bool> {
-        let existed = self.smasters.lock_or_recover().contains_key(token);
-        if !existed {
+    /// Take one back, by its code's hash. The row survives, so "who could
+    /// act, and when" stays answerable.
+    fn revoke_smaster_hash(&self, secret_hash: &str) -> rusqlite::Result<bool> {
+        let Some(record) = self.smasters.lock_or_recover().get(secret_hash).cloned() else {
             return Ok(false);
-        }
-        self.store.revoke_smaster(token, (self.now_ms)())?;
-        self.smasters.lock_or_recover().remove(token);
+        };
+        self.store.revoke_smaster(secret_hash, (self.now_ms)())?;
+        self.smasters.lock_or_recover().remove(secret_hash);
         // A group whose founder this was now belongs to the Master.
-        self.pass_groups_to_master(&crate::store::hashed_id("pr_", &format!("smaster:{token}")));
+        self.pass_groups_to_master(&record.principal_id);
         Ok(true)
     }
 
-    pub fn smaster_management_id(&self, token: &str) -> String {
-        crate::store::hashed_id("smid_", &format!("smaster:{token}"))
+    /// The live Smaster a management reference names: its `smid_`, or the
+    /// Smaster's own code presented by its holder (hashed, then compared).
+    fn smaster_by_reference(&self, reference: &str) -> Option<crate::store::SmasterRecord> {
+        if reference.is_empty() {
+            return None;
+        }
+        let hash = crate::store::secret_hash(reference);
+        let smasters = self.smasters.lock_or_recover();
+        smasters.get(&hash).cloned().or_else(|| {
+            smasters
+                .values()
+                .find(|record| record.management_id == reference)
+                .cloned()
+        })
     }
 
+    /// Revoke the Smaster a management reference names (`smid_…`, or the
+    /// code itself).
     pub fn revoke_smaster_ref(&self, reference: &str) -> rusqlite::Result<bool> {
-        let token = self
-            .smasters
-            .lock_or_recover()
-            .keys()
-            .find(|token| {
-                token.as_str() == reference || self.smaster_management_id(token) == reference
-            })
-            .cloned();
-        match token {
-            Some(token) => self.revoke_smaster(&token),
+        match self.smaster_by_reference(reference) {
+            Some(record) => self.revoke_smaster_hash(&record.secret_hash),
             None => Ok(false),
         }
     }
 
-    /// Live smasters, as (token, name).
-    pub fn smasters(&self) -> Vec<(String, String)> {
-        self.smasters
-            .lock_or_recover()
-            .iter()
-            .map(|(t, n)| (t.clone(), n.clone()))
-            .collect()
+    /// Live Smasters. Never a code: a record carries its hash and ids.
+    pub fn smasters(&self) -> Vec<crate::store::SmasterRecord> {
+        self.smasters.lock_or_recover().values().cloned().collect()
     }
 
     /// True if `token` may connect / post. Open when no room token is set; the
     /// admin token also counts (admins are members).
     pub fn is_member(&self, token: Option<&str>) -> bool {
         if self.room_token.is_empty() {
-            // No building key. In davet-only mode this is not an open house —
-            // the door is closed and only a davet (checked per-loca elsewhere)
+            // No building key. In invite-only mode this is not an open house —
+            // the door is closed and only an invite (checked per-loca elsewhere)
             // opens it. Being a "member of the building" now means holding the
-            // admin token; everyone else needs a davet for the specific loca.
+            // admin token; everyone else needs an invite for the specific loca.
             return !self.require_invite
                 || (!self.admin_token.is_empty() && token == Some(self.admin_token.as_str()));
         }
@@ -1325,42 +1617,72 @@ impl Hub {
             || (!self.admin_token.is_empty() && token == Some(self.admin_token.as_str()))
     }
 
-    /// True if `token` is a davet for THIS loca. A davet opens one loca and no
+    /// `is_member` for the key whose hash is `key_hash`: the configured
+    /// building and admin keys are hashed and compared with it.
+    fn is_member_key_hash(&self, key_hash: &str) -> bool {
+        let is = |configured: &str| !configured.is_empty() && secret_hash(configured) == key_hash;
+        if self.room_token.is_empty() {
+            return !self.require_invite || is(&self.admin_token);
+        }
+        is(&self.room_token) || is(&self.admin_token)
+    }
+
+    /// True if `token` is an invite for THIS loca. An invite opens one loca and no
     /// other — that is the whole point of it (DESIGN §5g).
-    /// A davet by its token, whichever loca it belongs to.
-    pub fn invite_by_token(&self, token: &str) -> Option<Invite> {
-        let invite = self.invites.lock_or_recover().get(token).cloned()?;
-        if !invite.member.is_empty() && self.member_suspended(&invite.member) {
+    /// A presented invite, whichever loca it belongs to: hashed and looked up
+    /// by its hash. Nothing else (the hash itself, an `ivid_`) is an invite.
+    pub fn invite_by_token(&self, token: &str) -> Option<InviteRecord> {
+        if token.is_empty() {
+            return None;
+        }
+        let invite = self
+            .invites
+            .lock_or_recover()
+            .get(&secret_hash(token))
+            .cloned()?;
+        if !invite.member_id.is_empty() && self.member_suspended(&invite.member_id) {
             return None;
         }
         Some(invite)
     }
 
-    pub fn invite_for(&self, room: &str, token: Option<&str>) -> Option<Invite> {
+    /// Is the invite whose hash is `invite_hash` still live, its member not
+    /// suspended? `invite_by_token` for a caller that holds the hash.
+    fn invite_live_by_hash(&self, invite_hash: &str) -> bool {
+        let Some(invite) = self.invites.lock_or_recover().get(invite_hash).cloned() else {
+            return false;
+        };
+        invite.member_id.is_empty() || !self.member_suspended(&invite.member_id)
+    }
+
+    pub fn invite_for(&self, room: &str, token: Option<&str>) -> Option<InviteRecord> {
         let token = token?;
         let inv = self.invite_by_token(token)?;
         (inv.room == room).then_some(inv)
     }
 
-    /// Resolve the canonical principal carried by an active davet for this
+    /// Resolve the canonical principal carried by an active invite for this
     /// loca. Native listeners commonly authenticate their WebSocket directly
-    /// with the davet instead of first minting a session; principal-scoped
+    /// with the invite instead of first minting a session; principal-scoped
     /// Everyone Care must work for both credential forms.
     pub fn principal_id_for_invite(&self, room: &str, token: Option<&str>) -> Option<String> {
         let invite = self.invite_for(room, token)?;
-        self.member_principal(&invite.member)
+        self.member_principal(&invite.member_id)
     }
 
     /// May this room credential enter `room`? An active per-device credential
     /// inherits the transitional building-key access of its durable Member
-    /// record; loca-specific davets remain separate, scoped bearers.
+    /// record; loca-specific invites remain separate, scoped bearers.
     /// That indirection is important: revoking the original legacy bearer must
     /// close the door, while another credential of the same principal keeps
     /// the principal's inherited building-key access.
     pub fn may_enter(&self, room: &str, token: Option<&str>) -> bool {
-        if self.invite_for(room, token).is_some() {
-            return true;
-        }
+        self.invite_for(room, token).is_some() || self.reaches_building(token)
+    }
+
+    /// Does this room credential reach every ordinary loca through the
+    /// building key (`may_enter` without an invite)?
+    pub fn reaches_building(&self, token: Option<&str>) -> bool {
         let Some(token) = token else {
             return self.is_member(None);
         };
@@ -1368,7 +1690,11 @@ impl Hub {
             return false;
         }
         if let Some(member) = self.member_for_credential(Some(token)) {
-            return self.is_member(Some(&member.token));
+            // What the building key's rule answers for the membership's own
+            // key, asked by that key's hash: an installation upgraded with
+            // ROOM_TOKEN set to a member's key still reaches the building
+            // with every credential of that member.
+            return self.is_member_key_hash(&member.secret_hash);
         }
         // Memory-only/dev mode and an as-yet unmigrated shared ROOM_TOKEN keep
         // their compatibility behavior. A known revoked credential never
@@ -1384,7 +1710,7 @@ impl Hub {
     /// Inputs are the three credentials a caller can present (HTTP headers on
     /// REST, WebSocket subprotocol credentials on WS):
     ///   - `admin_tok`: the admin key (`x-admin-token`) — master/smaster
-    ///   - `davet_tok`: a davet or the building key (`x-room-token`)
+    ///   - `invite_tok`: an invite or the building key (`x-room-token`)
     ///   - `session`:   an identity taken earlier (`x-session-token`)
     ///
     /// A `name_for_ban` hint lets the WS door pass the query `?name=` when there
@@ -1394,7 +1720,7 @@ impl Hub {
         &self,
         room: &str,
         admin_tok: Option<&str>,
-        davet_tok: Option<&str>,
+        invite_tok: Option<&str>,
         session: Option<&SessionIdentity>,
         name_hint: Option<&str>,
     ) -> EnterDecision {
@@ -1402,50 +1728,25 @@ impl Hub {
         // their own building. master + smaster, resolved in ONE place — by the
         // raw admin key OR a live admin session (the browser holds the session,
         // not the key). Without the session branch the door turned the master
-        // away in davet mode: the admin session's loca is None, so it matched no
+        // away in invite mode: the admin session's loca is None, so it matched no
         // loca and every room read/WS handshake 401'd.
         let credential_authority = self.resolve_authority(admin_tok, None);
         if session.is_some_and(|s| s.loca.as_deref().is_some_and(|scope| scope != room)) {
             return EnterDecision::Denied;
         }
-        // A birebir belongs to its two people. This comes BEFORE the rank
-        // bypass below: no Master or Smaster reaches one by rank, and nobody
-        // else learns it exists (PRINCIPLES "Birebir").
-        if let Some(b) = self.birebir(room) {
-            let principal = session
-                .and_then(|s| s.principal_id.as_deref())
-                .or(credential_authority.principal_id.as_deref());
-            if principal.is_some_and(|p| b.has(p)) {
-                return EnterDecision::Allowed;
-            }
-            // The other side may be an agent holding the davet the opener's
-            // call minted for this room, or a session taken with it.
-            if self.invite_for(room, davet_tok).is_some_and(|invite| {
-                self.member_principal(&invite.member)
-                    .is_some_and(|p| b.has(&p))
-            }) {
-                return EnterDecision::Allowed;
-            }
-            return EnterDecision::Denied;
-        }
-        // The birebir id space is reserved: nobody reaches (and so nobody
-        // creates by joining or posting) an ordinary loca there, so a pair's
-        // room can never be squatted with someone else's davets in it.
-        if room.starts_with(Self::BIREBIR_PREFIX) {
-            return EnterDecision::Denied;
-        }
-        // A group loca belongs to its group. This also comes BEFORE the rank
-        // bypass: a Smaster outside the group is an outsider here, and only
-        // the Master reaches it by rank (PRINCIPLES "Groups").
-        if self.is_group_loca(room) {
-            return self.group_door(
-                room,
-                &credential_authority,
-                admin_tok,
-                davet_tok,
-                session,
-                name_hint,
-            );
+        // A direct message and a group loca come BEFORE the rank bypass below: no
+        // Smaster reaches either by rank (see `private_door`).
+        match self.private_door(
+            room,
+            &credential_authority,
+            admin_tok,
+            invite_tok,
+            session,
+            name_hint,
+        ) {
+            PrivateDoor::Private(decision) => return decision,
+            PrivateDoor::Reserved => return EnterDecision::Denied,
+            PrivateDoor::Ordinary => {}
         }
         if credential_authority.is_building_admin() && admin_tok.is_some() {
             return EnterDecision::Allowed;
@@ -1454,7 +1755,7 @@ impl Hub {
             return EnterDecision::Allowed;
         }
 
-        let ban_name = self.door_name(davet_tok, session, &credential_authority, name_hint);
+        let ban_name = self.door_name(invite_tok, session, &credential_authority, name_hint);
         if let Some(n) = &ban_name {
             if self.is_banned(room, n) {
                 return EnterDecision::Banned;
@@ -1470,16 +1771,16 @@ impl Hub {
             return EnterDecision::Allowed;
         }
 
-        // A davet for THIS loca, or the building key (is_member) — may_enter
-        // already folds both. A davet for another loca opens nothing.
-        if self.may_enter(room, davet_tok) {
+        // An invite for THIS loca, or the building key (is_member) — may_enter
+        // already folds both. An invite for another loca opens nothing.
+        if self.may_enter(room, invite_tok) {
             return EnterDecision::Allowed;
         }
 
-        // A person signed in with their own key holds a live davet for this
-        // loca: the davet is their seat, whichever credential they came with.
+        // A person signed in with their own key holds a live invite for this
+        // loca: the invite is their seat, whichever credential they came with.
         if let Some(principal) = session.and_then(|s| s.principal_id.as_deref()) {
-            if self.principal_holds_davet(room, principal) {
+            if self.principal_holds_invite(room, principal) {
                 return EnterDecision::Allowed;
             }
         }
@@ -1489,18 +1790,18 @@ impl Hub {
             match &s.loca {
                 Some(l) if l == room => return EnterDecision::Allowed,
                 Some(_) => {}
-                // A session with no loca came from the building key. What it
-                // reaches then depends on the mode:
-                //   - building-key mode (ROOM_TOKEN set): it reaches the whole
-                //     building, exactly as the key does. The browser relies on
-                //     this — it takes a session once and stops sending the key.
-                //   - davet-only mode (no key, REQUIRE_INVITE): there is no
-                //     building to reach, so a bare loca-less session opens
-                //     nothing. This is the hole cyber walked through, now shut.
-                // A building-key session reaches the building only while a
-                // building key still exists to have reached it. In davet-only
-                // mode there is no key, so it opens nothing.
-                None if !self.room_token.is_empty() => return EnterDecision::Allowed,
+                // A session with no loca was taken with a Building-level
+                // credential. Only one taken with the building key itself
+                // (`building_key`) reaches the whole building, exactly as the
+                // key does: the browser takes a session once and stops sending
+                // the key. A session taken with a member's own key or profile
+                // credential is that member signed in — it got everything it
+                // is entitled to from the rules above and nothing from the key.
+                // In invite-only mode (no ROOM_TOKEN) there is no building key,
+                // so a loca-less session reaches nothing through it.
+                None if s.building_key && !self.room_token.is_empty() => {
+                    return EnterDecision::Allowed
+                }
                 None => {}
             }
         }
@@ -1508,12 +1809,12 @@ impl Hub {
         EnterDecision::Denied
     }
 
-    /// Whose name is at this door? A session names itself; otherwise a davet
+    /// Whose name is at this door? A session names itself; otherwise an invite
     /// carries a name; otherwise the caller's ?name= hint. This is the name a
     /// ban is checked against.
     fn door_name(
         &self,
-        davet_tok: Option<&str>,
+        invite_tok: Option<&str>,
         session: Option<&SessionIdentity>,
         credential_authority: &RequestAuthority,
         name_hint: Option<&str>,
@@ -1521,7 +1822,7 @@ impl Hub {
         session
             .map(|s| s.name.clone())
             .or_else(|| {
-                davet_tok
+                invite_tok
                     .and_then(|t| self.invite_by_token(t))
                     .map(|i| i.name)
             })
@@ -1529,40 +1830,131 @@ impl Hub {
             .or_else(|| name_hint.map(str::to_string))
     }
 
+    /// The door of a loca whose very existence is private: a direct message, the
+    /// direct message id space, a group loca. Everything here that costs anything
+    /// (the invite's principal, which may read SQLite; the direct message and group
+    /// lookups) is read before the answer depends on what the id names, so
+    /// an id that names nothing costs this door what a hidden loca costs and
+    /// timing does not tell them apart (PRINCIPLES "Birebir", "Groups").
+    fn private_door(
+        &self,
+        room: &str,
+        credential_authority: &RequestAuthority,
+        admin_tok: Option<&str>,
+        invite_tok: Option<&str>,
+        session: Option<&SessionIdentity>,
+        name_hint: Option<&str>,
+    ) -> PrivateDoor {
+        let pair = self.dm(room);
+        // An agent at the door may hold an invite for this very loca: the invite
+        // the opener's call minted for a direct message, or one for a group loca.
+        let invited = self.principal_id_for_invite(room, invite_tok);
+        let mut principals: Vec<&str> = Vec::new();
+        if let Some(s) = session {
+            // An invite session stays confined to the loca its invite opened.
+            if s.loca.as_deref().is_none_or(|l| l == room) {
+                principals.extend(s.principal_id.as_deref());
+            }
+        }
+        principals.extend(credential_authority.principal_id.as_deref());
+        principals.extend(invited.as_deref());
+        let group_member = self.group_gate(room, &principals);
+
+        // A direct message belongs to its two people: no Master or Smaster reaches
+        // one by rank, and nobody else learns it exists (PRINCIPLES
+        // "Birebir"). The other side may be an agent holding the invite the
+        // opener's call minted for this room, or a session taken with it.
+        if let Some(b) = pair {
+            let principal = session
+                .and_then(|s| s.principal_id.as_deref())
+                .or(credential_authority.principal_id.as_deref());
+            let party =
+                principal.is_some_and(|p| b.has(p)) || invited.as_deref().is_some_and(|p| b.has(p));
+            return PrivateDoor::Private(if party {
+                EnterDecision::Allowed
+            } else {
+                EnterDecision::Denied
+            });
+        }
+        // The direct message id space is reserved: nobody reaches (and so nobody
+        // creates by joining or posting) an ordinary loca there, so a pair's
+        // room can never be squatted with someone else's invites in it.
+        if room.starts_with(Self::DM_PREFIX) {
+            return PrivateDoor::Reserved;
+        }
+        // A group loca belongs to its group: a Smaster outside the group is
+        // an outsider here, and only the Master reaches it by rank
+        // (PRINCIPLES "Groups").
+        match group_member {
+            Some(member) => PrivateDoor::Private(self.group_door(
+                room,
+                credential_authority,
+                admin_tok,
+                invite_tok,
+                session,
+                name_hint,
+                member,
+            )),
+            None => PrivateDoor::Ordinary,
+        }
+    }
+
+    /// The door's answer for a direct message or a group loca, `None` for any other
+    /// id; the same answer `enter_decision` gives. A door asks this where it
+    /// decides whether the loca exists, so a caller who may not enter one is
+    /// refused there exactly as for an id that names nothing, after the same
+    /// work (see `private_door`), and no later fence is first to refuse.
+    pub fn private_loca_decision(
+        &self,
+        room: &str,
+        admin_tok: Option<&str>,
+        invite_tok: Option<&str>,
+        session: Option<&SessionIdentity>,
+    ) -> Option<EnterDecision> {
+        let credential_authority = self.resolve_authority(admin_tok, None);
+        let scoped_elsewhere =
+            session.is_some_and(|s| s.loca.as_deref().is_some_and(|scope| scope != room));
+        match self.private_door(
+            room,
+            &credential_authority,
+            admin_tok,
+            invite_tok,
+            session,
+            None,
+        ) {
+            PrivateDoor::Private(_) if scoped_elsewhere => Some(EnterDecision::Denied),
+            PrivateDoor::Private(decision) => Some(decision),
+            PrivateDoor::Reserved | PrivateDoor::Ordinary => None,
+        }
+    }
+
     /// The door of a group loca. The Master enters by rank; anyone else only
-    /// as a member of the loca's group — by the principal of their session or
-    /// credential, or, for an agent, of the davet it holds for this loca. A
-    /// member still answers to the loca's bans.
+    /// as a member of the loca's group (`member`, from `private_door`: by the
+    /// principal of their session or credential, or, for an agent, of the
+    /// invite it holds for this loca). A member still answers to the loca's
+    /// bans.
+    #[allow(clippy::too_many_arguments)]
     fn group_door(
         &self,
         room: &str,
         credential_authority: &RequestAuthority,
         admin_tok: Option<&str>,
-        davet_tok: Option<&str>,
+        invite_tok: Option<&str>,
         session: Option<&SessionIdentity>,
         name_hint: Option<&str>,
+        member: bool,
     ) -> EnterDecision {
         let master = (credential_authority.is_master()
             && (admin_tok.is_some() || self.admin_open()))
-            || (!self.admin_token.is_empty() && davet_tok == Some(self.admin_token.as_str()))
+            || (!self.admin_token.is_empty() && invite_tok == Some(self.admin_token.as_str()))
             || session.is_some_and(|s| s.admin && s.building_role == BuildingRole::Master);
         if master {
             return EnterDecision::Allowed;
         }
-        let mut principals: Vec<String> = Vec::new();
-        if let Some(s) = session {
-            // A davet session stays confined to the loca its davet opened.
-            if s.loca.as_deref().is_none_or(|l| l == room) {
-                principals.extend(s.principal_id.clone());
-            }
-        }
-        principals.extend(credential_authority.principal_id.clone());
-        principals.extend(self.principal_id_for_invite(room, davet_tok));
-        let candidates: Vec<&str> = principals.iter().map(String::as_str).collect();
-        if self.group_gate(room, &candidates) != Some(true) {
+        if !member {
             return EnterDecision::Denied;
         }
-        if let Some(n) = self.door_name(davet_tok, session, credential_authority, name_hint) {
+        if let Some(n) = self.door_name(invite_tok, session, credential_authority, name_hint) {
             if self.is_banned(room, &n) {
                 return EnterDecision::Banned;
             }
@@ -1575,24 +1967,27 @@ impl Hub {
     /// display names lands on ONE seat (the name is just the label).
     ///
     /// Precedence mirrors `enter_decision`: rank first (the master is the
-    /// master even if they also hold a davet), then the davet's member, then
+    /// master even if they also hold an invite), then the invite's member, then
     /// the session, then the bare name.
     ///
     /// In open dev mode (no ADMIN_TOKEN) rank identifies nobody, so identity
     /// falls through to the name — two differently-named anons stay distinct,
     /// exactly as before.
+    ///
+    /// The seat key travels in `Evicted` frames, so it names a membership by
+    /// its management id (`mb:<mbid_>`) and an unbound legacy invite by its id
+    /// (`dv:<ivid_>`), never by the key or the invite.
     pub fn seat_identity(
         &self,
         admin_tok: Option<&str>,
-        davet_tok: Option<&str>,
+        invite_tok: Option<&str>,
         session: Option<&SessionIdentity>,
         session_tok: Option<&str>,
         name: &str,
     ) -> String {
         if let Some(t) = admin_tok {
-            if let Some(_smaster) = self.smaster_name(Some(t)) {
-                let principal = crate::store::hashed_id("pr_", &format!("smaster:{t}"));
-                return format!("sm:pr:{principal}");
+            if let Some(smaster) = self.smaster_for_code(Some(t)) {
+                return format!("sm:pr:{}", smaster.principal_id);
             }
             if !self.admin_token.is_empty() && t == self.admin_token.as_str() {
                 // ONE fixed key for the master: whatever name they type, the
@@ -1600,16 +1995,16 @@ impl Hub {
                 return "@master".into();
             }
         }
-        if let Some(inv) = davet_tok.and_then(|t| self.invite_by_token(t)) {
-            if !inv.member.is_empty() {
-                // Two davets of the same member (or the same davet twice) are
+        if let Some(inv) = invite_tok.and_then(|t| self.invite_by_token(t)) {
+            if !inv.member_id.is_empty() {
+                // Two invites of the same member (or the same invite twice) are
                 // one person — the membership is the identity.
-                return format!("mb:{}", inv.member);
+                return format!("mb:{}", inv.member_id);
             }
-            return format!("dv:{}", inv.token);
+            return format!("dv:{}", inv.id);
         }
-        if let Some(member) = self.member_for_credential(davet_tok) {
-            return format!("mb:{}", member.token);
+        if let Some(member) = self.member_for_credential(invite_tok) {
+            return format!("mb:{}", member.id);
         }
         if let Some(s) = session {
             if s.admin {
@@ -1623,7 +2018,9 @@ impl Hub {
                         return format!("sm:pr:{principal}");
                     }
                     if let Some(t) = session_tok {
-                        return format!("sm:st:{t}");
+                        // The seat key travels in `Evicted` frames: name the
+                        // session by its hash, never by its token.
+                        return format!("sm:st:{}", secret_hash(t));
                     }
                 }
                 // Every session minted for the one Master principal occupies the
@@ -1635,86 +2032,223 @@ impl Hub {
                 return format!("mb:{m}");
             }
             if let Some(t) = session_tok {
-                return format!("st:{t}");
+                return format!("st:{}", secret_hash(t));
             }
         }
         format!("name:{name}")
     }
 
+    /// Who an `op_id` belongs to (PRINCIPLES: a message that arrives twice
+    /// does not produce its effect twice). The same sender gets the same key
+    /// over REST and over the WebSocket, under any of its sessions and after
+    /// a restart: the principal the door verified, read in the order the
+    /// socket names its writer (the session's; else the invite's or the
+    /// membership credential's; else the one behind an admin credential,
+    /// which is the Master's for the root key and the Smaster's for its
+    /// code). Without a principal (a memory-only store) the membership is
+    /// the key, by its management id (`mb:<mbid_>`). With neither (the open
+    /// sandbox, the shared building key) the display name and kind are all
+    /// that names the sender; that key has a prefix no earlier version wrote,
+    /// so it cannot meet an older row.
+    ///
+    /// `legacy` is the key the REST route stored before this version, built
+    /// from the same request. It is only ever read, so an operation sent
+    /// before the upgrade is still answered with its original message. That
+    /// route keyed an invite session by `mb:<membership key>`; `Store::open`
+    /// rewrites every such stored key to `mb:<mbid_>` (`rewrite_key_scopes`),
+    /// which is what an invite session names its membership by now, so the
+    /// same lookup finds it.
+    pub fn operation_scope(
+        &self,
+        room: &str,
+        admin_tok: Option<&str>,
+        invite_tok: Option<&str>,
+        session: Option<&SessionIdentity>,
+        kind: SenderType,
+        name: &str,
+    ) -> OperationScope {
+        let kind = match kind {
+            SenderType::Agent => "agent",
+            SenderType::User => "user",
+        };
+        let (principal, member) = match session {
+            Some(session) => (session.principal_id.clone(), session.member.clone()),
+            None => (
+                self.principal_id_for_invite(room, invite_tok)
+                    .or_else(|| {
+                        self.member_for_credential(invite_tok)
+                            .and_then(|member| member.principal_id)
+                    })
+                    .or_else(|| {
+                        admin_tok
+                            .filter(|token| !token.is_empty())
+                            .and_then(|token| {
+                                self.resolve_authority(Some(token), None).principal_id
+                            })
+                    })
+                    .or_else(|| self.smaster_for_code(admin_tok).map(|s| s.principal_id)),
+                self.invite_for(room, invite_tok)
+                    .map(|invite| invite.member_id)
+                    .filter(|member| !member.is_empty())
+                    .or_else(|| self.member_for_credential(invite_tok).map(|m| m.id)),
+            ),
+        };
+        let key = match (&principal, &member) {
+            (Some(principal), _) => format!("pr:{principal}"),
+            (None, Some(member)) => format!("mb:{member}"),
+            (None, None) => format!("label:{kind}:{name}"),
+        };
+        let legacy = match session.and_then(|session| session.member.as_deref()) {
+            Some(member) => format!("mb:{member}"),
+            None => format!("{kind}:{name}"),
+        };
+        OperationScope {
+            legacy: (legacy != key).then_some(legacy),
+            key,
+            principal,
+        }
+    }
+
+    /// Is a record an earlier version stored under `legacy` this sender's?
+    /// Proved, never assumed. A record that names its writer belongs to that
+    /// writer. One that names none (every REST row before writers were
+    /// recorded) is this sender's only when its key can have had one sender:
+    /// a membership key (`mb:`). An unverified sender (the open sandbox, the
+    /// shared Building key) is its label before and after, so the label is
+    /// its proof. A display name proves nothing for a verified sender: two
+    /// principals can bear one name, a revoked member's name can be admitted
+    /// again, and a Master or Smaster rename leaves no history, so the one
+    /// principal that bears a name today need not be the one that wrote
+    /// under it. Such a record is `Unknown`; otherwise two senders could
+    /// each be answered with the other's message and have their own dropped.
+    fn legacy_operation_owner(
+        scope: &OperationScope,
+        legacy: &str,
+        record: &Message,
+    ) -> LegacyOwner {
+        if let Some(writer) = record.sender_principal.as_deref() {
+            return if scope.principal.as_deref() == Some(writer) {
+                LegacyOwner::Sender
+            } else {
+                LegacyOwner::Other
+            };
+        }
+        if scope.principal.is_none() || legacy.starts_with("mb:") {
+            LegacyOwner::Sender
+        } else {
+            LegacyOwner::Unknown
+        }
+    }
+
     /// Admit somebody to the building. The founding act: it creates the
-    /// identity every davet later refers to.
-    /// Admit somebody to the building. Legacy admission remains idempotent by
+    /// identity every invite later refers to. Legacy admission remains idempotent by
     /// name, so admitting an existing member returns the existing principal
     /// rather than minting a duplicate membership. Authority still resolves
     /// from principal identity, never from display name or credential text.
     /// The two-step "admit & invite" flow can therefore be replayed safely.
+    /// A new name must pass the doors' rule (`admission_name_refusal`) and
+    /// must not be one someone already wears in any letter case
+    /// (`new_member_name_clashes`). The lookup of an existing member, the
+    /// rule and the write all happen under `name_claims`: two racing requests
+    /// cannot both get in, two racing requests for the same exact name get
+    /// the same member, and a member admitted before the rule is found again
+    /// while it lasts, but its name is not admitted anew once it is revoked.
     pub fn admit_member(
         &self,
         name: &str,
         kind: &str,
         by: &str,
-    ) -> rusqlite::Result<protocol::Membership> {
-        if let Some(existing) = self.member_by_name(name) {
-            return Ok(existing);
-        }
-        let m = protocol::Membership {
-            token: self.new_invite_token().replacen("dv_", "mb_", 1),
-            name: name.to_string(),
-            kind: kind.to_string(),
-            joined_at: (self.now_ms)(),
-            admitted_by: by.to_string(),
-        };
-        self.store.add_member(&m)?;
-        self.members
-            .lock_or_recover()
-            .insert(m.token.clone(), m.clone());
-        Ok(m)
+    ) -> Result<MemberRecord, AdmitError> {
+        self.admit_member_once(name, kind, by)
+            .map(|(member, _)| member)
     }
 
-    /// End a membership. Their davets are not touched here — losing the
+    /// `admit_member`, with the key when this call admitted the member
+    /// (`Some`, the only time the key exists outside its holder) or `None`
+    /// when it found the member already admitted: an existing member's key is
+    /// not stored and cannot be read back out.
+    pub fn admit_member_once(
+        &self,
+        name: &str,
+        kind: &str,
+        by: &str,
+    ) -> Result<(MemberRecord, Option<String>), AdmitError> {
+        let _claim = self.name_claims.lock_or_recover();
+        if let Some(existing) = self.member_by_name(name) {
+            return Ok((existing, None));
+        }
+        if let Some(rule) = admission_name_refusal(name) {
+            return Err(AdmitError::Rule(rule));
+        }
+        if self.new_member_name_clashes(name) {
+            return Err(AdmitError::Worn);
+        }
+        let key = self.new_invite_token().replacen("dv_", "mb_", 1);
+        let m = self
+            .store
+            .add_member(&key, name, kind, (self.now_ms)(), by)?;
+        if !self.store.is_persistent() {
+            self.member_keys
+                .lock_or_recover()
+                .insert(secret_hash(&key), m.id.clone());
+        }
+        self.members
+            .lock_or_recover()
+            .insert(m.id.clone(), m.clone());
+        Ok((m, Some(key)))
+    }
+
+    /// End a membership. Their invites are not touched here — losing the
     /// building is a decision of its own, and the record of where they sat
     /// stays readable.
     /// End a membership — and everything it authorized. PRINCIPLES: when a
     /// parent credential is revoked, every child dies with it. Losing the
-    /// building means losing every seat (davet), every proof (session), and
+    /// building means losing every seat (invite), every proof (session), and
     /// every open connection at once — otherwise "you no longer belong here"
-    /// would leave the ejected person still reading and speaking.
-    pub fn revoke_member(&self, token: &str) -> rusqlite::Result<bool> {
+    /// would leave the ejected person still reading and speaking. By the
+    /// membership's id (`mbid_`).
+    pub fn revoke_member(&self, member_id: &str) -> rusqlite::Result<bool> {
         let _lifecycle = self.member_lifecycle.lock_or_recover();
-        if !self.members.lock_or_recover().contains_key(token) {
+        if !self.members.lock_or_recover().contains_key(member_id) {
             return Ok(false);
         }
         let now = (self.now_ms)();
-        self.store.revoke_member_cascade(token, now)?;
-        let davets: Vec<Invite> = self
+        self.store.revoke_member_cascade(member_id, now)?;
+        let member_invites: Vec<InviteRecord> = self
             .invites
             .lock_or_recover()
             .values()
-            .filter(|i| i.member == token)
+            .filter(|i| i.member_id == member_id)
             .cloned()
             .collect();
         {
             let mut invites = self.invites.lock_or_recover();
-            for inv in &davets {
-                invites.remove(&inv.token);
+            for inv in &member_invites {
+                invites.remove(&inv.secret_hash);
             }
         }
-        for inv in davets {
-            self.revoke_sessions_for_davet(&inv.room, &inv.member);
+        for inv in member_invites {
+            self.revoke_sessions_for_invite(&inv.room, &inv.member_id);
             self.close_connections(&inv.room, &inv.name);
         }
-        // Any session still bound to this member (e.g. a building-key path)
-        // dies too — the identity behind it is gone.
-        self.revoke_sessions_for_member(token);
-        self.members.lock_or_recover().remove(token);
+        // Every key its invites claimed stops working (the store revoked them
+        // above; a memory-only Building holds them here), and so does its own.
+        self.memory_claims
+            .lock_or_recover()
+            .forget_member(member_id);
+        self.member_keys
+            .lock_or_recover()
+            .retain(|_, member| member != member_id);
+        // Any session still bound to this member (its own key in a
+        // memory-only store) dies too — the identity behind it is gone. The
+        // membership leaves `members` before the sweep, so a session being
+        // recorded concurrently sees it gone (`create_session_scoped`).
+        self.members.lock_or_recover().remove(member_id);
+        self.revoke_sessions_for_member(member_id);
         let _ = self.lobby_tx.send(LobbyEvent::MembershipRevoked {
-            member: token.to_string(),
+            member: member_id.to_string(),
         });
         Ok(true)
-    }
-
-    pub fn member_management_id(&self, token: &str) -> String {
-        crate::store::hashed_id("mbid_", &format!("member:{token}"))
     }
 
     pub fn set_member_suspended(
@@ -1724,105 +2258,127 @@ impl Hub {
         reason: &str,
     ) -> rusqlite::Result<bool> {
         let _lifecycle = self.member_lifecycle.lock_or_recover();
-        let token = self
-            .members
-            .lock_or_recover()
-            .keys()
-            .find(|token| self.member_management_id(token) == reference)
-            .cloned();
-        let Some(token) = token else { return Ok(false) };
-        if !suspended {
-            return self.store.resume_member(&token);
-        }
-        if !self.store.suspend_member(&token, reason, self.now())? {
+        if !self.members.lock_or_recover().contains_key(reference) {
             return Ok(false);
         }
-        let davets: Vec<Invite> = self
+        let member_id = reference;
+        if !suspended {
+            return self.store.resume_member(member_id);
+        }
+        if !self.store.suspend_member(member_id, reason, self.now())? {
+            return Ok(false);
+        }
+        let member_invites: Vec<InviteRecord> = self
             .invites
             .lock_or_recover()
             .values()
-            .filter(|invite| invite.member == token)
+            .filter(|invite| invite.member_id == member_id)
             .cloned()
             .collect();
         {
             let mut invites = self.invites.lock_or_recover();
-            for invite in &davets {
-                invites.remove(&invite.token);
+            for invite in &member_invites {
+                invites.remove(&invite.secret_hash);
             }
         }
-        for invite in davets {
+        for invite in member_invites {
             self.close_connections(&invite.room, &invite.name);
         }
-        self.revoke_sessions_for_member(&token);
-        let _ = self
-            .lobby_tx
-            .send(LobbyEvent::MembershipSuspended { member: token });
+        self.revoke_sessions_for_member(member_id);
+        let _ = self.lobby_tx.send(LobbyEvent::MembershipSuspended {
+            member: member_id.to_string(),
+        });
         Ok(true)
     }
 
-    pub fn member_suspended(&self, token: &str) -> bool {
-        self.store.member_suspended(token).unwrap_or(true)
+    /// Is the membership `member_id` suspended? A suspension that cannot be
+    /// read counts as one (fail-closed).
+    pub fn member_suspended(&self, member_id: &str) -> bool {
+        self.store.member_suspended(member_id).unwrap_or(true)
     }
 
     pub fn member_suspension_supported(&self) -> bool {
         self.store.is_persistent()
     }
 
+    /// End the membership whose management id (`mbid_`) is `reference`. A
+    /// raw key is not a reference: it finds nothing, like any unknown one,
+    /// so a key never has to travel in a URL.
     pub fn revoke_member_ref(&self, reference: &str) -> rusqlite::Result<bool> {
-        let token = self
-            .members
-            .lock_or_recover()
-            .keys()
-            .find(|token| {
-                token.as_str() == reference || self.member_management_id(token) == reference
-            })
-            .cloned();
-        match token {
-            Some(token) => self.revoke_member(&token),
-            None => Ok(false),
-        }
+        self.revoke_member(reference)
     }
 
-    /// The member behind this key, if it is a live one.
-    pub fn member_of(&self, token: Option<&str>) -> Option<protocol::Membership> {
-        let token = token?;
-        if self.member_suspended(token) {
+    /// The live, unsuspended membership whose id (`mbid_`) is `member_id`.
+    pub fn member_by_id(&self, member_id: &str) -> Option<MemberRecord> {
+        if member_id.is_empty() || self.member_suspended(member_id) {
             return None;
         }
-        self.members.lock_or_recover().get(token).cloned()
+        self.members.lock_or_recover().get(member_id).cloned()
     }
 
     /// Resolve an active per-device/member credential to its durable Building
-    /// membership. Unlike `member_of`, this is safe at an HTTP authentication
-    /// boundary: revoking the legacy bearer makes that bearer stop working,
-    /// while another credential for the same principal still finds the same
+    /// membership. The credential is hashed and looked up, never compared
+    /// with anything stored: in a persistent Building through `credentials`
+    /// (its principal, then the membership that principal is), in a
+    /// memory-only one through `member_keys` and the keys invites claimed.
+    /// Revoking the original bearer makes that bearer stop working, while
+    /// another credential for the same principal still finds the same
     /// membership record.
-    pub fn member_for_credential(&self, token: Option<&str>) -> Option<protocol::Membership> {
+    pub fn member_for_credential(&self, token: Option<&str>) -> Option<MemberRecord> {
+        let token = token.filter(|token| !token.is_empty())?;
         if !self.store.is_persistent() {
-            return self.member_of(token);
+            let hash = secret_hash(token);
+            let member = self.member_keys.lock_or_recover().get(&hash).cloned();
+            // A key an invite claimed in memory-only mode.
+            let member =
+                member.or_else(|| self.memory_claims.lock_or_recover().member_for_key(token))?;
+            return self.member_by_id(&member);
         }
-        let principal = self.store.principal_for_credential(token?)?;
+        let principal = self.store.principal_for_credential(token)?;
         if principal.role != BuildingRole::Member {
             return None;
         }
         self.members
             .lock_or_recover()
             .values()
-            .find(|member| {
-                self.store
-                    .principal_id_for_member_record(&member.token)
-                    .as_deref()
-                    == Some(principal.id.as_str())
-            })
+            .find(|member| member.principal_id.as_deref() == Some(principal.id.as_str()))
             .cloned()
     }
 
-    pub fn memberships(&self) -> Vec<protocol::Membership> {
+    /// Is this a correct, unrevoked credential of a membership the Master has
+    /// suspended (and not revoked)? Doors use it to answer "suspended" instead
+    /// of "invalid", so an agent can wait for Resume. Only the holder of that
+    /// member's own live key gets `true`: an unknown key, a revoked key and
+    /// any key of a revoked membership (whose record has left `members`) all
+    /// get `false`, so they stay indistinguishable from each other.
+    pub fn credential_of_suspended_member(&self, token: Option<&str>) -> bool {
+        let Some(token) = token else { return false };
+        if !self.store.is_persistent() {
+            return false;
+        }
+        let Some(principal) = self.store.disabled_member_principal_for_credential(token) else {
+            return false;
+        };
+        // Revocation commits and leaves `members` under this lock: holding it,
+        // a membership still listed is not one being revoked right now. The
+        // record names the principal its key was bound to; the suspension is
+        // read by the membership's id.
+        let _lifecycle = self.member_lifecycle.lock_or_recover();
+        let record = self
+            .members
+            .lock_or_recover()
+            .values()
+            .find(|member| member.principal_id.as_deref() == Some(principal.as_str()))
+            .map(|member| member.id.clone());
+        record.is_some_and(|id| self.store.member_suspended(&id).unwrap_or(false))
+    }
+
+    pub fn memberships(&self) -> Vec<MemberRecord> {
         self.members.lock_or_recover().values().cloned().collect()
     }
 
     /// The membership carrying this name, if the building knows them.
-    pub fn member_by_name(&self, name: &str) -> Option<protocol::Membership> {
+    pub fn member_by_name(&self, name: &str) -> Option<MemberRecord> {
         self.members
             .lock_or_recover()
             .values()
@@ -1830,41 +2386,97 @@ impl Hub {
             .cloned()
     }
 
-    /// Does this member already hold a live davet for this loca?
-    /// Does this principal hold a live davet for `room`?
-    pub fn principal_holds_davet(&self, room: &str, principal: &str) -> bool {
+    /// Would a new member named `name` share it, without regard to letter
+    /// case, with someone already in the Building: a live member, the Master,
+    /// a Smaster, or a configured caretaker under another spelling? `@Bob`
+    /// in a message wakes `bob` too, and a target of `LOCA-CARE` summons the
+    /// caretaker `loca-care` (`addressed_caretakers`), so such a name is
+    /// refused at every admission door. A caretaker's own exact name is how
+    /// that caretaker is admitted, so it is no clash. Compared with
+    /// `store::search_fold`, the fold `validate_display_name` uses.
+    pub fn new_member_name_clashes(&self, name: &str) -> bool {
+        let folded = crate::store::search_fold(name);
+        self.caretakers
+            .iter()
+            .any(|caretaker| caretaker != name && crate::store::search_fold(caretaker) == folded)
+            || self.name_worn_by_member_or_rank(&folded)
+    }
+
+    /// Would a new Smaster named `name` share it, without regard to letter
+    /// case, with a member, the Master, another Smaster or a configured
+    /// caretaker (its exact spelling included: a rank is not a caretaker)?
+    pub fn rank_name_clashes(&self, name: &str) -> bool {
+        let folded = crate::store::search_fold(name);
+        self.caretaker_name_folds_to(&folded) || self.name_worn_by_member_or_rank(&folded)
+    }
+
+    /// Is a configured caretaker's name `folded` once folded?
+    fn caretaker_name_folds_to(&self, folded: &str) -> bool {
+        self.caretakers
+            .iter()
+            .any(|caretaker| crate::store::search_fold(caretaker) == folded)
+    }
+
+    /// Does a live member, the Master or a Smaster wear a name that folds to
+    /// `folded`? The Master's name is known only from the stored profiles,
+    /// so a memory-only Building checks members and Smasters alone.
+    fn name_worn_by_member_or_rank(&self, folded: &str) -> bool {
+        let worn = |other: &str| crate::store::search_fold(other) == folded;
+        // One lock at a time: each guard ends with its own statement.
+        let by_member = self
+            .members
+            .lock_or_recover()
+            .values()
+            .any(|member| worn(&member.name));
+        let by_smaster = self
+            .smasters
+            .lock_or_recover()
+            .values()
+            .any(|record| worn(&record.name));
+        by_member
+            || by_smaster
+            || self.profiles().iter().any(|profile| {
+                profile.role != crate::store::BuildingRole::Member && worn(&profile.display_name)
+            })
+    }
+
+    /// Does this member already hold a live invite for this loca?
+    /// Does this principal hold a live invite for `room`?
+    pub fn principal_holds_invite(&self, room: &str, principal: &str) -> bool {
         let members: Vec<String> = self
             .invites
             .lock_or_recover()
             .values()
             .filter(|i| i.room == room)
-            .map(|i| i.member.clone())
+            .map(|i| i.member_id.clone())
             .collect();
         members
             .iter()
             .any(|m| self.member_principal(m).as_deref() == Some(principal))
     }
 
-    pub fn has_active_invite(&self, room: &str, member: &str) -> bool {
+    /// Does the membership `member_id` hold a live invite for `room`?
+    pub fn has_active_invite(&self, room: &str, member_id: &str) -> bool {
         self.invites
             .lock_or_recover()
             .values()
-            .any(|i| i.room == room && i.member == member)
+            .any(|i| i.room == room && i.member_id == member_id)
     }
 
     const RUNTIME_SEEN_TTL_MS: u64 = 20_000;
     const RUNTIME_WAKE_GRACE_MS: u64 = 10_000;
     const RUNTIME_ACK_GRACE_MS: u64 = 360_000;
 
-    /// Which loca does this davet open, if it is one?
+    /// Which loca does this invite open, if it is one? The presented invite
+    /// is hashed and looked up.
     pub fn invite_room(&self, token: &str) -> Option<String> {
         self.invites
             .lock_or_recover()
-            .get(token)
+            .get(&secret_hash(token))
             .map(|i| i.room.clone())
     }
 
-    /// Is this token a live davet at all — for any loca? Used by the blanket
+    /// Is this token a live invite at all — for any loca? Used by the blanket
     /// gate, which cannot know the target loca; the per-loca decision is
     /// `may_enter`.
     pub fn is_invite_token(&self, token: Option<&str>) -> bool {
@@ -1891,47 +2503,50 @@ impl Hub {
         }
     }
 
-    /// Mint a davet token from the operating system CSPRNG. Davets, memberships
+    /// Mint an invite token from the operating system CSPRNG. Invites, memberships
     /// and smaster credentials are long-lived bearer authority, so a seeded
     /// hash/clock/counter construction is not an acceptable source of entropy.
     pub fn new_invite_token(&self) -> String {
         Self::secure_token("dv_", 32)
     }
 
-    /// THE one way a davet comes to exist. Both doors — the terminal
+    /// THE one way an invite comes to exist. Both doors — the terminal
     /// (`POST /invites` via invite.sh) and the UI (`+ call` via
     /// `POST /rooms/:id/call`) — land here, so the rules cannot drift apart
-    /// again: a davet seats an EXISTING member (it never creates identity),
-    /// and one member holds at most one live davet per loca.
+    /// again: an invite seats an EXISTING member (it never creates identity),
+    /// and one member holds at most one live invite per loca.
     ///
     /// Capacity stays a door rule (`join`), not an invite rule: "a full loca
-    /// refuses the eighth even with a davet" is the tested behaviour — more
-    /// davets than seats may exist, the seats decide.
+    /// refuses the eighth even with an invite" is the tested behaviour — more
+    /// invites than seats may exist, the seats decide.
+    ///
+    /// `member_id` is the membership's id (`mbid_`). The answer is the
+    /// invite's record and the invite itself, handed over once here.
     pub fn invite_member_to_room(
         &self,
-        member_token: &str,
+        member_id: &str,
         room: &str,
         issued_by: &str,
-    ) -> Result<Invite, InviteError> {
-        self.invite_member_to_room_inner(member_token, room, issued_by, false)
+    ) -> Result<(InviteRecord, String), InviteError> {
+        self.invite_member_to_room_inner(member_id, room, issued_by, false)
     }
 
     // The only private-pair exception is the internal human-to-agent call.
     // Public HTTP, Lobby call and the SSH console all use the non-exception path.
     fn invite_member_to_room_inner(
         &self,
-        member_token: &str,
+        member_id: &str,
         room: &str,
         issued_by: &str,
         private_agent_call: bool,
-    ) -> Result<Invite, InviteError> {
-        if let Some(pair) = self.birebir(room) {
+    ) -> Result<(InviteRecord, String), InviteError> {
+        if let Some(pair) = self.dm(room) {
             let allowed = private_agent_call
                 && self
-                    .member_of(Some(member_token))
+                    .member_by_id(member_id)
                     .is_some_and(|m| m.kind == "agent")
                 && self
-                    .member_principal(member_token)
+                    .member_principal(member_id)
                     .is_some_and(|p| pair.has(&p));
             if !allowed {
                 return Err(InviteError::PrivatePair);
@@ -1943,70 +2558,227 @@ impl Hub {
         if !self.admin_open() && !self.room_exists(room) {
             return Err(InviteError::MissingRoom);
         }
-        let Some(member) = self.member_of(Some(member_token)) else {
+        let Some(member) = self.member_by_id(member_id) else {
             return Err(InviteError::MemberNotFound);
         };
         if room == self.reserved_room.as_str() && !self.caretakers.contains(&member.name) {
             return Err(InviteError::Reserved);
         }
-        // The group check, one davet per person, no more davets than seats,
-        // and the write below share the davet lock: two concurrent calls (or
+        // The group check, one invite per person, no more invites than seats,
+        // and the write below share the invite lock: two concurrent calls (or
         // a call racing a group move) cannot each pass a check and then both
         // mint.
         let lifecycle = self.member_lifecycle.lock_or_recover();
         // Nobody outside a group is invited or called into its loca: add them
         // to the group first (PRINCIPLES "Groups").
         if self.is_group_loca(room) {
-            let principal = self.member_principal(&member.token);
+            let principal = member.principal_id.clone();
             let candidates: Vec<&str> = principal.as_deref().into_iter().collect();
             if self.group_gate(room, &candidates) != Some(true) {
                 return Err(InviteError::NotInGroup);
             }
         }
-        if self.has_active_invite(room, member_token) {
+        if self.has_active_invite(room, member_id) {
             return Err(InviteError::AlreadyInvited);
         }
-        // Model A: the seat IS the davet (PRINCIPLES: "davetli — bir locada
-        // koltuğu vardır"). A loca seats at most `loca_capacity()`, so no more than
-        // that many live davets may exist for it — the cap is checked here at
-        // mint, not only when someone connects. (The join-time guard stays as
-        // defence in depth.)
-        let active = self
+        // Model A: the seat IS the invite (PRINCIPLES: "Invited participant — has
+        // a seat in one loca"). A loca seats at most `room_capacity(room)` (its own
+        // number, or the Building's), so no more than that many live invites
+        // may exist for it — the cap is checked here at mint, not only when
+        // someone connects. (The join-time guard stays as defence in depth.)
+        let active = self.invite_count(room);
+        if active >= self.room_capacity(room) {
+            return Err(InviteError::Full);
+        }
+        let invite = self.new_invite_token();
+        let inv = InviteRecord::issued(
+            &invite,
+            room,
+            &member.id,
+            // Snapshot for the audit trail — identity lives in the membership.
+            &member.name,
+            &member.kind,
+            self.now(),
+            issued_by,
+        );
+        self.add_invite_locked(inv.clone(), &invite)
+            .map_err(|_| InviteError::Storage)?;
+        // Wake an already-running agent in the building lobby. Failure only
+        // means nobody is listening at this instant; the invite is sent again
+        // on their next Lobby connect while its delivery copy is held (until
+        // its first use, or 24 hours after issue). Sent under the invite
+        // lock, so a re-issue or revoke of this seat cannot slip in between
+        // the mint and its delivery: the Lobby bus carries one seat's invites
+        // in the order they became live (see `reissue_invite`).
+        let _ = self.lobby_tx.send(LobbyEvent::Called {
+            member: member.id,
+            room: inv.room.clone(),
+            token: invite.clone(),
+        });
+        drop(lifecycle);
+        Ok((inv, invite))
+    }
+
+    /// Give a member a fresh invite for a seat it already holds. The old invite
+    /// ends and the new one is minted in one store transaction, with the same
+    /// member, loca, name, kind and issuer; the new one is then delivered
+    /// over the member's Lobby line exactly like a call. The seat itself does
+    /// not move: the swap happens under the invite lock, so the loca's invite
+    /// count never drops and a concurrent call cannot take the place, and a
+    /// full loca re-issues as readily as an empty one.
+    ///
+    /// Re-issuing ends an invite, so it needs the authority that ending it needs
+    /// (`may_end_invite`): a Smaster cannot re-issue what the Master issued.
+    /// When the store write fails nothing changes, in the store or here.
+    pub fn reissue_invite(
+        &self,
+        member_id: &str,
+        room: &str,
+        actor: &RequestAuthority,
+    ) -> Result<(InviteRecord, String), ReissueError> {
+        // The refusals a call gives, in the same order (see
+        // `invite_member_to_room_inner`); public routes never re-issue a
+        // direct message's invite.
+        if self.dm(room).is_some() {
+            return Err(ReissueError::Invite(InviteError::PrivatePair));
+        }
+        if self.is_deleted(room) {
+            return Err(ReissueError::Invite(InviteError::Sealed));
+        }
+        if !self.admin_open() && !self.room_exists(room) {
+            return Err(ReissueError::Invite(InviteError::MissingRoom));
+        }
+        let Some(member) = self.member_by_id(member_id) else {
+            return Err(ReissueError::Invite(InviteError::MemberNotFound));
+        };
+        if room == self.reserved_room.as_str() && !self.caretakers.contains(&member.name) {
+            return Err(ReissueError::Invite(InviteError::Reserved));
+        }
+        let lifecycle = self.member_lifecycle.lock_or_recover();
+        if self.is_group_loca(room) {
+            let principal = member.principal_id.clone();
+            let candidates: Vec<&str> = principal.as_deref().into_iter().collect();
+            if self.group_gate(room, &candidates) != Some(true) {
+                return Err(ReissueError::Invite(InviteError::NotInGroup));
+            }
+        }
+        // One member holds at most one invite per loca since the mint rule;
+        // rows from before it may hold more, and all of them end here.
+        let held: Vec<InviteRecord> = self
             .invites
             .lock_or_recover()
             .values()
-            .filter(|i| i.room == room)
-            .count();
-        if active >= self.loca_capacity() {
-            return Err(InviteError::Full);
-        }
-        let inv = Invite {
-            token: self.new_invite_token(),
-            room: room.to_string(),
-            member: member.token.clone(),
-            // Snapshot for the audit trail — identity lives in the membership.
-            name: member.name.clone(),
-            kind: member.kind.clone(),
-            issued_at: self.now(),
-            issued_by: issued_by.to_string(),
+            .filter(|i| i.room == room && i.member_id == member.id)
+            .cloned()
+            .collect();
+        // The invite the new one stands in for: the highest issuer, so a
+        // re-issue never makes an invite easier to end than the one it replaces.
+        let Some(replaced) = held
+            .iter()
+            .max_by_key(|i| {
+                (
+                    invite_issuer_rank(&i.issued_by),
+                    std::cmp::Reverse(i.issued_at),
+                )
+            })
+            .cloned()
+        else {
+            return Err(ReissueError::NotHeld);
         };
-        self.add_invite_locked(inv.clone())
-            .map_err(|_| InviteError::Storage)?;
-        drop(lifecycle);
-        // Wake an already-running agent in the building lobby. Failure only
-        // means nobody is listening at this instant; the persisted invite is
-        // replayed when their lobby socket reconnects.
+        if held
+            .iter()
+            .any(|invite| !self.may_end_invite(actor, invite))
+        {
+            return Err(ReissueError::Forbidden);
+        }
+        let invite_key = self.new_invite_token();
+        let fresh = InviteRecord::issued(
+            &invite_key,
+            room,
+            &member.id,
+            &replaced.name,
+            &replaced.kind,
+            self.now(),
+            &replaced.issued_by,
+        );
+        let ended: Vec<String> = held.iter().map(|i| i.secret_hash.clone()).collect();
+        // As `add_invite_locked` does for a mint: the store refuses a sealed
+        // loca too, but a memory-only Building has only this check.
+        if self.is_deleted(room) {
+            return Err(ReissueError::Invite(InviteError::Sealed));
+        }
+        if let Err(error) = self
+            .store
+            .reissue_invite(&ended, &fresh, &invite_key, (self.now_ms)())
+        {
+            tracing::error!(%error, room, "could not re-issue an invite");
+            return Err(ReissueError::Invite(InviteError::Storage));
+        }
+        // Committed: swap the mirror in one step under the invite lock.
+        {
+            let mut invites = self.invites.lock_or_recover();
+            for hash in &ended {
+                invites.remove(hash);
+            }
+            invites.insert(fresh.secret_hash.clone(), fresh.clone());
+        }
+        self.hold_delivery(&invite_key);
+        #[cfg(test)]
+        self.run_reissue_swapped_hook();
+        // What the old invite opened ends now: its sessions, then its socket;
+        // then the fresh invite goes out. All of it stays under the invite lock,
+        // which every other way an invite of this seat begins or ends (a call,
+        // another re-issue, release, kick, revoke, suspension, membership
+        // revoke, group move) also takes. So no later invite of this seat
+        // exists while this clean-up runs (it works by member and loca, not
+        // by token, and would end a session taken with one), and the Lobby
+        // bus receives this seat's invites in the order they became live: the
+        // last `called` a client gets is the invite the server holds. Only
+        // in-memory work remains here: two short leaf locks (`sessions`,
+        // `rooms`) and two `broadcast::Sender::send`s, which never wait for a
+        // receiver.
+        for invite in &held {
+            self.revoke_sessions_for_invite(&invite.room, &invite.member_id);
+        }
+        self.recheck_connections(room);
         let _ = self.lobby_tx.send(LobbyEvent::Called {
-            member: member.token,
-            room: inv.room.clone(),
-            token: inv.token.clone(),
+            member: member.id,
+            room: fresh.room.clone(),
+            token: invite_key.clone(),
         });
-        Ok(inv)
+        drop(lifecycle);
+        Ok((fresh, invite_key))
     }
 
-    /// Subscribe before taking the invite snapshot, so a call racing the
-    /// handshake is observed either in the snapshot or on the bus (possibly
-    /// both; clients de-duplicate by loca/token).
+    #[cfg(test)]
+    fn run_reissue_swapped_hook(&self) {
+        let hook = self.reissue_swapped_hook.lock_or_recover().clone();
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+
+    /// Test-only: set (or clear) the hook `reissue_invite` runs after its swap.
+    #[cfg(test)]
+    pub fn set_reissue_swapped_hook(&self, hook: Option<TestHook>) {
+        *self.reissue_swapped_hook.lock_or_recover() = hook;
+    }
+
+    /// Is `token` still the live invite for `room` of the membership
+    /// `member_id`? The Lobby forwards a `called` only while it is, so an
+    /// invite that ended between its delivery on the bus and the moment a
+    /// Lobby socket forwards it (a call, then a revoke or re-issue of the
+    /// same seat) never reaches the client after the invite that replaced it.
+    pub fn call_is_current(&self, member_id: &str, room: &str, token: &str) -> bool {
+        self.invites
+            .lock_or_recover()
+            .get(&secret_hash(token))
+            .is_some_and(|invite| invite.member_id == member_id && invite.room == room)
+    }
+
+    /// Subscribe before taking the seat list and the pending deliveries, so a
+    /// call racing the handshake is observed either there or on the bus
+    /// (possibly both; clients de-duplicate by loca/token).
     pub fn subscribe_lobby(&self) -> broadcast::Receiver<LobbyEvent> {
         self.lobby_tx.subscribe()
     }
@@ -2029,41 +2801,43 @@ impl Hub {
         names
     }
 
-    pub fn lobby_join(&self, member: &str) {
+    /// Count a Lobby socket of the membership `member_id` (its `mbid_`).
+    pub fn lobby_join(&self, member_id: &str) {
         let mut online = self.lobby_online.lock_or_recover();
-        *online.entry(member.to_string()).or_insert(0) += 1;
+        *online.entry(member_id.to_string()).or_insert(0) += 1;
     }
 
-    pub fn lobby_leave(&self, member: &str) {
+    pub fn lobby_leave(&self, member_id: &str) {
         let mut online = self.lobby_online.lock_or_recover();
-        if let Some(count) = online.get_mut(member) {
+        if let Some(count) = online.get_mut(member_id) {
             *count = count.saturating_sub(1);
             if *count == 0 {
-                online.remove(member);
+                online.remove(member_id);
             }
         }
     }
 
-    fn lobby_is_online(&self, member: &str) -> bool {
+    fn lobby_is_online(&self, member_id: &str) -> bool {
         self.lobby_online
             .lock_or_recover()
-            .get(member)
+            .get(member_id)
             .copied()
             .unwrap_or(0)
             > 0
     }
 
-    /// Record a davet. The master issues; we only persist and index it.
+    /// Record an invite. The master issues; we only persist and index it.
     #[cfg(test)]
-    pub fn add_invite(&self, inv: Invite) -> rusqlite::Result<()> {
+    pub fn add_invite(&self, inv: InviteRecord, invite: &str) -> rusqlite::Result<()> {
         let _lifecycle = self.member_lifecycle.lock_or_recover();
-        self.add_invite_locked(inv)
+        self.add_invite_locked(inv, invite)
     }
 
-    /// `add_invite` for a caller that already holds the davet lock
-    /// (`member_lifecycle`), which is not re-entrant.
-    fn add_invite_locked(&self, inv: Invite) -> rusqlite::Result<()> {
-        if !inv.member.is_empty() && self.member_of(Some(&inv.member)).is_none() {
+    /// `add_invite` for a caller that already holds the invite lock
+    /// (`member_lifecycle`), which is not re-entrant. `invite` is the invite
+    /// `inv` was derived from, in hand only at its mint.
+    fn add_invite_locked(&self, inv: InviteRecord, invite: &str) -> rusqlite::Result<()> {
+        if !inv.member_id.is_empty() && self.member_by_id(&inv.member_id).is_none() {
             return Err(rusqlite::Error::InvalidQuery);
         }
         if self.is_deleted(&inv.room) {
@@ -2071,50 +2845,199 @@ impl Hub {
                 "room is permanently sealed".into(),
             ));
         }
-        self.store.insert_invite(&inv)?;
+        // Every invite minted here is handed over on the member's Lobby, so
+        // it keeps its delivery copy until its first use or deadline.
+        self.store.issue_invite(&inv, invite)?;
         self.invites
             .lock_or_recover()
-            .insert(inv.token.clone(), inv);
+            .insert(inv.secret_hash.clone(), inv);
+        self.hold_delivery(invite);
         Ok(())
     }
 
-    /// End a davet. The row survives with `revoked_at` so "who was let in"
-    /// stays answerable — revoking is not forgetting.
+    /// An invite was minted for delivery: send it again on every Lobby connect
+    /// of its member until it is first used or its window closes. This is the
+    /// in-memory side of its bounded delivery copy.
+    pub(crate) fn hold_delivery(&self, invite: &str) {
+        self.deliveries
+            .lock_or_recover()
+            .insert(secret_hash(invite), invite.to_string());
+    }
+
+    /// Is an invite issued at `issued_at` still inside its delivery window at
+    /// `now`? The counterpart of the store's `PAST_INVITE_DELIVERY_DEADLINE`.
+    fn delivery_open(issued_at: u64, now: u64) -> bool {
+        issued_at > 0 && now < issued_at.saturating_add(crate::store::INVITE_DELIVERY_WINDOW_MS)
+    }
+
+    /// The first session or loca socket taken with the invite whose hash is
+    /// `invite_hash`: the holder has proved it has it, so its delivery ends
+    /// (the copy is cleared and `first_used_at` stamped). Nothing is revoked
+    /// or rotated, and an invite with no copy costs no write. A failed write is
+    /// logged and the copy stays held, so the next use (or the deadline)
+    /// clears it.
+    pub fn note_invite_used_by_hash(&self, invite_hash: &str) {
+        if !self.deliveries.lock_or_recover().contains_key(invite_hash) {
+            return;
+        }
+        match self
+            .store
+            .end_invite_delivery_by_hash(invite_hash, (self.now_ms)())
+        {
+            Ok(_) => {
+                self.deliveries.lock_or_recover().remove(invite_hash);
+            }
+            Err(error) => tracing::error!(
+                %error,
+                "could not end an invite's delivery copy at its first use; it stays until the next use or its deadline"
+            ),
+        }
+    }
+
+    /// The next invite this Lobby connection is owed, decided now: live, its
+    /// copy still held, its window open, and not in `sent` (the hashes of
+    /// what this pass already sent). A Lobby pass asks again before every
+    /// frame instead of walking a list taken earlier, because sending a frame
+    /// waits on the socket: an invite revoked, re-issued or used in the meantime
+    /// is then no longer owed and is never sent, and an invite that replaced one
+    /// is. The answer is the invite's record and the invite to deliver.
+    pub fn next_owed_delivery(
+        &self,
+        member_id: &str,
+        sent: &std::collections::HashSet<String>,
+    ) -> Option<(InviteRecord, String)> {
+        self.pending_deliveries(member_id)
+            .into_iter()
+            .find(|(invite, _)| !sent.contains(&invite.secret_hash))
+    }
+
+    /// The live invites of the membership `member_id` whose delivery is still
+    /// owed: their copy is held and their window open at this moment, each
+    /// with the invite. A Lobby connect sends each as an ordinary `called`,
+    /// the same invite every time. A copy found past its deadline here is
+    /// cleared now (a late delivery attempt), not sent.
+    pub fn pending_deliveries(&self, member_id: &str) -> Vec<(InviteRecord, String)> {
+        let now = (self.now_ms)();
+        let held: Vec<(InviteRecord, String)> = {
+            let candidates = self.invites_for_member(member_id);
+            let deliveries = self.deliveries.lock_or_recover();
+            candidates
+                .into_iter()
+                .filter_map(|invite| {
+                    let invite_key = deliveries.get(&invite.secret_hash)?.clone();
+                    Some((invite, invite_key))
+                })
+                .collect()
+        };
+        let (due, late): (Vec<_>, Vec<_>) = held
+            .into_iter()
+            .partition(|(invite, _)| Self::delivery_open(invite.issued_at, now));
+        for (invite, _) in late {
+            if let Err(error) = self
+                .store
+                .expire_invite_deliveries(now, Some(&invite.secret_hash))
+            {
+                tracing::error!(%error, "could not clear an invite delivery copy past its deadline");
+            }
+            self.deliveries
+                .lock_or_recover()
+                .remove(&invite.secret_hash);
+        }
+        due
+    }
+
+    /// Clear invite delivery copies whose window has closed or whose invite
+    /// has ended, in the store and here. Called by the background sweep, so
+    /// a copy nobody asks for again still ends on time. A storage error is
+    /// logged as one; the copy is not sent past its deadline either way.
+    pub fn expire_invite_deliveries(&self) {
+        let now = (self.now_ms)();
+        match self.store.expire_invite_deliveries(now, None) {
+            Ok(0) => {}
+            Ok(cleared) => tracing::info!(
+                cleared,
+                "invite delivery copies past their window or of ended invites were cleared"
+            ),
+            Err(error) => tracing::error!(
+                %error,
+                "could not clear invite delivery copies past their window; the sweep tries again"
+            ),
+        }
+        let held: Vec<String> = self.deliveries.lock_or_recover().keys().cloned().collect();
+        let ended: Vec<String> = {
+            let invites = self.invites.lock_or_recover();
+            held.into_iter()
+                .filter(|hash| {
+                    !invites
+                        .get(hash)
+                        .is_some_and(|invite| Self::delivery_open(invite.issued_at, now))
+                })
+                .collect()
+        };
+        let mut deliveries = self.deliveries.lock_or_recover();
+        for hash in ended {
+            deliveries.remove(&hash);
+        }
+    }
+
+    /// The member's seats: one `(loca, ivid_)` per live invite. Ids only; no
+    /// invite leaves here.
+    pub fn seats_of(&self, member_id: &str) -> Vec<(String, String)> {
+        let mut seats: Vec<(String, String)> = self
+            .invites_for_member(member_id)
+            .into_iter()
+            .map(|invite| (invite.room, invite.id))
+            .collect();
+        seats.sort();
+        seats
+    }
+
+    /// End an invite, by its hash. The row survives with `revoked_at` so "who
+    /// was let in" stays answerable — revoking is not forgetting.
     ///
-    /// Revoking cascades: a davet that dies takes with it any session minted
+    /// Revoking cascades: an invite that dies takes with it any session minted
     /// from it and closes the connection it opened. Otherwise the door would be
     /// shut on paper while a live socket (and a still-valid session token) kept
     /// working — the audit's revoke-does-nothing hole.
-    pub fn revoke_invite(&self, token: &str) -> rusqlite::Result<bool> {
-        let Some(inv) = self.invites.lock_or_recover().get(token).cloned() else {
+    pub fn revoke_invite_by_hash(&self, invite_hash: &str) -> rusqlite::Result<bool> {
+        // Under the invite lock, like every other way a seat's invite begins or
+        // ends: a revoke that read this invite before a re-issue replaced it
+        // would otherwise run its clean-up (by member and loca) after the
+        // re-issue, ending the session and socket of the fresh invite.
+        let _lifecycle = self.member_lifecycle.lock_or_recover();
+        let Some(inv) = self.invites.lock_or_recover().get(invite_hash).cloned() else {
             return Ok(false);
         };
-        self.store.revoke_invite(token, (self.now_ms)())?;
-        self.invites.lock_or_recover().remove(token);
-        // Kill sessions bound to this davet's (loca, member) and close the
+        self.store
+            .revoke_invite_by_hash(invite_hash, (self.now_ms)())?;
+        self.invites.lock_or_recover().remove(invite_hash);
+        // Kill sessions bound to this invite's (loca, member) and close the
         // live connection in that loca for that name.
-        self.revoke_sessions_for_davet(&inv.room, &inv.member);
+        self.revoke_sessions_for_invite(&inv.room, &inv.member_id);
         self.close_connections(&inv.room, &inv.name);
         Ok(true)
     }
 
+    /// The management id (`ivid_`) of an invite in hand (a call's answer, a
+    /// delivery), with v0.13.0's derivation. A stored invite's id is
+    /// `InviteRecord::id`.
     pub fn invite_management_id(&self, token: &str) -> String {
         crate::store::hashed_id("ivid_", &format!("invite:{token}"))
     }
 
-    pub fn invite_by_ref(&self, reference: &str) -> Option<Invite> {
+    /// The live invite whose management id (`ivid_`) is `reference`. A raw
+    /// invite is not a reference and finds nothing.
+    pub fn invite_by_ref(&self, reference: &str) -> Option<InviteRecord> {
         self.invites
             .lock_or_recover()
             .values()
-            .find(|invite| {
-                invite.token == reference || self.invite_management_id(&invite.token) == reference
-            })
+            .find(|invite| invite.id == reference)
             .cloned()
     }
 
     pub fn revoke_invite_ref(&self, reference: &str) -> rusqlite::Result<bool> {
         match self.invite_by_ref(reference) {
-            Some(invite) => self.revoke_invite(&invite.token),
+            Some(invite) => self.revoke_invite_by_hash(&invite.secret_hash),
             None => Ok(false),
         }
     }
@@ -2122,21 +3045,21 @@ impl Hub {
     /// Drop every session bound to a member (any loca). Used when a MEMBERSHIP
     /// is revoked — the identity itself is gone, so no session proving it may
     /// survive.
-    fn revoke_sessions_for_member(&self, member_token: &str) {
+    fn revoke_sessions_for_member(&self, member_id: &str) {
         self.sessions
             .lock_or_recover()
-            .retain(|_st, idy| idy.member.as_deref() != Some(member_token));
+            .retain(|_st, idy| idy.member.as_deref() != Some(member_id));
     }
 
-    /// Drop every session bound to one davet's (loca, member). Used when a
-    /// single DAVET is revoked — sessions for that member in OTHER locas (other
-    /// davets) survive, only this seat's proof dies.
-    fn revoke_sessions_for_davet(&self, room: &str, member_token: &str) {
-        if member_token.is_empty() {
+    /// Drop every session bound to one invite's (loca, member). Used when a
+    /// single INVITE is revoked — sessions for that member in OTHER locas (other
+    /// invites) survive, only this seat's proof dies.
+    fn revoke_sessions_for_invite(&self, room: &str, member_id: &str) {
+        if member_id.is_empty() {
             return;
         }
         self.sessions.lock_or_recover().retain(|_st, idy| {
-            !(idy.member.as_deref() == Some(member_token) && idy.loca.as_deref() == Some(room))
+            !(idy.member.as_deref() == Some(member_id) && idy.loca.as_deref() == Some(room))
         });
     }
 
@@ -2155,10 +3078,26 @@ impl Hub {
         }
     }
 
-    /// End every live davet a name holds for one loca. This is how "çıkar"
-    /// (kick) and "bırak" (release) stop the davet — without it, the ejected
+    /// Make every live socket in `room` check its credentials now, so the
+    /// ones whose invite or session has just ended close. A re-issue is not a
+    /// kick: the seat goes on under the fresh invite, and a `kicked` frame
+    /// tells a listener to forget the loca's invite, which would race the
+    /// Lobby `called` carrying the fresh one and could erase it. The roster
+    /// frame is one every client already takes on each join and leave; each
+    /// socket re-checks its credentials before it forwards any frame.
+    fn recheck_connections(&self, room: &str) {
+        let rooms = self.rooms.lock_or_recover();
+        if let Some(r) = rooms.get(room) {
+            let _ = r.tx.send(ServerFrame::Members {
+                members: r.member_list(&self.profile_cards()),
+            });
+        }
+    }
+
+    /// End every live invite a name holds for one loca. This is how "kick"
+    /// and "release" stop the invite — without it, the ejected
     /// name's token would open the door right back (PRINCIPLES: kick stops the
-    /// davet; release takes back the seat). The membership is untouched.
+    /// invite; release takes back the seat). The membership is untouched.
     pub fn revoke_invites_for(&self, room: &str, name: &str) -> rusqlite::Result<()> {
         self.store.revoke_invites_for(room, name, (self.now_ms)())?;
         self.revoke_invites_cache_for(room, name);
@@ -2166,42 +3105,53 @@ impl Hub {
     }
 
     fn revoke_invites_cache_for(&self, room: &str, name: &str) {
-        let matches: Vec<Invite> = self
+        for inv in self.end_invites_cache_for(room, name) {
+            self.close_connections(&inv.room, &inv.name);
+        }
+    }
+
+    /// End the cached invites (and their sessions) a name holds for one loca,
+    /// without closing the connection: for a caller that sends its own, more
+    /// specific `Kicked` right after. Ban does — the socket closes on the
+    /// first `Kicked` it reads, so a generic one sent here would tell a banned
+    /// person they were not banned.
+    fn end_invites_cache_for(&self, room: &str, name: &str) -> Vec<InviteRecord> {
+        let matches: Vec<InviteRecord> = self
             .invites
             .lock_or_recover()
             .values()
             .filter(|i| i.room == room && i.name == name)
             .cloned()
             .collect();
-        if matches.is_empty() {
-            return;
-        }
         {
             let mut invites = self.invites.lock_or_recover();
             for inv in &matches {
-                invites.remove(&inv.token);
+                invites.remove(&inv.secret_hash);
             }
         }
-        for inv in matches {
-            self.revoke_sessions_for_davet(&inv.room, &inv.member);
-            self.close_connections(&inv.room, &inv.name);
+        for inv in &matches {
+            self.revoke_sessions_for_invite(&inv.room, &inv.member_id);
         }
+        matches
     }
 
-    /// Every live davet held by one member, across all locas — for "who am I"
-    /// and member views.
-    pub fn invites_for_member(&self, member_token: &str) -> Vec<Invite> {
+    /// Every live invite held by one member (its id, as a session names it
+    /// too), across all locas — for "who am I" and member views.
+    pub fn invites_for_member(&self, member_id: &str) -> Vec<InviteRecord> {
+        if member_id.is_empty() {
+            return Vec::new();
+        }
         self.invites
             .lock_or_recover()
             .values()
-            .filter(|i| i.member == member_token)
+            .filter(|i| i.member_id == member_id)
             .cloned()
             .collect()
     }
 
-    /// Live davetler for one loca (master view).
-    pub fn invites_of(&self, room: &str) -> Vec<Invite> {
-        let mut v: Vec<Invite> = self
+    /// Live invites for one loca (master view).
+    pub fn invites_of(&self, room: &str) -> Vec<InviteRecord> {
+        let mut v: Vec<InviteRecord> = self
             .invites
             .lock_or_recover()
             .values()
@@ -2227,7 +3177,10 @@ impl Hub {
         self.require_sessions
     }
 
-    /// Default lifetime when no duration was selected (legacy API / boot code).
+    /// Lifetime of every session except a Master pairing's, which carries the
+    /// duration chosen for it: 12 hours, whether taken with an invite, a
+    /// membership, a Smaster or profile key, or the sandbox building key.
+    /// Clients renew from the key they hold when a session is refused.
     pub const ADMIN_SESSION_TTL_MS: u64 = 12 * 60 * 60 * 1000;
     pub const MIN_ADMIN_SESSION_TTL_MS: u64 = 60 * 60 * 1000;
     pub const MAX_ADMIN_SESSION_TTL_MS: u64 = 365 * 24 * 60 * 60 * 1000;
@@ -2414,8 +3367,14 @@ impl Hub {
         if !self.join_request_rate_ok(ip) {
             return JoinRequestCreate::BacklogFull;
         }
+        // Checked and filed under `name_claims`: a pending request holds its
+        // name until it is decided. Released before the announcement.
+        let claim = self.name_claims.lock_or_recover();
         if self.member_by_name(name).is_some() || self.store.has_pending_join_request_named(name) {
             return JoinRequestCreate::NameTaken;
+        }
+        if self.new_member_name_clashes(name) {
+            return JoinRequestCreate::NameWorn;
         }
         if self.store.list_pending_join_requests().len() >= Self::MAX_PENDING_JOIN_REQUESTS {
             return JoinRequestCreate::BacklogFull;
@@ -2429,6 +3388,7 @@ impl Hub {
             kind,
             (self.now_ms)(),
         );
+        drop(claim);
         // Make the request VISIBLE where a human can act on it: a persisted
         // announcement in the home loca so the Master/Smaster/loca-care see
         // "<name> wants to join" in chat (addressed to the lead so a filtered
@@ -2469,6 +3429,7 @@ impl Hub {
             text: format!("{name} ({kind}) wants to join — approve or deny it in Join requests."),
             reply_to: None,
             reply_to_sender: None,
+            sender_principal: None,
             kind: protocol::MessageKind::Announce,
             ts: (self.now_ms)(),
         };
@@ -2480,14 +3441,30 @@ impl Hub {
         let _ = r.tx.send(ServerFrame::Msg { message: msg });
     }
 
-    /// Poll a join request with its secret: `(status, name, bootstrap_ready)`.
-    pub fn join_request_view(&self, id: &str, secret: &str) -> Option<(String, String, bool)> {
-        self.store.join_request_view(id, secret)
+    /// Poll a join request with its secret. `Ok(None)`: unknown request or
+    /// wrong secret; a storage error is an error.
+    pub fn join_request_view(
+        &self,
+        id: &str,
+        secret: &str,
+    ) -> rusqlite::Result<Option<crate::store::JoinRequestView>> {
+        self.store
+            .join_request_view(id, secret, (self.now_ms)())
+            .inspect_err(|error| tracing::error!(%error, "could not read a join request"))
     }
 
     /// The Master's pending-request review list.
     pub fn list_pending_join_requests(&self) -> Vec<(String, String, String, u64)> {
         self.store.list_pending_join_requests()
+    }
+
+    /// The name a still-pending join request asks for (it never changes).
+    pub fn pending_join_request_name(&self, id: &str) -> Option<String> {
+        self.store
+            .list_pending_join_requests()
+            .into_iter()
+            .find(|(request, ..)| request == id)
+            .map(|(_, name, ..)| name)
     }
 
     /// Approve a pending join request (Master action). EXACTLY-ONCE: atomically
@@ -2507,6 +3484,23 @@ impl Hub {
         // orchestrate here, and no way to strand a request or burn a right.
         // We only mint the fresh `mb_` token up front (needs the Hub's CSPRNG).
         let mb_token = self.new_invite_token().replacen("dv_", "mb_", 1);
+        // Approving admits a new name, so it meets the doors' rule again: a
+        // rank or a caretaker may have come to wear it since the request was
+        // filed, or an older server filed it unchecked. Refused here, before
+        // the transaction, nothing is written: the request stays pending (the
+        // Master can still deny it) and no admission right is consumed. Held
+        // under `name_claims` until the new member is in the cache too, so a
+        // member, a Smaster or a rename racing this approval sees it or is
+        // seen by it.
+        let _claim = self.name_claims.lock_or_recover();
+        if let Some(name) = self.pending_join_request_name(id) {
+            if let Some(rule) = admission_name_refusal(&name) {
+                return Approve::NameRule(rule);
+            }
+            if self.member_by_name(&name).is_none() && self.new_member_name_clashes(&name) {
+                return Approve::NameWorn;
+            }
+        }
         match self
             .store
             .approve_join_request_atomic(id, &mb_token, by, (self.now_ms)())
@@ -2515,7 +3509,7 @@ impl Hub {
                 // Mirror the committed DB row into the in-memory member cache.
                 self.members
                     .lock_or_recover()
-                    .insert(member.token.clone(), member);
+                    .insert(member.id.clone(), member);
                 Approve::Approved
             }
             crate::store::ApproveTxn::AlreadyDecided => Approve::AlreadyDecided,
@@ -2531,45 +3525,93 @@ impl Hub {
     }
 
     /// Deliver an approved request's `mb_`, re-fetchable until the client ACKs
-    /// (crash-safe: the credential cannot be lost between receive and persist).
-    pub fn claim_join_request_bootstrap(&self, id: &str, secret: &str) -> Option<String> {
+    /// (crash-safe: the credential cannot be lost between receive and persist)
+    /// or until `store::JOIN_BOOTSTRAP_WINDOW_MS` after the approval.
+    pub fn claim_join_request_bootstrap(
+        &self,
+        id: &str,
+        secret: &str,
+    ) -> rusqlite::Result<crate::store::BootstrapClaim> {
         self.store
             .claim_join_request_bootstrap(id, secret, (self.now_ms)())
+            .inspect_err(|error| tracing::error!(%error, "could not read a join request's key"))
     }
 
     /// Finalize an approved request's bootstrap after the client verified its
     /// `mb_` via `/whoami`. Closes the re-fetch window. `Some(true)` = just
     /// acked, `Some(false)` = already acked by this secret, `None` = unknown /
-    /// unowned / not approved.
-    pub fn ack_join_request_bootstrap(&self, id: &str, secret: &str) -> Option<bool> {
+    /// unowned / not approved. Also answers after the delivery deadline: a
+    /// requester whose ACK was lost has done nothing wrong.
+    pub fn ack_join_request_bootstrap(
+        &self,
+        id: &str,
+        secret: &str,
+    ) -> rusqlite::Result<Option<bool>> {
         self.store
             .ack_join_request_bootstrap(id, secret, (self.now_ms)())
+            .inspect_err(|error| tracing::error!(%error, "could not acknowledge a join request"))
     }
 
-    /// Same, but taken with a davet: the session is confined to the davet's
-    /// loca AND its identity comes from the davet's member — the session is
-    /// proof of who the davet seats, not of whatever name the request body
-    /// claims. (Before this, alice's davet could mint a "bob" session.)
+    /// Clear key delivery copies whose window has closed (join requests and
+    /// membership claims), and retry an owed WAL clean-up. Called by the
+    /// background sweep, so a copy nobody asks for again still ends on time.
+    /// The membership and the claimed credentials are not touched. A storage
+    /// error is logged as one, never as "nothing to clear".
+    pub fn expire_join_request_bootstraps(&self) {
+        let memory = self.expire_memory_claim_copies();
+        match self.store.expire_join_request_bootstraps((self.now_ms)()) {
+            Ok(0) if memory == 0 => {}
+            Ok(cleared) => tracing::info!(
+                cleared = cleared + memory,
+                "key delivery copies (join requests, membership claims) past their window were cleared"
+            ),
+            Err(error) => tracing::error!(
+                %error,
+                "could not clear key delivery copies past their window; none cleared"
+            ),
+        }
+    }
+
+    /// Same, but taken with an invite: the session is confined to the invite's
+    /// loca AND its identity comes from the invite's member — the session is
+    /// proof of who the invite seats, not of whatever name the request body
+    /// claims. (Before this, alice's invite could mint a "bob" session.)
     ///
     /// `admin_grant` is resolved server-side from a principal credential (or
     /// the one-use root pairing). It binds both role and credential ownership;
     /// request-body names never manufacture authority.
+    ///
+    /// `building_key` says the session was taken with a credential that
+    /// reaches the whole Building through the legacy building key; only then
+    /// does a loca-less session inherit that reach. `key_member` is the
+    /// membership whose own key took the session when no principal grant can
+    /// bind it (a memory-only store): the session speaks as that member and
+    /// dies with the membership.
+    ///
+    /// `Ok(None)`: the invite or membership the caller resolved ended before
+    /// the session could be recorded, so no session exists.
     pub fn create_session_scoped(
         &self,
         req: protocol::CreateSession,
-        davet: Option<&Invite>,
+        invite_record: Option<&InviteRecord>,
         admin_grant: Option<AdminSessionGrant>,
-    ) -> rusqlite::Result<protocol::SessionInfo> {
+        building_key: bool,
+        key_member: Option<MemberRecord>,
+    ) -> rusqlite::Result<Option<protocol::SessionInfo>> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let now = (self.now_ms)();
         // A session is a bearer credential. Generate it directly from the
         // operating system CSPRNG; timestamps, counters and SipHash output are
         // not suitable secrets.
         let t = Self::secure_token("st_", 32);
-        let identity = match davet {
+        // The session names the membership by its id; whether it still
+        // stands is checked below.
+        let key_member_id = key_member.as_ref().map(|member| member.id.clone());
+        let identity = match invite_record {
             Some(inv) => {
                 // The membership is the identity; the invite's snapshot is the
                 // fallback if the member record has since been revoked.
-                let (name, kind) = match self.member_of(Some(inv.member.as_str())) {
+                let (name, kind) = match self.member_by_id(&inv.member_id) {
                     Some(m) => (m.name, m.kind),
                     None => (inv.name.clone(), inv.kind.clone()),
                 };
@@ -2577,27 +3619,28 @@ impl Hub {
                     "user" => SenderType::User,
                     _ => SenderType::Agent,
                 };
+                // The principal comes from the membership record, not from
+                // the member's original key: an invite session must not depend
+                // on that one credential still being live (see `invite`).
                 SessionIdentity {
-                    principal_id: self
-                        .store
-                        .principal_for_credential(&inv.member)
-                        .map(|identity| identity.id),
+                    principal_id: self.member_principal(&inv.member_id),
                     building_role: BuildingRole::Member,
                     name,
                     kind,
                     loca: Some(inv.room.clone()),
-                    member: Some(inv.member.clone()),
+                    member: Some(inv.member_id.clone()),
+                    invite: Some(inv.secret_hash.clone()),
+                    building_key: false,
                     admin: false,
-                    expires_at: 0,
+                    expires_at: now.saturating_add(Self::ADMIN_SESSION_TTL_MS),
                 }
             }
-            // No davet: this is a building-key session. There is no member
-            // behind a building key, so `member` is None and the name comes
-            // from the body. In davet-only mode (prod: REQUIRE_INVITE=1, no
-            // ROOM_TOKEN) the only building key is the admin token, so this
-            // path is the master/browser — a body name here is the master
-            // naming themselves, not a spoof. If a shared ROOM_TOKEN is ever
-            // reintroduced this branch would need a member/role binding.
+            // No invite: a Building-level session. A verified credential names
+            // it through `admin_grant` (its principal) or, in a memory-only
+            // store, through `key_member` (its membership). Only a session with
+            // neither — the shared building key, the sandbox — takes its name
+            // from the body; that name is a label, and the key it was taken
+            // with is the only authority it carries.
             None => SessionIdentity {
                 principal_id: admin_grant
                     .as_ref()
@@ -2609,26 +3652,62 @@ impl Hub {
                 name: admin_grant
                     .as_ref()
                     .and_then(|grant| grant.authority.display_name.clone())
+                    .or_else(|| key_member.as_ref().map(|m| m.name.clone()))
                     .unwrap_or_else(|| req.name.clone()),
                 kind: admin_grant
                     .as_ref()
                     .and_then(|grant| grant.authority.kind)
+                    .or_else(|| {
+                        key_member.as_ref().map(|m| match m.kind.as_str() {
+                            "user" => SenderType::User,
+                            _ => SenderType::Agent,
+                        })
+                    })
                     .unwrap_or_else(|| req.kind.unwrap_or(SenderType::Agent)),
                 loca: None,
-                member: None,
+                member: key_member.map(|m| m.id),
+                invite: None,
+                building_key,
                 admin: admin_grant
                     .as_ref()
                     .map(|grant| grant.authority.is_building_admin())
                     .unwrap_or(false),
-                expires_at: admin_grant
-                    .as_ref()
-                    .map(|grant| (self.now_ms)().saturating_add(grant.ttl_ms))
-                    .unwrap_or(0),
+                expires_at: now.saturating_add(
+                    admin_grant
+                        .as_ref()
+                        .map_or(Self::ADMIN_SESSION_TTL_MS, |grant| grant.ttl_ms),
+                ),
             },
         };
         let name = identity.name.clone();
         let session_admin = identity.admin;
-        let expires_at = (identity.expires_at != 0).then_some(identity.expires_at);
+        let expires_at = Some(identity.expires_at);
+        // Record the session under the session map's lock, and only while the
+        // invite or membership it was taken with still stands. Every revocation
+        // and suspension removes the invite from `invites` (and a revoked
+        // membership from `members`) BEFORE it sweeps this map, so checking
+        // under the same lock as the insert leaves no window: a revocation
+        // either finished before this check (the session is refused) or
+        // sweeps after the insert (the session dies with the rest). Lock
+        // order: sessions -> invites, members, the store's connection, each
+        // taken and released in turn under it (session_identity already
+        // reaches the store under this lock). This is the record-time half of
+        // the one rule for an invite session (`invite_session_live` is the
+        // use-time half): it stands while its invite stands. The credential's
+        // session cap is enforced inside this same critical section: the
+        // store transaction below counts, ends the oldest and inserts, and
+        // the ended sessions leave this map before the new one enters it, so
+        // "source still stands, count, evict, insert" is one step.
+        let mut sessions = self.sessions.lock_or_recover();
+        let source_live = match invite_record {
+            Some(inv) => self.invite_live_by_hash(&inv.secret_hash),
+            None => key_member_id
+                .as_deref()
+                .is_none_or(|member| self.member_by_id(member).is_some()),
+        };
+        if !source_live {
+            return Ok(None);
+        }
         if identity.admin {
             self.store.save_admin_session(
                 &t,
@@ -2637,53 +3716,130 @@ impl Hub {
                 identity.expires_at,
             )?;
         }
-        let credential_id = match davet {
-            Some(inv) => self.store.credential_id_for_secret(&inv.member),
+        // An invite session is taken with the invite, not with a credential, so
+        // it gets no `principal_sessions` row: revoking a credential ends the
+        // sessions taken with that credential and nothing else.
+        let credential_id = match invite_record {
+            Some(_) => None,
             None => admin_grant.and_then(|grant| grant.credential_id),
         };
+        // A session filed under a credential counts against that credential's
+        // cap (`store::SESSIONS_PER_CREDENTIAL`); the store ends the oldest in
+        // the same transaction and names them so memory forgets them too.
+        let mut ended = Vec::new();
         if let (Some(principal_id), Some(credential_id)) =
             (identity.principal_id.as_deref(), credential_id.as_deref())
         {
-            self.store.save_principal_session(
+            ended = self.store.save_principal_session(
                 &t,
                 principal_id,
                 credential_id,
-                self.now(),
+                now,
                 identity.expires_at,
             )?;
         }
-        self.sessions.lock_or_recover().insert(t.clone(), identity);
-        Ok(protocol::SessionInfo {
+        if !ended.is_empty() {
+            tracing::info!(
+                ended = ended.len(),
+                "a credential took more than its live sessions allow; its oldest were ended"
+            );
+        }
+        for session_hash in &ended {
+            sessions.remove(session_hash);
+        }
+        // An invite session is filed under its invite, not under a credential
+        // (above), so the credential's cap never counts it. Its own cap is
+        // counted here, by the invite, in this same critical section: one
+        // invite holds at most `SESSIONS_PER_CREDENTIAL` sessions, and taking
+        // one more ends its oldest. These sessions live in memory only, so
+        // there is no row to end.
+        if let Some(invite_hash) = identity.invite.as_deref() {
+            let mut held: Vec<(u64, String)> = sessions
+                .iter()
+                .filter(|(_, held)| held.invite.as_deref() == Some(invite_hash))
+                .map(|(hash, held)| (held.expires_at, hash.clone()))
+                .collect();
+            if held.len() >= crate::store::SESSIONS_PER_CREDENTIAL {
+                // Every session has the same lifetime, so the earliest to
+                // expire is the oldest.
+                held.sort();
+                let over = held.len() + 1 - crate::store::SESSIONS_PER_CREDENTIAL;
+                tracing::info!(
+                    ended = over,
+                    "an invite took more than its live sessions allow; its oldest were ended"
+                );
+                for (_, session_hash) in held.into_iter().take(over) {
+                    sessions.remove(&session_hash);
+                }
+            }
+        }
+        sessions.insert(secret_hash(&t), identity);
+        drop(sessions);
+        if let Some(invite) = invite_record {
+            self.note_invite_used_by_hash(&invite.secret_hash);
+        }
+        Ok(Some(protocol::SessionInfo {
             participant_id: format!("p_{id}"),
             session_token: t,
             name,
             admin: session_admin,
             expires_at,
-        })
+        }))
     }
 
     /// Resolve a session token to its bound identity. An expired session (admin
     /// TTL passed) resolves to nothing — and is dropped — so a stale token is
     /// as good as no token.
     pub fn session_identity(&self, token: Option<&str>) -> Option<SessionIdentity> {
-        let token = token?;
+        let session_hash = secret_hash(token?);
+        let idy = self.sessions.lock_or_recover().get(&session_hash)?.clone();
+        let live = match idy.invite.as_deref() {
+            Some(invite_hash) => self.invite_session_live(&idy, invite_hash),
+            None => {
+                idy.principal_id.is_none()
+                    || !self.store.is_persistent()
+                    || self
+                        .store
+                        .principal_session_active_by_hash(&session_hash, (self.now_ms)())
+            }
+        };
         let mut sessions = self.sessions.lock_or_recover();
-        let idy = sessions.get(token)?.clone();
-        if idy.principal_id.is_some()
-            && self.store.is_persistent()
-            && !self.store.principal_session_active(token, (self.now_ms)())
-        {
-            sessions.remove(token);
+        if !live {
+            sessions.remove(&session_hash);
             return None;
         }
-        if idy.expires_at != 0 && idy.expires_at <= (self.now_ms)() {
-            sessions.remove(token);
+        if idy.expires_at <= (self.now_ms)() {
+            sessions.remove(&session_hash);
             if idy.admin {
-                let _ = self.store.delete_admin_session(token);
+                let _ = self.store.delete_admin_session_by_hash(&session_hash);
             }
             return None;
         }
         Some(idy)
+    }
+
+    /// An invite session is live while the invite it was taken with is live and
+    /// the member's principal is active, whatever happened to the member's
+    /// credentials. Revoking, releasing or kicking the invite, suspending the
+    /// member and revoking the membership all end it. The use-time half of
+    /// the rule `create_session_scoped` checks when it records the session.
+    /// Takes no lock while holding another: `invites`, then the store.
+    fn invite_session_live(&self, idy: &SessionIdentity, invite_hash: &str) -> bool {
+        let (Some(room), Some(member)) = (idy.loca.as_deref(), idy.member.as_deref()) else {
+            return false;
+        };
+        let invite_live = self
+            .invites
+            .lock_or_recover()
+            .get(invite_hash)
+            .is_some_and(|i| i.room == room && i.member_id == member);
+        invite_live
+            && match idy.principal_id.as_deref() {
+                Some(principal) if self.store.is_persistent() => {
+                    self.store.active_principal(principal).is_some()
+                }
+                _ => true,
+            }
     }
 
     /// Does this request carry admin authority — either the raw admin/master
@@ -2698,16 +3854,57 @@ impl Hub {
     /// Revoke one browser/agent session immediately. Logout must end the
     /// server-side bearer credential, not merely forget it in the client.
     pub fn revoke_session(&self, token: &str) -> rusqlite::Result<bool> {
+        let session_hash = secret_hash(token);
         let admin = self
             .sessions
             .lock_or_recover()
-            .get(token)
+            .get(&session_hash)
             .is_some_and(|identity| identity.admin);
         if admin {
-            self.store.delete_admin_session(token)?;
+            self.store.delete_admin_session_by_hash(&session_hash)?;
         }
-        self.store.revoke_principal_session(token, self.now())?;
-        Ok(self.sessions.lock_or_recover().remove(token).is_some())
+        self.store
+            .revoke_principal_session_by_hash(&session_hash, self.now())?;
+        Ok(self
+            .sessions
+            .lock_or_recover()
+            .remove(&session_hash)
+            .is_some())
+    }
+
+    /// End what has expired without waiting for someone to present it: drop
+    /// expired sessions from memory, then delete expired and ended sessions
+    /// from storage. Called by the background sweep. Memory is swept even when
+    /// storage fails; a storage error is logged as one and returned, never
+    /// read as "nothing to sweep". Returns how many stored sessions went.
+    pub fn sweep_sessions(&self) -> rusqlite::Result<usize> {
+        let now = (self.now_ms)();
+        let forgotten = {
+            let mut sessions = self.sessions.lock_or_recover();
+            let before = sessions.len();
+            sessions.retain(|_, identity| identity.expires_at > now);
+            before - sessions.len()
+        };
+        if forgotten > 0 {
+            tracing::info!(forgotten, "expired sessions were dropped from memory");
+        }
+        match self.store.sweep_sessions(now) {
+            Ok(0) => Ok(0),
+            Ok(deleted) => {
+                tracing::info!(
+                    deleted,
+                    "expired and ended sessions were deleted from storage"
+                );
+                Ok(deleted)
+            }
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    "could not delete expired and ended sessions from storage; none deleted"
+                );
+                Err(error)
+            }
+        }
     }
 
     /// Check room existence without implicitly provisioning it.
@@ -2748,12 +3945,12 @@ impl Hub {
     /// Agent runtimes are last-writer-wins: a fresh listener evicts a stale
     /// predecessor so a ghost cannot shadow delivery. Human web readers are
     /// different: the same identity+name may be open on multiple devices, all
-    /// sharing one roster entry and one seat by reference count.
+    /// sharing one roster entry and one seat, each listed by its session.
     /// A loca seats at most this many. The number is not arbitrary: a loca is
     /// by definition a small, private room — more than this and it is a salon,
     /// a different kind of place (DESIGN §5g). Watchers do not take a seat, so
     /// they are not counted here (they never call `join`).
-    pub const LOCA_KAPASITE: usize = 7;
+    pub const DEFAULT_LOCA_CAPACITY: usize = 7;
     /// The bounds a configured capacity is held to: a loca stays a small,
     /// private table — at least a pair, never a hall.
     pub const LOCA_CAPACITY_MIN: usize = 2;
@@ -2773,6 +3970,22 @@ impl Hub {
         self.loca_capacity
             .store(seats, std::sync::atomic::Ordering::Relaxed);
         seats
+    }
+
+    /// Notifications one sender may send in
+    /// [`notifications::NOTIFICATION_SEND_WINDOW_MS`].
+    pub fn notification_send_limit(&self) -> u32 {
+        self.notification_send_limit
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Configure the sending limit's count (at least 1; the window is
+    /// fixed). Returns the value in force.
+    pub fn set_notification_send_limit(&self, max: u32) -> u32 {
+        let max = max.max(1);
+        self.notification_send_limit
+            .store(max, std::sync::atomic::Ordering::Relaxed);
+        max
     }
 
     /// Seat a member. Returns false when the loca is full — the caller must
@@ -2802,7 +4015,8 @@ impl Hub {
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
         // Capacity counts identities, not names: an identity rejoining under
         // any name evicts itself, never overflows.
-        if !r.members.contains_key(identity) && r.members.len() >= self.loca_capacity() {
+        let seats = identity::seats_of(&r.settings, self.seat_numbers());
+        if !r.members.contains_key(identity) && r.members.len() >= seats {
             return false;
         }
         let additional_human_reader =
@@ -2818,7 +4032,7 @@ impl Hub {
             // Keep both sockets alive; leave() removes the roster entry only
             // after the final reader disconnects.
             if let Some(entry) = r.members.get_mut(identity) {
-                entry.2 = entry.2.saturating_add(1);
+                entry.2.insert(session);
             }
         } else if r.members.contains_key(identity) {
             // Tell older connections on this identity to close; `session` is
@@ -2831,68 +4045,83 @@ impl Hub {
                 identity: identity.to_string(),
                 session,
             });
-            // Take the connection count back to exactly one: the evicted
+            // The seat's connections are now exactly this one: the evicted
             // session is gone whether or not its reader ever runs leave(). A
-            // dead reader never reaches leave(), so accumulating here would
-            // leak the count upward and stick the seat in the roster forever
-            // (the ghost the operator kept seeing). Reset, don't accumulate.
+            // dead reader never reaches leave(), so keeping it here would
+            // stick the seat in the roster forever (the ghost the operator
+            // kept seeing); and an evicted reader that does run leave(), late,
+            // is no longer listed, so it cannot free this connection's seat.
             if let Some(entry) = r.members.get_mut(identity) {
                 entry.0 = name.to_string();
                 entry.1 = kind;
-                entry.2 = 1;
+                entry.2 = std::collections::HashSet::from([session]);
             }
         } else {
-            r.members
-                .insert(identity.to_string(), (name.to_string(), kind, 1));
+            r.members.insert(
+                identity.to_string(),
+                (
+                    name.to_string(),
+                    kind,
+                    std::collections::HashSet::from([session]),
+                ),
+            );
         }
-        let members = r.member_list();
+        let members = r.member_list(&self.profile_cards());
         let _ = r.tx.send(ServerFrame::Members { members });
         true
     }
 
-    /// Deregister a seat on disconnect; frees it at zero connections.
-    pub fn leave(&self, room: &str, identity: &str) {
+    /// Deregister one connection (`session`, as given to `join`) on
+    /// disconnect; frees the seat when none of its connections is left. A
+    /// connection a newer one evicted is no longer listed, so its leave, in
+    /// whatever order it comes, does not touch the seat.
+    pub fn leave(&self, room: &str, identity: &str, session: u64) {
         let mut rooms = self.rooms.lock_or_recover();
         let Some(r) = rooms.get_mut(room) else { return };
         if let Some(entry) = r.members.get_mut(identity) {
-            entry.2 = entry.2.saturating_sub(1);
-            if entry.2 == 0 {
+            entry.2.remove(&session);
+            if entry.2.is_empty() {
                 r.members.remove(identity);
+                r.seat_principals.remove(identity);
             }
         }
-        let members = r.member_list();
+        let members = r.member_list(&self.profile_cards());
         let _ = r.tx.send(ServerFrame::Members { members });
     }
 
     /// Append a posted message, trim history, and broadcast it. The current
     /// chat mode is enforced here: `is_admin` bypasses gating (so the admin can
     /// always speak, e.g. while paused). Returns `Err(PostReject)` if the mode
-    /// forbids this sender.
+    /// forbids this sender. `scope` scopes `op_id` replays
+    /// (`Hub::operation_scope`); the separate `sender_principal` is the
+    /// verified principal id that wrote the message (`None` when the door
+    /// verified nobody), which a rename follows.
     pub fn post(
         &self,
         room: &str,
         body: PostMessage,
         is_admin: bool,
-        principal: &str,
+        scope: &OperationScope,
+        sender_principal: Option<&str>,
     ) -> Result<Message, PostReject> {
         // A sealed (deleted) loca does not come back on a post. Without this,
         // `room_mut` (get-or-create) would resurrect a tombstoned room the
-        // moment anyone with a stale davet posted to it — the room the master
+        // moment anyone with a stale invite posted to it — the room the master
         // shut would silently reopen. A permanent seal cannot be cleared by
         // inviting or posting; create a different loca for new work.
         if self.is_deleted(room) {
             return Err(PostReject::Deleted);
         }
         let mut body = body;
-        if let Some(b) = self.birebir(room) {
-            // A side that left the building leaves the birebir read-only.
-            if self.birebir_read_only(&b) {
+        if let Some(b) = self.dm(room) {
+            // A side that left the building leaves the direct message read-only.
+            if self.dm_read_only(&b) {
                 return Err(PostReject::Archived);
             }
-            // Every word in a birebir is said to the other person: it wakes
+            // Every word in a direct message is said to the other person: it wakes
             // an agent listening for mentions without an `@`, and an `@all`
             // left over from another loca cannot widen it.
-            if let Some(peer) = self.birebir_peer_of(room, &body.sender) {
+            if let Some(peer) = self.dm_peer_of(room, &body.sender) {
                 body.target = Some(peer);
             }
         } else if body.sender_type == SenderType::Agent
@@ -2907,10 +4136,25 @@ impl Hub {
         }
         let op_id = body.op_id.filter(|id| !id.is_empty());
         if let Some(id) = op_id.as_deref() {
-            match self.store.message_by_operation(room, principal, id) {
+            match self.store.message_by_operation(room, &scope.key, id) {
                 Ok(Some(message)) => return Ok(message),
                 Ok(None) => {}
                 Err(_) => return Err(PostReject::Storage),
+            }
+            // An operation the previous version stored under its REST key
+            // answers the re-send only when it is provably this sender's.
+            if let Some(legacy) = scope.legacy.as_deref() {
+                match self.store.message_by_operation(room, legacy, id) {
+                    Ok(Some(message)) => {
+                        match Self::legacy_operation_owner(scope, legacy, &message) {
+                            LegacyOwner::Sender => return Ok(message),
+                            LegacyOwner::Other => {}
+                            LegacyOwner::Unknown => return Err(PostReject::OperationUnclear),
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(_) => return Err(PostReject::Storage),
+                }
             }
         }
         // Resolve cited attachments BEFORE anything persists: each id must be an
@@ -2953,7 +4197,7 @@ impl Hub {
             .flatten();
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
         if let Some(id) = op_id.as_deref() {
-            let key = (principal.to_string(), id.to_string());
+            let key = (scope.key.clone(), id.to_string());
             if let Some(message) = r.operations.get(&key) {
                 return Ok(message.clone());
             }
@@ -3055,13 +4299,13 @@ impl Hub {
             reply_to: body.reply_to,
             reply_to_sender,
             ts: self.next_condition_generation(now, r.last_msg_ms),
+            sender_principal: sender_principal.map(str::to_string),
         };
-        // Nothing leaves a birebir or a group loca: a caretaker summons would
-        // copy its words into İye, where every rank reads (PRINCIPLES
+        // Nothing leaves a direct message or a group loca: a caretaker summons would
+        // copy its words into Care, where every rank reads (PRINCIPLES
         // "Birebir", "Groups").
         let caretaker_summons: Vec<CareSignal> =
-            if room == self.home_room.as_str() || self.is_birebir(room) || self.is_group_loca(room)
-            {
+            if room == self.home_room.as_str() || self.is_dm(room) || self.is_group_loca(room) {
                 Vec::new()
             } else {
                 self.addressed_caretakers(&msg)
@@ -3153,7 +4397,7 @@ impl Hub {
         })
         .flatten();
 
-        // (Lead is no longer set by parsing chat. "Konuşmak yan etki üretmez":
+        // (Lead is no longer set by parsing chat. "Speaking must never create a hidden side effect":
         // naming a lead is an explicit act — POST /rooms/:id/lead — not a
         // message the server secretly interprets. See `set_lead`.)
 
@@ -3169,9 +4413,9 @@ impl Hub {
 
         // Persist BEFORE broadcast: a message is not "sent" until it is
         // durable. If the write fails we refuse rather than broadcast a line
-        // that a restart would forget (PRINCIPLES: "mesaj kaybolmaz" — a
+        // that a restart would forget (PRINCIPLES: "Messages are not lost" — a
         // successful reply means the word landed). Memory-only mode returns Ok.
-        let operation = op_id.as_deref().map(|id| (principal, id));
+        let operation = op_id.as_deref().map(|id| (scope.key.as_str(), id));
         let persisted = if let Some((updated_wait, wake)) = wait_wake.as_ref() {
             // The waiter is a member of this room, so the wake is delivered
             // here (no home-room hop). Message + overdue suppression + wait
@@ -3230,7 +4474,7 @@ impl Hub {
                 .push_back(now);
         }
         if let Some(id) = op_id.as_deref() {
-            let key = (principal.to_string(), id.to_string());
+            let key = (scope.key.clone(), id.to_string());
             r.operations.insert(key.clone(), msg.clone());
             r.operation_order.push_back(key);
             while r.operation_order.len() > HISTORY_LIMIT {
@@ -3263,7 +4507,7 @@ impl Hub {
         // A caretaker sits only in the private maintenance loca, but an exact
         // cross-loca call must survive the caretaker being offline. Persist a
         // one-message, privacy-bounded care envelope in the existing ACKed
-        // outbox. Copying the source message into Iye chat history would leak
+        // outbox. Copying the source message into Care chat history would leak
         // room history; a best-effort broadcast used to lose the call.
         if room != self.home_room.as_str() {
             for signal in caretaker_summons {
@@ -3463,6 +4707,7 @@ impl Hub {
             text,
             reply_to: None,
             reply_to_sender: None,
+            sender_principal: None,
             kind: protocol::MessageKind::Announce,
             ts: (self.now_ms)(),
         };
@@ -3472,6 +4717,7 @@ impl Hub {
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
         r.settings = settings.clone();
         r.history.push(msg.clone());
+        let settings = self.shown_settings(settings);
         let _ = r.tx.send(ServerFrame::Settings {
             settings: settings.clone(),
         });
@@ -3521,12 +4767,17 @@ impl Hub {
     }
 
     /// Current admin-tunable settings for a room.
+    /// A loca's own number of seats reads as the number in force (see
+    /// `identity::shown`).
     pub fn settings(&self, room: &str) -> RoomSettings {
-        let rooms = self.rooms.lock_or_recover();
-        rooms
-            .get(room)
-            .map(|r| r.settings.clone())
-            .unwrap_or_else(|| self.default_settings.clone())
+        let settings = {
+            let rooms = self.rooms.lock_or_recover();
+            rooms
+                .get(room)
+                .map(|r| r.settings.clone())
+                .unwrap_or_else(|| self.default_settings.clone())
+        };
+        self.shown_settings(settings)
     }
 
     /// Update settings (admin action), broadcast, and persist.
@@ -3624,6 +4875,7 @@ impl Hub {
             r.last_msg_ms = (self.now_ms)();
         }
         r.settings = s.clone();
+        let s = self.shown_settings(s);
         let _ = r.tx.send(ServerFrame::Settings {
             settings: s.clone(),
         });
@@ -3706,7 +4958,7 @@ impl Hub {
     ) -> Result<protocol::ModState, ModerationError> {
         use protocol::ModAction::*;
         // Admission and moderation cannot race a lower-rank removal of a
-        // newly issued superior davet. Checks are repeated under both locks.
+        // newly issued superior invite. Checks are repeated under both locks.
         let _lifecycle = self.member_lifecycle.lock_or_recover();
         let mut ranks = self.moderation_ranks.lock_or_recover();
         if !self.may_moderate_with_ranks(room, actor, action, name, &ranks) {
@@ -3735,9 +4987,10 @@ impl Hub {
                     actor.moderation_rank(),
                     actor.principal_id.as_deref(),
                 )?;
-                // set_ban persisted the restriction and davet cut-off in one
+                // set_ban persisted the restriction and invite cut-off in one
                 // transaction; nothing fallible remains before the mirrors.
-                self.revoke_invites_cache_for(room, name);
+                // The connection is closed below by the ban's own `Kicked`.
+                self.end_invites_cache_for(room, name);
             }
             Unban => self.store.clear_ban(room, name, "ban")?,
             Kick | Release => self.revoke_invites_for(room, name)?,
@@ -3765,9 +5018,9 @@ impl Hub {
                 r.muted.remove(name);
             }
             Kick => {
-                // PRINCIPLES: "çıkar — bağlantı kapanır, DAVETİ DURUR." Kick is
-                // not just a disconnect: it ends the davet, otherwise the same
-                // token walks right back in. Take the seat AND the davet.
+                // PRINCIPLES: "kick — connection closes and invitation stops". Kick is
+                // not just a disconnect: it ends the invite, otherwise the same
+                // token walks right back in. Take the seat AND the invite.
                 let _ = r.tx.send(ServerFrame::Kicked {
                     name: name.to_string(),
                     banned: false,
@@ -3776,7 +5029,7 @@ impl Hub {
                 // the seat map is identity-keyed, so drop whichever seat wears
                 // that label.
                 r.members.retain(|_id, (n, _, _)| n != name);
-                let members = r.member_list();
+                let members = r.member_list(&self.profile_cards());
                 let _ = r.tx.send(ServerFrame::Members { members });
                 drop(rooms);
                 return Ok(self.mod_state(room));
@@ -3791,10 +5044,10 @@ impl Hub {
                 // Broadcast the new roster, exactly as Kick does. Without this
                 // the banned name lingered in every client's list until the
                 // next unrelated join/leave — the asymmetry the operator hit.
-                let members = r.member_list();
+                let members = r.member_list(&self.profile_cards());
                 let _ = r.tx.send(ServerFrame::Members { members });
                 // The door shuts, reading included — persist so a restart does
-                // not quietly reopen it (PRINCIPLES: "restart odayı öldürmez").
+                // not quietly reopen it (PRINCIPLES: "a restart does not kill the room").
                 drop(rooms);
                 return Ok(self.mod_state(room));
             }
@@ -3802,17 +5055,17 @@ impl Hub {
                 r.banned.remove(name);
             }
             Release => {
-                // Take back the seat, not the belonging. Their davets for THIS
+                // Take back the seat, not the belonging. Their invites for THIS
                 // loca end and the connection closes; membership of the
                 // building is untouched, so the next call-in is one click.
                 // Drop the roster entry directly (Kick/Ban do) so a dead socket
-                // leaves no ghost — the whole point of "işi bitti."
+                // leaves no ghost — the whole point of "the work is done."
                 let _ = r.tx.send(ServerFrame::Kicked {
                     name: name.to_string(),
                     banned: false,
                 });
                 r.members.retain(|_id, (n, _, _)| n != name);
-                let members = r.member_list();
+                let members = r.member_list(&self.profile_cards());
                 let _ = r.tx.send(ServerFrame::Members { members });
                 drop(rooms);
                 return Ok(self.mod_state(room));
@@ -3875,7 +5128,7 @@ impl Hub {
 
     /// May a domain mutation land in this loca? A sealed (deleted) or archived
     /// loca is read-only — no message, note, task, journal or moderation write.
-    /// PRINCIPLES: "archived = read-only, hiçbir domain mutation." One predicate
+    /// PRINCIPLES: "archived = read-only, no domain mutation." One predicate
     /// so every write path asks the same question instead of each guessing.
     pub fn is_writable(&self, room: &str) -> bool {
         !self.is_deleted(room) && !self.is_archived(room)
@@ -3897,7 +5150,7 @@ impl Hub {
                 r.settings.live = false;
                 let s = r.settings.clone();
                 let _ = r.tx.send(ServerFrame::Settings {
-                    settings: s.clone(),
+                    settings: self.shown_settings(s.clone()),
                 });
                 let _ = r.tx.send(ServerFrame::Control {
                     cmd: format!("live-expired:{}", t),
@@ -3939,13 +5192,16 @@ impl Hub {
         self.create_loca_in(room, actor, extensions, None)
             .map_err(|error| match error {
                 CreateLocaError::Operator(error) => error,
-                CreateLocaError::Group(_) => OperatorAssignmentError::AuthorityRequired,
+                CreateLocaError::Group(_) | CreateLocaError::Identity(_) => {
+                    OperatorAssignmentError::AuthorityRequired
+                }
             })
     }
 
     /// Open a loca, in a group when `group` is given. Only the Master or a
     /// Smaster who is a member of that group opens a group loca, and the
     /// loca is tied to its group in the same commit that creates it.
+    #[cfg(test)]
     pub fn create_loca_in(
         &self,
         room: &str,
@@ -3953,10 +5209,28 @@ impl Hub {
         extensions: Option<Vec<String>>,
         group: Option<&str>,
     ) -> Result<Option<LocaOperatorAssignment>, CreateLocaError> {
+        self.create_loca_with(room, actor, extensions, group, &IdentityEdit::default())
+    }
+
+    /// Open a loca with its identity (description, seats, icon, colour,
+    /// labels) set in the same write. An empty `identity` opens exactly the
+    /// loca `create_loca_in` opens; a non-empty one is written to the new
+    /// loca's Journal.
+    pub fn create_loca_with(
+        &self,
+        room: &str,
+        actor: &RequestAuthority,
+        extensions: Option<Vec<String>>,
+        group: Option<&str>,
+        identity: &IdentityEdit,
+    ) -> Result<Option<LocaOperatorAssignment>, CreateLocaError> {
         if !actor.is_building_admin() {
             return Err(OperatorAssignmentError::AuthorityRequired.into());
         }
-        if self.is_deleted(room) || room.starts_with(Self::BIREBIR_PREFIX) {
+        let numbers = self.seat_numbers();
+        let identity =
+            identity::validated(identity, numbers.ceiling).map_err(CreateLocaError::Identity)?;
+        if self.is_deleted(room) || room.starts_with(Self::DM_PREFIX) {
             return Err(OperatorAssignmentError::Conflict.into());
         }
         // Founding a loca in a group takes turns with archiving or deleting
@@ -3971,6 +5245,8 @@ impl Hub {
         }
         let mut settings = self.default_settings.clone();
         settings.extensions = extensions.clone();
+        identity::apply(&mut settings, &identity);
+        let opened_identity = identity::opened_line(&settings, numbers);
         let mut rooms = self.rooms.lock_or_recover();
         if rooms.contains_key(room) {
             return Err(OperatorAssignmentError::Conflict.into());
@@ -4024,6 +5300,16 @@ impl Hub {
                 tracing::error!(room, %error, "could not journal the opening extensions");
             }
         }
+        if let Some(line) = opened_identity {
+            let by = actor
+                .display_name
+                .clone()
+                .unwrap_or_else(|| "master".to_string());
+            let kind = actor.kind.unwrap_or(SenderType::User);
+            if let Err(error) = self.append_journal(room, by, kind, line) {
+                tracing::error!(room, %error, "could not journal the opening identity");
+            }
+        }
         Ok(assignment)
     }
 
@@ -4067,15 +5353,15 @@ impl Hub {
         }
         // Memory-only mode persists no profiles; the live registry still knows
         // every Smaster.
-        for name in self.smasters.lock_or_recover().values() {
-            add(name.clone(), "smaster", false);
+        for record in self.smasters.lock_or_recover().values() {
+            add(record.name.clone(), "smaster", false);
         }
         let deleted = self.deleted.lock_or_recover().clone();
         let rooms = self.rooms.lock_or_recover();
-        let birebirs = self.birebirs.lock_or_recover().clone();
+        let dms = self.dms.lock_or_recover().clone();
         let mut names: Vec<&String> = rooms
             .keys()
-            .filter(|r| !deleted.contains(*r) && !birebirs.contains_key(*r))
+            .filter(|r| !deleted.contains(*r) && !dms.contains_key(*r))
             .collect();
         names.sort();
         for room in names {
@@ -4134,6 +5420,7 @@ impl Hub {
         };
         let name = validate_display_name(requested).map_err(ProfileRenameError::Name)?;
         let current = actor.display_name.clone().unwrap_or_default();
+        let _claim = self.name_claims.lock_or_recover();
         let _lifecycle = self.member_lifecycle.lock_or_recover();
         let ranks = self.moderation_ranks.lock_or_recover();
         if ranks
@@ -4145,41 +5432,32 @@ impl Hub {
         let folded = crate::store::search_fold(name);
         let worn_by_other =
             |other: &str| other != current && crate::store::search_fold(other) == folded;
-        let smaster_token = self
-            .smasters
-            .lock_or_recover()
-            .keys()
-            .find(|token| {
-                crate::store::hashed_id("pr_", &format!("smaster:{token}")) == principal_id
-            })
-            .cloned();
-        if self
-            .members
-            .lock_or_recover()
-            .values()
-            .any(|m| worn_by_other(&m.name))
+        // A caretaker's name is taken even before that caretaker is admitted:
+        // a call to it is relayed to Care (`addressed_caretakers`).
+        if self.caretaker_name_folds_to(&folded)
+            || self
+                .members
+                .lock_or_recover()
+                .values()
+                .any(|m| worn_by_other(&m.name))
             || self
                 .smasters
                 .lock_or_recover()
-                .iter()
-                .any(|(token, n)| Some(token) != smaster_token.as_ref() && worn_by_other(n))
+                .values()
+                .any(|record| record.principal_id != principal_id && worn_by_other(&record.name))
         {
             return Err(ProfileRenameError::NameTaken);
         }
-        match self.store.rename_principal(
-            &principal_id,
-            name,
-            smaster_token.as_deref(),
-            Some(current.as_str()).filter(|old| !old.is_empty() && *old != name),
-        ) {
+        let relabel = current != name;
+        match self.store.rename_principal(&principal_id, name, relabel) {
             Ok(true) => {}
             Ok(false) => return Err(ProfileRenameError::NameTaken),
             Err(_) => return Err(ProfileRenameError::Failed),
         }
-        if let Some(token) = &smaster_token {
-            self.smasters
-                .lock_or_recover()
-                .insert(token.clone(), name.to_string());
+        for record in self.smasters.lock_or_recover().values_mut() {
+            if record.principal_id == principal_id {
+                record.name = name.to_string();
+            }
         }
         for session in self.sessions.lock_or_recover().values_mut() {
             if session.principal_id.as_deref() == Some(principal_id.as_str()) {
@@ -4190,29 +5468,87 @@ impl Hub {
         if actor.is_master() {
             seat_keys.push("@master".into());
         }
-        if let Some(token) = &smaster_token {
-            seat_keys.push(format!("sm:{token}"));
-        }
-        let relabel = !current.is_empty() && current != name;
+        // Lock order: name_claims -> member_lifecycle -> moderation_ranks
+        // (held since the top) -> rooms, and under rooms only the store's
+        // connection, the same order `post` uses when it resolves a reply's
+        // author.
         let mut rooms = self.rooms.lock_or_recover();
-        for room in rooms.values_mut() {
+        for (room_id, room) in rooms.iter_mut() {
+            // What older clients are told is exactly what they were told
+            // before: `Renamed` when some person's message under the old
+            // name is in this tail, judged before anything is relabelled.
+            // They relabel by name; the id frame below is what is true.
+            let tell_by_name = !current.is_empty()
+                && relabel
+                && room.history.iter().any(|message| {
+                    message.sender_type == SenderType::User && message.sender == current
+                });
             if relabel {
-                let mut said_here = false;
+                // Exactly this principal's messages, and exactly the replies
+                // that answer one of them: ownership is the recorded writer,
+                // never the label. A replied-to message that has left the
+                // in-memory tail is looked up in storage by id.
+                let owns = |message: &Message| {
+                    message.sender_principal.as_deref() == Some(principal_id.as_str())
+                };
+                let owned_here: std::collections::HashSet<u64> = room
+                    .history
+                    .iter()
+                    .filter(|message| owns(message))
+                    .map(|message| message.id)
+                    .collect();
+                let mut ids = Vec::new();
+                let mut reply_ids = Vec::new();
+                let mut stored_owner: HashMap<u64, bool> = HashMap::new();
                 for message in room.history.iter_mut() {
-                    if message.sender_type == SenderType::User && message.sender == current {
+                    if owns(message) && message.sender != name {
                         message.sender = name.to_string();
-                        said_here = true;
+                        ids.push(message.id);
                     }
-                    if message.reply_to_sender.as_deref() == Some(current.as_str()) {
+                    let (Some(label), Some(target)) =
+                        (message.reply_to_sender.as_deref(), message.reply_to)
+                    else {
+                        continue;
+                    };
+                    if label == name {
+                        continue;
+                    }
+                    let answers_renamer = if owned_here.contains(&target) {
+                        true
+                    } else if let Some(&known) = stored_owner.get(&target) {
+                        known
+                    } else {
+                        match self.store.message_sender_principal(room_id, target) {
+                            Ok(writer) => {
+                                let owned = writer.as_deref() == Some(principal_id.as_str());
+                                stored_owner.insert(target, owned);
+                                owned
+                            }
+                            Err(error) => {
+                                tracing::warn!(%error, room = %room_id, message = message.id,
+                                    "reply label left unchanged: replied-to writer unreadable");
+                                false
+                            }
+                        }
+                    };
+                    if answers_renamer {
                         message.reply_to_sender = Some(name.to_string());
+                        reply_ids.push(message.id);
                     }
                 }
-                if said_here {
-                    let _ = room.tx.send(ServerFrame::Renamed {
-                        from: current.clone(),
+                if !ids.is_empty() || !reply_ids.is_empty() {
+                    let _ = room.tx.send(ServerFrame::Relabelled {
                         to: name.to_string(),
+                        ids,
+                        reply_ids,
                     });
                 }
+            }
+            if tell_by_name {
+                let _ = room.tx.send(ServerFrame::Renamed {
+                    from: current.clone(),
+                    to: name.to_string(),
+                });
             }
             let mut touched = false;
             for key in &seat_keys {
@@ -4222,7 +5558,7 @@ impl Hub {
                 }
             }
             if touched {
-                let members = room.member_list();
+                let members = room.member_list(&self.profile_cards());
                 let _ = room.tx.send(ServerFrame::Members { members });
             }
         }
@@ -4244,7 +5580,7 @@ impl Hub {
     /// cannot undo the upper one's decision. Loca moderation is for the
     /// table's participants, not for Building ranks: nobody mutes, kicks or
     /// bans the Master, and only the Master does so to a Smaster. Restriction
-    /// provenance and davet issuer rank also constrain the action.
+    /// provenance and invite issuer rank also constrain the action.
     pub fn may_moderate(
         &self,
         room: &str,
@@ -4261,15 +5597,8 @@ impl Hub {
         )
     }
 
-    pub fn may_end_invite(&self, actor: &RequestAuthority, invite: &Invite) -> bool {
-        let issuer_rank = if invite.issued_by.starts_with("smaster:") {
-            2
-        } else if invite.issued_by == "operator" || invite.issued_by.starts_with("operator:") {
-            1
-        } else {
-            3
-        }; // Master, internal and unknown legacy issuers fail closed.
-        actor.moderation_rank() >= issuer_rank
+    pub fn may_end_invite(&self, actor: &RequestAuthority, invite: &InviteRecord) -> bool {
+        actor.moderation_rank() >= invite_issuer_rank(&invite.issued_by)
     }
 
     fn may_moderate_with_ranks(
@@ -4321,7 +5650,12 @@ impl Hub {
         {
             return Some(profile.role);
         }
-        if self.smasters.lock_or_recover().values().any(|n| n == name) {
+        if self
+            .smasters
+            .lock_or_recover()
+            .values()
+            .any(|record| record.name == name)
+        {
             return Some(BuildingRole::Smaster);
         }
         let rooms = self.rooms.lock_or_recover();
@@ -4489,9 +5823,14 @@ impl Hub {
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
         r.next_journal_id = id + 1;
         r.journal.push(entry.clone());
-        let _ = r.tx.send(ServerFrame::Journal {
-            entry: entry.clone(),
-        });
+        // Written always; pushed to open sockets only while the Journal is on
+        // in this loca (a line the server writes itself, such as a group
+        // move, can land while it is off).
+        if r.settings.extension_enabled("journal") {
+            let _ = r.tx.send(ServerFrame::Journal {
+                entry: entry.clone(),
+            });
+        }
         Ok(entry)
     }
 
@@ -4746,78 +6085,6 @@ impl Hub {
         self.store.loca_memory_entries(room, after_id, limit)
     }
 
-    pub fn set_memory_owner(&self, room: &str, owner: Option<&str>) -> rusqlite::Result<()> {
-        let principal = match owner {
-            Some(name) => {
-                let matches = self.store.active_principals_named(name)?;
-                match matches.as_slice() {
-                    [identity] => Some(identity.id.clone()),
-                    [] if self.admin_open() => None,
-                    _ => return Err(rusqlite::Error::InvalidParameterName("owner".into())),
-                }
-            }
-            None => None,
-        };
-        self.store
-            .set_memory_owner(room, owner, principal.as_deref())?;
-        self.broadcast_memory_snapshot(room);
-        Ok(())
-    }
-
-    pub fn write_short_memory(
-        &self,
-        room: &str,
-        actor: &SessionIdentity,
-        text: &str,
-    ) -> Result<protocol::LocaMemory, crate::store::MemoryWriteError> {
-        let memory = self.store.write_short_memory(
-            room,
-            &crate::store::MemoryActor {
-                name: &actor.name,
-                principal_id: actor.principal_id.as_deref(),
-                allow_legacy_name: self.admin_open(),
-            },
-            text,
-            self.now(),
-        )?;
-        self.broadcast_memory_snapshot(room);
-        Ok(memory)
-    }
-
-    pub fn append_long_memory(
-        &self,
-        room: &str,
-        actor: &SessionIdentity,
-        text: &str,
-    ) -> Result<protocol::LocaMemoryEntry, crate::store::MemoryWriteError> {
-        let entry = self.store.append_long_memory(
-            room,
-            &crate::store::MemoryActor {
-                name: &actor.name,
-                principal_id: actor.principal_id.as_deref(),
-                allow_legacy_name: self.admin_open(),
-            },
-            text,
-            self.now(),
-        )?;
-        self.broadcast_memory_snapshot(room);
-        Ok(entry)
-    }
-
-    fn broadcast_memory_snapshot(&self, room: &str) {
-        let snapshot = match self.store.loca_memory_snapshot(room) {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                tracing::warn!(%room, %error, "could not broadcast loca memory snapshot");
-                return;
-            }
-        };
-        let rooms = self.rooms.lock_or_recover();
-        if let Some(state) = rooms.get(room) {
-            let _ = state.tx.send(ServerFrame::memory(room, snapshot));
-        }
-    }
-
     /// All notes in a room (sorted by key for stable display).
     pub fn notes(&self, room: &str) -> Vec<Note> {
         let rooms = self.rooms.lock_or_recover();
@@ -5011,15 +6278,19 @@ impl Hub {
     }
 
     pub fn members(&self, room: &str) -> Vec<Member> {
+        let cards = self.profile_cards();
         let rooms = self.rooms.lock_or_recover();
-        rooms.get(room).map(Room::member_list).unwrap_or_default()
+        rooms
+            .get(room)
+            .map(|r| r.member_list(&cards))
+            .unwrap_or_default()
     }
 
-    /// Loca list for a caller. A davet opens ONE loca — so the list a davet
+    /// Loca list for a caller. An invite opens ONE loca — so the list an invite
     /// holder sees is that one loca, not the whole building's floor plan (which
     /// leaked every loca's name, member count, mode and last line to anyone
-    /// holding any davet). `reach` returns true for a loca the caller may
-    /// enter; the master/building-key reaches all, a davet reaches its own.
+    /// holding any invite). `reach` returns true for a loca the caller may
+    /// enter; the master/building-key reaches all, an invite reaches its own.
     pub fn room_summaries_for(&self, reach: impl Fn(&str) -> bool) -> Vec<RoomSummary> {
         // Decide reachability BEFORE taking the rooms lock: `reach` calls
         // `enter_decision`, which itself locks `rooms` (via is_banned). Calling
@@ -5040,12 +6311,12 @@ impl Hub {
                 let humans = r
                     .members
                     .values()
-                    .filter(|(_, k, n)| *n > 0 && *k == SenderType::User)
+                    .filter(|(_, k, n)| !n.is_empty() && *k == SenderType::User)
                     .count();
                 let agents = r
                     .members
                     .values()
-                    .filter(|(_, k, n)| *n > 0 && *k == SenderType::Agent)
+                    .filter(|(_, k, n)| !n.is_empty() && *k == SenderType::Agent)
                     .count();
                 RoomSummary {
                     room: name.clone(),
@@ -5062,6 +6333,11 @@ impl Hub {
                     special: self.is_reserved_room(name),
                     group: groups.get(name).map(|(_, group)| group.clone()),
                     group_id: groups.get(name).map(|(id, _)| id.clone()),
+                    // Only callers `reach` lets in see these, like the rest.
+                    description: r.settings.description.clone(),
+                    icon: r.settings.icon.clone(),
+                    color: r.settings.color.clone(),
+                    labels: r.settings.labels.clone(),
                 }
             })
             .collect();
@@ -5174,6 +6450,11 @@ pub enum PostReject {
     /// A cited attachment id is not an available upload in this room (never
     /// uploaded here, already swept, or belongs to another room).
     UnknownAttachment,
+    /// The `op_id` matches a record an earlier version stored under a name
+    /// alone, with no writer: the server cannot tell a re-send from another
+    /// sender's operation under the same name. Nothing is posted and nobody
+    /// else's message is returned.
+    OperationUnclear,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5210,6 +6491,12 @@ impl PostReject {
             PostReject::Archived => "this room is closed (archived) — read-only".into(),
             PostReject::Deleted => "this loca no longer exists".into(),
             PostReject::Storage => "could not save the message — try again".into(),
+            PostReject::OperationUnclear => {
+                "this operation id was used before the upgrade under your name, and the \
+                 server cannot tell whether by you; nothing was posted — send it again \
+                 as a new operation"
+                    .into()
+            }
             PostReject::TooManyAttachments { max } => {
                 format!("too many attachments — at most {max} per message")
             }
@@ -5271,6 +6558,14 @@ pub enum Approve {
     /// The requested name now belongs to an existing member; approving would
     /// leak that member's credential, so it is refused (no stock consumed).
     NameTaken,
+    /// Someone wears the requested name in another letter case, or it is a
+    /// rank's name (`new_member_name_clashes`). Nothing is written: the
+    /// request stays pending and no stock is consumed.
+    NameWorn,
+    /// An older server filed the request under a name the doors' rule
+    /// refuses (`admission_name_refusal`, whose sentence this carries).
+    /// Nothing is written, as for `NameWorn`.
+    NameRule(&'static str),
     /// No admission stock is available; the transaction rolled back, so the
     /// request stays pending and no right is consumed — the Master can retry
     /// after replenishing.
@@ -5278,6 +6573,39 @@ pub enum Approve {
     /// A DB error rolled the whole approval back (rare); nothing was persisted —
     /// no member, no consumed right — and the request stays pending for retry.
     Failed,
+}
+
+/// Why `add_smaster` minted no code.
+#[derive(Debug)]
+pub enum NameClaimError {
+    /// Someone already wears it in some letter case.
+    Worn,
+    /// The store refused the write; nothing was changed.
+    Storage,
+}
+
+impl From<rusqlite::Error> for NameClaimError {
+    fn from(_: rusqlite::Error) -> Self {
+        Self::Storage
+    }
+}
+
+/// Why `admit_member` admitted nobody.
+#[derive(Debug)]
+pub enum AdmitError {
+    /// The new name breaks the doors' rule (`admission_name_refusal`, whose
+    /// sentence this carries).
+    Rule(&'static str),
+    /// Someone already wears it in some letter case.
+    Worn,
+    /// The store refused the write; nothing was changed.
+    Storage,
+}
+
+impl From<rusqlite::Error> for AdmitError {
+    fn from(_: rusqlite::Error) -> Self {
+        Self::Storage
+    }
 }
 
 /// Outcome of creating a join request.
@@ -5289,6 +6617,9 @@ pub enum JoinRequestCreate {
     },
     /// The chosen name is already a member or already has a pending request.
     NameTaken,
+    /// Someone in the Building wears the chosen name in another letter case,
+    /// or it is a rank's name (`Hub::new_member_name_clashes`).
+    NameWorn,
     /// Too many undecided requests are queued.
     BacklogFull,
 }

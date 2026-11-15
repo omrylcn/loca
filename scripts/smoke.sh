@@ -90,7 +90,7 @@ WSUP=(-H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version
 assert "ws needs token (401)"          "401"  "$(curl -s -o /dev/null -w '%{http_code}' "${WSUP[@]}" "$B/ws?room=general&name=x")"
 assert "ws with token header (101)"    "101"  "$(curl -s -o /dev/null -w '%{http_code}' -m 1 "${WSUP[@]}" -H "Sec-WebSocket-Protocol: loca.v1, loca.room.$ROOM" "$B/ws?room=general&name=x")"
 
-echo "── membership / davet / session / lobby ──"
+echo "── membership / invite / session / lobby ──"
 MEMBER_JSON=$(curl -sS -X POST "$B/members" -H "$AH" -H 'content-type: application/json' \
   -d '{"name":"smoke-agent","kind":"agent"}')
 MEMBERSHIP=$(jq -r '.token // empty' <<<"$MEMBER_JSON")
@@ -100,6 +100,10 @@ MEMBERSHIP_ID=$(curl -sS -H "$AH" "$B/members" | jq -r '.[] | select(.name=="smo
 assert "member list redacts token" "true" \
   "$(curl -sS -H "$AH" "$B/members" | jq '[.[] | has("token")] | all(. == false)')"
 assert "membership management id listed" "true" "$([[ "$MEMBERSHIP_ID" == mbid_* ]] && echo true || echo false)"
+READMIT_JSON=$(curl -sS -X POST "$B/members" -H "$AH" -H 'content-type: application/json' \
+  -d '{"name":"smoke-agent","kind":"agent"}')
+assert "re-admit names the member, hands out no key" "$MEMBERSHIP_ID:true:false" \
+  "$(jq -r '"\(.id):\(.already):\(has("token"))"' <<<"$READMIT_JSON")"
 assert "residents include member" "true" "$(curl -sS -H "$AH" "$B/residents" | jq '[.[].name] | index("smoke-agent") != null')"
 CARE_MEMBER_JSON=$(curl -sS -X POST "$B/members" -H "$AH" -H 'content-type: application/json' \
   -d '{"name":"loca-care","kind":"agent"}')
@@ -118,28 +122,45 @@ CARE_AUDIT=$(LOCA_ENV="$CARE_ENV" python3 skill/loca-care/scripts/audit.py --for
 assert "loca-care skill audits exact Building" "true" \
   "$(jq '(.total == 2) and (.away == 2) and ([.residents[].name] | index("loca-care") != null)' <<<"$CARE_AUDIT")"
 
-DAVET_JSON=$(curl -sS -X POST "$B/rooms/general/invites" -H "$AH" -H 'content-type: application/json' \
+INVITE_JSON=$(curl -sS -X POST "$B/rooms/general/invites" -H "$AH" -H 'content-type: application/json' \
   -d '{"name":"smoke-agent"}')
-DAVET=$(jq -r '.token // empty' <<<"$DAVET_JSON")
-assert "invite member -> token" "true" "$([[ "$DAVET" == dv_* ]] && echo true || echo false)"
+INVITE=$(jq -r '.token // empty' <<<"$INVITE_JSON")
+assert "invite member -> token" "true" "$([[ "$INVITE" == dv_* ]] && echo true || echo false)"
+assert "invite answer names the member by id, not key" "$MEMBERSHIP_ID:false" \
+  "$(jq -r '"\(.member_id):\(has("member"))"' <<<"$INVITE_JSON")"
 assert "list invites -> 200"  "200" "$(code GET /rooms/general/invites - -H "$AH")"
 assert "invite list redacts token" "true" \
   "$(curl -sS -H "$AH" "$B/rooms/general/invites" | jq '[.[] | has("token")] | all(. == false)')"
-assert "whoami resolves davet" "davet" "$(curl -sS -H "x-room-token: $DAVET" "$B/whoami" | jq -r '.kind')"
+assert "whoami resolves invite" "davet" "$(curl -sS -H "x-room-token: $INVITE" "$B/whoami" | jq -r '.kind')"
 
-CLAIM=$(curl -sS -X POST -H "x-room-token: $DAVET" "$B/membership/claim")
-assert "davet claims permanent membership" "$MEMBERSHIP" "$(jq -r '.membership_token' <<<"$CLAIM")"
+CLAIM_ID="cl_smoke$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+CLAIM=$(curl -sS -X POST -H "x-room-token: $INVITE" -H "x-claim-id: $CLAIM_ID" "$B/membership/claim")
+CLAIMED=$(jq -r '.membership_token // empty' <<<"$CLAIM")
+assert "invite claims a key of its own" "true" \
+  "$([[ "$CLAIMED" == mb_* && "$CLAIMED" != "$MEMBERSHIP" ]] && echo true || echo false)"
+assert "claimed key is the member" "member:smoke-agent" \
+  "$(curl -sS -H "x-room-token: $CLAIMED" "$B/whoami" | jq -r '"\(.kind):\(.name)"')"
+assert "claim repeat returns the same key" "$CLAIMED" \
+  "$(curl -sS -X POST -H "x-room-token: $INVITE" -H "x-claim-id: $CLAIM_ID" "$B/membership/claim" | jq -r '.membership_token')"
+assert "claim ack -> 200" "200" \
+  "$(code POST /membership/claim/ack - -H "x-room-token: $INVITE" -H "x-claim-id: $CLAIM_ID")"
+assert "claim after ack is already delivered -> 409" "409" \
+  "$(code POST /membership/claim - -H "x-room-token: $INVITE" -H "x-claim-id: $CLAIM_ID")"
+assert "membership key cannot claim -> 400" "400" \
+  "$(code POST /membership/claim - -H "x-room-token: $MEMBERSHIP")"
+assert "claimed key opens lobby WS (101)" "101" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -m 1 "${WSUP[@]}" -H "Sec-WebSocket-Protocol: loca.v1, loca.membership.$CLAIMED" "$B/lobby/ws")"
 assert "membership cannot read private loca -> 401" "401" \
   "$(code GET /rooms/general/messages - -H "x-room-token: $MEMBERSHIP")"
 assert "lobby WS accepts membership (101)" "101" \
   "$(curl -s -o /dev/null -w '%{http_code}' -m 1 "${WSUP[@]}" -H "Sec-WebSocket-Protocol: loca.v1, loca.membership.$MEMBERSHIP" "$B/lobby/ws")"
 
 SESSION_JSON=$(curl -sS -X POST "$B/sessions" \
-  -H 'content-type: application/json' -H "x-room-token: $DAVET" \
+  -H 'content-type: application/json' -H "x-room-token: $INVITE" \
   -d '{"name":"wrong-name","kind":"agent"}')
 SESSION=$(jq -r '.session_token' <<<"$SESSION_JSON")
-assert "davet session minted" "true" "$([[ "$SESSION" == st_* ]] && echo true || echo false)"
-assert "session identity comes from davet" "smoke-agent" "$(jq -r '.name' <<<"$SESSION_JSON")"
+assert "invite session minted" "true" "$([[ "$SESSION" == st_* ]] && echo true || echo false)"
+assert "session identity comes from invite" "smoke-agent" "$(jq -r '.name' <<<"$SESSION_JSON")"
 assert "session opens REST door" "200" \
   "$(code GET /rooms/general/messages - -H "x-session-token: $SESSION")"
 assert "session opens WS door (101)" "101" \
@@ -150,16 +171,16 @@ assert "revoked session refused -> 401" "401" \
   "$(code GET /rooms/general/messages - -H "x-session-token: $SESSION")"
 
 assert "self-release -> 204" "204" \
-  "$(code POST /rooms/general/release - -H "x-room-token: $DAVET")"
-assert "released davet refused -> 401" "401" \
-  "$(code GET /rooms/general/messages - -H "x-room-token: $DAVET")"
+  "$(code POST /rooms/general/release - -H "x-room-token: $INVITE")"
+assert "released invite refused -> 401" "401" \
+  "$(code GET /rooms/general/messages - -H "x-room-token: $INVITE")"
 CALL_JSON=$(curl -sS -X POST "$B/rooms/general/call" -H "$AH" \
   -H 'content-type: application/json' -d '{"name":"smoke-agent"}')
-RECALLED_DAVET=$(jq -r '.token' <<<"$CALL_JSON")
-assert "one-click recall mints fresh davet" "true" \
-  "$([[ "$RECALLED_DAVET" == dv_* && "$RECALLED_DAVET" != "$DAVET" ]] && echo true || echo false)"
-assert "recalled davet opens loca" "200" \
-  "$(code GET /rooms/general/messages - -H "x-room-token: $RECALLED_DAVET")"
+RECALLED_INVITE=$(jq -r '.token' <<<"$CALL_JSON")
+assert "one-click recall mints fresh invite" "true" \
+  "$([[ "$RECALLED_INVITE" == dv_* && "$RECALLED_INVITE" != "$INVITE" ]] && echo true || echo false)"
+assert "recalled invite opens loca" "200" \
+  "$(code GET /rooms/general/messages - -H "x-room-token: $RECALLED_INVITE")"
 assert "room members endpoint -> 200" "200" "$(code GET /rooms/general/members - -H "$AH")"
 
 echo "── master pairing / delegated authority ──"
@@ -294,10 +315,15 @@ assert "archive disposable room -> 200" "200" \
 assert "seal archived room -> 204" "204" "$(code DELETE /rooms/disposable - -H "$AH")"
 
 echo "── revocation cleanup ──"
-assert "revoke recalled davet -> 200" "200" \
-  "$(code DELETE "/rooms/general/invites/$RECALLED_DAVET" - -H "$AH")"
-assert "recalled davet is closed -> 401" "401" \
-  "$(code GET /rooms/general/messages - -H "x-room-token: $RECALLED_DAVET")"
+assert "raw invite in a management URL -> 404" "404" \
+  "$(code DELETE "/rooms/general/invites/$RECALLED_INVITE" - -H "$AH")"
+assert "raw member key in a management URL -> 404" "404" \
+  "$(code DELETE "/members/$MEMBERSHIP" - -H "$AH")"
+RECALLED_DAVET_ID=$(curl -sS -H "$AH" "$B/rooms/general/invites" | jq -r '.[] | select(.name=="smoke-agent") | .id')
+assert "revoke recalled invite by id -> 200" "200" \
+  "$(code DELETE "/rooms/general/invites/$RECALLED_DAVET_ID" - -H "$AH")"
+assert "recalled invite is closed -> 401" "401" \
+  "$(code GET /rooms/general/messages - -H "x-room-token: $RECALLED_INVITE")"
 assert "revoke member by id -> 200" "200" "$(code DELETE "/members/$MEMBERSHIP_ID" - -H "$AH")"
 assert "logout admin session -> 204" "204" \
   "$(code DELETE /sessions - -H "x-session-token: $ADMIN_SESSION")"

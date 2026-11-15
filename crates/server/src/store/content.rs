@@ -36,7 +36,8 @@ impl Store {
         };
         let needle = search_fold(q);
         let mut stmt = c.prepare(
-            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments FROM messages
+            "SELECT id, sender, sender_type, target, text, reply_to, ts, kind, attachments,
+                    sender_principal FROM messages
              WHERE room = ?1 AND (instr(loca_fold(text), ?2) > 0 OR instr(loca_fold(sender), ?2) > 0)
              ORDER BY id DESC LIMIT ?3",
         )?;
@@ -51,6 +52,7 @@ impl Store {
                 text: r.get(4)?,
                 reply_to: r.get(5)?,
                 reply_to_sender: None,
+                sender_principal: r.get(9)?,
                 ts: r.get(6)?,
                 kind: parse_kind(&r.get::<_, String>(7)?),
             })

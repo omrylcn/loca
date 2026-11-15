@@ -1,5 +1,5 @@
 //! Groups: a group's own locas (PRINCIPLES "Groups"). The door, the mint,
-//! the listings, the copies into İye, removal, ownership, exclusions and a
+//! the listings, the copies into Care, removal, ownership, exclusions and a
 //! restart — each leak path gets its own assertion.
 use super::*;
 
@@ -171,7 +171,7 @@ async fn a_group_loca_opens_only_to_its_members_and_the_master() {
     let veli = session(&base, ("x-room-token", &veli_key), "veli", "user").await;
 
     // Default behaviour: a loca with no group is exactly as before — every
-    // rank enters it, a member needs a davet, and its summary names no group.
+    // rank enters it, a member needs an invite, and its summary names no group.
     create_test_room(port, MASTER, "open-table").await;
     assert_eq!(rest_can(&base, "open-table", &sess(&other)).await, 200);
     assert_eq!(rest_can(&base, "open-table", &sess(&ali)).await, 401);
@@ -393,7 +393,7 @@ async fn a_group_loca_opens_only_to_its_members_and_the_master() {
         .await;
         assert_eq!(status, 403, "{who} cannot call an outsider in");
     }
-    // A member agent is called in and enters by its davet.
+    // A member agent is called in and enters by its invite.
     let (status, called) = post(
         format!("{base}/rooms/gl/call"),
         &lead,
@@ -401,9 +401,9 @@ async fn a_group_loca_opens_only_to_its_members_and_the_master() {
     )
     .await;
     assert_eq!(status, 201, "{called}");
-    let bot_davet = called["token"].as_str().unwrap().to_string();
+    let bot_invite = called["token"].as_str().unwrap().to_string();
     assert_eq!(
-        rest_can(&base, "gl", &[("x-room-token", &bot_davet)]).await,
+        rest_can(&base, "gl", &[("x-room-token", &bot_invite)]).await,
         200
     );
 
@@ -511,8 +511,8 @@ async fn leaving_a_group_ends_access_at_once_even_on_an_open_socket() {
         serde_json::json!({"name": "bot"}),
     )
     .await;
-    let davet = called["token"].as_str().unwrap().to_string();
-    let bot_session = session(&base, ("x-room-token", &davet), "bot", "agent").await;
+    let invite = called["token"].as_str().unwrap().to_string();
+    let bot_session = session(&base, ("x-room-token", &invite), "bot", "agent").await;
 
     let (mut ali_ws, _) = tokio_tungstenite::connect_async(format!(
         "ws://127.0.0.1:{port}/ws?room=ops-room&name=ali&type=user&session={ali}"
@@ -521,7 +521,7 @@ async fn leaving_a_group_ends_access_at_once_even_on_an_open_socket() {
     .unwrap();
     let _ = wait_for(&mut ali_ws, |v| v["t"] == "history").await;
     let (mut bot_ws, _) = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{port}/ws?room=ops-room&name=bot&type=agent&token={davet}"
+        "ws://127.0.0.1:{port}/ws?room=ops-room&name=bot&type=agent&token={invite}"
     ))
     .await
     .unwrap();
@@ -551,7 +551,7 @@ async fn leaving_a_group_ends_access_at_once_even_on_an_open_socket() {
     assert_eq!(rest_can(&base, "ops-room", &sess(&ali)).await, 404);
     assert!(!ws_can(port, "ops-room", &format!("session={ali}")).await);
 
-    // Removing an agent revokes its davet, the session minted from it, and
+    // Removing an agent revokes its invite, the session minted from it, and
     // its socket.
     let (status, _) = delete(format!("{base}/groups/{gid}/members/{bot_id}"), &lead).await;
     assert_eq!(status, 200);
@@ -572,34 +572,34 @@ async fn leaving_a_group_ends_access_at_once_even_on_an_open_socket() {
     .await;
     assert!(closed.is_ok(), "the removed agent's socket must close");
     assert_ne!(
-        rest_can(&base, "ops-room", &[("x-room-token", &davet)]).await,
+        rest_can(&base, "ops-room", &[("x-room-token", &invite)]).await,
         200
     );
     assert_ne!(rest_can(&base, "ops-room", &sess(&bot_session)).await, 200);
-    assert!(!ws_can(port, "ops-room", &format!("token={davet}")).await);
+    assert!(!ws_can(port, "ops-room", &format!("token={invite}")).await);
     // The founder still reads; a message posted now reaches nobody removed.
     assert_eq!(rest_can(&base, "ops-room", &sess(&lead)).await, 200);
 }
 
 #[tokio::test]
-async fn a_group_loca_is_never_copied_into_iye() {
+async fn a_group_loca_is_never_copied_into_care_loca() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("groups-iye.db");
     let (port, _guard) = closed_building(&db).await;
     let base = format!("http://127.0.0.1:{port}");
     let (_, lead) = smaster(&base, "kaan").await;
     member(&base, "loca-dev", "agent").await;
-    let (status, iye_davet) = send(
+    let (status, care_loca_invite) = send(
         reqwest::Method::POST,
         format!("{base}/rooms/iye/invites"),
         &[("x-admin-token", MASTER)],
         Some(serde_json::json!({"name": "loca-dev"})),
     )
     .await;
-    assert_eq!(status, 200, "{iye_davet}");
-    let iye_davet = iye_davet["token"].as_str().unwrap().to_string();
+    assert_eq!(status, 200, "{care_loca_invite}");
+    let care_loca_invite = care_loca_invite["token"].as_str().unwrap().to_string();
     let (mut caretaker, _) = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-dev&type=agent&filter=mentions&turn_max=1&token={iye_davet}"
+        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-dev&type=agent&filter=mentions&turn_max=1&token={care_loca_invite}"
     ))
     .await
     .unwrap();
@@ -643,20 +643,20 @@ async fn a_group_loca_is_never_copied_into_iye() {
             .to_string();
         assert_ne!(
             source, "hidden",
-            "a group loca's words were copied into İye"
+            "a group loca's words were copied into Care"
         );
         if source == "plain" {
             break;
         }
     }
-    let (_, iye_messages) = send(
+    let (_, care_loca_messages) = send(
         reqwest::Method::GET,
         format!("{base}/rooms/iye/messages"),
         &[("x-admin-token", MASTER)],
         None,
     )
     .await;
-    assert!(!iye_messages.to_string().contains("look at hidden"));
+    assert!(!care_loca_messages.to_string().contains("look at hidden"));
 }
 
 #[tokio::test]
@@ -694,7 +694,7 @@ async fn ownership_exclusions_and_a_restart() {
     )
     .await;
 
-    // Exclusions: İye and a birebir never get a group; only the Master moves
+    // Exclusions: Care and a direct message never get a group; only the Master moves
     // a loca between groups.
     for room in ["iye", "bb-0000squat"] {
         let (status, _) = put(
@@ -719,7 +719,7 @@ async fn ownership_exclusions_and_a_restart() {
         Some(serde_json::json!({"group": gid})),
     )
     .await;
-    assert!(status >= 400, "a birebir must not join a group");
+    assert!(status >= 400, "a direct message must not join a group");
     let (status, _) = post(
         format!("{base}/rooms"),
         &master,
@@ -845,7 +845,7 @@ async fn a_database_from_before_groups_keeps_every_loca_default() {
     let (port, guard) = closed_building(&db).await;
     let base = format!("http://127.0.0.1:{port}");
     create_test_room(port, MASTER, "legacy").await;
-    let davet = davet_for(&base, MASTER, "legacy", "old-agent").await;
+    let invite = invite_for(&base, MASTER, "legacy", "old-agent").await;
     drop(guard);
     wait_for_server_shutdown(port).await;
 
@@ -862,7 +862,7 @@ async fn a_database_from_before_groups_keeps_every_loca_default() {
     let base = format!("http://127.0.0.1:{port}");
     let (_, other) = smaster(&base, "other").await;
     assert_eq!(
-        rest_can(&base, "legacy", &[("x-room-token", &davet)]).await,
+        rest_can(&base, "legacy", &[("x-room-token", &invite)]).await,
         200
     );
     assert_eq!(rest_can(&base, "legacy", &sess(&other)).await, 200);
@@ -943,7 +943,7 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
     )
     .await;
     assert!(status < 300);
-    let mut davets = std::collections::HashMap::new();
+    let mut invite_keys = std::collections::HashMap::new();
     for name in ["mv-h-in", "mv-h-out", "mv-a-in", "mv-a-out"] {
         let (status, v) = post(
             format!("{base}/rooms/mv/invites"),
@@ -952,7 +952,7 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
         )
         .await;
         assert!(status < 300, "invite {name}: {status} {v}");
-        davets.insert(name, v["token"].as_str().unwrap().to_string());
+        invite_keys.insert(name, v["token"].as_str().unwrap().to_string());
     }
     let (status, _) = post(
         format!("{base}/rooms/mv/lead"),
@@ -984,11 +984,11 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
     let ops = ops["id"].as_str().unwrap().to_string();
 
     // How each kind of person presents itself: ranks and humans by session,
-    // agents by their davet (or their membership key once it is gone).
+    // agents by their invite (or their membership key once it is gone).
     let h_in = session(&base, ("x-room-token", &h_in_key), "mv-h-in", "user").await;
     let h_out = session(&base, ("x-room-token", &h_out_key), "mv-h-out", "user").await;
     let h_new = session(&base, ("x-room-token", &h_new_key), "mv-h-new", "user").await;
-    let actors = |davets: &std::collections::HashMap<&str, String>| {
+    let actors = |invite_keys: &std::collections::HashMap<&str, String>| {
         vec![
             Actor {
                 label: "Master",
@@ -1015,22 +1015,22 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
                 headers: vec![("x-session-token", h_new.clone())],
             },
             Actor {
-                label: "agent in backend, davet",
-                headers: vec![("x-room-token", davets["mv-a-in"].clone())],
+                label: "agent in backend, invite",
+                headers: vec![("x-room-token", invite_keys["mv-a-in"].clone())],
             },
             Actor {
-                label: "agent in no group, davet",
-                headers: vec![("x-room-token", davets["mv-a-out"].clone())],
+                label: "agent in no group, invite",
+                headers: vec![("x-room-token", invite_keys["mv-a-out"].clone())],
             },
         ]
     };
     let _ = (&a_in_key, &a_out_key);
     let snapshot = |stage: &'static str| {
         let base = base.clone();
-        let davets = davets.clone();
+        let invite_keys = invite_keys.clone();
         async move {
             let mut row = Vec::new();
-            for actor in actors(&davets) {
+            for actor in actors(&invite_keys) {
                 row.push((
                     actor.label,
                     can_read(&base, "mv", &actor).await,
@@ -1048,15 +1048,15 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
             assert_eq!(listed, w, "{stage}: {label} listed");
         }
     };
-    // Davet-only building: a person reaches a default loca by davet, also
-    // when signed in with their own key (the davet is their seat).
+    // Invite-only building: a person reaches a default loca by invite, also
+    // when signed in with their own key (the invite is their seat).
     expect(
         snapshot("default").await,
         [true, true, true, true, true, false, true, true],
         "default",
     );
 
-    // Only the Master previews or moves; İye/unknown are refused.
+    // Only the Master previews or moves; Care/unknown are refused.
     assert_eq!(
         get(
             format!("{base}/rooms/mv/group/preview?group={backend}"),
@@ -1161,10 +1161,10 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
         !ops_owner["appointed"].is_null(),
         "the Master stays operator"
     );
-    // The outsiders' davets are gone, not only blocked.
-    assert!(!ws_can(port, "mv", &format!("token={}", davets["mv-a-out"])).await);
+    // The outsiders' invites are gone, not only blocked.
+    assert!(!ws_can(port, "mv", &format!("token={}", invite_keys["mv-a-out"])).await);
 
-    // Preview backend → default: the members are carried over by davet.
+    // Preview backend → default: the members are carried over by invite.
     let (_, back) = get(format!("{base}/rooms/mv/group/preview"), &master).await;
     assert_eq!(back["losing"], serde_json::json!([]));
     assert_eq!(
@@ -1191,16 +1191,16 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
     for name in ["mv-a-in", "mv-h-in", "mv-h-new"] {
         assert!(
             invited.contains(&name),
-            "{name} keeps a seat by davet: {invites}"
+            "{name} keeps a seat by invite: {invites}"
         );
     }
     assert!(
         !invited.contains(&"mv-h-out") && !invited.contains(&"mv-a-out"),
         "outsiders do not come back"
     );
-    // Back in the default group: ranks by rank, the agent by its kept davet.
+    // Back in the default group: ranks by rank, the agent by its kept invite.
     expect(
-        // h-new was carried over by davet and now reaches it with its own key.
+        // h-new was carried over by invite and now reaches it with its own key.
         snapshot("back to default").await,
         [true, true, true, true, false, true, true, false],
         "back to default",
@@ -1245,7 +1245,7 @@ async fn moving_a_loca_between_groups_matrix_for_every_kind_of_person() {
 }
 
 #[tokio::test]
-async fn a_person_signed_in_with_their_own_key_enters_where_they_hold_a_davet() {
+async fn a_person_signed_in_with_their_own_key_enters_where_they_hold_an_invite() {
     let dir = tempfile::tempdir().unwrap();
     let (port, _guard) = closed_building(&dir.path().join("member-session.db")).await;
     let base = format!("http://127.0.0.1:{port}");
@@ -1271,7 +1271,7 @@ async fn a_person_signed_in_with_their_own_key_enters_where_they_hold_a_davet() 
     .await;
     let ayse = session(&base, ("x-room-token", &key), "ms-ayse", "user").await;
     let mehmet = session(&base, ("x-room-token", &other_key), "ms-mehmet", "user").await;
-    // Her davet is her seat: in ms-a, not in ms-b.
+    // Her invite is her seat: in ms-a, not in ms-b.
     assert_eq!(
         get(format!("{base}/rooms/ms-a/messages"), &ayse).await.0,
         200
@@ -1282,13 +1282,13 @@ async fn a_person_signed_in_with_their_own_key_enters_where_they_hold_a_davet() 
     );
     let (_, rooms) = get(format!("{base}/rooms"), &ayse).await;
     assert!(names_room(&rooms, "ms-a") && !names_room(&rooms, "ms-b"));
-    // Someone without a davet stays out.
+    // Someone without an invite stays out.
     assert_ne!(
         get(format!("{base}/rooms/ms-a/messages"), &mehmet).await.0,
         200
     );
-    // A session does not carry a revoked davet.
-    let token = inv["token"].as_str().unwrap();
+    // A session does not carry a revoked invite.
+    let token = inv["id"].as_str().unwrap();
     assert!(
         delete(format!("{base}/rooms/ms-a/invites/{token}"), &master)
             .await
@@ -1364,8 +1364,8 @@ async fn leaving_a_group_ends_the_titles_held_in_its_locas() {
     assert!(settings["lead"].is_null(), "lead ended: {settings}");
 }
 
-/// Live davets of `room`, as the Master lists them: (name, issued_by).
-async fn davets_of(base: &str, room: &str, master: &str) -> Vec<(String, String)> {
+/// Live invites of `room`, as the Master lists them: (name, issued_by).
+async fn invites_of(base: &str, room: &str, master: &str) -> Vec<(String, String)> {
     let (status, invites) = get(format!("{base}/rooms/{room}/invites"), master).await;
     assert_eq!(status, 200, "invites of {room}: {invites}");
     let mut rows: Vec<(String, String)> = invites
@@ -1415,7 +1415,7 @@ async fn group_loca_with(base: &str, master: &str, room: &str, names: &[String])
     group
 }
 
-/// A davet is a seat. A move to the default group that cannot seat everyone
+/// An invite is a seat. A move to the default group that cannot seat everyone
 /// from the group is refused whole: nobody is carried, nobody is dropped by
 /// iteration order, and the preview says so before the Master confirms.
 #[tokio::test]
@@ -1452,7 +1452,7 @@ async fn a_move_to_default_that_cannot_seat_everyone_changes_nothing() {
     .await;
     assert_eq!(status, 409, "the move is refused, not half-done");
     assert_eq!(
-        davets_of(&base, "cap", &master).await,
+        invites_of(&base, "cap", &master).await,
         Vec::<(String, String)>::new(),
         "a refused move mints no davet"
     );
@@ -1486,7 +1486,7 @@ async fn a_move_to_default_that_cannot_seat_everyone_changes_nothing() {
     )
     .await;
     assert_eq!(status, 200, "{v}");
-    let carried = davets_of(&base, "cap", &master).await;
+    let carried = invites_of(&base, "cap", &master).await;
     let want: Vec<(String, String)> = names[..7]
         .iter()
         .map(|n| (n.clone(), "group-move".to_string()))
@@ -1494,9 +1494,9 @@ async fn a_move_to_default_that_cannot_seat_everyone_changes_nothing() {
     assert_eq!(carried, want, "exactly the seven members are carried");
 }
 
-/// The move is one transaction. When a carried davet cannot be written the
+/// The move is one transaction. When a carried invite cannot be written the
 /// whole move is undone: the loca stays in its group, the members written
-/// before the failure hold no davet, and the same move succeeds afterwards.
+/// before the failure hold no invite, and the same move succeeds afterwards.
 #[tokio::test]
 async fn a_failed_move_write_leaves_the_loca_where_it_was() {
     let dir = tempfile::tempdir().unwrap();
@@ -1512,7 +1512,7 @@ async fn a_failed_move_write_leaves_the_loca_where_it_was() {
     let group = group_loca_with(&base, &master, "atomic", &names).await;
     let (_, outsider) = smaster(&base, "at-outside").await;
 
-    // The second carried davet (names are written in order) fails to insert.
+    // The second carried invite (names are written in order) fails to insert.
     let sql = rusqlite::Connection::open(&db).unwrap();
     sql.execute_batch(
         "CREATE TRIGGER fail_carry BEFORE INSERT ON invites WHEN NEW.name = 'at-b'
@@ -1527,9 +1527,9 @@ async fn a_failed_move_write_leaves_the_loca_where_it_was() {
     .await;
     assert_eq!(status, 503, "a failed write is reported, not swallowed");
     assert_eq!(
-        davets_of(&base, "atomic", &master).await,
+        invites_of(&base, "atomic", &master).await,
         Vec::<(String, String)>::new(),
-        "at-a's davet, written before the failure, is rolled back too"
+        "at-a's invite, written before the failure, is rolled back too"
     );
     let rows: i64 = sql
         .query_row(
@@ -1577,14 +1577,14 @@ async fn a_failed_move_write_leaves_the_loca_where_it_was() {
         .iter()
         .map(|n| (n.clone(), "group-move".to_string()))
         .collect();
-    assert_eq!(davets_of(&base, "atomic", &master).await, want);
+    assert_eq!(invites_of(&base, "atomic", &master).await, want);
 }
 
-/// The davets a move mints are the Master's decision and keep their real
-/// source: a Smaster ends neither the davet nor the seat, and the davets that
+/// The invites a move mints are the Master's decision and keep their real
+/// source: a Smaster ends neither the invite nor the seat, and the invites that
 /// were already there are not relabelled by the move.
 #[tokio::test]
-async fn a_carried_davet_is_the_master_s_and_older_davets_keep_their_issuer() {
+async fn a_carried_invite_is_the_master_s_and_older_invites_keep_their_issuer() {
     let dir = tempfile::tempdir().unwrap();
     let (port, _guard) = closed_building(&dir.path().join("move-issuer.db")).await;
     let base = format!("http://127.0.0.1:{port}");
@@ -1622,15 +1622,15 @@ async fn a_carried_davet_is_the_master_s_and_older_davets_keep_their_issuer() {
     .await;
     assert_eq!(status, 200, "{v}");
     assert_eq!(
-        davets_of(&base, "issuer", &master).await,
+        invites_of(&base, "issuer", &master).await,
         vec![
             ("is-carried".to_string(), "group-move".to_string()),
             ("is-invited".to_string(), "smaster:is-deputy".to_string()),
         ],
-        "the move mints only the missing davet and relabels none"
+        "the move mints only the missing invite and relabels none"
     );
 
-    // The carried davet ends only from above.
+    // The carried invite ends only from above.
     let (_, invites) = get(format!("{base}/rooms/issuer/invites"), &master).await;
     let carried_id = invites
         .as_array()
@@ -1641,7 +1641,7 @@ async fn a_carried_davet_is_the_master_s_and_older_davets_keep_their_issuer() {
         .unwrap()
         .to_string();
     let (status, _) = delete(format!("{base}/rooms/issuer/invites/{carried_id}"), &deputy).await;
-    assert_eq!(status, 403, "a Smaster does not end the Master's davet");
+    assert_eq!(status, 403, "a Smaster does not end the Master's invite");
     let (status, _) = post(
         format!("{base}/rooms/issuer/moderate"),
         &deputy,
@@ -1650,9 +1650,9 @@ async fn a_carried_davet_is_the_master_s_and_older_davets_keep_their_issuer() {
     .await;
     assert_eq!(status, 403, "nor the seat it gives");
     assert_eq!(
-        davets_of(&base, "issuer", &master).await.len(),
+        invites_of(&base, "issuer", &master).await.len(),
         2,
-        "both davets are still live"
+        "both invites are still live"
     );
     let (status, _) = post(
         format!("{base}/rooms/issuer/moderate"),
@@ -1663,10 +1663,10 @@ async fn a_carried_davet_is_the_master_s_and_older_davets_keep_their_issuer() {
     assert!(status < 300, "the Master ends its own decision");
 }
 
-/// A move racing davet calls for the same people never seats one person
-/// twice and never mints more davets than the loca has seats.
+/// A move racing invite calls for the same people never seats one person
+/// twice and never mints more invites than the loca has seats.
 #[tokio::test]
-async fn a_move_racing_davet_calls_keeps_one_davet_per_person_and_the_seat_cap() {
+async fn a_move_racing_invite_calls_keeps_one_invite_per_person_and_the_seat_cap() {
     let dir = tempfile::tempdir().unwrap();
     let (port, _guard) = closed_building(&dir.path().join("move-race.db")).await;
     let base = format!("http://127.0.0.1:{port}");
@@ -1713,13 +1713,13 @@ async fn a_move_racing_davet_calls_keeps_one_davet_per_person_and_the_seat_cap()
             "seven people always fit seven seats"
         );
 
-        let davets = davets_of(&base, &room, &master).await;
-        let mut holders: Vec<&str> = davets.iter().map(|(name, _)| name.as_str()).collect();
+        let invites = invites_of(&base, &room, &master).await;
+        let mut holders: Vec<&str> = invites.iter().map(|(name, _)| name.as_str()).collect();
         holders.dedup();
         assert_eq!(
             holders.len(),
-            davets.len(),
-            "{room}: nobody holds two davets: {davets:?}"
+            invites.len(),
+            "{room}: nobody holds two invites: {invites:?}"
         );
         let mut want: Vec<&str> = names.iter().map(String::as_str).collect();
         want.sort();
@@ -1727,11 +1727,11 @@ async fn a_move_racing_davet_calls_keeps_one_davet_per_person_and_the_seat_cap()
     }
 }
 
-/// A move into a group racing a removal from that group leaves no davet for
+/// A move into a group racing a removal from that group leaves no invite for
 /// the person removed: whichever ran first, a seat is never held by someone
 /// the loca no longer admits.
 #[tokio::test]
-async fn a_move_into_a_group_racing_a_removal_leaves_no_davet_outside_the_group() {
+async fn a_move_into_a_group_racing_a_removal_leaves_no_invite_outside_the_group() {
     let dir = tempfile::tempdir().unwrap();
     let (port, _guard) = closed_building(&dir.path().join("move-remove-race.db")).await;
     let base = format!("http://127.0.0.1:{port}");
@@ -1798,7 +1798,7 @@ async fn a_move_into_a_group_racing_a_removal_leaves_no_davet_outside_the_group(
         assert_eq!(mover.await.unwrap(), 200);
         assert!(remover.await.unwrap() < 300);
 
-        let holders: Vec<String> = davets_of(&base, &room, &master)
+        let holders: Vec<String> = invites_of(&base, &room, &master)
             .await
             .into_iter()
             .map(|(name, _)| name)
@@ -1806,7 +1806,7 @@ async fn a_move_into_a_group_racing_a_removal_leaves_no_davet_outside_the_group(
         assert_eq!(
             holders,
             names[..2].to_vec(),
-            "{room}: only the people still in the group keep a davet"
+            "{room}: only the people still in the group keep an invite"
         );
     }
 }
@@ -1848,7 +1848,7 @@ fn move_disk(db: &std::path::Path, room: &str, group: &str) -> (bool, bool, bool
 /// Put a move and `other` in flight together: the database's write lock is
 /// held while both are sent, then released so both finish. This overlaps the
 /// two requests; it does not choose where inside the move the other lands
-/// (the Hub test `group_changes_and_a_loca_move_take_turns_on_the_davet_lock`
+/// (the Hub test `group_changes_and_a_loca_move_take_turns_on_the_invite_lock`
 /// fixes that point). Returns (move status, other status).
 async fn move_overlapping(
     db: &std::path::Path,

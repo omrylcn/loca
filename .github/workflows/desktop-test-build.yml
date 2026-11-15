@@ -1,0 +1,189 @@
+# Desktop Test Build — the six desktop packages (Linux, Windows, macOS ×
+# client, Host) built exactly as desktop-release.yml builds them, for hand
+# testing before anything is published.
+#
+# Nothing is released, tagged, read from or written to a release: the
+# packages are kept as workflow artifacts for 7 days (Actions → Desktop Test
+# Build → the run → Artifacts, or `gh run download <run id>`). Like the
+# release build it uses no signing, notarization or updater secrets, so the
+# packages are unsigned.
+#
+# The build steps between the "desktop build steps" markers, and the
+# tauri-action pin, LOCA_DEFAULT_SERVER and args lines, must stay identical to
+# desktop-release.yml: scripts/check-release.sh fails when they differ.
+
+name: Desktop Test Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit SHA to build
+        required: true
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # `ref` may be a branch, and a branch can move while the six builds start.
+  # It is resolved to one commit here, once; every build job checks out that
+  # commit and the summary names it, so the six packages are one build.
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+      short: ${{ steps.commit.outputs.short }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Resolve the ref to one commit
+        id: commit
+        shell: bash
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short=10 HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # flavor "client" = wrapper (connects to a hosted server)
+          # flavor "host"   = standalone (bundles + boots room-server)
+          - { os: ubuntu-22.04, flavor: client, system: linux }
+          - { os: ubuntu-22.04, flavor: host, system: linux }
+          - { os: windows-latest, flavor: client, system: windows }
+          - { os: windows-latest, flavor: host, system: windows }
+          - { os: macos-latest, flavor: client, system: macos }
+          - { os: macos-latest, flavor: host, system: macos }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Name the artifact after the commit
+        id: name
+        shell: bash
+        env:
+          RESOLVED: ${{ needs.resolve.outputs.sha }}
+          SHORT: ${{ needs.resolve.outputs.short }}
+        run: |
+          # The checkout must be the commit the ref was resolved to.
+          test "$(git rev-parse HEAD)" = "$RESOLVED"
+          echo "sha=$SHORT" >> "$GITHUB_OUTPUT"
+          echo "artifact=loca-${{ matrix.flavor }}-${{ matrix.system }}-$SHORT" >> "$GITHUB_OUTPUT"
+
+      # >>> desktop build steps (identical in desktop-release.yml and desktop-test-build.yml; scripts/check-release.sh)
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # pinned action; toolchain below
+        with:
+          toolchain: "1.94.1" # keep aligned with rust-toolchain.toml
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: Linux system deps
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev
+
+      # The host flavor bundles room-server. Build it, then STAGE it into
+      # desktop/src-tauri/binaries/ (its native name) — that fixed dir is what
+      # tauri.standalone.conf.json's `binaries/room-server*` glob bundles, so the
+      # resource path is identical on every OS (Windows keeps the .exe).
+      - name: Build + stage room-server (host flavor only)
+        if: matrix.flavor == 'host'
+        shell: bash
+        run: |
+          cargo build -p server --release --locked
+          mkdir -p desktop/src-tauri/binaries
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/release/room-server.exe desktop/src-tauri/binaries/
+          else
+            cp target/release/room-server desktop/src-tauri/binaries/
+          fi
+      # <<< desktop build steps
+
+      # As in the release build, without releaseId or a token: tauri-action
+      # then only builds the bundles and uploads nothing.
+      - name: Build installers
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+        env:
+          LOCA_DEFAULT_SERVER: ${{ matrix.flavor == 'client' && 'https://loca.speakbetter.tech' || 'http://127.0.0.1:8787' }}
+        with:
+          projectPath: desktop
+          args: >-
+            ${{ matrix.flavor == 'host'
+              && '--features bundled-server --config src-tauri/tauri.standalone.conf.json'
+              || '' }}
+
+      # The same copyable ZIP of the macOS .app the release build publishes.
+      - name: Package macOS application bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          app_path=""
+          for build_root in target desktop/target desktop/src-tauri/target; do
+            if [ -d "$build_root" ]; then
+              app_path=$(find "$build_root" -type d -path '*/bundle/macos/*.app' \
+                -print -quit)
+              [ -z "$app_path" ] || break
+            fi
+          done
+          if [ -z "$app_path" ]; then
+            echo "macOS application bundle was not produced" >&2
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" \
+            "Loca-${{ matrix.flavor }}-${{ steps.name.outputs.sha }}.app.zip"
+
+      - name: Keep the packages as a workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.name.outputs.artifact }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            **/release/bundle/deb/*.deb
+            **/release/bundle/rpm/*.rpm
+            **/release/bundle/appimage/*.AppImage
+            **/release/bundle/msi/*.msi
+            **/release/bundle/nsis/*.exe
+            **/release/bundle/dmg/*.dmg
+            Loca-*.app.zip
+
+  summary:
+    needs: [resolve, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: List the commit built and the artifacts
+        shell: bash
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          REF: ${{ inputs.ref }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          SHORT: ${{ needs.resolve.outputs.short }}
+        run: |
+          {
+            echo "## Desktop test build"
+            echo
+            echo "Ref \`$REF\` = commit \`$SHA\` (resolved once; all six builds use it). Build result: $BUILD_RESULT."
+            echo "Unsigned. Nothing was published. Artifacts are kept for 7 days."
+            echo
+            for system in linux windows macos; do
+              for flavor in client host; do
+                echo "- \`loca-$flavor-$system-$SHORT\`"
+              done
+            done
+            echo
+            echo "Download: \`gh run download $GITHUB_RUN_ID --repo $GITHUB_REPOSITORY\`"
+          } >> "$GITHUB_STEP_SUMMARY"

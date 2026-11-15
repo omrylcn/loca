@@ -235,3 +235,167 @@ test("the operator wears its title on every line it writes, like the lead", asyn
   await expect(page.locator("#locaSummary")).toContainText("OPERATOR");
   await expect(page.locator("#locaSummary")).not.toContainText("PARTICIPANT");
 });
+
+// Record every frame the page handles, in order, before the page acts on it.
+async function recordFrames(page) {
+  await page.evaluate(() => {
+    window.__frames = [];
+    const handle = window.onFrame;
+    window.onFrame = (f) => { window.__frames.push(JSON.parse(JSON.stringify(f))); return handle(f); };
+  });
+}
+
+// The Web UI's handling of `renamed` before frames named their messages,
+// verbatim from bc8ddcd web/assets/socket.js:207-212 (`state.msgs` passed in).
+// An old tab still runs this until it is reloaded.
+function previousOnRenamed(msgs, from, to) {
+  if (!from || !to || from === to) return;
+  for (const m of msgs) {
+    if (m.sender_type === "user" && m.sender === from) m.sender = to;
+    if (m.reply_to_sender === from) m.reply_to_sender = to;
+  }
+}
+
+test("a rename relabels only the renamer's messages by id; the by-name frame relabels nothing", async ({ page, request }) => {
+  const { provisionRooms } = require("./support/building");
+  const room = "rename-own-room";
+  await provisionRooms(request, [room]);
+  const json = async (response) => { expect(response.ok()).toBe(true); return response.json(); };
+  const memberSession = async (name, kind) => {
+    const { token } = await json(await request.post("/members", { headers: MASTER, data: { name, kind } }));
+    // Management URLs take the member's id (`mbid_`), never its key.
+    const { member_id: id } = await json(await request.post(`/rooms/${room}/invites`, { headers: MASTER, data: { name } }));
+    const { session_token } = await json(await request.post("/sessions", {
+      headers: { "x-room-token": token }, data: { name, kind },
+    }));
+    return { token, id, session: session_token };
+  };
+  const say = async (session, text, replyTo) => (await json(await request.post(`/rooms/${room}/messages`, {
+    headers: { "x-session-token": session },
+    data: { sender: "ignored", sender_type: "user", text, reply_to: replyTo ?? null },
+  }))).id;
+
+  // A member wears "ui-own-shared" first, speaks, and leaves the Building.
+  const member = await memberSession("ui-own-shared", "user");
+  const memberWords = await say(member.session, "the member's words");
+  expect((await request.delete(`/members/${member.id}`, { headers: MASTER })).ok()).toBe(true);
+
+  // A Smaster takes the freed name and speaks under it; someone answers both.
+  const { token: code } = await json(await request.post("/smasters", { headers: MASTER, data: { name: "ui-own-before" } }));
+  const deputy = await adminSession(request, code, "x");
+  await json(await request.put("/profile", {
+    headers: { "x-session-token": deputy.session_token }, data: { display_name: "ui-own-shared" },
+  }));
+  const deputyWords = await say(deputy.session_token, "the smaster's words");
+  const helper = await memberSession("ui-own-helper", "agent");
+  const toMember = await say(helper.session, "answering the member", memberWords);
+  const toDeputy = await say(helper.session, "answering the smaster", deputyWords);
+
+  // The Master watches the loca.
+  await openAs(page, await adminSession(request, "MASTER", "watcher"), "watcher");
+  await page.evaluate((r) => joinRoom(r), room);
+  await expect.poll(() => page.evaluate(() => state.ws && state.ws.readyState)).toBe(1);
+  const senderOf = (id) => page.locator(`#feed .row[data-id="${id}"] .sender`).first();
+  await expect(senderOf(memberWords)).toHaveText("ui-own-shared");
+  await expect(senderOf(deputyWords)).toHaveText("ui-own-shared");
+  const label = (id) => page.evaluate((id) => state.msgs.find(m => m.id === id)?.reply_to_sender ?? null, id);
+
+  // The by-name frame is not evidence of who wrote what.
+  await page.evaluate(() => onFrame({ t: "renamed", from: "ui-own-shared", to: "ui-own-hijack" }));
+  await expect(senderOf(memberWords)).toHaveText("ui-own-shared");
+  await expect(senderOf(deputyWords)).toHaveText("ui-own-shared");
+  expect(await label(toMember)).toBe("ui-own-shared");
+  expect(await label(toDeputy)).toBe("ui-own-shared");
+
+  // The real rename: only the Smaster's words and the reply to them change.
+  // The id frame arrives before the by-name one.
+  await recordFrames(page);
+  await json(await request.put("/profile", {
+    headers: { "x-session-token": deputy.session_token }, data: { display_name: "ui-own-after" },
+  }));
+  await expect(senderOf(deputyWords)).toHaveText("ui-own-after");
+  await expect.poll(() => page.evaluate(() => window.__frames
+    .filter(f => f.t === "relabelled" || f.t === "renamed").map(f => f.t))).toEqual(["relabelled", "renamed"]);
+  await expect(senderOf(memberWords)).toHaveText("ui-own-shared");
+  expect(await label(toDeputy)).toBe("ui-own-after");
+  expect(await label(toMember)).toBe("ui-own-shared");
+
+  // A reload reads the same labels from the server.
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
+  await page.evaluate((r) => joinRoom(r), room);
+  await expect(senderOf(deputyWords)).toHaveText("ui-own-after");
+  await expect(senderOf(memberWords)).toHaveText("ui-own-shared");
+});
+
+test("when both wearers' words have left the tail, only the renamer's reply label changes, in a new tab and an old one", async ({ page, request }) => {
+  const { provisionRooms } = require("./support/building");
+  const room = "rename-tail-room";
+  await provisionRooms(request, [room]);
+  const json = async (response) => { expect(response.ok()).toBe(true); return response.json(); };
+  const say = async (session, text, replyTo) => (await json(await request.post(`/rooms/${room}/messages`, {
+    headers: { "x-session-token": session },
+    data: { sender: "ignored", sender_type: "user", text, reply_to: replyTo ?? null },
+  }))).id;
+  const memberSession = async (name, kind) => {
+    const { token } = await json(await request.post("/members", { headers: MASTER, data: { name, kind } }));
+    // Management URLs take the member's id (`mbid_`), never its key.
+    const { member_id: id } = await json(await request.post(`/rooms/${room}/invites`, { headers: MASTER, data: { name } }));
+    const { session_token } = await json(await request.post("/sessions", {
+      headers: { "x-room-token": token }, data: { name, kind },
+    }));
+    return { token, id, session: session_token };
+  };
+
+  // Two people wear "ui-tail-shared" one after the other.
+  const member = await memberSession("ui-tail-shared", "user");
+  const memberWords = await say(member.session, "the member, long ago");
+  expect((await request.delete(`/members/${member.id}`, { headers: MASTER })).ok()).toBe(true);
+  const { token: code } = await json(await request.post("/smasters", { headers: MASTER, data: { name: "ui-tail-before" } }));
+  const deputy = await adminSession(request, code, "x");
+  await json(await request.put("/profile", {
+    headers: { "x-session-token": deputy.session_token }, data: { display_name: "ui-tail-shared" },
+  }));
+  const deputyWords = await say(deputy.session_token, "the smaster, long ago");
+
+  // Both lines leave the in-memory tail; answers to each are in it.
+  const watcher = await adminSession(request, "MASTER", "watcher");
+  for (let n = 0; n < 200; n++) await say(watcher.session_token, `filler ${n}`);
+  const helper = await memberSession("ui-tail-helper", "agent");
+  const toMember = await say(helper.session, "answering the member", memberWords);
+  const toDeputy = await say(helper.session, "answering the smaster", deputyWords);
+
+  await openAs(page, watcher, "watcher");
+  await page.evaluate((r) => joinRoom(r), room);
+  await expect.poll(() => page.evaluate(() => state.ws && state.ws.readyState)).toBe(1);
+  const label = (id) => page.evaluate((id) => state.msgs.find(m => m.id === id)?.reply_to_sender ?? null, id);
+  await expect.poll(() => label(toMember)).toBe("ui-tail-shared");
+  expect(await label(toDeputy)).toBe("ui-tail-shared");
+  const before = await page.evaluate(() => JSON.parse(JSON.stringify(state.msgs)));
+  expect(before.some(m => m.id === memberWords || m.id === deputyWords)).toBe(false);
+
+  await recordFrames(page);
+  await json(await request.put("/profile", {
+    headers: { "x-session-token": deputy.session_token }, data: { display_name: "ui-tail-after" },
+  }));
+  // Everything the rename sent has arrived once a later message has.
+  await say(watcher.session_token, "after the rename");
+  await expect.poll(() => page.evaluate(() => state.msgs.some(m => m.text === "after the rename"))).toBe(true);
+  const frames = await page.evaluate(() => window.__frames);
+
+  // (a) This page relabels exactly the reply that answers the renamer.
+  expect(await label(toDeputy)).toBe("ui-tail-after");
+  expect(await label(toMember)).toBe("ui-tail-shared");
+  expect(frames.filter(f => f.t === "relabelled")).toEqual([
+    { t: "relabelled", to: "ui-tail-after", ids: [], reply_ids: [toDeputy] },
+  ]);
+
+  // (b) A tab still running the previous Web UI applies `renamed` by name.
+  // The server sends it none here, exactly as before, so that tab changes
+  // nothing: no one else's reply label is touched.
+  expect(frames.filter(f => f.t === "renamed")).toEqual([]);
+  const old = JSON.parse(JSON.stringify(before));
+  for (const f of frames) if (f.t === "renamed") previousOnRenamed(old, f.from, f.to);
+  expect(old.find(m => m.id === toMember).reply_to_sender).toBe("ui-tail-shared");
+  expect(old.find(m => m.id === toDeputy).reply_to_sender).toBe("ui-tail-shared");
+});

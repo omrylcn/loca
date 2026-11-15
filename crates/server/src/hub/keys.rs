@@ -18,19 +18,29 @@ impl Hub {
     /// An unused Smaster code stops working after this long.
     pub const SMASTER_USE_MS: u64 = 7 * 24 * 60 * 60 * 1_000;
 
-    pub fn key_ledger(&self) -> Vec<KeyRecord> {
+    /// The whole key ledger. A ledger that cannot be read is an error, never
+    /// an empty one: "no keys were ever issued" and "the record could not be
+    /// read" must not look the same to the Master deciding what to revoke.
+    pub fn key_ledger(&self) -> rusqlite::Result<Vec<KeyRecord>> {
         self.store
             .key_ledger(self.now(), Self::SMASTER_USE_MS)
-            .unwrap_or_default()
+            .inspect_err(|error| tracing::error!(%error, "key ledger could not be read"))
     }
 
     /// Take back unused Smaster codes past their use-by. Called by the
     /// background sweep; a code that was used once is never touched here.
     pub fn expire_unused_smasters(&self) {
         let cutoff = self.now().saturating_sub(Self::SMASTER_USE_MS);
-        for token in self.store.unused_smasters_issued_before(cutoff) {
-            if self.smasters.lock_or_recover().contains_key(&token) {
-                match self.revoke_smaster(&token) {
+        let unused = match self.store.unused_smasters_issued_before(cutoff) {
+            Ok(unused) => unused,
+            Err(error) => {
+                tracing::error!(%error, "could not read unused Smaster codes; none expired");
+                return;
+            }
+        };
+        for hash in unused {
+            if self.smasters.lock_or_recover().contains_key(&hash) {
+                match self.revoke_smaster_hash(&hash) {
                     Ok(_) => tracing::info!("an unused Smaster code expired"),
                     Err(error) => {
                         tracing::error!(%error, "could not expire an unused Smaster code")
@@ -91,17 +101,12 @@ impl Hub {
         reference: &str,
         name: &str,
     ) -> Result<PrincipalIdentity, ProfileRenameError> {
-        let token = self
-            .smasters
-            .lock_or_recover()
-            .keys()
-            .find(|t| t.as_str() == reference || self.smaster_management_id(t) == reference)
-            .cloned()
+        let record = self
+            .smaster_by_reference(reference)
             .ok_or(ProfileRenameError::AuthorityRequired)?;
-        let current = self.smaster_name(Some(&token)).unwrap_or_default();
         let actor = RequestAuthority {
-            principal_id: Some(crate::store::hashed_id("pr_", &format!("smaster:{token}"))),
-            display_name: Some(current),
+            principal_id: Some(record.principal_id),
+            display_name: Some(record.name),
             kind: Some(SenderType::User),
             building_role: Some(BuildingRole::Smaster),
         };

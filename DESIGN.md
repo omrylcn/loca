@@ -168,7 +168,7 @@ ve grubu olmayan Loca varsayılan gruptadır.
   Smaster dahil, var olmayan bir Loca'nın aldığı yanıtı alır.
 - Üyeliği kurucu ya da Master yönetir. Gruba üye olan ama kurucusu olmayan
   Smaster grubu ve Loca'larını görür, üyeliğini yönetemez. Grup dışındaki
-  Smaster grubu görmez. `PRINCIPLES.md`'deki "başka bir Smaster o grubu
+  Smaster grubu görmez. `PRINCIPLES.tr.md`'deki "başka bir Smaster o grubu
   göremez" cümlesi bu ayrımla okunur.
 - Loca'yı gruplar arasında yalnız Master taşır. Birebir ve İye gruba bağlanmaz.
 

@@ -31,6 +31,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
+          # Pinned: `.gitleaks.toml` uses `[[allowlists]]` with `targetRules`
+          # and `paths`, which the action's default (8.24.3) does not read; it
+          # silently ignored them. 8.25.0 and later read them.
+          GITLEAKS_VERSION: 8.30.1
 
   codeql:
     name: CodeQL (Python)

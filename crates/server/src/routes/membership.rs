@@ -46,10 +46,10 @@ pub(crate) async fn profile_view(
         if hub.is_operator_principal(room, principal_id) {
             loca_roles.push("operator");
             operator_source = Some("appointed");
-        } else if authority.is_master() && !hub.is_birebir(room) {
+        } else if authority.is_master() && !hub.is_dm(room) {
             // The Master stands at the top of the hierarchy: in every loca it
             // holds the operator's authority by rank, without an appointment.
-            // (A birebir has no operator; there the Master is one of the two.)
+            // (A direct message has no operator; there the Master is one of the two.)
             loca_roles.push("operator");
             operator_source = Some("master");
         }
@@ -60,12 +60,14 @@ pub(crate) async fn profile_view(
     }
     let current_credential_id =
         hub.credential_id_for_request(admin_token_of(&headers), session_of(&headers));
+    let mut principal = serde_json::json!({
+        "id": principal_id,
+        "display_name": display_name,
+        "kind": authority.kind,
+    });
+    hub.profile_card(principal_id).decorate(&mut principal);
     Json(serde_json::json!({
-        "principal": {
-            "id": principal_id,
-            "display_name": display_name,
-            "kind": authority.kind,
-        },
+        "principal": principal,
         "building_role": authority.building_role,
         "groups": if scoped.is_some() { Vec::new() } else { hub.groups_of_principal(principal_id) },
         "loca": room.map(|room| serde_json::json!({
@@ -93,6 +95,95 @@ pub(crate) async fn get_profile_preferences(
         return (StatusCode::UNAUTHORIZED, "verified profile required").into_response();
     };
     Json(hub.preferences_for(&principal_id)).into_response()
+}
+
+/// `PUT /profile/card {"full_name", "icon"}` — the caller's own full name and
+/// profile icon. Display only: the `@name` and everything it decides stay as
+/// they are. Fields left out keep their value; `null` or `""` clears one; an
+/// unknown field or a refused value rejects the whole body with 400. There is
+/// no way to name another principal.
+pub(crate) async fn put_profile_card(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    let Some(principal_id) = request_principal(&hub, &headers) else {
+        return (StatusCode::UNAUTHORIZED, "verified profile required").into_response();
+    };
+    let Ok(patch) = serde_json::from_slice::<serde_json::Value>(&body) else {
+        return (StatusCode::BAD_REQUEST, "the body must be a JSON object").into_response();
+    };
+    match hub.update_profile_card(&principal_id, &patch) {
+        Ok(card) => Json(serde_json::json!({
+            "full_name": card.full_name,
+            "icon": card.icon,
+        }))
+        .into_response(),
+        Err(crate::store::ProfileCardError::Invalid(reason)) => {
+            (StatusCode::BAD_REQUEST, reason).into_response()
+        }
+        Err(crate::store::ProfileCardError::NoProfile) => {
+            (StatusCode::UNAUTHORIZED, "verified profile required").into_response()
+        }
+        Err(crate::store::ProfileCardError::Storage) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not save your full name and icon — try again",
+        )
+            .into_response(),
+    }
+}
+
+/// Add each person's principal id, full name and icon (when set) to rows
+/// that name them by `@name` under `name_key`, so a client keys a card by the
+/// principal, never by the label. A row whose name no single active
+/// principal wears is left exactly as it was.
+fn with_people<T: serde::Serialize>(
+    rows: &[T],
+    name_key: &str,
+    people: &HashMap<String, (String, crate::store::ProfileCard)>,
+) -> serde_json::Value {
+    let rows: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            let mut value = serde_json::to_value(row).unwrap_or(serde_json::Value::Null);
+            let person = value
+                .get(name_key)
+                .and_then(|name| name.as_str())
+                .and_then(|name| people.get(name))
+                .cloned();
+            if let (Some((id, card)), Some(fields)) = (person, value.as_object_mut()) {
+                fields
+                    .entry("principal_id")
+                    .or_insert_with(|| serde_json::Value::String(id));
+                card.decorate(&mut value);
+            }
+            value
+        })
+        .collect();
+    serde_json::Value::Array(rows)
+}
+
+/// `/profiles` rows already carry the principal's `id`: add its card.
+fn with_cards_by_id<T: serde::Serialize>(
+    rows: &[T],
+    cards: &HashMap<String, crate::store::ProfileCard>,
+) -> serde_json::Value {
+    let rows: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            let mut value = serde_json::to_value(row).unwrap_or(serde_json::Value::Null);
+            let card = value
+                .get("id")
+                .and_then(|id| id.as_str())
+                .and_then(|id| cards.get(id))
+                .cloned();
+            if let Some(card) = card {
+                card.decorate(&mut value);
+            }
+            value
+        })
+        .collect();
+    serde_json::Value::Array(rows)
 }
 
 /// Partial update: fields left out keep their value; any unknown field or
@@ -219,7 +310,7 @@ pub(crate) async fn list_members(State(hub): State<Hub>, headers: HeaderMap) -> 
         .into_iter()
         .map(|member| {
             serde_json::json!({
-                "id": hub.member_management_id(&member.token),
+                "id": member.id,
                 "name": member.name,
                 "kind": member.kind,
                 "joined_at": member.joined_at,
@@ -227,14 +318,14 @@ pub(crate) async fn list_members(State(hub): State<Hub>, headers: HeaderMap) -> 
             })
         })
         .collect();
-    Json(rows).into_response()
+    Json(with_people(&rows, "name", &hub.people_by_name())).into_response()
 }
 
 pub(crate) async fn list_profiles(State(hub): State<Hub>, headers: HeaderMap) -> impl IntoResponse {
     if !is_admin_req(&hub, &headers) {
         return (StatusCode::FORBIDDEN, "Building authority required").into_response();
     }
-    Json(hub.profiles()).into_response()
+    Json(with_cards_by_id(&hub.profiles(), &hub.profile_cards())).into_response()
 }
 /// Admit somebody to the building — the founding act, and the heavy one.
 /// The authorized surface is a deployment choice; seating that member in a
@@ -255,6 +346,10 @@ pub(crate) async fn admit_member(
     if name.is_empty() {
         return (StatusCode::BAD_REQUEST, "a member needs a name").into_response();
     }
+    // The join-request door's name rule applies here too, so a name admitted
+    // directly can still be `@mention`ed. `Hub::admit_member` decides it, and
+    // whether the name is taken, under the lock it writes the name with; a
+    // member admitted before the rule is found again, not re-checked.
     let kind = body.get("kind").and_then(|v| v.as_str()).unwrap_or("agent");
     // kind is part of the identity, so it is validated at the door, not
     // silently coerced — a bad kind is a bad request, not a quiet "agent".
@@ -265,9 +360,37 @@ pub(crate) async fn admit_member(
         .smaster_name(admin_token_of(&headers))
         .map(|n| format!("smaster:{n}"))
         .unwrap_or_else(|| "master".into());
-    match hub.admit_member(name, kind, &by) {
-        Ok(member) => (StatusCode::CREATED, Json(member)).into_response(),
-        Err(_) => (
+    match hub.admit_member_once(name, kind, &by) {
+        // A fresh member's key is handed out once, here, as before; the
+        // server keeps only its hash.
+        Ok((member, Some(key))) => (
+            StatusCode::CREATED,
+            Json(protocol::Membership {
+                token: key,
+                name: member.name,
+                kind: member.kind,
+                joined_at: member.joined_at,
+                admitted_by: member.admitted_by,
+            }),
+        )
+            .into_response(),
+        // An existing member's key is not stored, so it cannot be read back
+        // out: the answer names the member by its management id. The
+        // member's own set-up keeps its key; a new set-up claims one of its
+        // own with an invite.
+        Ok((member, None)) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "id": member.id,
+                "name": member.name,
+                "kind": member.kind,
+                "already": true,
+            })),
+        )
+            .into_response(),
+        Err(hub::AdmitError::Rule(rule)) => (StatusCode::BAD_REQUEST, rule).into_response(),
+        Err(hub::AdmitError::Worn) => (StatusCode::CONFLICT, NAME_WORN_RULE).into_response(),
+        Err(hub::AdmitError::Storage) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "could not save member — try again",
         )
@@ -347,14 +470,19 @@ pub(crate) async fn list_residents(
     // A Smaster sees every person, but never a group loca it cannot enter
     // named as where someone sits.
     let viewer = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
-    Json(hub.residents_for(&viewer)).into_response()
+    Json(with_people(
+        &hub.residents_for(&viewer),
+        "name",
+        &hub.people_by_name(),
+    ))
+    .into_response()
 }
 /// The caretaker's least-privilege Building presence view.
 ///
 /// A configured caretaker must be able to answer "who is connected?" even in
 /// deployments that have no loca-dev runtime. Giving that runtime the master
 /// key would also let it admit/revoke members and change every loca, which is
-/// far broader than the job. Its own membership, davet, or live session is
+/// far broader than the job. Its own membership, invite, or live session is
 /// therefore enough for this read-only endpoint, and the configured caretaker
 /// name remains the authority boundary.
 pub(crate) async fn caretaker_residents(
@@ -379,7 +507,7 @@ pub(crate) async fn caretaker_residents(
     Json(hub.residents_for(&caretaker_viewer(&hub, &headers))).into_response()
 }
 /// Whose view a caretaker request reads with: its session's principal, or
-/// its membership credential's. A davet proves no principal, so it sees no
+/// its membership credential's. An invite proves no principal, so it sees no
 /// group loca at all.
 pub(crate) fn caretaker_viewer(hub: &Hub, headers: &HeaderMap) -> hub::RequestAuthority {
     let by_session = hub.resolve_authority(None, session_of(headers));
@@ -397,9 +525,7 @@ pub(crate) async fn list_smasters(State(hub): State<Hub>, headers: HeaderMap) ->
     let rows: Vec<_> = hub
         .smasters()
         .into_iter()
-        .map(|(token, name)| {
-            serde_json::json!({ "id": hub.smaster_management_id(&token), "name": name })
-        })
+        .map(|record| serde_json::json!({ "id": record.management_id, "name": record.name }))
         .collect();
     Json(rows).into_response()
 }
@@ -425,7 +551,12 @@ pub(crate) async fn list_building_ranks(
         return (StatusCode::FORBIDDEN, "Building authority required").into_response();
     }
     let viewer = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
-    Json(hub.building_ranks_for(&viewer)).into_response()
+    Json(with_people(
+        &hub.building_ranks_for(&viewer),
+        "name",
+        &hub.people_by_name(),
+    ))
+    .into_response()
 }
 
 /// `PUT /profile {"display_name": …}` — a Master or Smaster renames itself.
@@ -497,7 +628,12 @@ pub(crate) async fn create_smaster(
             Json(serde_json::json!({ "token": token, "name": name })),
         )
             .into_response(),
-        Err(_) => (
+        // The same answer as a Smaster key minted at `POST /keys`: two
+        // people must never be told apart only by letter case.
+        Err(hub::NameClaimError::Worn) => {
+            (StatusCode::CONFLICT, "someone already wears that name").into_response()
+        }
+        Err(hub::NameClaimError::Storage) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "could not save smaster — try again",
         )
@@ -527,7 +663,7 @@ pub(crate) async fn revoke_smaster_route(
             .into_response(),
     }
 }
-/// What does the davet I am holding open? Lets a client file its davet under
+/// What does the invite I am holding open? Lets a client file its invite under
 /// the right loca instead of guessing — and tells a holder plainly when it has
 /// been revoked.
 pub(crate) async fn whoami(State(hub): State<Hub>, headers: HeaderMap) -> impl IntoResponse {
@@ -536,32 +672,40 @@ pub(crate) async fn whoami(State(hub): State<Hub>, headers: HeaderMap) -> impl I
         .and_then(|value| value.to_str().ok())
         .and_then(|token| hub.session_identity(Some(token)))
     {
-        return Json(serde_json::json!({
+        let mut answer = serde_json::json!({
             "kind": "session",
             "name": identity.name,
             "member_kind": identity.kind,
             "loca": identity.loca,
             "admin": identity.admin,
-        }))
-        .into_response();
+        });
+        if let Some(principal) = identity.principal_id.as_deref() {
+            answer["principal_id"] = serde_json::Value::String(principal.to_string());
+            hub.profile_card(principal).decorate(&mut answer);
+        }
+        return Json(answer).into_response();
     }
     let token = member_token_of(&headers);
     // A membership (mb_) token answers "who am I" with the identity itself —
     // the building knows this person even before they take a seat. Checked
-    // before the davet/building branches because it is the strongest answer.
+    // before the invite/building branches because it is the strongest answer.
     if let Some(m) = hub.member_for_credential(token) {
         let locas: Vec<String> = hub
-            .invites_for_member(&m.token)
+            .invites_for_member(&m.id)
             .into_iter()
             .map(|i| i.room)
             .collect();
-        return Json(serde_json::json!({
+        let mut answer = serde_json::json!({
             "kind": "member",
             "name": m.name,
             "member_kind": m.kind,
             "locas": locas,
-        }))
-        .into_response();
+        });
+        if let Some(principal) = m.principal_id.as_deref() {
+            answer["principal_id"] = serde_json::Value::String(principal.to_string());
+            hub.profile_card(principal).decorate(&mut answer);
+        }
+        return Json(answer).into_response();
     }
     match token.and_then(|t| hub.invite_room(t)) {
         Some(loca) => Json(serde_json::json!({ "kind": "davet", "loca": loca })).into_response(),
@@ -572,12 +716,59 @@ pub(crate) async fn whoami(State(hub): State<Hub>, headers: HeaderMap) -> impl I
         None => (StatusCode::UNAUTHORIZED, "no davet").into_response(),
     }
 }
-/// Exchange a live loca davet for the permanent building membership it names.
+/// The header a set-up names itself with when it claims a membership key.
+/// A header, like the join request's `x-join-secret`, so it never lands in a
+/// URL, and so an older kit that sends no body (or `{}`) is read the same.
+const CLAIM_ID_HEADER: &str = "x-claim-id";
+
+/// The set-up's claim id, if one was sent: `Ok(None)` when absent,
+/// `Err(())` when present but not one the kit generates (`cl_` and 32 to
+/// 128 URL-safe characters). A key, a key's hash or an id (`mbid_`, `ivid_`,
+/// `cr_`, `pr_`) is therefore never taken for one.
+fn claim_id_of(headers: &HeaderMap) -> Result<Option<&str>, ()> {
+    let Some(value) = headers.get(CLAIM_ID_HEADER) else {
+        return Ok(None);
+    };
+    let value = value.to_str().map_err(|_| ())?;
+    let body = value.strip_prefix("cl_").ok_or(())?;
+    let valid = (32..=128).contains(&body.len())
+        && body
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    valid.then_some(Some(value)).ok_or(())
+}
+
+fn bad_claim_id() -> axum::response::Response {
+    (
+        StatusCode::BAD_REQUEST,
+        "x-claim-id must be cl_ followed by 32-128 letters, digits, '-' or '_'",
+    )
+        .into_response()
+}
+
+fn claim_storage_unavailable() -> axum::response::Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "the server could not read or record this claim just now — try again",
+    )
+        .into_response()
+}
+
+/// Claim a membership key with a live loca invite.
 ///
-/// This is the one-time onboarding bridge: the davet already proves exactly
-/// which member is holding it, and the returned `mb_` credential can only wait
-/// in the lobby. It does not open any loca. Keeping this credential lets
-/// release end a seat without making the agent run setup again.
+/// The invite proves which member holds it. The answer is a key of this
+/// set-up's own for that member: a new credential for the member's
+/// principal, never the member's original key, and nothing existing is
+/// revoked or replaced. It opens the Lobby only, never a loca, so release can
+/// end a seat without making the agent run setup again.
+///
+/// A set-up that sends a claim id (`x-claim-id`) gets the same key for every
+/// repeat until it acknowledges it (`POST /membership/claim/ack`) or 24 hours
+/// pass; after that it is told which of the two happened (409 already
+/// delivered, 410 delivery ended) and nothing new is minted. A call without a
+/// claim id (an older kit) mints a key every time. Either way one invite sets
+/// up at most five keys; the sixth set-up is 429 and the Master re-issues the
+/// invite. `membership_token` keeps the name older kits read.
 pub(crate) async fn claim_membership(
     State(hub): State<Hub>,
     headers: HeaderMap,
@@ -585,19 +776,103 @@ pub(crate) async fn claim_membership(
     let Some(token) = member_token_of(&headers) else {
         return (StatusCode::UNAUTHORIZED, "a live davet is required").into_response();
     };
-    let member = hub.member_for_credential(Some(token)).or_else(|| {
-        let invite = hub.invite_by_token(token)?;
-        hub.member_of(Some(&invite.member))
-    });
-    let Some(member) = member else {
-        return (StatusCode::UNAUTHORIZED, "a live davet is required").into_response();
+    let Ok(claim_id) = claim_id_of(&headers) else {
+        return bad_claim_id();
     };
-    Json(serde_json::json!({
-        "membership_token": member.token,
-        "name": member.name,
-        "kind": member.kind,
-    }))
-    .into_response()
+    let (outcome, member) = match hub.claim_membership_key(token, claim_id) {
+        Ok(claimed) => claimed,
+        Err(hub::ClaimRefusal::NoInvite) => {
+            return (StatusCode::UNAUTHORIZED, "a live davet is required").into_response()
+        }
+        Err(hub::ClaimRefusal::MembershipKey) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "this is a membership key, not a davet: it already opens the Lobby and \
+                 cannot claim another key",
+            )
+                .into_response()
+        }
+        Err(hub::ClaimRefusal::Storage) => return claim_storage_unavailable(),
+    };
+    match outcome {
+        crate::store::MemberClaim::Delivered {
+            key,
+            credential_id,
+            fresh,
+        } => (
+            if fresh {
+                StatusCode::CREATED
+            } else {
+                StatusCode::OK
+            },
+            Json(serde_json::json!({
+                "membership_token": key,
+                "credential_id": credential_id,
+                "member_id": member.id,
+                "name": member.name,
+                "kind": member.kind,
+                "ack_required": claim_id.is_some(),
+            })),
+        )
+            .into_response(),
+        crate::store::MemberClaim::AlreadyDelivered => (
+            StatusCode::CONFLICT,
+            "already delivered: this set-up received its key and confirmed it was stored, so \
+             the server no longer holds it and mints nothing new. Use the key that set-up \
+             stored. If it is lost, ask the Master for a new davet.",
+        )
+            .into_response(),
+        crate::store::MemberClaim::DeliveryEnded => (
+            StatusCode::GONE,
+            "delivery ended: this set-up's key was not confirmed within 24 hours of the claim \
+             (or was revoked first), so the server no longer holds it and mints nothing new. \
+             Ask the Master for a new davet.",
+        )
+            .into_response(),
+        crate::store::MemberClaim::CapReached => (
+            StatusCode::TOO_MANY_REQUESTS,
+            "this davet has already set up five keys. Ask the Master to re-issue the davet; \
+             a new davet can set up keys of its own.",
+        )
+            .into_response(),
+    }
+}
+
+/// POST /membership/claim/ack — the set-up confirms it verified the key it
+/// claimed (via `/whoami`) and stored it, so the server drops its delivery
+/// copy. The invite (`x-room-token`) and the claim id (`x-claim-id`) together
+/// name the set-up; only its holder knows both. Idempotent: a repeat answers
+/// 200 too. Like the join-request ACK it also answers after the delivery
+/// deadline. A storage error is 503, never 404, so the kit keeps its claim id
+/// and tries again.
+pub(crate) async fn ack_membership_claim_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let Some(token) = member_token_of(&headers) else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            "the davet the key was claimed with is required",
+        )
+            .into_response();
+    };
+    let claim_id = match claim_id_of(&headers) {
+        Ok(Some(claim_id)) => claim_id,
+        Ok(None) | Err(()) => return bad_claim_id(),
+    };
+    match hub.ack_membership_claim(token, claim_id) {
+        Ok(Some(_)) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "acknowledged": true })),
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            "no claim for this davet and claim id",
+        )
+            .into_response(),
+        Err(_) => claim_storage_unavailable(),
+    }
 }
 pub(crate) async fn create_session_route(
     State(hub): State<Hub>,
@@ -607,9 +882,9 @@ pub(crate) async fn create_session_route(
     let paired_admin_ttl =
         pairing_code_of(&headers).and_then(|code| hub.consume_admin_pairing(code));
     let paired_admin = paired_admin_ttl.is_some();
-    // A davet holder must be able to take an identity — the davet already says
+    // An invite holder must be able to take an identity — the invite already says
     // who they are, so refusing here would leave the invited unable to speak.
-    // A pairing code has explicit precedence if a stale davet field is also
+    // A pairing code has explicit precedence if a stale invite field is also
     // present: one request must mint exactly one identity.
     let token = if paired_admin {
         None
@@ -639,20 +914,20 @@ pub(crate) async fn create_session_route(
     {
         return (StatusCode::UNAUTHORIZED, "davet required").into_response();
     }
-    // A session inherits both the REACH and the IDENTITY of the davet that
-    // opened the door: it sees that one loca, and it speaks as the davet's
-    // member — not as whatever name the body claims (alice's davet cannot
+    // A session inherits both the REACH and the IDENTITY of the invite that
+    // opened the door: it sees that one loca, and it speaks as the invite's
+    // member — not as whatever name the body claims (alice's invite cannot
     // mint a "bob"). A building key carries no member, so its session keeps
     // the body's name.
-    let davet = token.and_then(|t| hub.invite_by_token(t));
+    let invite = token.and_then(|t| hub.invite_by_token(t));
     // Minted with a one-use master pairing code (or the legacy raw-key API
     // path)? Then it is an ADMIN session: it carries authority without making
     // the browser retain the root key, and it expires.
     let admin_grant = if let Some(ttl) = paired_admin_ttl {
         Some(hub.master_pairing_grant(ttl))
-    } else if davet.is_none() && admin_token_of(&headers).is_some() {
+    } else if invite.is_none() && admin_token_of(&headers).is_some() {
         hub.admin_session_grant(admin_token_of(&headers), Hub::ADMIN_SESSION_TTL_MS)
-    } else if davet.is_none()
+    } else if invite.is_none()
         && (hub.member_for_credential(token).is_some()
             || matches!(
                 personal_authority.building_role,
@@ -667,11 +942,25 @@ pub(crate) async fn create_session_route(
     };
     // Verified credentials carry a canonical identity. Anonymous sandbox entry
     // still requires a name; Master pairing never asks the user to name itself.
-    if body.name.trim().is_empty() && davet.is_none() && admin_grant.is_none() {
+    if body.name.trim().is_empty() && invite.is_none() && admin_grant.is_none() {
         return (StatusCode::BAD_REQUEST, "empty name").into_response();
     }
-    match hub.create_session_scoped(body, davet.as_ref(), admin_grant) {
-        Ok(session) => (StatusCode::CREATED, Json(session)).into_response(),
+    // Only a session taken with a credential that itself reaches the whole
+    // Building through the building key inherits that reach. A member's own
+    // key or profile credential does not: exchanging it for a session must
+    // not widen what it opens.
+    let building_key = invite.is_none() && hub.reaches_building(token);
+    // A member's own key that no principal grant could bind (memory-only
+    // store): bind the session to the membership, so it speaks as that member
+    // and dies when the membership is revoked.
+    let key_member = if invite.is_none() && admin_grant.is_none() {
+        hub.member_for_credential(token)
+    } else {
+        None
+    };
+    match hub.create_session_scoped(body, invite.as_ref(), admin_grant, building_key, key_member) {
+        Ok(Some(session)) => (StatusCode::CREATED, Json(session)).into_response(),
+        Ok(None) => (StatusCode::UNAUTHORIZED, "credential revoked or unknown").into_response(),
         Err(_) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "could not persist the admin session — try again",
@@ -782,13 +1071,15 @@ pub(crate) struct CreateJoinRequest {
     kind: Option<String>,
 }
 
-fn valid_agent_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 64
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-}
+// The doors' name rule (`valid_agent_name`, `admission_name_refusal`) lives
+// in the hub, which decides it where the name is written.
+pub(crate) use crate::hub::admission_name_refusal;
+
+/// Why a new member's name that someone already wears in some letter case
+/// (`Hub::new_member_name_clashes`) is refused, at every admission door, with
+/// 409 as the join-request door answers a name that is taken.
+pub(crate) const NAME_WORN_RULE: &str =
+    "someone in this Building already has that name in some letter case — choose another";
 
 /// Client IP for the per-source join-request rate-limit — SECURE BY DEFAULT.
 ///
@@ -830,12 +1121,8 @@ pub(crate) async fn create_join_request_route(
     Json(body): Json<CreateJoinRequest>,
 ) -> impl IntoResponse {
     let name = body.name.trim();
-    if !valid_agent_name(name) {
-        return (
-            StatusCode::BAD_REQUEST,
-            "name must be 1-64 ASCII letters, digits, dot, dash, or underscore",
-        )
-            .into_response();
+    if let Some(rule) = admission_name_refusal(name) {
+        return (StatusCode::BAD_REQUEST, rule).into_response();
     }
     let kind = match body.kind.as_deref() {
         None | Some("agent") => "agent",
@@ -858,6 +1145,9 @@ pub(crate) async fn create_join_request_route(
             "that name already exists — choose another",
         )
             .into_response(),
+        crate::hub::JoinRequestCreate::NameWorn => {
+            (StatusCode::CONFLICT, NAME_WORN_RULE).into_response()
+        }
         crate::hub::JoinRequestCreate::BacklogFull => (
             StatusCode::TOO_MANY_REQUESTS,
             "too many pending join requests — try again later",
@@ -884,20 +1174,40 @@ pub(crate) async fn get_join_request_route(
         return (StatusCode::UNAUTHORIZED, "x-join-secret header required").into_response();
     };
     match hub.join_request_view(&id, secret) {
-        Some((status, _name, bootstrap_ready)) => {
-            Json(serde_json::json!({ "status": status, "bootstrap_ready": bootstrap_ready }))
-                .into_response()
-        }
-        None => (StatusCode::NOT_FOUND, "unknown request or secret").into_response(),
+        // `bootstrap_expired` is additive: an approved request whose window
+        // closed keeps `status: "approved"` and `bootstrap_ready: false`, the
+        // answer that already makes an installed helper stop and send the
+        // requester to an operator instead of polling for ever.
+        Ok(Some(view)) => Json(serde_json::json!({
+            "status": view.status,
+            "bootstrap_ready": view.bootstrap_ready,
+            "bootstrap_expired": view.bootstrap_expired,
+        }))
+        .into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, "unknown request or secret").into_response(),
+        Err(_) => join_storage_unavailable(),
     }
+}
+
+/// A storage error on a requester's own request. 503, never 404: the
+/// requester's helper forgets its request on a 404 and would give up, or
+/// file a new one, over a fault that a retry would get past.
+fn join_storage_unavailable() -> axum::response::Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        "the server could not read this request just now — try again",
+    )
+        .into_response()
 }
 
 /// POST /join-requests/:id/bootstrap — deliver the approved mb_, RE-FETCHABLE
 /// until the client ACKs (secret in the `x-join-secret` header). Idempotent by
 /// design: a client that crashes or drops the connection between receiving mb_
 /// and persisting it re-fetches the same credential instead of losing it. The
-/// window closes only when the client, having verified mb_ via /whoami, calls
-/// POST /join-requests/:id/ack.
+/// window closes when the client, having verified mb_ via /whoami, calls
+/// POST /join-requests/:id/ack, or 24 hours after the approval
+/// (`store::JOIN_BOOTSTRAP_WINDOW_MS`), whichever comes first. After the
+/// deadline the answer is 410 with what to do; the membership is kept.
 pub(crate) async fn bootstrap_join_request_route(
     State(hub): State<Hub>,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -907,16 +1217,25 @@ pub(crate) async fn bootstrap_join_request_route(
         return (StatusCode::UNAUTHORIZED, "x-join-secret header required").into_response();
     };
     match hub.claim_join_request_bootstrap(&id, secret) {
-        Some(mb) => (
+        Ok(crate::store::BootstrapClaim::Delivered(mb)) => (
             StatusCode::CREATED,
             Json(serde_json::json!({ "davet": mb })),
         )
             .into_response(),
-        None => (
+        Ok(crate::store::BootstrapClaim::Expired) => (
+            StatusCode::GONE,
+            "approved, but the key was not collected within 24 hours of the approval, so the \
+             server no longer holds it. The membership was kept, so a new join request for \
+             this name is refused: ask a Master to give you access again from the Building \
+             master desk (a membership or a davet for this same name).",
+        )
+            .into_response(),
+        Ok(crate::store::BootstrapClaim::Unavailable) => (
             StatusCode::NOT_FOUND,
             "not approved, already finalized, or bad secret",
         )
             .into_response(),
+        Err(_) => join_storage_unavailable(),
     }
 }
 
@@ -935,16 +1254,17 @@ pub(crate) async fn ack_join_request_route(
         return (StatusCode::UNAUTHORIZED, "x-join-secret header required").into_response();
     };
     match hub.ack_join_request_bootstrap(&id, secret) {
-        Some(_) => (
+        Ok(Some(_)) => (
             StatusCode::OK,
             Json(serde_json::json!({ "acknowledged": true })),
         )
             .into_response(),
-        None => (
+        Ok(None) => (
             StatusCode::NOT_FOUND,
             "unknown request or secret, or not approved",
         )
             .into_response(),
+        Err(_) => join_storage_unavailable(),
     }
 }
 
@@ -996,6 +1316,8 @@ pub(crate) async fn approve_join_request_route(
             "that name already belongs to a member — request refused",
         )
             .into_response(),
+        crate::hub::Approve::NameRule(rule) => (StatusCode::CONFLICT, rule).into_response(),
+        crate::hub::Approve::NameWorn => (StatusCode::CONFLICT, NAME_WORN_RULE).into_response(),
         crate::hub::Approve::NoStock => (
             StatusCode::CONFLICT,
             "no admission stock — mint more with POST /admission-stock",
