@@ -20,6 +20,10 @@ services:
       REQUIRE_INVITE: "1"
       REQUIRE_SESSIONS: "1"
       DB_PATH: /data/agent-room.db
+      # SQLite's temporary files go to the data volume, not to /tmp: /tmp below
+      # is a 16 MB tmpfs, and the one-time VACUUM after an upgrade writes a
+      # temporary copy of the whole database (docs/backup-restore.md).
+      SQLITE_TMPDIR: /data
       PORT: "8787"
       BIND_ADDR: "0.0.0.0"
       RATE_LIMIT: "10"

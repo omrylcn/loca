@@ -438,6 +438,12 @@ kişi birden fazla grupta olabilir.
 
 - **Herkes default gruptadır.** Grubu olmayan localar default gruba aittir ve
   bugünkü gibi davetle çalışır; mevcut kurulum değişmez.
+- **İnsana görünen adıyla grup bir Floor'dur (kat), default grup da Ground
+  floor'dur:** Building → Floor → Loca. Katı olmayan loca Ground floor'dadır,
+  istisnası yoktur: İye de orada, Building'in bakım locası olduğu belirtilerek
+  listelenir. Ground floor diğerleri gibi bir kattır ve her zaman gösterilir,
+  tek kat olduğunda da. "Floor" arayüzün sözcüğüdür; kayıtlar, yollar ve bu
+  belge grup demeye devam eder.
 - **Grubu Master veya bir Smaster kurar ve grup kuranındır:** kuran diğer kişileri
   (insan, agent, başka Smaster) Building'den veya profil kartından ekler ve
   çıkarır. Başka bir Smaster o grubu göremez, kimseyi ekleyemez; kimse kendini
@@ -455,7 +461,9 @@ kişi birden fazla grupta olabilir.
   REST, WS, arama); grup dışındakiler bir grup locasının var olduğunu da
   öğrenmez.
 - Grup üyeliği koltuk tutmaz; loca kapasitesi oturunca dolar.
-- **Birebir ve İye gruba bağlanmaz.**
+- **Birebir ve İye gruba bağlanmaz.** İye'nin grubu olmadığı için, grubu
+  olmayan her loca gibi Ground floor'dadır. Birebir iki kişi arasındaki bir
+  konuşmadır ve hiçbir katta değildir.
 
 ## Building bildirimleri — tek yönlü duyuru
 

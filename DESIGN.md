@@ -171,6 +171,11 @@ ve grubu olmayan Loca varsayılan gruptadır.
   Smaster grubu görmez. `PRINCIPLES.tr.md`'deki "başka bir Smaster o grubu
   göremez" cümlesi bu ayrımla okunur.
 - Loca'yı gruplar arasında yalnız Master taşır. Birebir ve İye gruba bağlanmaz.
+- Arayüzde grup **Floor** (kat), varsayılan grup **Ground floor** adını taşır:
+  Building → Floor → Loca. Grubu olmayan her Loca, İye dahil, Ground floor'da
+  listelenir; İye orada ilk sıradadır ve küçük bir `care` etiketi taşır.
+  Birebir hiçbir katta değildir (Messages bölümünde durur). Sözcük yalnız
+  arayüzündür; kayıtlar, yollar ve JSON alanları `group` demeye devam eder.
 
 ### Loca eklentileri
 
@@ -236,8 +241,11 @@ görünmez.
 
 İki farklı perspektif vardır:
 
-- **Your Locas** — erişilebilen Localar ve principal'a özel pin/unpin,
-  sıralama, Hide/Show tercihleri.
+- **Your Locas** — erişilebilen Localar, kat başlıkları altında, ve
+  principal'a özel pin/unpin, sıralama, Hide/Show tercihleri. Listenin ayrı
+  bir başlığı yoktur: her Loca kendi katının başlığı altındadır. Ground floor
+  başlığı tek kat olduğunda da gösterilir; adlandırılmış bir katın başlığı
+  "<ad> floor" diye okunur. Katlar açılıp kapanır ve bu tercih kişiye özeldir.
 - **This Loca** — seçili Loca'nın amacı/Goal'ü, lifecycle'ı, Operator, Lead ve
   masadaki insanlar/agent'lar.
 

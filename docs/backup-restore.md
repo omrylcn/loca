@@ -177,7 +177,14 @@ earlier build starts on it, an unreleased development build included.
    from step 1. `VACUUM` also writes a temporary copy of the database to
    SQLite's temporary directory (`SQLITE_TMPDIR`, else `TMPDIR`, else
    `/var/tmp` or `/tmp`), so that directory needs room for one more copy;
-   the migrations themselves keep their temporary data in memory. Measured
+   the migrations themselves keep their temporary data in memory. The
+   shipped `docker-compose.yml` sets `SQLITE_TMPDIR=/data`, the data volume,
+   because the container's `/tmp` is a 16 MB tmpfs. **If you run a compose
+   file from before v0.14.0, or your own, set `SQLITE_TMPDIR` to a directory
+   on the data volume before you start v0.14.0:** otherwise a database larger
+   than that tmpfs stops the start with `database or disk is full` and the
+   container restarts in a loop (seen on a 249 MB database; nothing was
+   lost, and it started once the variable was set). Measured
    once on one machine: a database of 68 MB (2,000 members, 5,000 invites,
    200,000 messages) started in under 3 seconds, its files peaked at about
    twice its size and ended at 53 MB.
