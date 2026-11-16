@@ -1766,5 +1766,7 @@ mod sessions;
 mod suspension;
 #[path = "ws/upgrade.rs"]
 mod upgrade;
+#[path = "ws/vault.rs"]
+mod vault;
 #[path = "ws/work.rs"]
 mod work;

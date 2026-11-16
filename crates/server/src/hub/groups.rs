@@ -1189,7 +1189,7 @@ impl Hub {
     }
 
     /// The single active principal wearing this display name, if any.
-    fn principal_named(&self, name: &str) -> Option<String> {
+    pub(in crate::hub) fn principal_named(&self, name: &str) -> Option<String> {
         match self.store.active_principals_named(name) {
             Ok(list) if list.len() == 1 => Some(list[0].id.clone()),
             _ => None,

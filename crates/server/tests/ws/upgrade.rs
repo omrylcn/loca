@@ -167,7 +167,8 @@ fn load() -> Fixture {
 /// Every field v0.13.0 answered is still answered, with the same value.
 /// Fields this build adds are allowed. Several lists come out of hash maps,
 /// so a list of plain values is compared as a set, and a list of records
-/// keyed by a text `id` or by `name` is matched by that key. A list of
+/// keyed by a text `id` or by `name` is matched by that key (the extension
+/// catalog may hold entries v0.13.0 did not have). A list of
 /// records with a numeric `id` (messages, Journal lines, tasks, ...) is a
 /// sequence and is compared in order, as is any other list.
 fn assert_still_answers(expected: &Value, actual: &Value, at: &str, ignored: &[&str]) {
@@ -184,7 +185,14 @@ fn assert_still_answers(expected: &Value, actual: &Value, at: &str, ignored: &[&
             }
         }
         (Value::Array(expected), Value::Array(actual)) => {
-            assert_eq!(expected.len(), actual.len(), "{at}: {actual:?}");
+            // The extension catalog grows (the Vault came after v0.13.0):
+            // every entry v0.13.0 listed must still be there, matched by id
+            // below; a new one is allowed. Every other list keeps its length.
+            if at.ends_with(".catalog") {
+                assert!(expected.len() <= actual.len(), "{at}: {actual:?}");
+            } else {
+                assert_eq!(expected.len(), actual.len(), "{at}: {actual:?}");
+            }
             if expected
                 .iter()
                 .all(|value| !value.is_object() && !value.is_array())

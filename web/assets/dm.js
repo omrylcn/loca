@@ -24,12 +24,13 @@ function dmPeerCard(b) {
   }) : null;
 }
 
-// What the header and lists call a room: a direct message by the other person.
+// What the header and lists call a room: a direct message by the other
+// person, a loca by its title when it has one (identity.js), else its id.
 function roomLabel(room) {
   if (!room) return "—";
   const b = dmOf(room);
   if (b) return b.peer;
-  return isDm(room) ? "private" : room;
+  return isDm(room) ? "private" : locaTitle(room) || room;
 }
 
 async function fetchDms() {

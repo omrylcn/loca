@@ -615,7 +615,7 @@ function renderRooms() {
     const care = isRankHome(rm.room)
       ? `<span class="caretag" title="The Building's care loca: the Master, Smasters and caretakers only">care</span>`
       : "";
-    el.innerHTML = `<div class="rrow">${locaMarkHtml(rm)}<span class="rname" title="${esc(locaRowTitle(rm))}">${esc(rm.room)}</span>${care}${pres}</div>` +
+    el.innerHTML = `<div class="rrow">${locaMarkHtml(rm)}<span class="rname" title="${esc(locaRowTitle(rm))}">${esc(locaName(rm.room))}</span>${care}${pres}</div>` +
       (rm.last || badge ? `<div class="rlastrow"><div class="rlast">${esc(rm.last || "")}</div>${badge}</div>` : "");
     // The room list is only visible after identity resolution. Moving
     // between locas is navigation, not a new login: re-reading an autofilled
@@ -639,11 +639,15 @@ function renderRooms() {
     // owner's rule: no exception). It is listed first there.
     const home = ground.rooms.find(rm => isRankHome(rm.room));
     if (home) ground.rooms = [home, ...ground.rooms.filter(rm => rm !== home)];
+    // With one floor in sight there is nothing to fold away: closing it would
+    // hide every loca behind one stray click. It stays open, whatever was
+    // stored, and its heading does not close it.
+    const only = [ground, ...named].filter(floor => floor.rooms.length).length === 1;
     for (const floor of [ground, ...named]) {
       if (!floor.rooms.length) continue;   // no loca of it listed here
-      const collapsed = prefs.collapsed.includes(floor.key);
+      const collapsed = !only && prefs.collapsed.includes(floor.key);
       const details = document.createElement("details");
-      details.className = "floor";
+      details.className = "floor" + (only ? " onlyfloor" : "");
       details.dataset.floor = floor.key;
       details.open = !collapsed;
       const head = document.createElement("summary");
@@ -655,12 +659,13 @@ function renderRooms() {
       head.innerHTML = `${typeof GROUP_ICON === "string" ? GROUP_ICON : ""}` +
         `<span class="rgroupname" title="${esc(floor.name)}">${esc(floor.name)}</span>${badge}` +
         `<span class="rgroupcount" aria-label="${floor.rooms.length} locas">${floor.rooms.length}</span>`;
-      // The loca one is in stays in sight under a closed floor (drawn just
-      // after it, below).
-      const here = collapsed ? floor.rooms.find(rm => rm.room === state.room) : null;
-      details.append(head, ...floor.rooms.filter(rm => rm !== here).map(roomItem));
+      // A closed floor is closed: its heading, its count and its unread
+      // badge, and no loca of it (the owner's rule: no row left standing).
+      details.append(head, ...floor.rooms.map(roomItem));
       // Open or closed is this viewer's own (kept with the sidebar order).
+      if (only) head.addEventListener("click", event => event.preventDefault());
       details.addEventListener("toggle", () => {
+        if (only) return;
         if (details.open === !loadRoomPreferences().collapsed.includes(floor.key)) return;
         const focused = document.activeElement === head;
         setFloorCollapsed(floor.key, !details.open);
@@ -669,23 +674,6 @@ function renderRooms() {
           .find(d => d.dataset.floor === floor.key)?.querySelector("summary")?.focus();
       });
       list.appendChild(details);
-      if (here) {
-        const kept = roomItem(here);
-        kept.classList.add("floorkept");
-        list.appendChild(kept);
-      }
-      // A closed floor says so in words: without this line the one loca kept
-      // in sight reads as the whole floor.
-      const hidden = collapsed ? floor.rooms.length - (here ? 1 : 0) : 0;
-      if (hidden) {
-        const more = document.createElement("button");
-        more.type = "button";
-        more.className = "floormore";
-        more.dataset.floorMore = floor.key;
-        more.textContent = here ? `+ ${hidden} more on this floor` : `Show ${hidden} loca${hidden === 1 ? "" : "s"}`;
-        more.addEventListener("click", () => { setFloorCollapsed(floor.key, false); renderRooms(); });
-        list.appendChild(more);
-      }
     }
   }
   renderHiddenRooms();

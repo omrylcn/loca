@@ -212,7 +212,10 @@ pub struct RoomSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<String>,
     /// The loca's identity, for the sidebar entry and its tooltip (see
-    /// [`RoomSettings::description`]). Absent when unset.
+    /// [`RoomSettings::title`], [`RoomSettings::description`]). Absent when
+    /// unset; `room` stays the loca's id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -342,6 +345,12 @@ pub struct RoomSettings {
     // ---- The loca's identity (PRINCIPLES "A loca's identity"). Core, not an
     // extension; all optional, so a loca saved before they existed, and a
     // client that does not know them, are unaffected. A direct message has none.
+    /// What people see as this loca's name: a short plain-text title. Absent:
+    /// the id is shown, exactly as before. Display only: the id stays the
+    /// loca's address (routes, invites, the kit's keys), and a title grants
+    /// nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// What this loca is for: one short plain-text paragraph.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -358,6 +367,12 @@ pub struct RoomSettings {
     /// Short free-text labels. A label grants nothing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<String>,
+    /// The revision of the loca's Vault rules ([`VaultDoc::rev`]), written
+    /// by the server with each Vault revision; absent until the first. An
+    /// agent that reads settings compares it with the revision it last read.
+    /// No client sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_rev: Option<u64>,
 }
 
 /// The icons a loca may wear: a closed list, drawn by the clients. Distinct
@@ -471,6 +486,16 @@ pub const EXTENSIONS: &[ExtensionSpec] = &[
         routes: &[],
         frames: &[],
     },
+    ExtensionSpec {
+        id: "vault",
+        name: "Vault",
+        tab: Some("Vault"),
+        summary: "The loca's working rules, written by those who run it.",
+        default_on_new: false,
+        tab_key: Some("vault"),
+        routes: &["vault"],
+        frames: &["vault"],
+    },
 ];
 
 /// What a loca without an `extensions` field has: every extension that
@@ -571,11 +596,13 @@ impl Default for RoomSettings {
             care_task_secs: 0,
             care_silence_secs: 0,
             extensions: None,
+            title: None,
             description: None,
             seats: None,
             icon: None,
             color: None,
             labels: Vec::new(),
+            vault_rev: None,
         }
     }
 }
@@ -628,6 +655,8 @@ pub struct SetSettings {
     /// whoever may change the loca's extensions; `""` (or `[]` for labels)
     /// clears a field. Journaled like an extension change.
     #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
     pub seats: Option<u32>,
@@ -642,7 +671,8 @@ pub struct SetSettings {
 impl SetSettings {
     /// Whether the body touches the loca's identity.
     pub fn has_identity(&self) -> bool {
-        self.description.is_some()
+        self.title.is_some()
+            || self.description.is_some()
             || self.seats.is_some()
             || self.icon.is_some()
             || self.color.is_some()
@@ -815,6 +845,23 @@ pub struct JournalEntry {
     pub at: u64,
 }
 
+/// A loca's rules document in its Vault (PRINCIPLES "Vault"): one plain
+/// text, written only by those who run the loca and read by everyone seated
+/// there. It informs; it grants nothing. The server stores it and never
+/// interprets it. Every write is a new revision; older ones are kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VaultDoc {
+    pub room: String,
+    /// 0 while nothing has been written.
+    pub rev: u64,
+    pub body: String,
+    /// Who wrote this revision (the server derives it). Absent at rev 0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<u64>,
+}
+
 /// What an agent sends to record a piece of finished work.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateJournalEntry {
@@ -839,6 +886,13 @@ pub struct Task {
     pub from_message: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assigned_to: Option<String>,
+    /// The principal the server verified for `assigned_to` when the task was
+    /// given to them (or when they took it). A rename, or someone else later
+    /// wearing that name, does not move the task. Absent where nobody was
+    /// verified (the open sandbox, a name no single person wears, older
+    /// rows); older clients ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assigned_principal: Option<String>,
     pub status: TaskStatus,
     pub created_at: u64,
     /// Last explicit task-state change. Ordinary room chat is not progress.
@@ -1355,6 +1409,15 @@ pub enum ServerFrame {
     /// A new journal line landed.
     Journal {
         entry: JournalEntry,
+    },
+    /// The loca's Vault rules have a new revision. Carries no text: a client
+    /// reads `GET /rooms/:id/vault`. Sent on every filter, so an agent learns
+    /// of the change without a model turn.
+    Vault {
+        room: String,
+        rev: u64,
+        updated_by: String,
+        updated_at: u64,
     },
     Task {
         task: Task,

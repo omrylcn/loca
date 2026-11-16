@@ -38,12 +38,14 @@ mod operators;
 mod preferences;
 mod profile_card;
 mod rooms;
+mod vault;
 mod wiki;
 mod wiki_context;
 mod wiki_maintenance;
 mod work;
 pub use preferences::{PreferenceError, Preferences};
 pub use profile_card::{CardPatch, ProfileCard, ProfileCardError};
+pub use vault::VaultRevision;
 pub use wiki::{
     WikiCommit, WikiError, WikiPageEdit, WikiPageRemoval, WikiPageSnapshot, WikiSnapshot,
 };
@@ -701,6 +703,8 @@ impl Store {
         conn.execute_batch(groups::SCHEMA)?;
         // Notifications (docs/concepts.md "Notifications"): new tables only.
         conn.execute_batch(notifications::SCHEMA)?;
+        // The Vault's rules (PRINCIPLES "Vault"): a new table only.
+        conn.execute_batch(vault::SCHEMA)?;
         // The Smaster registry. A database written by v0.13.0 or earlier
         // already has an older `smasters` table holding the codes in clear
         // text; this is then a no-op and `migrate_smaster_codes` below
@@ -788,6 +792,10 @@ impl Store {
             "UPDATE tasks SET progress_at = created_at WHERE progress_at = 0",
             [],
         )?;
+        // Who a task was given to, as the verified principal behind the name
+        // (`Task::assigned_principal`). NULL on every older row: nothing is
+        // inferred from a name that someone else may wear today.
+        add_column(&conn, "tasks", "assigned_principal TEXT")?;
         add_column(&conn, "goals", "progress_at INTEGER NOT NULL DEFAULT 0")?;
         add_column(&conn, "goals", "checkpoint TEXT")?;
         add_column(&conn, "goals", "stale_after_secs INTEGER")?;

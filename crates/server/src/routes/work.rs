@@ -1,5 +1,18 @@
 use crate::*;
 
+/// The principal the server verified for this caller: its session's, else
+/// the one its key resolves to. None where nothing is verified (the open
+/// sandbox, a claimed name); task assignment then falls back to the name.
+fn caller_principal(hub: &Hub, headers: &HeaderMap) -> Option<String> {
+    let session = session_of(headers);
+    hub.session_identity(session)
+        .and_then(|identity| identity.principal_id)
+        .or_else(|| {
+            hub.resolve_authority(admin_token_of(headers), session)
+                .principal_id
+        })
+}
+
 pub(crate) async fn list_tasks(State(hub): State<Hub>, access: RoomAccess) -> impl IntoResponse {
     Json(hub.tasks(&access.room))
 }
@@ -33,7 +46,8 @@ pub(crate) async fn create_task(
             .into_response();
     }
     body.by = by;
-    match hub.create_task(&id, body) {
+    let by_principal = caller_principal(&hub, &headers);
+    match hub.create_task(&id, body, by_principal.as_deref()) {
         Ok(task) => (StatusCode::CREATED, Json(task)).into_response(),
         Err(_) => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -60,7 +74,8 @@ pub(crate) async fn update_task(
     let is_op = is_admin_req(&hub, &headers)
         || hub.is_loca_operator(&id, admin_token_of(&headers), session_of(&headers), &by);
     body.by = by;
-    match hub.update_task(&id, tid, body, is_op) {
+    let by_principal = caller_principal(&hub, &headers);
+    match hub.update_task(&id, tid, body, is_op, by_principal.as_deref()) {
         Ok(t) => (StatusCode::OK, Json(t)).into_response(),
         Err(TaskError::NotFound) => (StatusCode::NOT_FOUND, "no such task").into_response(),
         Err(TaskError::Forbidden) => (

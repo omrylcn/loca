@@ -1,15 +1,21 @@
-//! A loca's identity (PRINCIPLES "A loca's identity"): what it is for (a
-//! description), its own number of seats, an icon and a colour from closed
+//! A loca's identity (PRINCIPLES "A loca's identity"): a title people see in
+//! place of its id, what it is for (a description), its own number of seats, an icon and a colour from closed
 //! lists, and a few labels. It is core, not an extension, and lives in
 //! `RoomSettings` beside the extension set. Whoever may change the loca's
 //! extensions changes it; everyone who may enter reads it; a direct message has none.
 //! Every change is written to the loca's Journal with who made it.
+//!
+//! The title is display only. The id the loca was opened with stays its
+//! address everywhere (routes, invites, the kit's keys, `ROOM_RENAME`), so a
+//! title change moves nothing and grants nothing.
 
 use protocol::{RoomSettings, SenderType, ServerFrame, LOCA_COLORS, LOCA_ICONS};
 
 use super::Hub;
 use crate::sync::RecoverMutex;
 
+/// A title is a short name for a sidebar row and a header.
+pub const TITLE_MAX_CHARS: usize = 64;
 /// A description is one short paragraph.
 pub const DESCRIPTION_MAX_CHARS: usize = 280;
 /// At most this many labels, each at most this long.
@@ -44,6 +50,9 @@ pub enum IdentityError {
         held: usize,
         wanted: u32,
     },
+    /// Another loca the caller can see is already called that (its id or
+    /// its title, compared without letter case).
+    TitleTaken,
     /// A direct message is conversation; it has no identity fields.
     Dm,
     /// The loca is closed (read-only) or sealed.
@@ -59,7 +68,10 @@ impl IdentityError {
                 "{held} seats are held in this loca right now; it cannot have fewer than that \
                  (asked for {wanted})"
             ),
-            Self::Dm => "a birebir has no description, seats, icon, colour or labels".into(),
+            Self::TitleTaken => "another loca you can see is already called that (by its id or \
+                                 its title); choose another title"
+                .into(),
+            Self::Dm => "a birebir has no title, description, seats, icon, colour or labels".into(),
             Self::NotWritable => "this loca is closed — read-only".into(),
             Self::Storage => "could not save the loca's identity — try again".into(),
         }
@@ -70,6 +82,7 @@ impl IdentityError {
 /// text (or an empty label list) clears it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IdentityEdit {
+    pub title: Option<String>,
     pub description: Option<String>,
     pub seats: Option<u32>,
     pub icon: Option<String>,
@@ -81,8 +94,9 @@ pub struct IdentityEdit {
 /// breaks and tabs included), the Unicode line and paragraph separators, and
 /// the invisible formatting characters (zero-width, direction overrides,
 /// joiners, the byte-order mark, tag characters). Emoji variation selectors
-/// are allowed (they draw nothing on their own).
-fn hidden_or_breaking(c: char) -> bool {
+/// are allowed (they draw nothing on their own). The Vault uses it too,
+/// allowing line breaks.
+pub(super) fn hidden_or_breaking(c: char) -> bool {
     c.is_control()
         || matches!(
             c,
@@ -146,6 +160,11 @@ pub struct SeatNumbers {
 /// labels deduplicated without regard to case (the first spelling stays).
 /// `ceiling` is the most seats a loca's own number may reach.
 pub fn validated(edit: &IdentityEdit, ceiling: usize) -> Result<IdentityEdit, IdentityError> {
+    let title = edit
+        .title
+        .as_deref()
+        .map(|text| plain_text(text, "the title", TITLE_MAX_CHARS))
+        .transpose()?;
     let description = edit
         .description
         .as_deref()
@@ -209,6 +228,7 @@ pub fn validated(edit: &IdentityEdit, ceiling: usize) -> Result<IdentityEdit, Id
         }
     };
     Ok(IdentityEdit {
+        title,
         description,
         seats: edit.seats,
         icon,
@@ -220,6 +240,9 @@ pub fn validated(edit: &IdentityEdit, ceiling: usize) -> Result<IdentityEdit, Id
 /// Write an already validated edit into `settings`.
 pub fn apply(settings: &mut RoomSettings, edit: &IdentityEdit) {
     let text = |value: &Option<String>| value.clone().filter(|v| !v.is_empty());
+    if edit.title.is_some() {
+        settings.title = text(&edit.title);
+    }
     if edit.description.is_some() {
         settings.description = text(&edit.description);
     }
@@ -270,6 +293,12 @@ pub fn change_line(
     numbers: SeatNumbers,
 ) -> Option<String> {
     let mut parts = Vec::new();
+    if before.title != after.title {
+        parts.push(match &after.title {
+            Some(title) => format!("title \"{title}\""),
+            None => "title removed".into(),
+        });
+    }
     match (&before.description, &after.description) {
         (None, Some(_)) => parts.push("description set".to_string()),
         (Some(_), None) => parts.push("description removed".to_string()),
@@ -383,12 +412,18 @@ impl Hub {
     /// held now: the live invites (an invite IS a seat) and the people sitting
     /// at the table, whichever is more. The setting and its Journal line are
     /// one write.
+    ///
+    /// `sees` says which other locas the caller may enter: a title is refused
+    /// when it equals, without letter case, the id or the title of one of
+    /// them. Locas the caller cannot see are not compared, so the refusal
+    /// tells nobody a hidden loca's name; direct messages are never compared.
     pub fn edit_identity(
         &self,
         room: &str,
         edit: &IdentityEdit,
         by: &str,
         by_type: SenderType,
+        sees: impl Fn(&str) -> bool,
     ) -> Result<RoomSettings, IdentityError> {
         if self.is_dm(room) || room.starts_with(Self::DM_PREFIX) {
             return Err(IdentityError::Dm);
@@ -398,11 +433,39 @@ impl Hub {
         if !self.is_writable(room) {
             return Err(IdentityError::NotWritable);
         }
+        // Decided before the rooms lock below: `sees` asks the door, which
+        // takes that lock itself (as in `room_summaries_for`).
+        let seen: Vec<String> = match edit.title.as_deref() {
+            Some(title) if !title.is_empty() => {
+                let names: Vec<String> = self.rooms.lock_or_recover().keys().cloned().collect();
+                names
+                    .into_iter()
+                    .filter(|name| {
+                        name != room && !name.starts_with(Self::DM_PREFIX) && !self.is_dm(name)
+                    })
+                    .filter(|name| sees(name))
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
         // Under the invite lock: no invite is minted between counting the
         // seats held and lowering the number (the mint counts under it too).
         let _lifecycle = self.member_lifecycle.lock_or_recover();
         let invites = self.invite_count(room);
         let mut rooms = self.rooms.lock_or_recover();
+        if let Some(title) = edit.title.as_deref().filter(|t| !t.is_empty()) {
+            let folded = title.to_lowercase();
+            let taken = seen.iter().any(|name| {
+                name.to_lowercase() == folded
+                    || rooms
+                        .get(name)
+                        .and_then(|other| other.settings.title.as_deref())
+                        .is_some_and(|other| other.to_lowercase() == folded)
+            });
+            if taken {
+                return Err(IdentityError::TitleTaken);
+            }
+        }
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
         if let Some(wanted) = edit.seats {
             let held = invites.max(r.members.len());
@@ -449,6 +512,72 @@ mod tests {
 
     fn edit() -> IdentityEdit {
         IdentityEdit::default()
+    }
+
+    #[test]
+    fn a_title_is_short_plain_text_and_empty_shows_the_id() {
+        let title = |text: &str| {
+            validated(
+                &IdentityEdit {
+                    title: Some(text.into()),
+                    ..edit()
+                },
+                7,
+            )
+        };
+        assert_eq!(
+            title("  Release 15  ").unwrap().title.as_deref(),
+            Some("Release 15")
+        );
+        // Exactly the cap, counted in characters, not bytes.
+        assert!(title(&"ş".repeat(TITLE_MAX_CHARS)).is_ok());
+        assert!(title(&"ş".repeat(TITLE_MAX_CHARS + 1))
+            .unwrap_err()
+            .message()
+            .contains("at most 64"));
+        for bad in [
+            "two\nlines",
+            "a\ttab",
+            "zero\u{200B}width",
+            "right\u{202E}left",
+        ] {
+            assert!(
+                title(bad)
+                    .unwrap_err()
+                    .message()
+                    .contains("plain text on one line"),
+                "{bad:?}"
+            );
+        }
+        // Empty (or only spaces) clears it: the loca shows its id again.
+        let mut s = RoomSettings {
+            title: Some("Release 15".into()),
+            ..RoomSettings::default()
+        };
+        apply(&mut s, &title("   ").unwrap());
+        assert_eq!(s.title, None);
+        // An edit that does not name the title leaves it as it is.
+        let mut s = RoomSettings {
+            title: Some("Release 15".into()),
+            ..RoomSettings::default()
+        };
+        apply(
+            &mut s,
+            &validated(
+                &IdentityEdit {
+                    description: Some("x".into()),
+                    ..edit()
+                },
+                7,
+            )
+            .unwrap(),
+        );
+        assert_eq!(s.title.as_deref(), Some("Release 15"));
+        // A title is never serialized when unset, so an older client sees
+        // exactly what it saw.
+        assert!(!serde_json::to_string(&RoomSettings::default())
+            .unwrap()
+            .contains("title"));
     }
 
     #[test]
@@ -695,6 +824,32 @@ mod tests {
         );
         assert_eq!(change_line(&after, &after, N), None);
         assert_eq!(opened_line(&before, N), None);
+    }
+
+    #[test]
+    fn journal_lines_name_the_title() {
+        let plain = RoomSettings::default();
+        let titled = RoomSettings {
+            title: Some("Release 15".into()),
+            ..RoomSettings::default()
+        };
+        let retitled = RoomSettings {
+            title: Some("Care".into()),
+            ..RoomSettings::default()
+        };
+        assert_eq!(
+            change_line(&plain, &titled, N).unwrap(),
+            "identity: title \"Release 15\""
+        );
+        assert_eq!(
+            change_line(&titled, &retitled, N).unwrap(),
+            "identity: title \"Care\""
+        );
+        assert_eq!(
+            change_line(&titled, &plain, N).unwrap(),
+            "identity: title removed"
+        );
+        assert_eq!(change_line(&titled, &titled, N), None);
     }
 
     #[test]

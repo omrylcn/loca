@@ -522,7 +522,8 @@ function roleTagsFor(name, writer) {
   const isLead = state.settings?.lead === name;
   return rankBadge(rank)
     + (isOperator ? `<span class="optag" title="appointed loca operator">operator</span>` : "")
-    + (isLead ? `<span class="leadtag" title="loca lead">lead</span>` : "");
+    + (isLead ? `<span class="leadtag" title="loca lead">lead</span>` : "")
+    + (typeof taskBadgeFor === "function" ? taskBadgeFor(name, writer) : "");
 }
 
 // The operator and lead of a loca arrive after its history is drawn (and can

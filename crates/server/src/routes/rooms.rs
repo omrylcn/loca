@@ -45,7 +45,10 @@ pub(crate) async fn create_loca_route(
     };
     let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
     let group = body.group.as_deref().filter(|g| !g.is_empty());
+    // A title is given later, from the loca's identity panel; a new loca
+    // shows its id.
     let identity = hub::IdentityEdit {
+        title: None,
         description: body.description,
         seats: body.seats,
         icon: body.icon,
@@ -418,7 +421,8 @@ fn set_identity(
     if body.has_other() {
         return (
             StatusCode::BAD_REQUEST,
-            "send the loca's identity (description, seats, icon, color, labels) on its own,              without other settings",
+            "send the loca's identity (title, description, seats, icon, color, labels) on its \
+             own, without other settings",
         )
             .into_response();
     }
@@ -433,6 +437,7 @@ fn set_identity(
             .into_response();
     }
     let edit = hub::IdentityEdit {
+        title: body.title,
         description: body.description,
         seats: body.seats,
         icon: body.icon,
@@ -440,12 +445,14 @@ fn set_identity(
         labels: body.labels,
     };
     let (by, by_type) = super::extensions::journal_actor(hub, headers);
-    match hub.edit_identity(room, &edit, &by, by_type) {
+    let sees = |other: &str| room_decision_of(hub, other, headers).is_allowed();
+    match hub.edit_identity(room, &edit, &by, by_type, sees) {
         Ok(settings) => (StatusCode::OK, Json(settings)).into_response(),
         Err(error) => {
             let status = match error {
                 hub::IdentityError::Invalid(_) => StatusCode::BAD_REQUEST,
                 hub::IdentityError::SeatsHeld { .. } => StatusCode::CONFLICT,
+                hub::IdentityError::TitleTaken => StatusCode::CONFLICT,
                 hub::IdentityError::Dm => StatusCode::FORBIDDEN,
                 hub::IdentityError::NotWritable => StatusCode::CONFLICT,
                 hub::IdentityError::Storage => StatusCode::SERVICE_UNAVAILABLE,

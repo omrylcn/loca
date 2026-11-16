@@ -526,6 +526,9 @@ $("clearBtn").onclick = () => { revokeInlineAttachmentUrls(); $("feed").innerHTM
 $("tabChat").onclick = () => switchTab("chat");
 $("tabNotes").onclick = () => switchTab("notes");
 $("tabWiki").onclick = () => switchTab("wiki");
+$("tabVault").onclick = () => switchTab("vault");
+$("vaultSave").onclick = saveVault;
+$("vaultText").oninput = () => { $("vaultText").dataset.dirty = "1"; };
 $("wikiRefresh").onclick = fetchWiki;
 $("wikiEditor").onchange = configureWiki;
 $("wikiSettingsToggle").onclick = () => toggleWikiSettings();

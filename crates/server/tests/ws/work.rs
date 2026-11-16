@@ -116,6 +116,127 @@ async fn task_lifecycle_and_operator_authority() {
     assert_eq!(re["status"], "open");
 }
 
+/// Giving a task to an agent wakes that agent once, through the one
+/// announcement addressed to it (the `set_lead` path); nobody else is woken,
+/// and the agent's own take and finish wake nobody.
+#[tokio::test]
+async fn an_assigned_task_wakes_its_assignee_once_and_nobody_else() {
+    let (port, _guard) = spawn_server_with("bigmaster").await;
+    create_test_room(port, "bigmaster", "proj").await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    client
+        .put(format!("{base}/rooms/proj/settings"))
+        .header("x-admin-token", "bigmaster")
+        .json(&serde_json::json!({ "operators": ["alt-op"] }))
+        .send()
+        .await
+        .unwrap();
+    let mut worker = connect_agent_mentions(port, "proj", "worker").await;
+    let mut bystander = connect_agent_mentions(port, "proj", "bystander").await;
+    wait_for(&mut worker, |frame| frame["t"] == "memory").await;
+    wait_for(&mut bystander, |frame| frame["t"] == "memory").await;
+
+    // The title names the bystander; the line that wakes the worker does not.
+    let task: Value = client
+        .post(format!("{base}/rooms/proj/tasks"))
+        .json(&serde_json::json!({
+            "title": "ask @bystander about the login bug", "by": "alt-op", "assigned_to": "worker"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let tid = task["id"].as_u64().unwrap();
+    let wake = wait_for(&mut worker, |frame| frame["t"] == "msg").await;
+    assert_eq!(wake["message"]["kind"], "announce");
+    assert_eq!(wake["message"]["target"], "worker");
+    assert_eq!(
+        wake["message"]["text"],
+        format!("alt-op assigned task #{tid} to @worker.")
+    );
+
+    for status in ["taken", "done"] {
+        let r = client
+            .patch(format!("{base}/rooms/proj/tasks/{tid}"))
+            .json(&serde_json::json!({ "status": status, "by": "worker" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 200);
+    }
+    for (name, socket) in [("worker", &mut worker), ("bystander", &mut bystander)] {
+        while let Ok(Some(Ok(WsMessage::Text(text)))) =
+            tokio::time::timeout(Duration::from_millis(300), socket.next()).await
+        {
+            let frame: Value = serde_json::from_str(&text).unwrap();
+            assert!(
+                frame["t"] != "msg" && frame["t"] != "turn",
+                "{name} was woken again: {frame}"
+            );
+        }
+    }
+}
+
+/// The task routes record the principal a task was given to, and a request
+/// that only claims the assignee's name in its body is not that principal.
+#[tokio::test]
+async fn a_task_is_bound_to_the_assignees_principal_not_to_a_claimed_name() {
+    // Principals live in the database: a memory-only server verifies nobody.
+    let directory = tempfile::tempdir().unwrap();
+    let db = directory.path().join("tasks.db");
+    let (port, _guard) =
+        spawn_server_env("bigmaster", &[("DB_PATH", db.to_str().unwrap().into())]).await;
+    create_test_room(port, "bigmaster", "proj").await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let invite = invite_for(&base, "bigmaster", "proj", "ada").await;
+    let session = session_with(&base, ("x-room-token", &invite), "ada", Some("proj")).await;
+    let task: Value = client
+        .post(format!("{base}/rooms/proj/tasks"))
+        .header("x-admin-token", "bigmaster")
+        .json(&serde_json::json!({ "title": "review the patch", "by": "x", "assigned_to": "ada" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let tid = task["id"].as_u64().unwrap();
+    let principal = task["assigned_principal"]
+        .as_str()
+        .expect("the server records who the task was given to")
+        .to_string();
+
+    // A body that claims "ada" without proving it is refused and changes nothing.
+    let claimed = client
+        .patch(format!("{base}/rooms/proj/tasks/{tid}"))
+        .json(&serde_json::json!({ "status": "taken", "by": "ada" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(claimed.status(), 403);
+    let tasks = get_json(&client, format!("{base}/rooms/proj/tasks")).await;
+    assert_eq!(tasks[0]["status"], "open");
+
+    // Ada, with the session her own invite opened, takes it.
+    let taken: Value = client
+        .patch(format!("{base}/rooms/proj/tasks/{tid}"))
+        .header("x-room-token", &invite)
+        .header("x-session-token", &session)
+        .json(&serde_json::json!({ "status": "taken", "by": "anyone" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(taken["status"], "taken");
+    assert_eq!(taken["assigned_principal"], principal.as_str());
+}
+
 #[tokio::test]
 async fn one_active_goal_can_close_when_its_explicit_task_set_is_done() {
     let (port, _guard) = spawn_server_with("bigmaster").await;

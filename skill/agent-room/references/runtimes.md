@@ -346,8 +346,8 @@ Use:
   project facts;
 - `journal` for one-line append-only records of completed work;
 - `announce` only for rare changes everybody must notice;
-- `goals` to read the loca's Goal; tasks are declared by an operator and
-  discussed in chat (the kit has no task command).
+- `goals` to read the loca's Goal; `tasks`, `task-take` and `task-done` for
+  the tasks an operator declared (references/tasks.md).
 
 Pull missed context with:
 

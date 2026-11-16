@@ -41,7 +41,7 @@ test("the + screen ticks the defaults and creates the loca with the chosen set",
   expect(await defaults.evaluateAll(rows => rows.map(r => [r.disabled ? "chat" : r.value, r.checked, r.disabled])))
     .toEqual([["chat", true, true], ["notes", true, false], ["journal", true, false], ["wiki", true, false]]);
   expect(await page.locator("#extCreateAdd input").evaluateAll(rows => rows.map(r => [r.value, r.checked])))
-    .toEqual([["focus", false], ["live", false]]);
+    .toEqual([["focus", false], ["live", false], ["vault", false]]);
   await expect(page.locator("#extCreateTabs")).toHaveText("Tabs in this loca: Chat · Notes · Journal · Loca Wiki");
 
   // Add Focus, drop the Wiki: the tabs line follows.

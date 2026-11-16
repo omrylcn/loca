@@ -425,6 +425,7 @@ const WEB_FRAME_HANDLING = {
   notewarn: "handled", mode: "handled", settings: "handled", typing: "handled",
   task: "handled", goal: "handled", attention: "handled", wait: "handled",
   care: "handled", journal: "handled", mod: "handled", kicked: "handled", evicted: "handled",
+  vault: "handled",
   memoryversion: "ignored: a freshness checkpoint for runtimes that inject memory into a model",
   turn: "ignored: sent only on filter=mentions; the browser opens filter=all",
   caretaker: "ignored: never on the wire; the server delivers it as msg",
@@ -505,15 +506,19 @@ function onFrame(f, from) {
     // A new lead changes how every message by that name reads, so the
     // transcript has to be redrawn — the title is worn, not announced once.
     const leadChanged = state.settings?.lead !== f.settings?.lead;
+    // A new title is the loca's name in the sidebar entry too.
+    const titleChanged = (state.settings?.title || "") !== (f.settings?.title || "");
     state.settings = f.settings;
     markLocaContextReady("settings");
     renderSettings();
     if (leadChanged) { repaintFeed(); renderMembers(); fetchProfile(); }
+    if (titleChanged) renderRooms();
   }
   else if (f.t === "typing") { onTyping(f.name, f.on); }
   else if (f.t === "task") {
     state.tasks[f.task.id] = f.task;
     if (state.tab === "tasks") renderTasks(); else $("tasksDot").classList.add("on");
+    refreshTaskBadges();
   }
   else if (f.t === "goal") {
     const previous = state.goals[f.goal.id];
@@ -561,6 +566,7 @@ function onFrame(f, from) {
     if (state.tab === "journal") renderJournal();
   if (state.tab === "people") fetchPeople(); else $("journalDot").classList.add("on");
   }
+  else if (f.t === "vault") { onVaultFrame(f); }
   else if (f.t === "mod") { state.mod = f.state; renderMembers(); }
   else if (f.t === "evicted") { onEvicted(f, from); }
   else if (f.t === "kicked") {

@@ -92,6 +92,7 @@ const WEB_FOCUS: &str = include_str!("../../../web/assets/focus.js");
 const WEB_NOTES: &str = include_str!("../../../web/assets/notes.js");
 const WEB_MEMORY: &str = include_str!("../../../web/assets/memory.js");
 const WEB_WIKI: &str = include_str!("../../../web/assets/wiki.js");
+const WEB_VAULT: &str = include_str!("../../../web/assets/vault.js");
 const WEB_PROFILE: &str = include_str!("../../../web/assets/profile.js");
 const WEB_THEME: &str = include_str!("../../../web/assets/theme.js");
 const WEB_SIDEBAR: &str = include_str!("../../../web/assets/sidebar.js");
@@ -214,11 +215,13 @@ async fn main() {
         // what every loca had before extensions could be chosen.
         extensions: None,
         // A loca has no identity until someone gives it one.
+        title: None,
         description: None,
         seats: None,
         icon: None,
         color: None,
         labels: Vec::new(),
+        vault_rev: None,
     };
 
     // Boot epoch = process start time (seconds); changes every restart.
@@ -568,6 +571,8 @@ async fn main() {
             axum::routing::delete(revoke_invite),
         )
         .route("/rooms/:id/notes", get(get_notes).post(create_note))
+        .route("/rooms/:id/vault", get(get_vault).put(put_vault))
+        .route("/rooms/:id/vault/history", get(get_vault_history))
         .route("/rooms/:id/wiki", get(get_wiki))
         .route(
             "/rooms/:id/wiki/pages/:slug",
@@ -809,6 +814,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "notes.js" => Some(("text/javascript; charset=utf-8", WEB_NOTES)),
         "memory.js" => Some(("text/javascript; charset=utf-8", WEB_MEMORY)),
         "wiki.js" => Some(("text/javascript; charset=utf-8", WEB_WIKI)),
+        "vault.js" => Some(("text/javascript; charset=utf-8", WEB_VAULT)),
         "profile.js" => Some(("text/javascript; charset=utf-8", WEB_PROFILE)),
         "theme.js" => Some(("text/javascript; charset=utf-8", WEB_THEME)),
         "sidebar.js" => Some(("text/javascript; charset=utf-8", WEB_SIDEBAR)),
@@ -1690,6 +1696,10 @@ async fn ws_session(
                             ServerFrame::Msg { .. }
                                 | ServerFrame::Memory { .. }
                                 | ServerFrame::MemoryVersion { .. }
+                                // The Vault changed: a revision number, no
+                                // text. It never enters a turn; the agent's
+                                // listener reads the rules when it needs them.
+                                | ServerFrame::Vault { .. }
                         )
                             || matches!(&frame, ServerFrame::Reaction { reaction } if reaction.owner == name)
                             || (filter == WsFilter::Mentions

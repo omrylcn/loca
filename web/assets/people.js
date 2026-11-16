@@ -266,6 +266,8 @@ function renderMembers() {
     // The title is worn wherever the name appears: it was named out loud, so it
     // should be visible at a glance rather than buried in settings.
     const leadTag = isLead ? ` <span class="leadtag" title="loca lead">lead</span>` : "";
+    // The task they hold here, tied to the principal verified for this seat.
+    const taskTag = typeof taskBadgeFor === "function" ? taskBadgeFor(m.name, m.principal_id || "") : "";
     // The lead title must be visible in the sidebar before the operator has to
     // open settings or read a badge: the seat itself wears a blue diamond.
     const glyph = isLead ? "◆" : (m.type === "agent" ? "*" : ".");
@@ -298,7 +300,7 @@ function renderMembers() {
     const dm = !isMe && !isDm(state.room)
       ? `<button type="button" class="dmbtn" data-dm="${esc(m.name)}" aria-label="Message ${esc(m.name)} privately" data-tip="Message ${esc(m.name)}" data-tip-detail="A private conversation: only the two of you see it.">${DM_ICON}</button>`
       : "";
-    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname"${cardOf(m)?.full_name ? ` title="${esc(cardOf(m).full_name)} (@${esc(m.name)})"` : ""}>${personLabelHtml(m.name, cardOf(m))}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}</span><span class="otag">${m.type}</span>${dm}${acts}`;
+    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname"${cardOf(m)?.full_name ? ` title="${esc(cardOf(m).full_name)} (@${esc(m.name)})"` : ""}>${personLabelHtml(m.name, cardOf(m))}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}${taskTag}</span><span class="otag">${m.type}</span>${dm}${acts}`;
     ol.appendChild(d);
   }
   if (!seated.length) ol.innerHTML = `<div class="omem" style="color:var(--muted)">nobody seated</div>`;
@@ -519,11 +521,12 @@ function whereHtml(locas, fallback) {
   if (locas && locas.length) {
     // A busy agent sits in many locas: show three, then "+N" with the rest
     // in its tooltip, so the column never spills into the next one.
+    // A loca shows its title; the id stays in the tooltip.
     const shown = locas.slice(0, 3).map(l =>
-      `<span class="locachip" title="seated in ${esc(l)}">#${esc(l)}</span>`).join("");
+      `<span class="locachip" title="seated in ${esc(locaName(l))}${locaTitle(l) ? ` (id: ${esc(l)})` : ""}">#${esc(locaName(l))}</span>`).join("");
     const rest = locas.slice(3);
     return shown + (rest.length
-      ? `<span class="locachip more" title="${esc(rest.map(l => "#" + l).join("\n"))}">+${rest.length}</span>` : "");
+      ? `<span class="locachip more" title="${esc(rest.map(l => "#" + locaName(l)).join("\n"))}">+${rest.length}</span>` : "");
   }
   return `<span class="pnowhere">${esc(fallback)}</span>`;
 }
