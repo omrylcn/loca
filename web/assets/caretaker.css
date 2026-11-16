@@ -1,0 +1,10 @@
+/* ── The caretaker's badge on its chat lines (chat.js roleTagsFor) ────────
+   Loaded after styles.css. The Building's caretaker wears "caretaker" in
+   every loca, beside the operator and lead tags and shaped like them, in
+   the Care colour (--iye) each theme defines. Not .caretag: that is the
+   small "care" mark on Care's sidebar entry. */
+.caretakertag { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: 9px;
+  font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--iye); border: 1px solid color-mix(in srgb, var(--iye) 60%, transparent);
+  background: color-mix(in srgb, var(--iye) 14%, transparent); }
+.caretakertag::before { content: "✦"; font-size: 8px; }

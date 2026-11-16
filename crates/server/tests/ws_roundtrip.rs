@@ -1742,6 +1742,8 @@ mod lead_tasks;
 mod lobby_delivery;
 #[path = "ws/loca_identity.rs"]
 mod loca_identity;
+#[path = "ws/loca_names.rs"]
+mod loca_names;
 #[path = "ws/member_keys.rs"]
 mod member_keys;
 #[path = "ws/membership.rs"]

@@ -82,6 +82,9 @@ const WEB_FAVICON: &str = include_str!("../../../web/assets/favicon.svg");
 const WEB_STYLES: &str = include_str!("../../../web/assets/styles.css");
 const WEB_PROFILE_STYLES: &str = include_str!("../../../web/assets/profile.css");
 const WEB_APPEARANCE_STYLES: &str = include_str!("../../../web/assets/appearance.css");
+const WEB_RANKS_STYLES: &str = include_str!("../../../web/assets/ranks.css");
+const WEB_CARETAKER_STYLES: &str = include_str!("../../../web/assets/caretaker.css");
+const WEB_FLOORS_STYLES: &str = include_str!("../../../web/assets/floors.css");
 const WEB_AVATAR: &str = include_str!("../../../web/assets/avatar.js");
 const WEB_STATE: &str = include_str!("../../../web/assets/state.js");
 const WEB_SOCKET: &str = include_str!("../../../web/assets/socket.js");
@@ -102,6 +105,7 @@ const WEB_APP: &str = include_str!("../../../web/assets/app.js");
 const WEB_JOINREQUEST: &str = include_str!("../../../web/assets/joinrequest.js");
 const WEB_GETSTARTED: &str = include_str!("../../../web/assets/getstarted.js");
 const WEB_TOOLTIP: &str = include_str!("../../../web/assets/tooltip.js");
+const WEB_CLIPBOARD: &str = include_str!("../../../web/assets/clipboard.js");
 const WEB_DM: &str = include_str!("../../../web/assets/dm.js");
 const WEB_KEYS: &str = include_str!("../../../web/assets/keys.js");
 const WEB_EXTENSIONS: &str = include_str!("../../../web/assets/extensions.js");
@@ -172,6 +176,7 @@ async fn main() {
             .split_once(':')
             .filter(|(from, to)| !from.trim().is_empty() && !to.trim().is_empty())
             .expect("ROOM_RENAME must be old:new");
+        hub::loca_name::require_rename_rule(&store, from.trim(), to.trim());
         if store
             .rename_room(from.trim(), to.trim())
             .expect("ROOM_RENAME migration failed")
@@ -806,6 +811,9 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "styles.css" => Some(("text/css; charset=utf-8", WEB_STYLES)),
         "profile.css" => Some(("text/css; charset=utf-8", WEB_PROFILE_STYLES)),
         "appearance.css" => Some(("text/css; charset=utf-8", WEB_APPEARANCE_STYLES)),
+        "ranks.css" => Some(("text/css; charset=utf-8", WEB_RANKS_STYLES)),
+        "caretaker.css" => Some(("text/css; charset=utf-8", WEB_CARETAKER_STYLES)),
+        "floors.css" => Some(("text/css; charset=utf-8", WEB_FLOORS_STYLES)),
         "avatar.js" => Some(("text/javascript; charset=utf-8", WEB_AVATAR)),
         "state.js" => Some(("text/javascript; charset=utf-8", WEB_STATE)),
         "socket.js" => Some(("text/javascript; charset=utf-8", WEB_SOCKET)),
@@ -826,6 +834,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "joinrequest.js" => Some(("text/javascript; charset=utf-8", WEB_JOINREQUEST)),
         "getstarted.js" => Some(("text/javascript; charset=utf-8", WEB_GETSTARTED)),
         "tooltip.js" => Some(("text/javascript; charset=utf-8", WEB_TOOLTIP)),
+        "clipboard.js" => Some(("text/javascript; charset=utf-8", WEB_CLIPBOARD)),
         "dm.js" => Some(("text/javascript; charset=utf-8", WEB_DM)),
         "keys.js" => Some(("text/javascript; charset=utf-8", WEB_KEYS)),
         "extensions.js" => Some(("text/javascript; charset=utf-8", WEB_EXTENSIONS)),
@@ -1246,6 +1255,9 @@ async fn ws_handler(
     }
     if !hub.admin_open() && !hub.room_exists(&room) {
         return no_such_loca();
+    }
+    if let Some(refusal) = routes::implicit_loca_refusal(&hub, &room) {
+        return refusal;
     }
     // A session OR invite names its holder authoritatively. Query-string names
     // are only a hint for open/legacy doors; allowing an invite to enter under an

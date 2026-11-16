@@ -520,7 +520,13 @@ function roleTagsFor(name, writer) {
     : (state.members || []).find(m => m.principal_id === writer)?.role;
   const isOperator = !!writer && writer === op?.appointed?.principal_id;
   const isLead = state.settings?.lead === name;
+  // The Building's caretaker (the server declares it: /health loca_agents)
+  // wears its title in every loca: operator is a loca's own, caretaker is
+  // the Building's. Its name is the server's and nobody else may take it;
+  // a line nobody verified still wears nothing.
+  const isCaretaker = !!writer && (state.locaAgents || []).includes(name);
   return rankBadge(rank)
+    + (isCaretaker ? `<span class="caretakertag" title="the Building's caretaker">caretaker</span>` : "")
     + (isOperator ? `<span class="optag" title="appointed loca operator">operator</span>` : "")
     + (isLead ? `<span class="leadtag" title="loca lead">lead</span>` : "")
     + (typeof taskBadgeFor === "function" ? taskBadgeFor(name, writer) : "");

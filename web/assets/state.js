@@ -648,6 +648,8 @@ function renderRooms() {
       details.open = !collapsed;
       const head = document.createElement("summary");
       head.className = "rgrouphead" + (floorSaysFloor(floor) ? " saysfloor" : "");
+      const colour = floor.key !== GROUND_FLOOR && typeof floorColour === "function" ? floorColour(floor.key) : "";
+      if (colour) { head.classList.add("floorc"); head.style.setProperty("--floor", colour); }
       const unread = floor.rooms.reduce((n, rm) => n + Number(state.unread[rm.room] || 0), 0);
       const badge = collapsed && unread
         ? `<span class="unreadbadge" title="${unread} unread message${unread === 1 ? "" : "s"} on this floor">${unread > 99 ? "99+" : unread}</span>`

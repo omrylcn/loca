@@ -356,7 +356,9 @@
     color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
   .bcount { min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--panel2);
     border: 1px solid var(--line); color: var(--txt); font-size: 10px; text-align: center; letter-spacing: 0; }
-  .peoplehead, .prow { display: grid; grid-template-columns: minmax(0,1.6fr) 160px minmax(0,.9fr) minmax(0,.9fr) 170px;
+  /* The last column holds a member's three actions (Message · Suspend ·
+     Revoke); at 170px they spilled left over Location. */
+  .peoplehead, .prow { display: grid; grid-template-columns: minmax(0,1.6fr) 160px minmax(0,.9fr) minmax(0,.9fr) 216px;
     align-items: center; column-gap: 16px; }
   .peoplehead { padding: 6px 10px; color: var(--dim); font-size: 9px; letter-spacing: .08em;
     text-transform: uppercase; border-bottom: 1px solid var(--line); }
@@ -377,7 +379,7 @@
   .pflag { padding: 1px 6px; border-radius: 6px; font-size: 10px; border: 1px solid var(--line); white-space: nowrap; }
   .pflag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
   .pflag.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
-  .pacts { display: flex; justify-content: flex-end; gap: 6px; white-space: nowrap; }
+  .pacts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; white-space: nowrap; }
   .pban { color: var(--bad); font-size: 11px; }
   /* One button vocabulary for the Building: quiet outline, accent primary,
      red only on hover for the destructive one. */

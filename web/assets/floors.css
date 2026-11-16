@@ -1,0 +1,22 @@
+/* ── Floor colours (groups.js floorColour) ─────────────────────────────────
+   Loaded after styles.css and appearance.css. Each named floor takes one of
+   six colours by its id; it shows on the sidebar floor heading, the floor's
+   card in Building › Floors and people's floor chips. The Ground floor has
+   none and stays neutral. Each colour keeps at least 4.5:1 against --bg,
+   --panel and --panel2 of every theme: the first set on the dark themes
+   (Dark, Ember, High contrast, Night), the second on the light ones (Light,
+   Paper). tests/browser/floor-colours.spec.js checks it. */
+:root {
+  --floor-1: #7aa7ff; --floor-2: #b99aff; --floor-3: #ffbe4d;
+  --floor-4: #ff7eaa; --floor-5: #5fd3a0; --floor-6: #6fd0e0;
+}
+:root[data-theme="light"], :root[data-scheme="light"] {
+  --floor-1: #2a50c4; --floor-2: #6538c8; --floor-3: #844f00;
+  --floor-4: #ab1f57; --floor-5: #0a6843; --floor-6: #096572;
+}
+.rgrouphead.floorc .rgroupname, .rgrouphead.floorc .grpicon { color: var(--floor); }
+.grpcard.floorc { border-left: 3px solid var(--floor); }
+.grpcard.floorc .grpicon, .grpcard.floorc .grpname b { color: var(--floor); }
+.grpchip.floorc { color: var(--floor); border-color: color-mix(in srgb, var(--floor) 55%, var(--line));
+  background: color-mix(in srgb, var(--floor) 8%, transparent); }
+.grpchip.floorc .grpicon { color: inherit; }

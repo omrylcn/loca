@@ -602,9 +602,9 @@ async fn encoded_private_room_cannot_be_invited_or_managed_by_an_outside_rank() 
 
 #[tokio::test]
 async fn disabled_extensions_are_fenced_under_the_decoded_room_name() {
-    let (_dir, port, _guard) = setup().await;
+    let (dir, port, guard) = setup().await;
     let base = format!("http://127.0.0.1:{port}");
-    for (name, encoded) in [("alpha", "%61lpha"), ("şirket", "%C5%9Firket")] {
+    for name in ["alpha", "sirket-source"] {
         assert_eq!(
             http(
                 "POST",
@@ -617,6 +617,31 @@ async fn disabled_extensions_are_fenced_under_the_decoded_room_name() {
             .0,
             201
         );
+    }
+    // A new loca can no longer be named "şirket" (loca_names.rs); one an
+    // older server opened is written the way it left it.
+    drop(guard);
+    wait_for_server_shutdown(port).await;
+    let db = dir.path().join("review.db");
+    rusqlite::Connection::open(&db)
+        .unwrap()
+        .execute(
+            "INSERT INTO rooms (room, mode, settings) \
+             SELECT 'şirket', mode, settings FROM rooms WHERE room = 'sirket-source'",
+            [],
+        )
+        .unwrap();
+    let (port, _guard) = spawn_server_env(
+        ROOT,
+        &[
+            ("DB_PATH", db.to_string_lossy().into()),
+            ("REQUIRE_INVITE", "1".into()),
+            ("REQUIRE_SESSIONS", "1".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    for (name, encoded) in [("alpha", "%61lpha"), ("şirket", "%C5%9Firket")] {
         // Every route segment an extension owns, from the registry.
         for suffix in protocol::EXTENSIONS.iter().flat_map(|spec| spec.routes) {
             assert_eq!(

@@ -293,7 +293,7 @@ async fn a_group_loca_opens_only_to_its_members_and_the_master() {
     let (status, v) = post(
         format!("{base}/rooms"),
         &inner,
-        serde_json::json!({"name": "gl two", "group": gid}),
+        serde_json::json!({"name": "gl-two", "group": gid}),
     )
     .await;
     assert_eq!(status, 201, "a member Smaster opens one: {v}");
@@ -310,7 +310,7 @@ async fn a_group_loca_opens_only_to_its_members_and_the_master() {
     let (missing_status, missing_body) =
         get(format!("{base}/rooms/no-such-loca/messages"), &other).await;
     for (who, s) in [("smaster", &other), ("member", &veli)] {
-        for room in ["gl", "gl%20two"] {
+        for room in ["gl", "gl-two"] {
             let (status, body) = get(format!("{base}/rooms/{room}/messages"), s).await;
             assert_eq!(
                 (status, &body),
@@ -336,7 +336,7 @@ async fn a_group_loca_opens_only_to_its_members_and_the_master() {
         );
         let (_, rooms) = get(format!("{base}/rooms"), s).await;
         assert!(!names_room(&rooms, "gl"), "{who} must not list it");
-        assert!(!names_room(&rooms, "gl two"));
+        assert!(!names_room(&rooms, "gl-two"));
         assert!(!ws_can(port, "gl", &format!("session={s}")).await);
     }
     assert_eq!(

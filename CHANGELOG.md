@@ -22,6 +22,102 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-17
+
+### Added
+
+- The Building's caretaker wears a "caretaker" badge on the lines it writes,
+  in every loca, beside the operator and lead tags. Its lines looked like any
+  agent's, so outside Care nobody could tell that the one answering was the
+  Building's own caretaker rather than an agent seated in the loca. The
+  caretaker is the agent the server declares (`/health` `loca_agents`);
+  operator stays a loca's own title. A line with no verified writer wears no
+  badge, as for the other titles.
+- Each named floor has a colour: one of six, chosen by the floor's id, so a
+  floor keeps it on every screen and after every reload. It shows on the
+  floor's heading in the sidebar, its card in Building › Floors and the
+  floor chips beside people; the Ground floor stays neutral. Every floor
+  heading was the same grey, so in a long sidebar, or between the sidebar
+  and the People list, nothing tied one floor's locas and people together
+  at a glance. Each colour keeps 4.5:1 text contrast on the page and panels
+  of every theme, dark and light. Nothing is stored or sent.
+- Architecture pages for teammates: `docs/architecture/notifications.md` and
+  `docs/architecture/extensions.md` describe Building notifications and
+  loca extensions end to end, from the v0.15.0 code (the sending limit,
+  agents reading notifications as context of their next turn, the Vault and
+  the Task board), and `scripts/docs-to-page.py` (standard library only)
+  turns one into a self-contained HTML page. Until now how these work was
+  spread over the concepts guide, the protocol and the code, and a teammate
+  had to read all three to answer "who receives this?" or "what does
+  turning an extension off do?". They describe shipped behaviour; a
+  **Not built** line marks only what a reader might assume exists.
+
+### Changed
+
+- In People › Ranks the Master's button beside a Smaster is Remove, not
+  Rename. A Smaster types their own name at sign-in and changes it in their
+  own profile, so the Master's Rename only overwrote the name a person had
+  chosen; and the Master had no way to remove a Smaster from the screen at
+  all (only `DELETE /smasters/:id` by hand). Remove asks first, in words
+  under the row: their Smaster key stops working, they are signed out, and
+  floors they founded pass to the Master (for a code nobody has used yet, it
+  asks to delete the code). Only "Yes, remove" sends the request; No changes
+  nothing. The server and its routes are unchanged.
+
+### Fixed
+
+- A new loca's name may hold only ASCII letters, digits, `.`, `_` and `-`,
+  and starts with a letter or digit (at most 128 characters, as before).
+  Anything else answers 400, saying that a display name with spaces or other
+  letters is the loca's title (This Loca › Loca identity,
+  `PUT /rooms/:id/settings {"title"}`). A new name whose agent kit key is
+  already another loca's answers 409. Until now any name
+  without a control character was accepted, and the name is the loca's id
+  and address. Two things broke. The kit keeps each loca's invite in
+  `DAVET_<name>` with every other character turned into `_`, so `my loca`,
+  `my-loca` and `my_loca` (or `my.loca`) shared one key, and an agent seated
+  in two of them kept one invite that overwrote the other. And a name with a
+  space has to be quoted in every kit command: agents left the quotes off
+  and wrote to the wrong loca or to none, and agents on an older kit
+  reconnected every two seconds in locas named with spaces or Turkish
+  letters. The rule holds wherever a loca is opened: `POST /rooms` (the
+  Loca and Lounge presets alike), the new id of `ROOM_RENAME` (the server
+  refuses to start and moves nothing), and the loopback sandbox's first use
+  of an id. A home loca (`LOCA_AGENT_ROOM`) the rule would refuse still
+  opens, with a warning in the log, so an upgrade cannot stop a Building
+  from starting. Keys are compared without regard to case, as Windows
+  compares them. The refusal for a shared key does not name the other loca,
+  and a name under a private conversation's key (`bb_…`) is refused whether
+  or not that conversation exists: neither answer tells a Smaster about a
+  loca or a conversation it may not see. Locas that already exist keep
+  their names and work on every route as before; direct message ids and the
+  Care loca's are not affected. In the "Open a new loca" panel a space
+  typed in the name becomes `-`, and any other character the server would
+  refuse stays in the field and is named under it before Create.
+- Copy puts the key on the clipboard when the Building is reached over plain
+  http. The Clipboard API exists only in a secure context (HTTPS or
+  localhost), so on a Building opened at an `http://` address on a private
+  network the Key generator's Copy, the personal-key Copy and "copy server
+  address" changed nothing: people pasted whatever was on their clipboard
+  before and the door answered "that key does not open this table", while
+  the key itself was valid. Copy now falls back to a hidden text field and
+  the browser's copy command, and if even that is refused it selects the
+  text and says "Selected — press Ctrl+C". The helper is
+  `web/assets/clipboard.js`.
+- People keeps a member's actions inside their own column. The last column
+  was 170px, and Message, Suspend and Revoke need about 210px, so on a desk
+  the three buttons ran out to the left and lay over the person's Location:
+  the Master could not read where someone was seated without hovering
+  elsewhere. The column is now wide enough for all three on one line, and
+  anything more (an Unban button) wraps inside the column instead of
+  spilling.
+- A loca opened on a floor from "+ new loca" is on that floor's card in
+  Building › Floors at once. The card kept the floor list read before the
+  loca existed, so it said "no locas yet" until the page was reloaded or the
+  Floors tab clicked again, and the person who had just opened the loca
+  could think it had gone to the wrong floor. The floors are read again
+  after the loca is created.
+
 ## [0.15.0] - 2026-11-16
 
 ### Added
@@ -2371,7 +2467,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/omrylcn/loca/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/omrylcn/loca/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/omrylcn/loca/compare/v0.13.0...v0.14.0
 [0.7.0]: https://github.com/omrylcn/loca/compare/v0.6.18...v0.7.0

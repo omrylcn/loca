@@ -79,7 +79,7 @@ pub(crate) use notifications::{
 pub(crate) use rooms::{
     actor_of, appoint_loca_operator_route, create_invite, create_loca_route, delete_room,
     get_loca_operator, get_members, get_messages, get_mod, get_mode, get_settings,
-    list_building_bans, list_invites, list_rooms, moderate, revoke_invite,
+    implicit_loca_refusal, list_building_bans, list_invites, list_rooms, moderate, revoke_invite,
     revoke_loca_operator_route, room_decision_of, set_lead, set_mode, set_settings,
 };
 pub(crate) use vault::{get_vault, get_vault_history, put_vault};

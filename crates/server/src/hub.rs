@@ -13,6 +13,7 @@ mod extensions;
 mod groups;
 mod identity;
 mod keys;
+pub mod loca_name;
 mod notifications;
 mod profile_card;
 mod vault;
@@ -24,6 +25,7 @@ pub use extensions::{normalize_extensions, ExtensionEdit, ExtensionError};
 pub use groups::{GroupError, GroupView};
 pub use identity::{IdentityEdit, IdentityError};
 pub use keys::KeyRevokeError;
+pub use loca_name::LocaNameError;
 pub use notifications::{NotificationAudience, NotificationError, NOTIFICATION_SEND_LIMIT};
 pub use vault::VaultError;
 pub use work::{GoalError, TaskError, WaitError};
@@ -520,6 +522,8 @@ pub enum CreateLocaError {
     /// An identity field (description, seats, icon, colour, labels) broke
     /// its rule.
     Identity(IdentityError),
+    /// The name broke the rule for a new loca (`loca_name`).
+    Name(LocaNameError),
 }
 
 impl From<OperatorAssignmentError> for CreateLocaError {
@@ -1232,6 +1236,7 @@ impl Hub {
         // has to be loaded either way — otherwise a restart forgets the record.
         {
             let mut rooms = hub.rooms.lock_or_recover();
+            loca_name::require_home_rule(&rooms, &hub.home_room);
             let room = rooms
                 .entry((*hub.home_room).clone())
                 .or_insert_with(|| Room::with(ChatMode::Free, hub.default_settings.clone(), 1));
@@ -2561,7 +2566,9 @@ impl Hub {
         if self.is_deleted(room) {
             return Err(InviteError::Sealed);
         }
-        if !self.admin_open() && !self.room_exists(room) {
+        if !self.room_exists(room)
+            && (!self.admin_open() || self.refuse_implicit_loca(room).is_some())
+        {
             return Err(InviteError::MissingRoom);
         }
         let Some(member) = self.member_by_id(member_id) else {
@@ -2651,7 +2658,9 @@ impl Hub {
         if self.is_deleted(room) {
             return Err(ReissueError::Invite(InviteError::Sealed));
         }
-        if !self.admin_open() && !self.room_exists(room) {
+        if !self.room_exists(room)
+            && (!self.admin_open() || self.refuse_implicit_loca(room).is_some())
+        {
             return Err(ReissueError::Invite(InviteError::MissingRoom));
         }
         let Some(member) = self.member_by_id(member_id) else {
@@ -5204,9 +5213,9 @@ impl Hub {
         self.create_loca_in(room, actor, extensions, None)
             .map_err(|error| match error {
                 CreateLocaError::Operator(error) => error,
-                CreateLocaError::Group(_) | CreateLocaError::Identity(_) => {
-                    OperatorAssignmentError::AuthorityRequired
-                }
+                CreateLocaError::Group(_)
+                | CreateLocaError::Identity(_)
+                | CreateLocaError::Name(_) => OperatorAssignmentError::AuthorityRequired,
             })
     }
 
@@ -5263,6 +5272,8 @@ impl Hub {
         if rooms.contains_key(room) {
             return Err(OperatorAssignmentError::Conflict.into());
         }
+        loca_name::check_new(room, rooms.keys().map(String::as_str))
+            .map_err(CreateLocaError::Name)?;
         let assignment = if self.store.is_persistent() && !self.admin_open() {
             let founder = actor
                 .principal_id

@@ -781,10 +781,12 @@ async fn a_database_from_before_titles_shows_its_ids_as_before() {
     let dir = tempfile::tempdir().unwrap();
     let db = dir.path().join("before-titles.db");
     let names = ["alpha", "Beta Room", "proj.a"];
-    let listed_before = {
-        let (port, _guard) = closed_building(&db, &[]).await;
+    {
+        let (port, guard) = closed_building(&db, &[]).await;
         let base = format!("http://127.0.0.1:{port}");
-        for name in names {
+        // "Beta Room" could be opened then; the name rule refuses it now
+        // (loca_names.rs), so it is written the way that server left it.
+        for name in ["alpha", "beta-source", "proj.a"] {
             let (status, v) = create(
                 &base,
                 serde_json::json!({"name": name, "description": "Kept.", "icon": "book"}),
@@ -792,7 +794,23 @@ async fn a_database_from_before_titles_shows_its_ids_as_before() {
             .await;
             assert_eq!(status, 201, "{name}: {v}");
         }
+        drop(guard);
+        wait_for_server_shutdown(port).await;
+        rusqlite::Connection::open(&db)
+            .unwrap()
+            .execute(
+                "INSERT INTO rooms (room, mode, settings) \
+                 SELECT 'Beta Room', mode, settings FROM rooms WHERE room = 'beta-source'",
+                [],
+            )
+            .unwrap();
+    }
+    let listed_before = {
+        let (port, guard) = closed_building(&db, &[]).await;
+        let base = format!("http://127.0.0.1:{port}");
         let (_, rooms) = send(reqwest::Method::GET, format!("{base}/rooms"), ADMIN, None).await;
+        drop(guard);
+        wait_for_server_shutdown(port).await;
         rooms
     };
     // The settings exactly as such a server stored them: no `title` key.

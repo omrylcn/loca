@@ -46,6 +46,7 @@ tests
 web
 docs/README.md
 docs/adr
+docs/architecture
 docs/backup-restore.md
 docs/concepts.md
 docs/concepts-at-a-glance.svg

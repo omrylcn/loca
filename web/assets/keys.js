@@ -167,8 +167,8 @@ async function keyLedgerClick(event) {
   if (filter) { state.keyFilter = filter.dataset.keyFilter; renderKeyLedger(); return; }
   if (event.target.closest("[data-key-copy]")) {
     const code = $("keySecret")?.textContent || "";
-    try { await navigator.clipboard.writeText(code); event.target.textContent = "Copied"; }
-    catch (e) { event.target.textContent = "Select and copy"; }
+    const button = event.target.closest("[data-key-copy]");
+    button.textContent = await copyText(code, $("keySecret")) ? "Copied" : "Selected — press Ctrl+C";
     return;
   }
   const revoke = event.target.closest("[data-key-revoke]");
@@ -190,24 +190,33 @@ async function keyLedgerClick(event) {
   }
 }
 
-// The Master names a Smaster from the Ranks list.
-async function renameSmaster(current) {
-  const name = prompt(`Real name for "${current}"?`, current);
-  if (!name || name.trim() === current) return;
-  // The rename is the Master's who asked: never sent, and never reported,
+// The Master removes a Smaster from People › Ranks. A Smaster names
+// themselves at sign-in, so the Master has no Rename here. The question is
+// asked in words under the row; only "Yes, remove" sends DELETE /smasters/:id.
+function removeSmasterAskHtml(rank) {
+  const question = rank.unused
+    ? `Delete the unused Smaster code <b>${esc(rank.name)}</b>? Nobody will be able to sign in with it.`
+    : `Remove <b>${esc(rank.name)}</b> from the Building? Their Smaster key stops working, they are signed out, and floors they founded pass to the Master.`;
+  return `<div class="rankconfirm" role="alertdialog" aria-label="Remove ${esc(rank.name)}"><span>${question}</span>` +
+    `<span class="rankconfirmacts"><button type="button" class="btn" data-remove-smaster-no>No</button>` +
+    `<button type="button" class="btn danger" data-remove-smaster-yes="${esc(rank.name)}">Yes, remove</button></span></div>`;
+}
+
+async function removeSmaster(name, button) {
+  // The removal is the Master's who asked: never sent, and never reported,
   // under whoever signed in while the list was being read.
   const gen = state.buildingGen;
-  const list = await (await fetch(`${serverBase()}/smasters`, { headers: adminHeaders({}) })).json();
+  button.disabled = true;
+  const listed = await fetch(`${serverBase()}/smasters`, { headers: adminHeaders({}) });
+  const list = listed.ok ? await listed.json() : [];
   if (buildingStale(gen)) return;
-  const row = list.find(s => s.name === current);
-  if (!row) return;
-  const r = await fetch(`${serverBase()}/smasters/${encodeURIComponent(row.id)}`, {
-    method: "PUT",
-    headers: adminHeaders({ "content-type": "application/json" }),
-    body: JSON.stringify({ name: name.trim() }),
-  });
+  const row = (Array.isArray(list) ? list : []).find(s => s.name === name);
+  const r = row
+    ? await fetch(`${serverBase()}/smasters/${encodeURIComponent(row.id)}`, { method: "DELETE", headers: adminHeaders({}) })
+    : null;
   if (buildingStale(gen)) return;
-  if (!r.ok) { const why = await r.text(); if (!buildingStale(gen)) alert(why); return; }
+  state.removingSmaster = null;
+  if (r && !r.ok) { const why = await r.text(); if (!buildingStale(gen)) alert(why); }
   fetchPeople();
 }
 
@@ -215,8 +224,11 @@ $("keyLedger").addEventListener("click", (event) => keyLedgerClick(event));
 $("keyLedger").addEventListener("change", (event) => { if (event.target.id === "keyKind") syncKeyForm(); });
 $("keyLedger").addEventListener("submit", (event) => issueKey(event));
 $("peopleList").addEventListener("click", (event) => {
-  const rename = event.target.closest("[data-rename-smaster]");
-  if (rename) renameSmaster(rename.dataset.renameSmaster);
+  const remove = event.target.closest("[data-remove-smaster]");
+  if (remove) { state.removingSmaster = { name: remove.dataset.removeSmaster, gen: state.buildingGen }; renderPeople(); return; }
+  if (event.target.closest("[data-remove-smaster-no]")) { state.removingSmaster = null; renderPeople(); return; }
+  const yes = event.target.closest("[data-remove-smaster-yes]");
+  if (yes) removeSmaster(yes.dataset.removeSmasterYes, yes);
 });
 
 // ---- Building sub-tabs: People · Groups · Keys · Private messages --------
