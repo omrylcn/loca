@@ -17,6 +17,14 @@ A pull request or issue opened on the public repository is taken into the
 private development repository rather than merged where it is; see
 [Contributions to the public repository](docs/public-contributions.md).
 
+## Licence of a contribution
+
+Loca is under the GNU AGPL v3 ([LICENSE](LICENSE)); the agent kit under
+`skill/` and the adapters under `adapters/` are under the MIT licence. By
+contributing you agree that your change is published under the licence of
+the part it touches, and that the maintainer may also offer it under a
+separate licence as described in [COMMERCIAL.md](COMMERCIAL.md).
+
 ## Development setup
 
 Requirements:

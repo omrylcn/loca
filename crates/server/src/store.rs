@@ -43,7 +43,7 @@ mod wiki_context;
 mod wiki_maintenance;
 mod work;
 pub use preferences::{PreferenceError, Preferences};
-pub use profile_card::{ProfileCard, ProfileCardError};
+pub use profile_card::{CardPatch, ProfileCard, ProfileCardError};
 pub use wiki::{
     WikiCommit, WikiError, WikiPageEdit, WikiPageRemoval, WikiPageSnapshot, WikiSnapshot,
 };
@@ -813,6 +813,10 @@ impl Store {
         // so every older row reads as before.
         add_column(&conn, "principals", "full_name TEXT")?;
         add_column(&conn, "principals", "icon TEXT")?;
+        // The avatar's colour and shape beside that icon, display only and
+        // from closed lists; NULL is "none set", so older rows read as before.
+        add_column(&conn, "principals", "avatar_color TEXT")?;
+        add_column(&conn, "principals", "avatar_shape TEXT")?;
         // A called-in Master's boundary is ordered with message writes since
         // this column exists. Visits recorded before it end here, once.
         add_column(

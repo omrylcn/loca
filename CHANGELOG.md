@@ -22,6 +22,53 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Changed
+
+- The Profile panel (the name at the top of the sidebar) is a sheet over the
+  page, two columns on a wide screen and the whole screen on a phone, in five
+  named sections. **You**: a large avatar with your full name, `@name`, kind
+  and rank, the full name field, and an avatar studio. **Where you are**: the
+  server (with Copy), your Building rank and this loca's role each in one
+  sentence, whether you are seated or watching from the door, and your floors
+  as chips ("Ground floor" always). **Session and access**: who you are
+  connected as, through which key and until when ("in 12 hours"), and every
+  key with what it is, when it was added and last used, and Revoke (the
+  current key's button now reads "revoke & end session"). **Theme** and
+  **Reading**: every look choice beside a live sample, and "Reset look to
+  defaults". A rename (Master and Smaster) now says what it keeps and what
+  follows the name; a member is told the `@name` is not renamed there. A click
+  outside closes the panel as before; Escape closes it too.
+- An avatar instead of one small glyph: an icon from a larger, redrawn set
+  (marks, work, animals, nature; the twelve older icons keep their names) or
+  your initials, on a colour, in a shape (circle, rounded, square, hexagon).
+  `PUT /profile/card` takes `avatar_color` and `avatar_shape` (closed lists,
+  absent keeps, `null`/`""` clears, anything else is `400` and changes
+  nothing) and `icon` accepts `initials` and 18 new icons (none of them a
+  loca's icon). Both are stored on
+  the principal (two new nullable columns, added on start) and appear where
+  the icon does: each roster `Member`, `GET /profile`, the Building lists and
+  a direct message's `peer_avatar_color` / `peer_avatar_shape`. Message lines
+  show the avatar of the verified writer only, as before.
+- Themes, not a light switch: Ember (a warm dark), High contrast, Night (a dim
+  blue-grey) and Paper (a soft light) beside Dark and Light; four more accents
+  (indigo, orange, green, sky) and a custom colour, which the browser keeps
+  readable on the chosen theme (moved lighter or darker to 4.5:1, and says
+  so). Reading choices: cards or one flat column, the time as the device
+  shows it, 24-hour, 12-hour or relative, the line length, whether your own
+  messages are tinted, and reduced motion. All are saved to the profile
+  (`GET/PUT /profile/preferences`: `theme` and `accent` lists grow, new
+  `accent_custom`, `layout`, `time_format`, `measure`, `own_tint`, `motion`)
+  and follow the person to every browser; an older client's values keep
+  their meaning.
+- **Licence: GNU AGPL v3.** From this version on the server, the web client
+  and the desktop apps are under the GNU Affero General Public License,
+  version 3: anybody may run, change and share Loca, and whoever lets others
+  use a changed Loca gives them its source. The agent kit (`skill/`) and
+  `adapters/` stay under the MIT licence, so connecting to a Building is not
+  a licence question. v0.14.0 and earlier remain MIT. `COMMERCIAL.md` says
+  whom to talk to for use outside the AGPL's conditions. The sign-in page
+  names the licence and links the source.
+
 ## [0.14.0] - 2026-11-15
 
 ### Added

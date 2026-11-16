@@ -80,6 +80,9 @@ fn env_u32(key: &str, default: u32) -> u32 {
 const WEB_INDEX: &str = include_str!("../../../web/index.html");
 const WEB_FAVICON: &str = include_str!("../../../web/assets/favicon.svg");
 const WEB_STYLES: &str = include_str!("../../../web/assets/styles.css");
+const WEB_PROFILE_STYLES: &str = include_str!("../../../web/assets/profile.css");
+const WEB_APPEARANCE_STYLES: &str = include_str!("../../../web/assets/appearance.css");
+const WEB_AVATAR: &str = include_str!("../../../web/assets/avatar.js");
 const WEB_STATE: &str = include_str!("../../../web/assets/state.js");
 const WEB_SOCKET: &str = include_str!("../../../web/assets/socket.js");
 const WEB_PEOPLE: &str = include_str!("../../../web/assets/people.js");
@@ -794,6 +797,9 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
     let asset = match name.as_str() {
         "favicon.svg" => Some(("image/svg+xml; charset=utf-8", WEB_FAVICON)),
         "styles.css" => Some(("text/css; charset=utf-8", WEB_STYLES)),
+        "profile.css" => Some(("text/css; charset=utf-8", WEB_PROFILE_STYLES)),
+        "appearance.css" => Some(("text/css; charset=utf-8", WEB_APPEARANCE_STYLES)),
+        "avatar.js" => Some(("text/javascript; charset=utf-8", WEB_AVATAR)),
         "state.js" => Some(("text/javascript; charset=utf-8", WEB_STATE)),
         "socket.js" => Some(("text/javascript; charset=utf-8", WEB_SOCKET)),
         "people.js" => Some(("text/javascript; charset=utf-8", WEB_PEOPLE)),

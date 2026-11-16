@@ -314,7 +314,7 @@ function addMsg(m) {
     source = `@${m.target} ${source}`;
   }
   const txt = renderChatMarkdown(source);
-  const time = m.ts ? fmtTime(m.ts) : "";
+  const time = m.ts ? fmtMessageTime(m.ts) : "";
   const acts = m.id
     ? `<div class="lineacts" role="group" aria-label="Message actions">
         ${mine ? "" : `<button type="button" data-reactpick="${m.id}" aria-label="React to ${esc(m.sender)}">♡ react</button>`}
@@ -539,7 +539,7 @@ function refreshSenderTags() {
 function senderCardHtml(writer) {
   const card = writer && typeof personCardById === "function" ? personCardById(writer) : null;
   if (!card) return "";
-  return profileIconSvg(card.icon) + (card.full_name ? `<bdi class="fullname">${esc(card.full_name)}</bdi>` : "");
+  return avatarHtml(card, card.name, "xs") + (card.full_name ? `<bdi class="fullname">${esc(card.full_name)}</bdi>` : "");
 }
 
 // The roster or a directory changed: redraw the cards already in the feed.

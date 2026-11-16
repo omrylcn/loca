@@ -2882,7 +2882,7 @@ async fn profile_preferences_are_private_validated_and_durable() {
         defaults,
         serde_json::json!({
             "theme": "dark", "accent": "teal", "density": "comfortable", "font_size": "normal",
-            "font_family": "mono"
+            "font_family": "mono", "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system"
         })
     );
 
@@ -2900,7 +2900,7 @@ async fn profile_preferences_are_private_validated_and_durable() {
         .unwrap();
     let expected = serde_json::json!({
         "theme": "light", "accent": "violet", "density": "compact", "font_size": "normal",
-        "font_family": "mono"
+        "font_family": "mono", "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system"
     });
     assert_eq!(saved, expected);
 
@@ -3024,7 +3024,7 @@ async fn profile_preferences_are_private_validated_and_durable() {
 
     let expected = serde_json::json!({
         "theme": "light", "accent": "violet", "density": "compact", "font_size": "large",
-        "font_family": "serif"
+        "font_family": "serif", "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system"
     });
     let ada_after: Value = client
         .get(&url)

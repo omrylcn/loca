@@ -16,9 +16,12 @@ function dmOf(room) {
   return state.dms.find(b => b.room === room) || null;
 }
 
-// The other side's card (full name and icon), as the server describes them.
+// The other side's card (full name, icon and avatar), as the server describes them.
 function dmPeerCard(b) {
-  return b ? cardOf({ full_name: b.peer_full_name, icon: b.peer_icon }) : null;
+  return b ? cardOf({
+    full_name: b.peer_full_name, icon: b.peer_icon, name: b.peer,
+    avatar_color: b.peer_avatar_color, avatar_shape: b.peer_avatar_shape,
+  }) : null;
 }
 
 // What the header and lists call a room: a direct message by the other person.

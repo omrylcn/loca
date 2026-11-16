@@ -1,0 +1,104 @@
+/* ── personal appearance: themes, accents and reading ─────────────────────
+   The choices of Profile → Theme and Reading (GET/PUT /profile/preferences,
+   applied by theme.js as data-* attributes on <html>). Loaded after
+   styles.css, which holds the original Dark and Light tokens: each theme
+   here is a complete set of the same tokens, and every text token was
+   checked to keep 4.5:1 on the theme's --bg, --panel and --panel2 (the
+   accent included; Dark's --dim, unchanged, is the one older exception).
+   theme.js sets data-scheme="light" on the light themes, so the accent
+   rules for light pages are written once for both. */
+
+/* Ember: a warm dark, like a room lit by a lamp. */
+:root[data-theme="ember"] {
+  --scheme: dark;
+  --bg: #16110e; --panel: #1c1612; --panel2: #231b16; --line: #4a3a2f;
+  --txt: #f1e6da; --muted: #c0aa96; --dim: #a38f7c;
+  --agent: #7fb6ff; --human: #8fd8a6; --iye: #d7b2ff; --iye-deep: #3e2b4d;
+  --warn: #ffb066; --bad: #ff7b6b; --on-bad: #2a0e0e;
+  --gold: #f5c76b; --gold-txt: #ffe0a0; --master: #f0c46a; --smaster: #dcae64;
+}
+/* High contrast: black and white, borders you can see. */
+:root[data-theme="contrast"] {
+  --scheme: dark;
+  --bg: #000000; --panel: #0a0a0a; --panel2: #121212; --line: #7a7a7a;
+  --txt: #ffffff; --muted: #dcdcdc; --dim: #bdbdbd;
+  --agent: #8ccbff; --human: #7af2b8; --iye: #dcc0ff; --iye-deep: #3a2554;
+  --warn: #ffc27a; --bad: #ff8a8a; --on-bad: #000000;
+  --gold: #ffd479; --gold-txt: #ffe7b3; --master: #ffd479; --smaster: #f0c370;
+}
+/* Night: a dim blue-grey with softer text, for long evenings. */
+:root[data-theme="night"] {
+  --scheme: dark;
+  --bg: #121522; --panel: #161a29; --panel2: #1b2032; --line: #343c58;
+  --txt: #cdd3e4; --muted: #9aa3bf; --dim: #8790ad;
+  --agent: #82b4ff; --human: #84d3a8; --iye: #c4a8ff; --iye-deep: #352a55;
+  --warn: #f2a96a; --bad: #f27878; --on-bad: #1d0b0b;
+  --gold: #e8c275; --gold-txt: #f2d9a6; --master: #e8c275; --smaster: #d4ae6a;
+}
+/* Paper: a soft warm light, easier than white on the eyes. */
+:root[data-theme="paper"] {
+  --scheme: light;
+  --bg: #f6f1e7; --panel: #fbf8f2; --panel2: #ebe3d3; --line: #cfc2aa;
+  --txt: #2b2620; --muted: #574d42; --dim: #62574a;
+  --accent: #00695f; --accent2: #005a51; --on-accent: #ffffff;
+  --agent: #0a5a9e; --human: #0b6643; --iye: #63379f; --iye-deep: #ebe0f7;
+  --warn: #874400; --bad: #ad1f28; --on-bad: #ffffff;
+  --gold: #744c00; --gold-txt: #664300; --master: #744c00; --smaster: #664300;
+}
+:root[data-scheme="light"] { color-scheme: light; }
+:root[data-scheme="dark"] { color-scheme: dark; }
+
+/* The new accents: a bright pair on dark pages, a deep pair on light ones. */
+:root[data-accent="green"] { --accent: #5fd38a; --accent2: #94e3b0; }
+:root[data-accent="orange"] { --accent: #ff9a5c; --accent2: #ffbd94; }
+:root[data-accent="sky"] { --accent: #5ccfff; --accent2: #9adfff; }
+:root[data-accent="indigo"] { --accent: #9aa5ff; --accent2: #c0c7ff; }
+:root[data-scheme="light"][data-accent="blue"] { --accent: #2c56cf; --accent2: #2448b3; }
+:root[data-scheme="light"][data-accent="violet"] { --accent: #6c3fd0; --accent2: #5c32b5; }
+:root[data-scheme="light"][data-accent="amber"] { --accent: #8c5400; --accent2: #7a4800; }
+:root[data-scheme="light"][data-accent="rose"] { --accent: #c02460; --accent2: #a61f53; }
+:root[data-scheme="light"][data-accent="green"] { --accent: #1d7a3e; --accent2: #186a35; }
+:root[data-scheme="light"][data-accent="orange"] { --accent: #a8460c; --accent2: #923c08; }
+:root[data-scheme="light"][data-accent="sky"] { --accent: #0b6a96; --accent2: #095a80; }
+:root[data-scheme="light"][data-accent="indigo"] { --accent: #3d4bc4; --accent2: #3340a8; }
+/* Paper is a shade darker than Light: three accents go one step deeper. */
+:root[data-theme="paper"][data-accent="rose"] { --accent: #a01f52; --accent2: #8c1b48; }
+:root[data-theme="paper"][data-accent="green"] { --accent: #17693a; --accent2: #135a31; }
+/* What Light already says about a few surfaces, said for Paper too. */
+:root[data-theme="paper"] .room.special { border-color: color-mix(in srgb, var(--iye) 45%, var(--line)); }
+:root[data-theme="paper"] .omem .glyph.lead { text-shadow: none; }
+:root[data-theme="paper"] body.locked .side { box-shadow: 0 16px 48px rgba(60,40,10,.14); }
+
+/* Swatches for the new accents, and the light pages' deep shades. */
+.swatch.green { --sw: #5fd38a; } .swatch.orange { --sw: #ff9a5c; }
+.swatch.sky { --sw: #5ccfff; } .swatch.indigo { --sw: #9aa5ff; }
+.swatch.custom { --sw: conic-gradient(#ff6b6b, #ffbe4d, #5fd38a, #5ccfff, #9aa5ff, #ff7eaa, #ff6b6b); background: var(--sw) !important; }
+:root[data-scheme="light"] .swatch.teal { --sw: #00766b; } :root[data-scheme="light"] .swatch.blue { --sw: #2c56cf; }
+:root[data-scheme="light"] .swatch.violet { --sw: #6c3fd0; } :root[data-scheme="light"] .swatch.amber { --sw: #8c5400; }
+:root[data-scheme="light"] .swatch.rose { --sw: #c02460; } :root[data-scheme="light"] .swatch.green { --sw: #1d7a3e; }
+:root[data-scheme="light"] .swatch.orange { --sw: #a8460c; } :root[data-scheme="light"] .swatch.sky { --sw: #0b6a96; }
+:root[data-scheme="light"] .swatch.indigo { --sw: #3d4bc4; }
+
+/* ── Reading ── */
+/* Flat: one column, no cards; a hairline between messages. */
+:root[data-layout="flat"] .row.mine { justify-content: flex-start; }
+:root[data-layout="flat"] .bubble { width: 100%; max-width: 100%; background: transparent; border: 0;
+  border-radius: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); padding-left: 6px; padding-right: 6px; }
+:root[data-layout="flat"] .row.mine .bubble { background: color-mix(in srgb, var(--accent) 5%, transparent); border-color: color-mix(in srgb, var(--line) 70%, transparent); box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+:root[data-layout="flat"] .row.locareminder .bubble { background: color-mix(in srgb, var(--warn) 8%, transparent); }
+/* Line length: how wide a message may run. */
+:root[data-measure="narrow"] .bubble { max-width: min(70%, 60ch); }
+:root[data-measure="wide"] .bubble { max-width: 90%; }
+:root[data-layout="flat"][data-measure="narrow"] .bubble { max-width: 66ch; }
+:root[data-layout="flat"][data-measure="normal"] .bubble { max-width: 96ch; }
+@media (max-width: 760px) { :root[data-measure] .bubble { max-width: 92%; } :root[data-layout="flat"] .bubble { max-width: 100%; } }
+/* Your messages untinted: drawn like everyone else's. */
+:root[data-own-tint="off"] .row.mine .bubble { background: var(--panel2); border-color: var(--line); }
+:root[data-own-tint="off"][data-layout="flat"] .row.mine .bubble { background: transparent; box-shadow: none; }
+/* Motion: reduced always, or when the device asks for it. */
+:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
+  transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-motion="system"] *, :root[data-motion="system"] *::before, :root[data-motion="system"] *::after {
+    transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}

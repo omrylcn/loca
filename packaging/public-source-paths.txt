@@ -17,6 +17,7 @@ AGENTS.md
 CHANGELOG.md
 CLAUDE.md
 CODE_OF_CONDUCT.md
+COMMERCIAL.md
 CONTRIBUTING.md
 Cargo.lock
 Cargo.toml

@@ -270,7 +270,7 @@ fn core_types_match_the_list() {
     written.sender_principal = Some("pr_proto".into());
     let message = serde_json::to_value(written).unwrap();
     let member = serde_json::to_value(de::<protocol::Member>(
-        json!({"name": "proto-bot", "type": "agent", "role": "lead", "full_name": "Proto Bot", "icon": "leaf", "principal_id": "pr_proto"}),
+        json!({"name": "proto-bot", "type": "agent", "role": "lead", "full_name": "Proto Bot", "icon": "leaf", "avatar_color": "orange", "avatar_shape": "hexagon", "principal_id": "pr_proto"}),
     ))
     .unwrap();
     for (name, value) in [

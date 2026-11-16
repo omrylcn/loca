@@ -3,7 +3,7 @@
 
 use rusqlite::{params, Connection};
 
-use super::super::{ProfileCard, ProfileCardError, Store};
+use super::super::{CardPatch, ProfileCard, ProfileCardError, Store};
 
 /// A clock shaped like a real one (milliseconds since the epoch).
 const T0: u64 = 1_800_000_000_000;
@@ -22,6 +22,15 @@ fn card(full_name: Option<&str>, icon: Option<&str>) -> ProfileCard {
     ProfileCard {
         full_name: full_name.map(str::to_string),
         icon: icon.map(str::to_string),
+        ..ProfileCard::default()
+    }
+}
+
+fn patch<'a>(full_name: Option<Option<&'a str>>, icon: Option<Option<&'a str>>) -> CardPatch<'a> {
+    CardPatch {
+        full_name,
+        icon,
+        ..CardPatch::default()
     }
 }
 
@@ -40,19 +49,21 @@ fn a_card_is_set_in_parts_cleared_and_survives_a_restart() {
             .all(|(_, card)| card.is_empty()));
 
         let saved = store
-            .set_profile_card(&ada, Some(Some("Ada Lovelace")), None)
+            .set_profile_card(&ada, &patch(Some(Some("Ada Lovelace")), None))
             .unwrap();
         assert_eq!(saved, card(Some("Ada Lovelace"), None));
         // A field left out keeps its value.
         let saved = store
-            .set_profile_card(&ada, None, Some(Some("leaf")))
+            .set_profile_card(&ada, &patch(None, Some(Some("leaf"))))
             .unwrap();
         assert_eq!(saved, card(Some("Ada Lovelace"), Some("leaf")));
         // Bo's write never touches Ada's row.
         store
-            .set_profile_card(&bo, Some(Some("Bo Ek")), Some(Some("moon")))
+            .set_profile_card(&bo, &patch(Some(Some("Bo Ek")), Some(Some("moon"))))
             .unwrap();
-        store.set_profile_card(&bo, None, Some(None)).unwrap();
+        store
+            .set_profile_card(&bo, &patch(None, Some(None)))
+            .unwrap();
         assert_eq!(store.profile_card(&bo), card(Some("Bo Ek"), None));
         (ada, bo)
     };
@@ -71,7 +82,9 @@ fn a_card_is_set_in_parts_cleared_and_survives_a_restart() {
     assert_eq!(by_id.len(), 2);
     assert_eq!(by_id[&ada], card(Some("Ada Lovelace"), Some("leaf")));
     // Cleared entirely, the person keeps an id but no card.
-    store.set_profile_card(&bo, Some(None), None).unwrap();
+    store
+        .set_profile_card(&bo, &patch(Some(None), None))
+        .unwrap();
     assert!(!store.profile_cards_by_principal().contains_key(&bo));
     assert_eq!(
         store.people_by_name()["bo"],
@@ -85,7 +98,7 @@ fn a_disabled_principal_cannot_write_and_is_not_listed() {
     let store = Store::open_at(directory.path().join("off.db").to_str(), T0).unwrap();
     let ada = member(&store, "ada");
     store
-        .set_profile_card(&ada, Some(Some("Ada Lovelace")), None)
+        .set_profile_card(&ada, &patch(Some(Some("Ada Lovelace")), None))
         .unwrap();
     store
         .conn()
@@ -99,11 +112,11 @@ fn a_disabled_principal_cannot_write_and_is_not_listed() {
     assert!(store.profile_cards_by_principal().is_empty());
     assert_eq!(store.profile_card(&ada), ProfileCard::default());
     assert_eq!(
-        store.set_profile_card(&ada, Some(Some("Someone Else")), None),
+        store.set_profile_card(&ada, &patch(Some(Some("Someone Else")), None)),
         Err(ProfileCardError::NoProfile)
     );
     assert_eq!(
-        store.set_profile_card("pr_nobody", Some(Some("Nobody")), None),
+        store.set_profile_card("pr_nobody", &patch(Some(Some("Nobody")), None)),
         Err(ProfileCardError::NoProfile)
     );
 }
@@ -114,7 +127,7 @@ fn a_name_two_active_principals_share_lends_neither_card() {
     let store = Store::open_at(directory.path().join("twins.db").to_str(), T0).unwrap();
     let ada = member(&store, "ada");
     store
-        .set_profile_card(&ada, Some(Some("Ada Lovelace")), None)
+        .set_profile_card(&ada, &patch(Some(Some("Ada Lovelace")), None))
         .unwrap();
     // A row from before names were unique, wearing the same name.
     store
@@ -168,13 +181,15 @@ fn a_database_from_v0_13_0_gains_the_columns_and_every_person_reads_as_before() 
         .collect();
     assert!(columns.contains(&"full_name".to_string()));
     assert!(columns.contains(&"icon".to_string()));
+    assert!(columns.contains(&"avatar_color".to_string()));
+    assert!(columns.contains(&"avatar_shape".to_string()));
     for (id, _) in &before {
         assert_eq!(store.profile_card(id), ProfileCard::default(), "{id}");
     }
     assert!(store.profile_cards_by_principal().is_empty());
     let (id, name) = &before[0];
     let saved = store
-        .set_profile_card(id, Some(Some("Upgraded Person")), Some(Some("sun")))
+        .set_profile_card(id, &patch(Some(Some("Upgraded Person")), Some(Some("sun"))))
         .unwrap();
     assert_eq!(saved, card(Some("Upgraded Person"), Some("sun")));
     drop(store);
