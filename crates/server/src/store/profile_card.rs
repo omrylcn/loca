@@ -16,11 +16,20 @@ pub struct ProfileCard {
     pub full_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// The avatar's background colour and shape, each from a closed list
+    /// (`hub/profile_card.rs`). Display only, like the icon.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_shape: Option<String>,
 }
 
 impl ProfileCard {
     pub fn is_empty(&self) -> bool {
-        self.full_name.is_none() && self.icon.is_none()
+        self.full_name.is_none()
+            && self.icon.is_none()
+            && self.avatar_color.is_none()
+            && self.avatar_shape.is_none()
     }
 
     /// Add `full_name` / `icon` to a JSON object describing this person,
@@ -35,7 +44,23 @@ impl ProfileCard {
         if let Some(icon) = &self.icon {
             fields.insert("icon".into(), icon.clone().into());
         }
+        if let Some(color) = &self.avatar_color {
+            fields.insert("avatar_color".into(), color.clone().into());
+        }
+        if let Some(shape) = &self.avatar_shape {
+            fields.insert("avatar_shape".into(), shape.clone().into());
+        }
     }
+}
+
+/// The card fields one write sets: `None` leaves a field as it is,
+/// `Some(None)` clears it, `Some(Some(value))` sets an already validated value.
+#[derive(Debug, Default)]
+pub struct CardPatch<'a> {
+    pub full_name: Option<Option<&'a str>>,
+    pub icon: Option<Option<&'a str>>,
+    pub avatar_color: Option<Option<&'a str>>,
+    pub avatar_shape: Option<Option<&'a str>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -49,11 +74,21 @@ pub enum ProfileCardError {
     Storage,
 }
 
-fn card_of(full_name: Option<String>, icon: Option<String>) -> ProfileCard {
-    ProfileCard {
-        full_name: full_name.filter(|value| !value.is_empty()),
-        icon: icon.filter(|value| !value.is_empty()),
-    }
+/// The card columns, in the order every query here selects them.
+const CARD_COLUMNS: &str = "full_name, icon, avatar_color, avatar_shape";
+
+fn card_at(row: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<ProfileCard> {
+    let text = |at: usize| -> rusqlite::Result<Option<String>> {
+        Ok(row
+            .get::<_, Option<String>>(first + at)?
+            .filter(|value| !value.is_empty()))
+    };
+    Ok(ProfileCard {
+        full_name: text(0)?,
+        icon: text(1)?,
+        avatar_color: text(2)?,
+        avatar_shape: text(3)?,
+    })
 }
 
 impl Store {
@@ -63,9 +98,9 @@ impl Store {
             return ProfileCard::default();
         };
         c.query_row(
-            "SELECT full_name, icon FROM principals WHERE id = ?1 AND disabled_at IS NULL",
+            &format!("SELECT {CARD_COLUMNS} FROM principals WHERE id = ?1 AND disabled_at IS NULL"),
             params![principal_id],
-            |row| Ok(card_of(row.get(0)?, row.get(1)?)),
+            |row| card_at(row, 0),
         )
         .optional()
         .ok()
@@ -79,15 +114,17 @@ impl Store {
         let Some(c) = self.conn() else {
             return HashMap::new();
         };
-        let Ok(mut statement) = c.prepare(
-            "SELECT id, full_name, icon FROM principals
-              WHERE disabled_at IS NULL AND (full_name IS NOT NULL OR icon IS NOT NULL)",
-        ) else {
+        let Ok(mut statement) = c.prepare(&format!(
+            "SELECT id, {CARD_COLUMNS} FROM principals
+              WHERE disabled_at IS NULL
+                AND (full_name IS NOT NULL OR icon IS NOT NULL
+                     OR avatar_color IS NOT NULL OR avatar_shape IS NOT NULL)"
+        )) else {
             return HashMap::new();
         };
-        let Ok(rows) = statement.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, card_of(row.get(1)?, row.get(2)?)))
-        }) else {
+        let Ok(rows) =
+            statement.query_map([], |row| Ok((row.get::<_, String>(0)?, card_at(row, 1)?)))
+        else {
             return HashMap::new();
         };
         rows.flatten()
@@ -103,22 +140,22 @@ impl Store {
         let Some(c) = self.conn() else {
             return HashMap::new();
         };
-        let Ok(mut statement) = c.prepare(
-            "SELECT display_name, id, full_name, icon,
+        let Ok(mut statement) = c.prepare(&format!(
+            "SELECT display_name, id, {CARD_COLUMNS},
                     (SELECT COUNT(*) FROM principals other
                       WHERE other.display_name = principals.display_name
                         AND other.disabled_at IS NULL)
                FROM principals
-              WHERE disabled_at IS NULL",
-        ) else {
+              WHERE disabled_at IS NULL"
+        )) else {
             return HashMap::new();
         };
         let Ok(rows) = statement.query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                card_of(row.get(2)?, row.get(3)?),
-                row.get::<_, i64>(4)?,
+                card_at(row, 2)?,
+                row.get::<_, i64>(6)?,
             ))
         }) else {
             return HashMap::new();
@@ -135,8 +172,7 @@ impl Store {
     pub fn set_profile_card(
         &self,
         principal_id: &str,
-        full_name: Option<Option<&str>>,
-        icon: Option<Option<&str>>,
+        patch: &CardPatch<'_>,
     ) -> Result<ProfileCard, ProfileCardError> {
         let Some(mut c) = self.conn() else {
             return Err(ProfileCardError::Storage);
@@ -153,22 +189,24 @@ impl Store {
             if active.is_none() {
                 return Ok(None);
             }
-            if let Some(value) = full_name {
-                tx.execute(
-                    "UPDATE principals SET full_name = ?2 WHERE id = ?1",
-                    params![principal_id, value],
-                )?;
-            }
-            if let Some(value) = icon {
-                tx.execute(
-                    "UPDATE principals SET icon = ?2 WHERE id = ?1",
-                    params![principal_id, value],
-                )?;
+            // Column names are fixed here, never taken from the body.
+            for (column, value) in [
+                ("full_name", patch.full_name),
+                ("icon", patch.icon),
+                ("avatar_color", patch.avatar_color),
+                ("avatar_shape", patch.avatar_shape),
+            ] {
+                if let Some(value) = value {
+                    tx.execute(
+                        &format!("UPDATE principals SET {column} = ?2 WHERE id = ?1"),
+                        params![principal_id, value],
+                    )?;
+                }
             }
             let card = tx.query_row(
-                "SELECT full_name, icon FROM principals WHERE id = ?1",
+                &format!("SELECT {CARD_COLUMNS} FROM principals WHERE id = ?1"),
                 params![principal_id],
-                |row| Ok(card_of(row.get(0)?, row.get(1)?)),
+                |row| card_at(row, 0),
             )?;
             tx.commit()?;
             Ok(Some(card))

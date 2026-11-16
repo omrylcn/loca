@@ -7,7 +7,8 @@ use protocol::{Member, SenderType, ServerFrame};
 use serde_json::json;
 
 use super::super::profile_card::{
-    validate_full_name, validate_icon, FULL_NAME_MAX_CHARS, PROFILE_ICONS,
+    validate_avatar_color, validate_avatar_shape, validate_full_name, validate_icon, AVATAR_COLORS,
+    AVATAR_SHAPES, FULL_NAME_MAX_CHARS, PROFILE_ICONS,
 };
 use super::critical_restart_hub;
 use crate::store::{ProfileCardError, Store};
@@ -152,6 +153,124 @@ fn an_icon_is_one_of_the_closed_list() {
     }
 }
 
+#[test]
+fn the_icon_list_only_grows_and_the_avatar_lists_are_closed() {
+    // Every icon an older server accepted still means what it meant.
+    for icon in [
+        "dot", "ring", "square", "diamond", "triangle", "hexagon", "star", "spark", "leaf", "wave",
+        "moon", "sun",
+    ] {
+        assert!(PROFILE_ICONS.contains(&icon), "{icon} must stay");
+    }
+    for icon in ["initials", "fox", "laptop", "drop"] {
+        assert_eq!(validate_icon(icon), Ok(Some(icon.to_string())));
+    }
+    // A person's icon is never a loca's: the two lists share no name.
+    for icon in PROFILE_ICONS {
+        assert!(
+            !protocol::LOCA_ICONS.contains(icon),
+            "{icon} is also a loca icon"
+        );
+    }
+    for color in AVATAR_COLORS {
+        assert_eq!(validate_avatar_color(color), Ok(Some(color.to_string())));
+    }
+    for shape in AVATAR_SHAPES {
+        assert_eq!(validate_avatar_shape(shape), Ok(Some(shape.to_string())));
+    }
+    assert_eq!(validate_avatar_color(""), Ok(None));
+    assert_eq!(validate_avatar_shape(""), Ok(None));
+    for raw in [
+        "#ff0000",
+        "Teal",
+        "teal ",
+        "url(x)",
+        "var(--accent)",
+        "rgb(0,0,0)",
+    ] {
+        assert!(validate_avatar_color(raw).is_err(), "{raw:?}");
+    }
+    for raw in ["Circle", "star", "polygon(0 0)", "circle;"] {
+        assert!(validate_avatar_shape(raw).is_err(), "{raw:?}");
+    }
+}
+
+#[test]
+fn an_avatar_colour_and_shape_are_saved_announced_and_a_bad_one_changes_nothing() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        Arc::new(Store::open(Some(temp.path().join("avatar.db").to_str().unwrap())).unwrap());
+    let hub = critical_restart_hub(store, "root");
+    let ada = hub.admit_member("ada", "user", "master").unwrap();
+    let principal = ada.principal_id.clone().unwrap();
+    let mut rx = hub.subscribe("ops").0;
+    let seat = format!("mb:{}", ada.id);
+    hub.prove_seat("ops", &seat, Some(&principal));
+    assert!(hub.join("ops", &seat, "ada", SenderType::User, 1));
+    let saved = hub
+        .update_profile_card(
+            &principal,
+            &json!({ "icon": "fox", "avatar_color": "plum", "avatar_shape": "hexagon" }),
+        )
+        .unwrap();
+    assert_eq!(saved.avatar_color.as_deref(), Some("plum"));
+    assert_eq!(saved.avatar_shape.as_deref(), Some("hexagon"));
+    let roster = last_roster(&mut rx).expect("the change is announced");
+    let me = entry(&roster, "ada");
+    assert_eq!(
+        (
+            me.icon.as_deref(),
+            me.avatar_color.as_deref(),
+            me.avatar_shape.as_deref()
+        ),
+        (Some("fox"), Some("plum"), Some("hexagon"))
+    );
+    let wire = serde_json::to_value(me).unwrap();
+    assert_eq!(wire["avatar_color"], "plum");
+    assert_eq!(wire["avatar_shape"], "hexagon");
+
+    // One refused value refuses the whole body: the good field beside it is
+    // not saved either.
+    for bad in [
+        json!({ "avatar_color": "#ff00ff" }),
+        json!({ "avatar_color": "teal", "avatar_shape": "star" }),
+        json!({ "icon": "cat", "avatar_color": "Plum" }),
+        json!({ "avatar_shape": 3 }),
+        json!({ "avatar_border": "gold" }),
+    ] {
+        assert!(
+            matches!(
+                hub.update_profile_card(&principal, &bad),
+                Err(ProfileCardError::Invalid(_))
+            ),
+            "{bad} must be refused"
+        );
+        assert_eq!(
+            hub.profile_card(&principal),
+            saved,
+            "{bad} changed the card"
+        );
+    }
+
+    // A client that knows only the icon leaves colour and shape alone.
+    let kept = hub
+        .update_profile_card(&principal, &json!({ "icon": "owl" }))
+        .unwrap();
+    assert_eq!(kept.avatar_color.as_deref(), Some("plum"));
+    // Cleared, they are absent on the wire again.
+    let cleared = hub
+        .update_profile_card(
+            &principal,
+            &json!({ "avatar_color": null, "avatar_shape": "" }),
+        )
+        .unwrap();
+    assert_eq!((cleared.avatar_color, cleared.avatar_shape), (None, None));
+    let roster = last_roster(&mut rx).expect("announced again");
+    let wire = serde_json::to_value(entry(&roster, "ada")).unwrap();
+    assert!(wire.get("avatar_color").is_none());
+    assert!(wire.get("avatar_shape").is_none());
+}
+
 fn last_roster(rx: &mut tokio::sync::broadcast::Receiver<ServerFrame>) -> Option<Vec<Member>> {
     let mut last = None;
     while let Ok(frame) = rx.try_recv() {
@@ -228,7 +347,7 @@ fn two_people_with_one_full_name_stay_two_and_an_open_door_seat_borrows_no_card(
     for bad in [
         json!({ "full_name": "Bo Takes Over", "principal_id": ada_principal }),
         json!({ "full_name": "Bo Takes Over", "name": "ada" }),
-        json!({ "full_name": "Bo Ek", "icon": "rocket" }),
+        json!({ "full_name": "Bo Ek", "icon": "spaceship" }),
         json!({ "full_name": 7 }),
         json!(["Bo"]),
     ] {

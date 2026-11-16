@@ -219,6 +219,8 @@ impl Room {
                     principal_id: principal.cloned(),
                     full_name: card.and_then(|c| c.full_name.clone()),
                     icon: card.and_then(|c| c.icon.clone()),
+                    avatar_color: card.and_then(|c| c.avatar_color.clone()),
+                    avatar_shape: card.and_then(|c| c.avatar_shape.clone()),
                 }
             })
             .collect();

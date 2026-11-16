@@ -97,8 +97,8 @@ pub(crate) async fn get_profile_preferences(
     Json(hub.preferences_for(&principal_id)).into_response()
 }
 
-/// `PUT /profile/card {"full_name", "icon"}` — the caller's own full name and
-/// profile icon. Display only: the `@name` and everything it decides stay as
+/// `PUT /profile/card {"full_name", "icon", "avatar_color", "avatar_shape"}` —
+/// the caller's own full name, profile icon and avatar colour and shape. Display only: the `@name` and everything it decides stay as
 /// they are. Fields left out keep their value; `null` or `""` clears one; an
 /// unknown field or a refused value rejects the whole body with 400. There is
 /// no way to name another principal.
@@ -114,11 +114,23 @@ pub(crate) async fn put_profile_card(
         return (StatusCode::BAD_REQUEST, "the body must be a JSON object").into_response();
     };
     match hub.update_profile_card(&principal_id, &patch) {
-        Ok(card) => Json(serde_json::json!({
-            "full_name": card.full_name,
-            "icon": card.icon,
-        }))
-        .into_response(),
+        Ok(card) => {
+            // `full_name` and `icon` are always there (null when unset), as
+            // before; the avatar's colour and shape only when set.
+            let mut saved = serde_json::json!({
+                "full_name": card.full_name,
+                "icon": card.icon,
+            });
+            if let Some(fields) = saved.as_object_mut() {
+                if let Some(color) = card.avatar_color {
+                    fields.insert("avatar_color".into(), color.into());
+                }
+                if let Some(shape) = card.avatar_shape {
+                    fields.insert("avatar_shape".into(), shape.into());
+                }
+            }
+            Json(saved).into_response()
+        }
         Err(crate::store::ProfileCardError::Invalid(reason)) => {
             (StatusCode::BAD_REQUEST, reason).into_response()
         }

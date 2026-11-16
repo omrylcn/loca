@@ -8,15 +8,58 @@ use std::collections::HashMap;
 use protocol::{Member, ServerFrame};
 
 use super::{is_address_word, Hub, RESERVED_NAMES};
-use crate::store::{ProfileCard, ProfileCardError};
+use crate::store::{CardPatch, ProfileCard, ProfileCardError};
 use crate::sync::RecoverMutex;
 
 /// The profile icons, drawn by the clients in the app's own line style. A
 /// closed list: no uploads, no URLs, no emoji.
+/// Values are only ever added: a stored icon keeps meaning what it meant.
+/// None is a loca's icon (`protocol::LOCA_ICONS`), so a person and a loca
+/// are never drawn alike.
+/// `initials` is drawn from the person's own full name (or `@name`).
 pub const PROFILE_ICONS: &[&str] = &[
-    "dot", "ring", "square", "diamond", "triangle", "hexagon", "star", "spark", "leaf", "wave",
-    "moon", "sun",
+    "dot",
+    "ring",
+    "square",
+    "diamond",
+    "triangle",
+    "hexagon",
+    "star",
+    "spark",
+    "leaf",
+    "wave",
+    "moon",
+    "sun",
+    "initials",
+    "laptop",
+    "glasses",
+    "coffee",
+    "headphones",
+    "umbrella",
+    "bicycle",
+    "cat",
+    "fox",
+    "owl",
+    "bird",
+    "fish",
+    "turtle",
+    "mountain",
+    "tree",
+    "flower",
+    "planet",
+    "bolt",
+    "drop",
 ];
+
+/// The avatar's background colours, by name; each client draws its own
+/// shade. Absent is "no colour": the icon alone, in the text colour.
+pub const AVATAR_COLORS: &[&str] = &[
+    "teal", "green", "lime", "sky", "blue", "indigo", "violet", "plum", "rose", "red", "orange",
+    "amber", "sand", "slate",
+];
+
+/// The avatar's outline. Absent reads as `circle`.
+pub const AVATAR_SHAPES: &[&str] = &["circle", "rounded", "square", "hexagon"];
 
 /// Longest full name, in characters (Unicode scalar values) after trimming.
 pub const FULL_NAME_MAX_CHARS: usize = 64;
@@ -169,6 +212,25 @@ pub(crate) fn validate_icon(raw: &str) -> Result<Option<String>, String> {
     ))
 }
 
+/// Validate a value from one of the avatar's closed lists. `Ok(None)` clears it.
+fn validate_choice(key: &str, allowed: &[&str], raw: &str) -> Result<Option<String>, String> {
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    if allowed.contains(&raw) {
+        return Ok(Some(raw.to_string()));
+    }
+    Err(format!("`{key}` must be one of: {}", allowed.join(", ")))
+}
+
+pub(crate) fn validate_avatar_color(raw: &str) -> Result<Option<String>, String> {
+    validate_choice("avatar_color", AVATAR_COLORS, raw)
+}
+
+pub(crate) fn validate_avatar_shape(raw: &str) -> Result<Option<String>, String> {
+    validate_choice("avatar_shape", AVATAR_SHAPES, raw)
+}
+
 /// A field of the body: absent leaves it, `null` or `""` clears it.
 fn field<'a>(
     fields: &'a serde_json::Map<String, serde_json::Value>,
@@ -233,25 +295,31 @@ impl Hub {
                 "the body must be a JSON object".into(),
             ));
         };
-        if let Some(key) = fields.keys().find(|k| *k != "full_name" && *k != "icon") {
+        const FIELDS: [&str; 4] = ["full_name", "icon", "avatar_color", "avatar_shape"];
+        if let Some(key) = fields.keys().find(|k| !FIELDS.contains(&k.as_str())) {
             return Err(ProfileCardError::Invalid(format!(
-                "unknown field `{key}`: only full_name and icon are set here"
+                "unknown field `{key}`: only full_name, icon, avatar_color and avatar_shape are set here"
             )));
         }
-        let full_name = field(fields, "full_name")
-            .map_err(ProfileCardError::Invalid)?
-            .map(validate_full_name)
-            .transpose()
-            .map_err(ProfileCardError::Invalid)?;
-        let icon = field(fields, "icon")
-            .map_err(ProfileCardError::Invalid)?
-            .map(validate_icon)
-            .transpose()
-            .map_err(ProfileCardError::Invalid)?;
+        let checked = |key: &str, validate: fn(&str) -> Result<Option<String>, String>| {
+            field(fields, key)
+                .map_err(ProfileCardError::Invalid)?
+                .map(validate)
+                .transpose()
+                .map_err(ProfileCardError::Invalid)
+        };
+        let full_name = checked("full_name", validate_full_name)?;
+        let icon = checked("icon", validate_icon)?;
+        let avatar_color = checked("avatar_color", validate_avatar_color)?;
+        let avatar_shape = checked("avatar_shape", validate_avatar_shape)?;
         let card = self.store.set_profile_card(
             principal_id,
-            full_name.as_ref().map(Option::as_deref),
-            icon.as_ref().map(Option::as_deref),
+            &CardPatch {
+                full_name: full_name.as_ref().map(Option::as_deref),
+                icon: icon.as_ref().map(Option::as_deref),
+                avatar_color: avatar_color.as_ref().map(Option::as_deref),
+                avatar_shape: avatar_shape.as_ref().map(Option::as_deref),
+            },
         )?;
         self.announce_profile_card(principal_id);
         Ok(card)

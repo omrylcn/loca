@@ -1,0 +1,254 @@
+/* ── The Profile panel (profile.js renderProfile) and the avatar ───────────
+   Loaded after styles.css and appearance.css; it only adds to or overrides
+   the panel's older rules there. The panel opens from the name at the top of
+   the sidebar as a sheet over the page: one column, or two on a wide screen
+   (who and where you are | the look). Every colour is a theme token. */
+
+/* ── avatar (avatar.js avatarHtml) ── */
+.avatar { display: inline-grid; place-items: center; flex: 0 0 auto; overflow: hidden;
+  color: var(--av-ink, var(--accent2)); background: var(--av-bg, color-mix(in srgb, var(--accent) 14%, var(--panel2))); }
+.avatar .picon { margin: 0; vertical-align: 0; }
+.av-circle { border-radius: 50%; }
+.av-rounded { border-radius: 30%; }
+.av-square { border-radius: 10%; }
+.av-hexagon { border-radius: 0; clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%); }
+.avinitials { font-family: var(--font-sans); font-weight: 700; letter-spacing: .01em; line-height: 1; }
+/* In a line of text: a small chip with a colour, or today's plain glyph. */
+.av-xs { width: 1.45em; height: 1.45em; margin-right: 5px; vertical-align: -0.38em; }
+.av-xs .picon { width: .95em; height: .95em; }
+.av-xs .avinitials { font-size: .62em; }
+.av-xs:not(.av-filled) { width: auto; height: auto; background: transparent; color: inherit; margin-right: 4px;
+  vertical-align: -0.15em; overflow: visible; clip-path: none; }
+.av-xs:not(.av-filled) .picon { width: 1em; height: 1em; }
+.av-sm { width: 30px; height: 30px; }
+.av-sm .picon { width: 17px; height: 17px; }
+.av-sm .avinitials { font-size: 12px; }
+.av-xl { width: 76px; height: 76px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--txt) 8%, transparent); }
+.av-xl .picon { width: 42px; height: 42px; stroke-width: 1.5; }
+.av-xl .avinitials { font-size: 28px; }
+
+/* ── the sheet ── */
+.whoami:has(.profilemenu[open]) { z-index: 85; }
+.profileglyph { width: auto; height: auto; background: none; border-radius: 0; }
+/* The page dims behind the sheet but is not blocked: a click on it goes
+   where it was aimed and closes the menu (profile.js, document click). */
+.profilemenu[open] > summary::after { content: ""; position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: color-mix(in srgb, var(--bg) 62%, transparent); backdrop-filter: blur(2px); }
+.profilemenu .profilepanel { position: fixed; z-index: 2; top: var(--profile-top, 10px); bottom: 10px; left: 10px; right: auto;
+  width: min(480px, calc(100vw - 20px)); max-height: none; overflow-y: auto; overscroll-behavior: contain; padding: 0;
+  border-radius: 18px; background: var(--panel); color: var(--txt); font-size: 13px; line-height: 1.5;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--line));
+  box-shadow: 0 24px 70px rgba(0,0,0,.5); }
+:root[data-scheme="light"] .profilemenu .profilepanel { box-shadow: 0 24px 60px rgba(16,24,40,.18); }
+.profilepanel .profilepanelhead { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.profilepanel .profilepanelhead > span { font-size: 16px; font-weight: 700; color: var(--txt); }
+.profilepanel .profilepanelhead small { font-size: 11px; color: var(--dim); }
+.profileclose { margin-left: auto; width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font: 400 20px/1 var(--font-sans); cursor: pointer; }
+.profileclose:hover { color: var(--txt); border-color: var(--muted); }
+.profilenav { display: flex; gap: 6px; padding: 12px 20px 0; overflow-x: auto; scrollbar-width: none; }
+.pnavbtn { flex: 0 0 auto; min-height: 30px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font: 500 12px var(--mono); cursor: pointer; }
+.pnavbtn:hover { color: var(--txt); border-color: var(--muted); }
+.profilebody { display: grid; gap: 0 16px; padding: 4px 20px 4px; }
+.profilecol { min-width: 0; }
+.profileempty { padding: 16px 20px 4px; color: var(--muted); font-size: 13px; }
+.profilepanel > .profileserver { margin: 12px 20px 0; }
+
+/* A section: a card with a quiet heading. */
+.psec { margin-top: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 14px;
+  background: color-mix(in srgb, var(--panel2) 45%, var(--panel)); scroll-margin-top: 70px; }
+.psechead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 0 0 14px;
+  font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.psecount { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--accent2); }
+.plabel, .profilepanel .profilerename label { display: block; font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted); }
+
+/* Fields and buttons: the sign-in card's look. */
+.profilepanel .pfield, .profilepanel #credentialLabel { flex: 1; min-width: 0; min-height: 40px; padding: 0 12px;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--txt);
+  font: inherit; font-size: 13px; transition: border-color .15s, box-shadow .15s; }
+.profilepanel .pfield::placeholder, .profilepanel #credentialLabel::placeholder { color: var(--dim); }
+.profilepanel .pfield:focus-visible, .profilepanel #credentialLabel:focus-visible { outline: none;
+  border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.pbtn { flex: 0 0 auto; min-height: 40px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--txt); font: 600 12px var(--mono); cursor: pointer;
+  transition: border-color .15s, background .15s, filter .15s; }
+.pbtn:hover { border-color: var(--accent); }
+.pbtn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.pbtn.primary:hover { filter: brightness(1.08); }
+.pbtn.ghost { background: transparent; color: var(--muted); }
+.pbtn.ghost:hover { color: var(--txt); }
+.pbtn.small { min-height: 30px; padding: 0 10px; font-size: 11px; border-radius: 8px; }
+.pbtn.danger { color: var(--bad); background: transparent; border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); }
+.pbtn.danger:hover { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+
+/* ── You ── */
+.profilehero { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
+.profilepanel .profileconnected { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 0;
+  font-size: 13px; color: var(--muted); }
+.phfull { font-size: 19px; font-weight: 700; line-height: 1.25; color: var(--txt); overflow-wrap: anywhere; }
+.phfull:empty { display: none; }
+.phat { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: 14px; color: var(--muted); }
+.phat b { color: var(--txt); font-weight: 600; }
+.phfull:empty + .phat { font-size: 18px; }
+.phkind { font-size: 12px; color: var(--dim); }
+.profilepanel .profilerename { display: grid; gap: 6px; padding: 14px 0 0; border: 0; border-top: 1px solid var(--line); margin-top: 14px; }
+.profilepanel .profilecard { padding-top: 0; margin-top: 0; border-top: 0; }
+.profilepanel .profilerenamerow { display: flex; gap: 8px; }
+.profilepanel .profilecardhint, .profilepanel .profilerename p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--dim); }
+.profilepanel .profilerenamehint { font-size: 12px; color: var(--accent2); }
+.profilepanel .profilerenamenote { font-size: 12px; color: var(--accent2); min-height: 0; }
+.profilepanel .profilerenamenote:empty { display: none; }
+.avstudio { display: grid; gap: 12px; margin-top: 8px; }
+.avrow { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 8px; }
+.avrow > small, .avgroup > small { font-size: 11px; color: var(--muted); }
+.avgroup > small { display: block; margin-bottom: 6px; }
+.avicons { display: grid; gap: 10px; }
+.profilepanel .appearanceopt.avopt > span { min-height: 0; width: 40px; height: 40px; padding: 0; justify-content: center;
+  border-radius: 10px; background: var(--panel); color: var(--muted); font-size: 11px; }
+.profilepanel .avopt .picon { width: 22px; height: 22px; margin: 0; }
+.profilepanel .avopt:hover > span { color: var(--txt); border-color: var(--muted); }
+.profilepanel .avopt input:checked + span { color: var(--accent2); border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.profilepanel .appearanceopt.coloropt > span, .profilepanel .appearanceopt.shapeopt > span { width: 34px; height: 34px; }
+.profilepanel .profilerename label.avopt { display: inline-flex; font-size: inherit; letter-spacing: 0;
+  text-transform: none; color: inherit; }
+.avswatch, .avshape { display: block; }
+.avswatch { width: 20px; height: 20px; border-radius: 50%; background: var(--av-bg); }
+.avswatch.none { background: transparent; border: 1.5px dashed var(--dim); }
+.avshape { width: 18px; height: 18px; background: currentColor; }
+.avinitials.small { font-size: 12px; }
+
+/* ── Where you are ── */
+.profilepanel .profileserver { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin: 0 0 12px; font-size: 12px; }
+.profilepanel .profileserver small, .placecard > small, .profilegroups > small, .sessioncard > small {
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.pserverline { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#accountServer { font-family: var(--font-mono); color: var(--txt); overflow-wrap: anywhere; text-align: right; }
+.profilepanel .profileroles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
+.profilepanel .profileroles > span.placecard { display: flex; flex-direction: column; gap: 3px; padding: 12px;
+  border-radius: 12px; border: 1px solid var(--line); background: var(--panel); min-width: 0; }
+.profilepanel .profileroles b.role { font-size: 12px; font-weight: 800; letter-spacing: .06em; }
+.profilepanel .profileroles em { font-style: normal; font-size: 11px; color: var(--dim); }
+.placecard p { margin: 4px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.placename { font-size: 14px; font-weight: 600; color: var(--txt); overflow-wrap: anywhere; }
+.placename.muted { color: var(--muted); font-weight: 500; }
+.placemeta { font-size: 11px; color: var(--dim); }
+.profilepanel .profilegroups { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 14px 0 0; }
+.profilepanel .profilegroups .grpchips { justify-content: flex-start; gap: 6px; }
+.profilepanel .grpchip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 999px;
+  font-size: 12px; color: var(--txt); background: var(--panel); border: 1px solid var(--line); }
+.profilepanel .grpchip.ground { border-style: dashed; color: var(--muted); }
+.profilepanel .pnowhere { font-size: 12px; color: var(--dim); }
+
+/* ── Session and access ── */
+.profilepanel .sessioncard { display: flex; flex-direction: column; justify-content: flex-start; gap: 4px; margin: 0 0 12px;
+  padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel); font-size: 13px; }
+.profilepanel .sessioncard span { text-align: left; color: var(--muted); }
+.profilepanel .sessioncard b { color: var(--txt); font-weight: 600; }
+.profilepanel .sessioncard em { font-style: normal; color: var(--accent2); }
+.profilepanel .credentiallist { gap: 8px; margin: 0; max-height: none; overflow: visible; }
+.profilepanel .credentialrow { grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 10px;
+  padding: 10px 12px; border-radius: 12px; background: var(--panel); }
+.profilepanel .credentialrow b { font-size: 13px; color: var(--txt); }
+.profilepanel .credentialrow small { font-size: 11px; line-height: 1.45; color: var(--dim); }
+.profilepanel .credentialstate { justify-self: end; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); }
+.profilepanel .credentialstate.current { color: var(--accent2); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.profilepanel .credentialstate.revoked { color: var(--bad); }
+.profilepanel .credentialrow button { grid-column: 1 / -1; justify-self: start; font-size: 11px; }
+.profilepanel .credentialnone { font-size: 12px; color: var(--dim); }
+.profilepanel .profileaccess { margin-top: 12px; border-top: 0; padding-top: 0; }
+.profilepanel .profileaccess > summary { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px;
+  border-radius: 10px; border: 1px dashed var(--line); color: var(--muted); font-size: 12px; list-style: none; cursor: pointer; }
+.profilepanel .profileaccess > summary::-webkit-details-marker { display: none; }
+.profilepanel .profileaccess > summary::before { content: "+"; font-size: 16px; color: var(--accent2); }
+.profilepanel .profileaccess > summary:hover { color: var(--txt); border-color: var(--muted); }
+.profilepanel .credentialcreate { display: flex; gap: 8px; margin-top: 10px; }
+.profilepanel .credentialcreate button { font-size: 12px; padding: 0 14px; }
+.profilepanel .credentialsecret { margin-top: 10px; padding: 12px; border-radius: 10px; }
+.profilepanel .credentialsecret b { font-size: 12px; }
+.profilepanel .credentialsecret code { font-size: 12px; margin: 6px 0 8px; }
+.profilepanel .credentialsecret button { min-height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--txt); font: 600 11px var(--mono); cursor: pointer; }
+
+/* ── Theme and Reading ── */
+.profilepanel .profileappearance { margin: 0; padding: 0; border: 0; display: block; }
+.samplecard { position: sticky; top: 64px; z-index: 2; margin-top: 16px; padding: 12px 14px; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--bg); box-shadow: 0 10px 24px rgba(0,0,0,.18); }
+.samplecard > small { display: block; margin-bottom: 6px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+.profilepanel .appearancepreview { display: flex; flex-direction: column; gap: 6px; }
+.profilepanel .appearancepreview .row { width: 100%; }
+.profilepanel .appearancepreview .line { flex-wrap: wrap; row-gap: 0; }
+.profilepanel .appearancepreview .bubble { max-width: 86%; }
+:root[data-layout="flat"] .profilepanel .appearancepreview .bubble { max-width: 100%; }
+.profilepanel .appearancerow { grid-template-columns: 96px minmax(0, 1fr); align-items: start; gap: 6px 12px; padding: 8px 0; }
+.profilepanel .appearancerow + .appearancerow { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.profilepanel .appearancerow > span { padding-top: 7px; font-size: 12px; color: var(--muted); }
+.profilepanel .appearancehint { grid-column: 2; font-size: 11px; line-height: 1.4; color: var(--dim); }
+.profilepanel .appearanceopts { gap: 6px; }
+.profilepanel .appearanceopt > span { min-height: 32px; padding: 0 12px; border-radius: 9px; font-size: 12px; }
+.profilepanel .appearanceopt > span.swatch { width: 30px; height: 30px; min-height: 0; padding: 0; }
+.profilepanel .appearanceopt input:checked + span.swatch::after { width: 8px; height: 8px; }
+.profilepanel .themeopt > span.themecard { flex-direction: column; align-items: stretch; gap: 6px; width: 92px;
+  min-height: 0; padding: 6px; border-radius: 12px; font-weight: 500; }
+.profilepanel .themeopt input:checked + span.themecard { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.tcpage { position: relative; display: block; height: 46px; border-radius: 8px; background: var(--tc-bg);
+  border: 1px solid var(--tc-line); overflow: hidden; }
+.tcline { position: absolute; left: 8px; right: 22px; top: 11px; height: 5px; border-radius: 3px; background: var(--tc-txt); opacity: .9; }
+.tcline.short { top: 22px; right: 40px; background: var(--tc-muted); }
+.tcdot { position: absolute; left: 8px; bottom: 8px; width: 26px; height: 7px; border-radius: 4px; background: var(--tc-acc); }
+.tcname { font-size: 12px; text-align: center; }
+[data-theme-sample="dark"] { --tc-bg: #0b0e12; --tc-line: #232a35; --tc-txt: #d7dde6; --tc-muted: #778397; --tc-acc: #2ee6c8; }
+[data-theme-sample="ember"] { --tc-bg: #16110e; --tc-line: #4a3a2f; --tc-txt: #f1e6da; --tc-muted: #c0aa96; --tc-acc: #ff9a5c; }
+[data-theme-sample="contrast"] { --tc-bg: #000000; --tc-line: #7a7a7a; --tc-txt: #ffffff; --tc-muted: #dcdcdc; --tc-acc: #ffe14d; }
+[data-theme-sample="night"] { --tc-bg: #121522; --tc-line: #343c58; --tc-txt: #cdd3e4; --tc-muted: #9aa3bf; --tc-acc: #9aa5ff; }
+[data-theme-sample="light"] { --tc-bg: #f5f7fa; --tc-line: #c9d1db; --tc-txt: #1a1f27; --tc-muted: #4a5568; --tc-acc: #00766b; }
+[data-theme-sample="paper"] { --tc-bg: #f6f1e7; --tc-line: #cfc2aa; --tc-txt: #2b2620; --tc-muted: #574d42; --tc-acc: #a8460c; }
+.accentpick { position: relative; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px 0 4px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--panel); color: var(--muted); font-size: 12px; cursor: pointer; }
+.accentpick:hover { color: var(--txt); border-color: var(--muted); }
+.accentpick input[type="color"] { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.accentpick input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.accentpick input[type="color"]::-webkit-color-swatch { border: 1px solid var(--line); border-radius: 50%; }
+.accentpick input[type="color"]::-moz-color-swatch { border: 1px solid var(--line); border-radius: 50%; }
+.accentpick:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.accentnote { font-size: 12px; line-height: 1.45; color: var(--muted); padding-top: 4px; }
+.accentnote:empty { display: none; }
+.appearancefoot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.profilepanel .appearancestatus { font-size: 12px; }
+
+/* ── Sign out: separate, last ── */
+.profilepanel .profilesignout { margin: 18px 20px 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.profilepanel .profilesignout .leavebtn { min-height: 42px; border-radius: 10px; font: 600 13px var(--mono); cursor: pointer; }
+.profilepanel .leaveconfirm { padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.5; }
+.profilepanel .leaveconfirm button { min-height: 36px; font-size: 12px; border-radius: 8px; }
+
+/* Wide: two columns, the look beside who and where you are. */
+@media (min-width: 1180px) {
+  .profilemenu .profilepanel { width: min(940px, calc(100vw - 20px)); }
+  .profilebody { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+/* Phone: the sheet is the whole screen (the sidebar widens to hold it). */
+@media (max-width: 760px) {
+  body.sidebar-open:not(.locked) .side:has(.profilemenu[open]) { width: 100vw; }
+  .profilemenu .profilepanel { inset: var(--profile-top, 0) 0 0 0; width: auto; border-radius: 0; border: 0;
+    border-top: 1px solid var(--line); }
+  .profilebody, .profilenav { padding-left: 14px; padding-right: 14px; }
+  .profilepanel .profilepanelhead { padding-left: 16px; }
+  .psec { padding: 14px 12px; }
+  .profilepanel .appearancerow { grid-template-columns: minmax(0, 1fr); }
+  .profilepanel .appearancerow > span { padding-top: 0; }
+  .profilepanel .appearancehint { grid-column: 1; }
+  .profilepanel .themeopt > span.themecard { width: 84px; }
+  .profilepanel .profilesignout { margin: 16px 14px 20px; }
+}
+@media (max-width: 420px) {
+  .profilepanel .profileroles { grid-template-columns: minmax(0, 1fr); }
+  .profilepanel .appearanceopt.avopt > span { width: 36px; height: 36px; }
+}

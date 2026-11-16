@@ -142,6 +142,8 @@
       background: var(--accent); }
     .heropoints b { color: var(--txt); font-weight: 600; }
   }
+  body.locked .herosource { margin: 18px 0 0; color: var(--dim); font-size: 11px; }
+  body.locked .herosource a { color: var(--accent2); }
   /* The card. */
   body.locked .side { width: min(440px, 92vw); border-radius: 18px; background: var(--panel);
     border-color: color-mix(in srgb, var(--accent) 16%, var(--line)); }

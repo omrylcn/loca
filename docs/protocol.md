@@ -145,10 +145,11 @@ the speaker from the credential it checked.
   is sent so a client can show the writer's full name and icon for exactly
   that person; it is never read from a client, so it cannot be claimed. It
   was server-only until full names needed it.
-- **Full name and icon.** A principal may carry an optional `full_name` and
-  `icon`, display only: not unique, never an address, never read for
+- **Full name and icon.** A principal may carry an optional `full_name`,
+  `icon`, `avatar_color` and `avatar_shape` (the last three from closed
+  lists), display only: not unique, never an address, never read for
   authority, routing or attribution. `PUT /profile/card {"full_name",
-  "icon"}` sets the caller's own (any verified principal, agents included;
+  "icon", "avatar_color", "avatar_shape"}` sets the caller's own (any verified principal, agents included;
   absent keeps, `null` or `""` clears; an unknown field or refused value is
   `400` and changes nothing; `401` without a verified principal). They appear
   as optional fields where a person is described, beside the person's
@@ -159,7 +160,7 @@ the speaker from the credential it checked.
   `/residents` and `/building/ranks` (`principal_id`) and `/profiles` (`id`),
   and the direct message lists: `GET /birebirs/candidates` (`principal_id`) and
   `GET /birebirs`, which describes the other side as `peer_principal`,
-  `peer_full_name` and `peer_icon` (no card once that side left; `read_only`
+  `peer_full_name`, `peer_icon`, `peer_avatar_color` and `peer_avatar_shape` (no card once that side left; `read_only`
   then says nothing more can be said there).
   A message carries no card: a client shows the card of the principal its
   `sender_principal` names, and the plain `sender` when there is none, never

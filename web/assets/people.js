@@ -335,9 +335,45 @@ function avatarColor(name) {
   return `hsl(${h} 60% 62%)`;
 }
 // WhatsApp-style short time (HH:MM); full date on hover.
-function fmtTime(ts) {
-  return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+// A clock time in the reader's chosen style (Profile → Reading): the
+// device's own, 24-hour or 12-hour. "How long ago" applies to message lines
+// only (fmtMessageTime); elsewhere a time stays a clock time.
+function timeStyle() {
+  return (state.appearance || cachedAppearance()).time_format;
 }
+function fmtMessageTime(ts, now = Date.now()) {
+  return timeStyle() === "relative" ? relativeTime(ts, now) : fmtTime(ts);
+}
+function fmtTime(ts) {
+  const style = timeStyle();
+  const options = { hour: "2-digit", minute: "2-digit" };
+  if (style === "h24") options.hourCycle = "h23";
+  if (style === "h12") { options.hour12 = true; options.hour = "numeric"; }
+  return new Date(ts).toLocaleTimeString([], options);
+}
+function relativeTime(ts, now = Date.now()) {
+  const seconds = Math.round((now - Number(ts)) / 1000);
+  if (seconds < 45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(Number(ts)).toLocaleDateString([], { month: "short", day: "numeric" });
+}
+// Redraw the times already in the feed: after the style changes, and each
+// minute while "how long ago" is chosen.
+function refreshFeedTimes() {
+  for (const row of document.querySelectorAll("#feed .row[data-ts]")) {
+    const ts = Number(row.dataset.ts || 0);
+    const time = row.querySelector(".line .time");
+    if (ts && time) time.textContent = fmtMessageTime(ts);
+  }
+}
+setInterval(() => {
+  if (state.appearance?.time_format === "relative") refreshFeedTimes();
+}, 60_000);
 function fmtFull(ts) {
   return ts ? new Date(ts).toLocaleString() : "";
 }
@@ -581,34 +617,20 @@ function personNameHtml(name, card) {
 // ---- Full name and profile icon ------------------------------------------
 // Display only (docs/concepts.md "Full name and profile icon"): the @name is
 // who someone is, so wherever a full name is shown the @name stands beside
-// it. The icons are a closed list the server validates; each is drawn here,
-// once, in the app's line style.
-const PROFILE_ICONS = {
-  dot: `<circle cx="8" cy="8" r="3" fill="currentColor"/>`,
-  ring: `<circle cx="8" cy="8" r="5"/>`,
-  square: `<rect x="3.5" y="3.5" width="9" height="9" rx="1"/>`,
-  diamond: `<path d="M8 2.5 13.5 8 8 13.5 2.5 8Z"/>`,
-  triangle: `<path d="M8 3 13.5 12.5H2.5Z"/>`,
-  hexagon: `<path d="M8 2.5 12.8 5.25v5.5L8 13.5l-4.8-2.75v-5.5Z"/>`,
-  star: `<path d="M8 2.5 9.6 6.2l3.9.3-3 2.6.9 3.9L8 10.9 4.6 13l.9-3.9-3-2.6 3.9-.3Z"/>`,
-  spark: `<path d="M8 2.5v11M2.5 8h11M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"/>`,
-  leaf: `<path d="M3 13C3 7 7 3 13 3c0 6-4 10-10 10ZM3 13l6-6"/>`,
-  wave: `<path d="M2 9c2-3 4-3 6 0s4 3 6 0"/>`,
-  moon: `<path d="M11.5 10.5a5 5 0 0 1-6-6 5 5 0 1 0 6 6Z"/>`,
-  sun: `<circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/>`,
-};
-
-function profileIconSvg(icon) {
-  if (!Object.hasOwn(PROFILE_ICONS, icon)) return "";
-  return `<svg class="picon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">${PROFILE_ICONS[icon]}</svg>`;
-}
+// it. The icons, avatar colours and shapes are closed lists the server
+// validates; they are drawn in avatar.js.
 
 // The card a person-describing object carries, or null.
 function cardOf(person) {
   if (!person) return null;
   const fullName = typeof person.full_name === "string" ? person.full_name : "";
-  const icon = Object.hasOwn(PROFILE_ICONS, person.icon) ? person.icon : "";
-  return fullName || icon ? { full_name: fullName, icon } : null;
+  const icon = person.icon === "initials" || Object.hasOwn(PROFILE_ICONS, person.icon) ? person.icon : "";
+  const color = Object.hasOwn(AVATAR_COLORS, person.avatar_color) ? person.avatar_color : "";
+  const shape = AVATAR_SHAPES.includes(person.avatar_shape) ? person.avatar_shape : "";
+  // The @name the object names, for initials only (never to look a card up).
+  const name = typeof (person.display_name ?? person.name) === "string" ? (person.display_name ?? person.name) : "";
+  return fullName || icon || color
+    ? { full_name: fullName, icon, avatar_color: color, avatar_shape: shape, name } : null;
 }
 
 // The card of one principal, by id: what a message's writer wears. Only a
@@ -656,7 +678,7 @@ function personCardFor(name) {
 // exactly "name" with neither. Escaped; the full name is isolated (<bdi>) so
 // right-to-left text cannot move what stands around it.
 function personLabelHtml(name, card) {
-  const icon = card?.icon ? profileIconSvg(card.icon) : "";
+  const icon = avatarHtml(card, name, "xs");
   if (!card?.full_name) return `${icon}${esc(name)}`;
   return `${icon}<bdi class="fullname">${esc(card.full_name)}</bdi> <span class="atname">@${esc(name)}</span>`;
 }

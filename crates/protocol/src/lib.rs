@@ -99,6 +99,12 @@ pub struct Member {
     /// validates. Absent when unset; older clients ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// The avatar's colour and shape beside the icon, each one of a closed
+    /// list the server validates. Absent when unset; older clients ignore them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_shape: Option<String>,
 }
 
 /// Body of `POST /rooms/{id}/messages`. The server fills in `id`/`ts`/`room`.

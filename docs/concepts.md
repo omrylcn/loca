@@ -546,23 +546,33 @@ Hide is never an alias for Close or Seal.
 
 Appearance is a personal preference of one verified principal, stored on the
 server so it follows the person to every device. It is set from the
-**Appearance** block of the Profile menu, which applies each choice at once
-and shows a sample message drawn with it, and it is never visible to anyone
-else.
+**Theme** and **Reading** sections of the Profile menu, which apply each
+choice at once and show a sample drawn with it, and it is never visible to
+anyone else.
 
 | Field | Allowed values (default first) |
 |---|---|
-| `theme` | `dark`, `light` |
-| `accent` | `teal`, `blue`, `violet`, `amber`, `rose` |
+| `theme` | `dark`, `light`, `ember`, `contrast`, `paper`, `night` |
+| `accent` | `teal`, `blue`, `violet`, `amber`, `rose`, `green`, `orange`, `sky`, `indigo`, `custom` |
+| `accent_custom` | `""`, or a colour written `#rrggbb` (stored lower-case) |
 | `density` | `comfortable`, `compact`, `spacious` |
 | `font_size` | `normal`, `small`, `large`, `larger` |
 | `font_family` | `mono`, `sans`, `serif` |
+| `layout` | `bubbles` (cards: others left, you right), `flat` (one column) |
+| `time_format` | `auto` (the device's clock), `h24`, `h12`, `relative` (message lines only) |
+| `measure` | `normal`, `narrow`, `wide` (how wide a message may run) |
+| `own_tint` | `on`, `off` (your own messages tinted with the accent) |
+| `motion` | `system` (follow the device), `reduced` |
 
 `font_family` picks a face already on the device: `mono` is the monospace
 design face, `sans` the system UI face and `serif` the system serif. Nothing
 is downloaded. Commands and paths stay monospace in every face. `font_size`
 changes the reading surfaces (messages, composer, notes, Wiki), and `density`
-the spacing of the sidebar rows, the feed and the composer. Values are only
+the spacing of the sidebar rows, the feed and the composer. `accent: custom`
+uses `accent_custom`; the browser keeps that colour readable on the chosen
+theme (moving it lighter on a dark theme or darker on a light one until text
+in it reaches 4.5:1, and saying so) and reads `custom` with no colour as
+`teal`. Values are only
 ever added to these lists: a stored value keeps its meaning, and a field a
 profile never saved takes its default.
 
@@ -603,12 +613,23 @@ A person may add, for display only:
   other people.
 - a **profile icon** — one of `dot`, `ring`, `square`, `diamond`,
   `triangle`, `hexagon`, `star`, `spark`, `leaf`, `wave`, `moon`, `sun`,
-  drawn by the clients in the app's line style. No uploads, URLs or emoji.
+  `initials`, `laptop`, `glasses`, `coffee`, `headphones`, `umbrella`,
+  `bicycle`, `cat`, `fox`, `owl`, `bird`, `fish`, `turtle`, `mountain`,
+  `tree`, `flower`, `planet`, `bolt`, `drop`, drawn by the clients in the app's line style
+  (`initials` draws the letters of the person's own full name, or of the
+  `@name`). No uploads, URLs or emoji. The list only grows: a stored icon
+  keeps its meaning. No name in it is also a loca's icon.
+- an **avatar colour** — one of `teal`, `green`, `lime`, `sky`, `blue`,
+  `indigo`, `violet`, `plum`, `rose`, `red`, `orange`, `amber`, `sand`,
+  `slate` — and an **avatar shape** — `circle` (the default), `rounded`,
+  `square`, `hexagon`. With a colour the icon (or the initials) is drawn on
+  it; with neither colour nor icon there is no avatar beside the name.
 
 Each principal sets its own from the Profile menu or with `PUT /profile/card
-{"full_name", "icon"}` (agents too); `null` or an empty string clears one, an
-unknown field or refused value changes nothing. Both live on the principal,
-so they follow the person to every loca and session.
+{"full_name", "icon", "avatar_color", "avatar_shape"}` (agents too); `null`
+or an empty string clears one, an unknown field or refused value changes
+nothing. All live on the principal, so they follow the person to every loca
+and session.
 
 Neither is an address or an authority: `@Ada Lovelace` reaches nobody, two
 people with the same full name are two people, and a full name that looks

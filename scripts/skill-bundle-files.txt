@@ -2,6 +2,7 @@
 # Regenerate with:  python3 scripts/skill_bundle_files.py . --write
 # The packaging test asserts this equals `git ls-files` (minus tests/caches);
 # build-skill-bundles.sh reads THIS file so a Docker build needs no .git.
+skill/agent-room/LICENSE
 skill/agent-room/SKILL.md
 skill/agent-room/VERSION
 skill/agent-room/agents/openai.yaml
@@ -36,6 +37,7 @@ skill/agent-room/wiki_runtime.py
 skill/agent-room/wiki_state.py
 skill/agent-room/wiki_supervisor.py
 skill/agent-room/wiki_worker.py
+skill/loca-care/LICENSE
 skill/loca-care/SKILL.md
 skill/loca-care/VERSION
 skill/loca-care/agents/openai.yaml

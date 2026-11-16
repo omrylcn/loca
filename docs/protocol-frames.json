@@ -303,8 +303,8 @@
       "optional": ["target", "kind", "reply_to", "reply_to_sender", "attachments", "sender_principal"]
     },
     "Member": {
-      "fields": { "name": "string", "type": "agent | user", "role": "string", "full_name": "string", "icon": "string", "principal_id": "string" },
-      "optional": ["role", "full_name", "icon", "principal_id"]
+      "fields": { "name": "string", "type": "agent | user", "role": "string", "full_name": "string", "icon": "string", "avatar_color": "string", "avatar_shape": "string", "principal_id": "string" },
+      "optional": ["role", "full_name", "icon", "avatar_color", "avatar_shape", "principal_id"]
     },
     "Seat": {
       "fields": { "room": "string", "invite_id": "string" }

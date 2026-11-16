@@ -95,6 +95,10 @@ pub struct DmView {
     pub peer_full_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer_icon: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_avatar_color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_avatar_shape: Option<String>,
     /// A side has left the building (or is suspended): nothing more can be
     /// said here (PRINCIPLES "Birebir", lifecycle).
     pub read_only: bool,
@@ -350,6 +354,8 @@ impl Hub {
             peer_principal: other,
             peer_full_name: card.full_name,
             peer_icon: card.icon,
+            peer_avatar_color: card.avatar_color,
+            peer_avatar_shape: card.avatar_shape,
             read_only: self.dm_read_only(&b),
             master_in: b.master_since.is_some(),
             master_called_by_me: b.master_called_by.as_deref() == Some(principal),

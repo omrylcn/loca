@@ -270,6 +270,12 @@ async function endThenSignInAsSmaster(page, end, token, name) {
   await page.locator("#connectBtn").click();
   await expect(page.locator("body")).not.toHaveClass(/locked/);
   await expect.poll(() => page.evaluate(() => state.profile?.building_role)).toBe("smaster");
+  // The name left in the sign-in field (the previous person's) is refused
+  // for this Smaster, and the account menu opens to say so. The Profile
+  // sheet covers part of the page: close it before using the Building view.
+  if (await page.locator("#whoami details.profilemenu").evaluate(menu => menu.open)) {
+    await page.locator("#profileClose").click();
+  }
   await page.evaluate(() => switchTab("people"));
   await page.locator("#btabGroups").click();
   await expect(page.locator("#groupsPane")).toContainText(`${name}-own-group`);

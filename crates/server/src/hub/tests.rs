@@ -622,6 +622,8 @@ fn loca_roster_wears_each_building_rank_beside_the_name() {
         full_name: None,
         principal_id: None,
         icon: None,
+        avatar_color: None,
+        avatar_shape: None,
     })
     .unwrap();
     assert!(wire.get("role").is_none());
