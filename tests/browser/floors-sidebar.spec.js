@@ -213,6 +213,33 @@ test("a floor closes and opens, by mouse and keyboard, and stays as left across 
   await context.close();
 });
 
+test("a floor drawn before the viewer's preferences were known does not undo a stored close", async ({ browser, request }) => {
+  const tag = "fl4b";
+  const { master } = await building(request, tag);
+  const { context, page } = await openAsMaster(browser, master);
+  const beta = floorOf(page, `${tag}-beta`);
+  await beta.locator(":scope > summary").click();
+  await expect(beta).not.toHaveAttribute("open", "");
+  const key = await page.evaluate(() => Object.keys(localStorage).find(k => k.startsWith("loca-room-preferences:")));
+  const closed = () => page.evaluate(k => JSON.parse(localStorage.getItem(k)).collapsed.length, key);
+  expect(await closed()).toBe(1);
+  // What happens at a page start: the list is drawn while the identity is
+  // unknown (every floor open), then the identity arrives. The headings drawn
+  // open fire their `toggle` only afterwards.
+  await page.evaluate(async () => {
+    const principal = state.principalId;
+    state.principalId = null;
+    renderRooms();
+    state.principalId = principal;
+    await new Promise(resolve => setTimeout(resolve, 50));
+    renderRooms();
+    await new Promise(resolve => setTimeout(resolve, 50));
+  });
+  expect(await closed()).toBe(1);
+  await expect(beta).not.toHaveAttribute("open", "");
+  await context.close();
+});
+
 test("going into a loca opens its floor", async ({ browser, request }) => {
   const tag = "fl5";
   const { master } = await building(request, tag);

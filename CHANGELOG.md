@@ -167,6 +167,20 @@ went wrong or who noticed:
 
 ### Fixed
 
+- A closed floor stays closed. Two things undid it, both found in the Linux
+  desktop run. A heading drawn before the viewer's preferences were known
+  wrote "open" over the stored close a moment later, so a floor sometimes
+  reopened after a reload. And the Host forgot every sidebar choice (closed
+  floors, pinned, hidden and reordered locas) at each start: the choices
+  were kept under the server's address, and the Host's own server takes a
+  new port every time. In the Host they are now kept under "host".
+- The Task board can be read in a narrow window. In a 178px column the title
+  shared its line with the state chip and broke after a few letters; the
+  title now has a line of its own. The board shows its four columns before
+  the first task. In the roster, the moderation acts go to a second line
+  instead of cutting the name before its Lead tag and task number. A full
+  tab bar scrolls sideways inside itself instead of lying over the loca's
+  name and mode.
 - Every control of the sign-in card can be reached with the mouse in a short
   window. The card was cut at 92% of the window's height without scrolling:
   in the desktop client's default window (1100×760) and on a short laptop

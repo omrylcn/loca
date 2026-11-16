@@ -515,6 +515,12 @@
   .omem .glyph.agent { color: var(--agent); } .omem .glyph.user { color: var(--human); }
   .omem .glyph.lead { color: #f5c76b; text-shadow: 0 0 9px rgba(245,199,107,.72); }
   .omem .oname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* With moderation acts in the row the name keeps its own width, tags and
+     task number included, and the acts go to a second line when both do not
+     fit: squeezed beside them the name was cut before its badges. */
+  .omem:has(.omacts) { flex-wrap: wrap; row-gap: 2px; }
+  .omem:has(.omacts) .oname { flex: 1 1 auto; max-width: 100%; }
+  .omem:has(.omacts) .omacts { margin-left: auto; }
   .omem .otag { font-size: 9px; color: var(--dim); letter-spacing: .4px; }
   .omem.self .oname { color: var(--accent2); font-weight: 600; }
   .omem .mflag { font-size: 10px; }
@@ -550,8 +556,14 @@
   .substatus { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .substatus .live { color: var(--accent2); }
   .substatus .typ { color: var(--accent); }
+  /* Many tabs do not lie over the loca's name: the name keeps its room and the
+     tab bar scrolls sideways inside itself. */
+  .tophead { flex-basis: 220px; flex-shrink: 0; }
   .tabs { display: flex; align-items: center; gap: 3px; margin-left: auto; background: var(--panel2);
-    border: 1px solid var(--line); border-radius: 8px; padding: 2px; }
+    border: 1px solid var(--line); border-radius: 8px; padding: 2px;
+    flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs > * { flex: 0 0 auto; }
   /* The tab label and the dot are centred as FLEX children; they do not depend
      on the line box (baseline/strut) at all. Before, Chat had NO dot,
      the others did: how an inline inline-block aligns to the baseline
@@ -885,9 +897,15 @@
   .boardcol { min-width: 0; }
   .boardhead { margin: 0 2px 8px; color: var(--dim); font-size: 10px; font-weight: 800;
     letter-spacing: .1em; text-transform: uppercase; }
-  .taskboard .task { flex-wrap: wrap; padding: 8px 10px; }
-  .taskboard .task .ttitle { min-width: 0; overflow-wrap: anywhere; }
-  .taskboard .task .tacts { width: 100%; text-align: right; }
+  /* A card in a column is narrow: number and state on the first line, the
+     title on a line of its own at the column's full width, the acts last.
+     Beside the chip the title had a few letters per line. */
+  .taskboard .task { flex-wrap: wrap; align-items: baseline; gap: 6px 8px; padding: 9px 10px; }
+  .taskboard .task .tid { order: 0; }
+  .taskboard .task .tchip { order: 1; margin-left: auto; }
+  .taskboard .task .ttitle { order: 2; flex: 1 1 100%; min-width: 0; overflow-wrap: break-word; }
+  .taskboard .task .tacts { order: 3; width: 100%; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+  .taskboard .task .tacts button { margin-left: 0; }
   @media (max-width: 760px) { .taskboard { grid-template-columns: 1fr; } }
   .sectionlabel { margin: 18px 2px 8px; color: var(--accent2); font-size: 10px;
     font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }

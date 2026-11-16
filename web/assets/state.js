@@ -659,8 +659,13 @@ function renderRooms() {
       // badge, and no loca of it (the owner's rule: no row left standing).
       details.append(head, ...floor.rooms.map(roomItem));
       // Open or closed is this viewer's own (kept with the sidebar order).
+      // Only a toggle made on this heading counts. A <details> also fires
+      // `toggle` for the state it was drawn in, later; by then the viewer's
+      // preferences may have loaded or the list been redrawn, and comparing
+      // with them wrote "open" over a stored close.
+      const drawnOpen = details.open;
       details.addEventListener("toggle", () => {
-        if (details.open === !loadRoomPreferences().collapsed.includes(floor.key)) return;
+        if (details.open === drawnOpen || !details.isConnected) return;
         const focused = document.activeElement === head;
         setFloorCollapsed(floor.key, !details.open);
         renderRooms();
