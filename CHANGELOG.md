@@ -1757,6 +1757,13 @@ went wrong or who noticed:
 
 ### Fixed
 
+- The release can be cut from any commit on master. The release workflow
+  requires the dependency audit on the exact commit it tags, but the audit ran
+  only on a push that changed a Cargo file: tagged on any other commit, the
+  release waited half an hour for a run that could not come and failed (seen
+  when v0.14.0 was first tagged). The audit now runs on every push to master,
+  and `scripts/check-release.sh` refuses a required workflow that is filtered
+  by paths.
 - Serve the exact Getting Started document path on closed buildings while preserving membership protection for all other routes.
 
 ## [0.8.4] - 2026-08-26

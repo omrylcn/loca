@@ -5,11 +5,11 @@ on:
     paths:
       - "**/Cargo.toml"
       - Cargo.lock
+  # Every push to master, not only one that touches a Cargo file: the release
+  # workflow requires this audit on the exact commit it tags.
   push:
     branches: [master]
-    paths:
-      - "**/Cargo.toml"
-      - Cargo.lock
+  workflow_dispatch:
   schedule:
     - cron: "17 4 * * 1"
 

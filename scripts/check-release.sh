@@ -91,6 +91,48 @@ if [ -f "$RELEASE_WORKFLOW" ]; then
   fi
 fi
 
+# Every workflow the release waits for must run on every push to master. The
+# release looks for each of them on the tagged commit; one that is filtered
+# by paths never runs on a commit that does not touch those paths, and the
+# release then waits half an hour for a run that cannot come and fails
+# (v0.14.0: the dependency audit ran only when a Cargo file changed).
+REQUIRED_WORKFLOWS="$ROOT/scripts/require-release-workflows.sh"
+if [ -f "$REQUIRED_WORKFLOWS" ] && [ -d "$ROOT/.github/workflows" ]; then
+  python3 - "$REQUIRED_WORKFLOWS" "$ROOT/.github/workflows" <<'PY'
+import pathlib, re, sys
+
+script, workflows = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+listed = re.search(r'^required=\(([^)]*)\)', script.read_text(), re.M)
+if not listed:
+    sys.exit("require-release-workflows.sh: no required=(...) list")
+required = re.findall(r'"([^"]+)"', listed.group(1))
+by_name = {}
+for path in sorted(workflows.glob("*.yml")):
+    text = path.read_text()
+    name = re.search(r'^name:\s*(.+?)\s*$', text, re.M)
+    if name:
+        by_name[name.group(1).strip('"\'')] = (path.name, text)
+bad = []
+for name in required:
+    if name not in by_name:
+        bad.append(f"{name}: no workflow has this name")
+        continue
+    file, text = by_name[name]
+    push = re.search(r'^  push:[ \t]*\n((?:    .*\n|[ \t]*\n)*)', text, re.M)
+    if not push:
+        bad.append(f"{file}: does not run on push")
+    elif not re.search(r'^    branches:.*\bmaster\b', push.group(1), re.M):
+        bad.append(f"{file}: its push trigger does not name master")
+    elif re.search(r'^    paths(-ignore)?:', push.group(1), re.M):
+        bad.append(f"{file}: its push trigger is filtered by paths")
+if bad:
+    print("a workflow the release waits for must run on every push to master:", file=sys.stderr)
+    for line in bad:
+        print("  " + line, file=sys.stderr)
+    sys.exit(1)
+PY
+fi
+
 # The desktop test build (no release) must build the packages exactly as the
 # release does: the marked build steps, the tauri-action pin, the baked server
 # and the flavor arguments are compared line for line.
