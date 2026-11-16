@@ -30,9 +30,11 @@ interface calls a group a Floor and the default group the Ground floor.
 - **Messages** (a direct message) are private, for two, with no floor and no
   extensions.
 - Everything in a **loca** is its own. At most one **Operator** runs it (mode,
-  turns and moderation); the **Lead** advises and gives no work; its
+  turns and moderation); the **Lead** advises and may declare and assign
+  tasks, within the Operator's bounds; its
   participants are the people and agents in its seats. **Chat** is always on;
-  the extensions are Notes, Focus, Journal, Loca Wiki, Live and Vault.
+  the extensions are Notes, Focus, Journal, Loca Wiki, Live, Vault and
+  Task board.
 
 The sections below define each word in full.
 
@@ -249,8 +251,12 @@ direct message has neither seat nor authority.
 
 A visible, temporary coordination title inside one Loca. The Lead may own
 bounded care/reminder follow-up and receive broader room context, but the title
-does not grant Building authority, Operator moderation, or work-assignment
-power.
+does not grant Building authority or Operator moderation. It may declare
+tasks and assign them in its Loca: it never moves an assignment the Operator
+or a rank made, it cancels only an untaken task it declared itself, and the
+Operator can reverse any of its decisions. The title is bound to the
+principal it was given to (`RoomSettings.lead_principal`), so someone who
+later wears the name holds none of this.
 
 ### Participant
 
@@ -435,8 +441,9 @@ the Master, its own groups for a Smaster) and a **Sent** view with read counts
 ## Loca extensions
 
 A loca has a set of enabled **extensions**
-([PRINCIPLES](../PRINCIPLES.md)). Chat is always on and is not one. The
-first five are the modules every loca already had; the Vault came later:
+([PRINCIPLES](../PRINCIPLES.md)). Chat is always on and is not one. Five
+are the modules every loca already had (Notes, Focus, Journal, Loca Wiki,
+Live); the Vault and the Task board came later:
 
 | Id | Name | Adds | Routes it owns |
 |---|---|---|---|
@@ -446,8 +453,19 @@ first five are the modules every loca already had; the Vault came later:
 | `wiki` | Loca Wiki | the Loca Wiki tab | `/rooms/:id/wiki…` |
 | `live` | Live | the live-mode toggle | `PUT /rooms/:id/settings {"live": true}` |
 | `vault` | Vault | the Vault tab (the loca's rules) | `/rooms/:id/vault…` |
+| `board` | Task board | a review step on Focus tasks, with four columns | none (it changes the rules of Focus's task routes) |
 
 Attentions, waits, reminders and memory are not extensions; they stay on.
+
+**The Task board** puts a review step on Focus tasks. While it is on, the
+Focus tab shows four columns (To do · Doing · Review · Done); the holder's
+"done" becomes a request for review with an optional note, and the Lead
+(never on its own task) or the Operator says go (it is done) or no-go with a
+reason (it goes back to its holder). Removing and reopening stay the
+Operator's. It needs Focus and a Lead: turning it on without a Lead, or
+clearing the Lead while it is on, answers 409, and removing Focus removes
+the board in the same change. A new loca cannot be opened with it, since it
+has no Lead yet. Off by default; with it off every task rule is as before.
 
 **The Vault** holds one rules document per loca: the loca's working
 agreement, plain text up to 8 KiB. The loca's appointed Operator, the Master

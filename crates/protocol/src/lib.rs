@@ -260,18 +260,29 @@ pub enum ReminderRecipient {
 pub struct RoomSettings {
     /// This loca's lead, if one has been named.
     ///
-    /// A lead advises; it does not command. Work still comes from an operator
-    /// — the lead cannot hand out tasks, override a mode, or moderate. What
-    /// it does is see the whole room: it notices two agents on the same file,
-    /// says what should probably go first, and reports back what happened here.
-    /// Agents weigh its word; they do not obey it. When the lead and the
-    /// operator disagree, the operator wins.
+    /// A lead advises; it does not command. It cannot override a mode or
+    /// moderate. It may declare and assign tasks within the operator's
+    /// bounds (and review them on a Task board), checked by
+    /// `lead_principal`. What it mainly does is see the whole room: it
+    /// notices two agents on the same file, says what should probably go
+    /// first, and reports back what happened here. Agents weigh its word;
+    /// they do not obey it. When the lead and the operator disagree, the
+    /// operator wins.
     ///
     /// Named through an explicit operator action, announced in the open so
     /// everybody present learns of it at the same moment, and delivered as a
     /// direct wake to the new lead. Lasts until another is named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lead: Option<String>,
+    /// The principal the server verified for `lead` when the Lead was named
+    /// (the one active principal wearing that name). The Lead's task
+    /// authority is checked against it, never against the display name: a
+    /// rename, or someone else later wearing the name, carries nothing.
+    /// Absent where nobody could be verified (the open sandbox, a name no
+    /// single person wears, a Lead named before this field existed). Written
+    /// only by the server with `lead`; no client sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lead_principal: Option<String>,
     /// Max messages a single sender may post within `rate_window_secs`.
     /// `0` disables rate limiting for the room.
     pub rate_limit: u32,
@@ -496,6 +507,19 @@ pub const EXTENSIONS: &[ExtensionSpec] = &[
         routes: &["vault"],
         frames: &["vault"],
     },
+    ExtensionSpec {
+        id: "board",
+        name: "Task board",
+        tab: None,
+        summary: "Focus tasks on a board: finished work waits for the Lead's or the Operator's go.",
+        default_on_new: false,
+        tab_key: None,
+        // No route of its own: while it is on it changes the rules of
+        // Focus's task routes (a review step, the Lead's go / no-go). It
+        // needs Focus and a Lead.
+        routes: &[],
+        frames: &[],
+    },
 ];
 
 /// What a loca without an `extensions` field has: every extension that
@@ -578,6 +602,7 @@ impl Default for RoomSettings {
     fn default() -> Self {
         RoomSettings {
             lead: None,
+            lead_principal: None,
             rate_limit: 10,
             rate_window_secs: 30,
             live: false,
@@ -893,6 +918,32 @@ pub struct Task {
     /// rows); older clients ignore it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assigned_principal: Option<String>,
+    /// Who made the current assignment (the name the server verified for
+    /// them). Absent on a task nobody holds and on older rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assigned_by: Option<String>,
+    /// The authority the current assignment was made with. The Lead may not
+    /// move an assignment the Operator or a rank made; an assigned task
+    /// without this field (an older row) counts as the Operator's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assigned_as: Option<TaskActor>,
+    /// The authority the task was declared with. Absent: an operator (every
+    /// task before the Lead could declare one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_as: Option<TaskActor>,
+    /// The principal the server verified for `created_by`, where there was
+    /// one. The Lead may cancel only an untaken task its own principal
+    /// declared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_principal: Option<String>,
+    /// What the holder said when asking for review (Task board): what
+    /// changed and how to check it. Optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_note: Option<String>,
+    /// Why the last review said no-go (Task board). Cleared by the next
+    /// request for review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_reason: Option<String>,
     pub status: TaskStatus,
     pub created_at: u64,
     /// Last explicit task-state change. Ordinary room chat is not progress.
@@ -909,11 +960,28 @@ pub enum TaskStatus {
     Open,
     /// The agent has taken it upon themselves (took it on).
     Taken,
+    /// Finished by its holder and waiting for the Lead's or the Operator's
+    /// go (Task board only). Older clients show the word as it is.
+    Review,
     Done,
     Cancelled,
 }
 
-/// Body of `POST /rooms/{id}/tasks` (operator authority required).
+/// The authority a task decision was made with, recorded on the task so the
+/// Lead's bounds can be enforced: the Lead never moves what an operator (the
+/// loca's Operator, the Master or a Smaster) decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskActor {
+    /// The loca's Operator, the Master or a Smaster.
+    Operator,
+    /// The loca's Lead, checked by principal.
+    Lead,
+    /// A participant claiming an unassigned task for themselves.
+    Participant,
+}
+
+/// Body of `POST /rooms/{id}/tasks` (operator or Lead authority required).
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateTask {
     pub title: String,
@@ -932,6 +1000,14 @@ pub struct UpdateTask {
     pub status: Option<TaskStatus>,
     #[serde(default)]
     pub assigned_to: Option<String>,
+    /// With a request for review (Task board): what changed and how to
+    /// check it. Optional.
+    #[serde(default)]
+    pub note: Option<String>,
+    /// With a no-go (`review` → `taken` on the Task board): why. Required
+    /// there; ignored elsewhere.
+    #[serde(default)]
+    pub reason: Option<String>,
     pub by: String,
 }
 

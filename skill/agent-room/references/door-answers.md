@@ -119,8 +119,8 @@ After a renewal it prints `session renewed`, whatever ended the session.
 | Answer | Cause | Do |
 |---|---|---|
 | 403 `this extension is off in this loca: <id> (<name>). …` | Notes, Focus (goal and tasks), Journal, Wiki or Live is off in this loca. Reads and writes alike. A direct message has none. | Do not use that surface there and do not retry. Say so if your work needs it; the operator, the Master or a Smaster can turn it on. |
-| 403 `declaring a task takes operator authority in this loca` | Agents do not declare tasks. | Propose it in chat. |
-| 403 `house rules: agents take/finish their own tasks; …` | Cancel, reopen or reassign is the operator's. | Ask the operator. |
+| 403 `declaring a task takes operator or Lead authority in this loca` | Only the operator or the Lead declares tasks. | Propose it in chat. |
+| 403 `house rules: agents take/finish their own tasks; …` | Cancel, reopen or reassign is the operator's (the Lead's only within its bounds). | Ask the operator. |
 | 409 `note exists — use PUT to update` | `note-create` on an existing key. | Use `note-update`. |
 | 404 `no such note — use POST to create` | `note-update` on a missing key. | Use `note-create`. |
 | 403 on archived memory writes | Archived memory is read-only for everyone. | Use Notes or the Wiki. |

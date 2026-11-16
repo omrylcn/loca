@@ -28,7 +28,11 @@
 #   connect.sh tasks       <server> <room> [--mine <name>]         # declared tasks; --mine: unfinished ones given to <name>
 #   connect.sh task        <server> <room> <id>                    # one task
 #   connect.sh task-take   <server> <room> <name> <id>             # start a task given to you (or an unassigned one)
-#   connect.sh task-done   <server> <room> <name> <id>             # finish a task you hold
+#   connect.sh task-done   <server> <room> <name> <id> [note]      # finish a task you hold (on a Task board: ask for review)
+#   connect.sh task-new    <server> <room> <name> "<title>" [--assign <who>] # Lead: declare a task
+#   connect.sh task-assign <server> <room> <name> <id> <who>       # Lead: give a task to <who>
+#   connect.sh task-go     <server> <room> <name> <id>             # Lead (Task board): the work passes review
+#   connect.sh task-nogo   <server> <room> <name> <id> "<reason>"  # Lead (Task board): back to its holder, with why
 #   connect.sh waits       <server> <room>                         # explicit dependency waits
 #   connect.sh wait        <server> <room> <name> <waiting_for> <reason>
 #   connect.sh wait-clear  <server> <room> <name>
@@ -182,7 +186,7 @@ _load_credential_file() {
 # selection as their final credential boundary.
 _requested_identity=""
 case "${1:-}" in
-  listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|task-take|task-done|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|announce|attention-claim|attention-resolve)
+  listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|task-take|task-done|task-new|task-assign|task-go|task-nogo|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
   session|status|reconnect|notifications)
@@ -876,7 +880,7 @@ import json, sys
 mine = sys.argv[1].casefold()
 tasks = [t for t in json.load(sys.stdin)
          if str(t.get("assigned_to") or "").casefold() == mine
-         and t.get("status") in ("open", "taken")]
+         and t.get("status") in ("open", "taken", "review")]
 print(json.dumps(tasks, ensure_ascii=False))' "$mine"
     fi
     ;;
@@ -904,8 +908,55 @@ print(json.dumps(tasks, ensure_ascii=False))' "$mine"
         payload=$(jq -n --arg by "$name" '{status:"taken", by:$by}')
       fi
     else
-      payload=$(jq -n --arg by "$name" '{status:"done", by:$by}')
+      # On a Task board the server takes "done" from its holder as a request
+      # for review; the note says what changed and how to check it.
+      payload=$(jq -n --arg by "$name" --arg note "${5:-}" \
+        '{status:"done", by:$by} + (if $note == "" then {} else {note:$note} end)')
     fi
+    _task_write -X PATCH "$server/rooms/$(_room_path "$room")/tasks/$id" -d "$payload" || exit $?
+    ;;
+
+  # The Lead's two task acts (the Operator may use them too). The server
+  # decides who may: anyone else gets 403 and nothing changes.
+  task-new)
+    # task-new <server> <room> <name> "<title>" [--assign <who>]
+    server="$1"; room="$2"; name="$3"; title="${4:-}"; assignee=""
+    [ -n "${title//[[:space:]]/}" ] || { echo "task-new: give the task's title" >&2; exit 2; }
+    if [ "${5:-}" = "--assign" ]; then
+      assignee="${6:-}"
+      [ -n "$assignee" ] || { echo "task-new: --assign needs a name" >&2; exit 2; }
+      [ -z "${7:-}" ] || { echo "task-new: unexpected argument '$7'" >&2; exit 2; }
+    elif [ -n "${5:-}" ]; then
+      echo "task-new: unexpected argument '$5' (use --assign <who>)" >&2; exit 2
+    fi
+    use_loca "$room"
+    payload=$(jq -n --arg by "$name" --arg title "$title" --arg who "$assignee" \
+      '{title:$title, by:$by} + (if $who == "" then {} else {assigned_to:$who} end)')
+    _task_write -X POST "$server/rooms/$(_room_path "$room")/tasks" -d "$payload" || exit $?
+    ;;
+
+  task-assign)
+    # task-assign <server> <room> <name> <id> <who>
+    server="$1"; room="$2"; name="$3"; id="${4:-}"; assignee="${5:-}"
+    [[ "$id" =~ ^[0-9]+$ ]] || { echo "task-assign: give the task number" >&2; exit 2; }
+    [ -n "$assignee" ] || { echo "task-assign: give who the task is for" >&2; exit 2; }
+    use_loca "$room"
+    payload=$(jq -n --arg by "$name" --arg who "$assignee" '{assigned_to:$who, by:$by}')
+    _task_write -X PATCH "$server/rooms/$(_room_path "$room")/tasks/$id" -d "$payload" || exit $?
+    ;;
+
+  # The Task board's review: go (review -> done) or no-go with a reason
+  # (review -> taken). The Lead (never on its own task) or the Operator.
+  task-go|task-nogo)
+    server="$1"; room="$2"; name="$3"; id="${4:-}"; reason="${5:-}"
+    [[ "$id" =~ ^[0-9]+$ ]] || { echo "$cmd: give the task number" >&2; exit 2; }
+    if [ "$cmd" = task-go ]; then
+      payload=$(jq -n --arg by "$name" '{status:"done", by:$by}')
+    else
+      [ -n "${reason//[[:space:]]/}" ] || { echo "task-nogo: give the reason" >&2; exit 2; }
+      payload=$(jq -n --arg by "$name" --arg reason "$reason" '{status:"taken", reason:$reason, by:$by}')
+    fi
+    use_loca "$room"
     _task_write -X PATCH "$server/rooms/$(_room_path "$room")/tasks/$id" -d "$payload" || exit $?
     ;;
 

@@ -796,6 +796,17 @@ impl Store {
         // (`Task::assigned_principal`). NULL on every older row: nothing is
         // inferred from a name that someone else may wear today.
         add_column(&conn, "tasks", "assigned_principal TEXT")?;
+        // Who made the current assignment and with what authority, and the
+        // authority and principal a task was declared with (the Lead's
+        // bounds). NULL on every older row: an assigned older task counts as
+        // the Operator's, and an older task as declared by an operator.
+        add_column(&conn, "tasks", "assigned_by TEXT")?;
+        add_column(&conn, "tasks", "assigned_as TEXT")?;
+        add_column(&conn, "tasks", "created_as TEXT")?;
+        add_column(&conn, "tasks", "created_principal TEXT")?;
+        // The Task board's review note and no-go reason; NULL elsewhere.
+        add_column(&conn, "tasks", "review_note TEXT")?;
+        add_column(&conn, "tasks", "review_reason TEXT")?;
         add_column(&conn, "goals", "progress_at INTEGER NOT NULL DEFAULT 0")?;
         add_column(&conn, "goals", "checkpoint TEXT")?;
         add_column(&conn, "goals", "stale_after_secs INTEGER")?;

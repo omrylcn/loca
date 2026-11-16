@@ -13,6 +13,25 @@ fn caller_principal(hub: &Hub, headers: &HeaderMap) -> Option<String> {
         })
 }
 
+/// The task authority this caller holds in `room`: an operator's (the grand
+/// operator anywhere, a loca operator in their own loca), else the Lead's
+/// (by principal), else none.
+fn task_actor(
+    hub: &Hub,
+    room: &str,
+    headers: &HeaderMap,
+    by: &str,
+    by_principal: Option<&str>,
+) -> Option<protocol::TaskActor> {
+    if is_admin_req(hub, headers)
+        || hub.is_loca_operator(room, admin_token_of(headers), session_of(headers), by)
+    {
+        return Some(protocol::TaskActor::Operator);
+    }
+    hub.is_task_lead(room, by, by_principal)
+        .then_some(protocol::TaskActor::Lead)
+}
+
 pub(crate) async fn list_tasks(State(hub): State<Hub>, access: RoomAccess) -> impl IntoResponse {
     Json(hub.tasks(&access.room))
 }
@@ -34,20 +53,18 @@ pub(crate) async fn create_task(
         Err(c) => return (c, "invalid or missing session").into_response(),
     };
     // Declaring work is an operator act — the grand operator anywhere (raw key
-    // or admin session), or a loca operator in their own loca. Agents propose
-    // in chat; humans declare.
-    if !is_admin_req(&hub, &headers)
-        && !hub.is_loca_operator(&id, admin_token_of(&headers), session_of(&headers), &by)
-    {
+    // or admin session), or a loca operator in their own loca — or the
+    // loca's Lead, recognised by its principal. Other agents propose in chat.
+    let by_principal = caller_principal(&hub, &headers);
+    let Some(actor) = task_actor(&hub, &id, &headers, &by, by_principal.as_deref()) else {
         return (
             StatusCode::FORBIDDEN,
-            "declaring a task takes operator authority in this loca",
+            "declaring a task takes operator or Lead authority in this loca",
         )
             .into_response();
-    }
+    };
     body.by = by;
-    let by_principal = caller_principal(&hub, &headers);
-    match hub.create_task(&id, body, by_principal.as_deref()) {
+    match hub.create_task_as(&id, body, by_principal.as_deref(), actor) {
         Ok(task) => (StatusCode::CREATED, Json(task)).into_response(),
         Err(_) => (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -71,16 +88,27 @@ pub(crate) async fn update_task(
         Ok(n) => n,
         Err(c) => return (c, "invalid or missing session").into_response(),
     };
-    let is_op = is_admin_req(&hub, &headers)
-        || hub.is_loca_operator(&id, admin_token_of(&headers), session_of(&headers), &by);
-    body.by = by;
     let by_principal = caller_principal(&hub, &headers);
-    match hub.update_task(&id, tid, body, is_op, by_principal.as_deref()) {
+    let actor = task_actor(&hub, &id, &headers, &by, by_principal.as_deref())
+        .unwrap_or(protocol::TaskActor::Participant);
+    body.by = by;
+    match hub.update_task_as(&id, tid, body, actor, by_principal.as_deref()) {
         Ok(t) => (StatusCode::OK, Json(t)).into_response(),
         Err(TaskError::NotFound) => (StatusCode::NOT_FOUND, "no such task").into_response(),
         Err(TaskError::Forbidden) => (
             StatusCode::FORBIDDEN,
-            "house rules: agents take/finish their own tasks; cancel/reopen/reassign is the operator's",
+            "house rules: agents take/finish their own tasks; cancel/reopen/reassign is the operator's (the Lead's only within its bounds)",
+        ).into_response(),
+        // The review state is the Task board's one door: refused with the
+        // refusal every switched-off extension gives.
+        Err(TaskError::BoardOff) => super::extensions::extension_off("board"),
+        Err(TaskError::ReasonRequired) => (
+            StatusCode::BAD_REQUEST,
+            "a no-go needs a reason",
+        ).into_response(),
+        Err(TaskError::TooLong) => (
+            StatusCode::BAD_REQUEST,
+            "a review note or reason is at most 2000 characters",
         ).into_response(),
         Err(TaskError::Storage) => (
             StatusCode::SERVICE_UNAVAILABLE,

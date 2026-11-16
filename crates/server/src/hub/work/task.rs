@@ -1,5 +1,10 @@
 use super::super::*;
+use super::board;
 use crate::sync::RecoverMutex;
+use protocol::TaskActor;
+
+/// The longest review note or no-go reason, in characters.
+const TASK_NOTE_MAX: usize = 2000;
 
 impl Hub {
     pub fn tasks(&self, room: &str) -> Vec<Task> {
@@ -13,11 +18,24 @@ impl Hub {
     }
     /// Declare a task (operator's signature required at the route layer).
     /// `by_principal` is the principal the server verified for `req.by`.
+    #[cfg(test)]
     pub fn create_task(
         &self,
         room: &str,
         req: CreateTask,
         by_principal: Option<&str>,
+    ) -> rusqlite::Result<Task> {
+        self.create_task_as(room, req, by_principal, TaskActor::Operator)
+    }
+    /// Declare a task with the authority the route layer resolved: an
+    /// operator's, or the Lead's. The task records which, so the Lead's
+    /// bounds hold later.
+    pub fn create_task_as(
+        &self,
+        room: &str,
+        req: CreateTask,
+        by_principal: Option<&str>,
+        actor: TaskActor,
     ) -> rusqlite::Result<Task> {
         let now = (self.now_ms)();
         let assigned_principal = req
@@ -30,10 +48,16 @@ impl Hub {
             id,
             room: room.to_string(),
             title: req.title,
+            assigned_by: req.assigned_to.as_ref().map(|_| req.by.clone()),
             created_by: req.by,
             from_message: req.from_message,
+            assigned_as: req.assigned_to.as_ref().map(|_| actor),
             assigned_to: req.assigned_to,
             assigned_principal,
+            review_note: None,
+            review_reason: None,
+            created_as: Some(actor),
+            created_principal: by_principal.map(str::to_string),
             status: TaskStatus::Open,
             created_at: now,
             progress_at: now,
@@ -45,7 +69,7 @@ impl Hub {
         r.tasks.insert(id, t.clone());
         let _ = r.tx.send(ServerFrame::Task { task: t.clone() });
         if let Some(assignee) = t.assigned_to.as_deref().filter(|who| *who != t.created_by) {
-            self.announce_assignment(r, room, id, &t.created_by, assignee);
+            self.announce_assignment(r, room, id, &assigner_label(&t.created_by, actor), assignee);
         }
         Ok(t)
     }
@@ -57,6 +81,7 @@ impl Hub {
     /// for `req.by`) are resolved at the route layer. Where the task records
     /// the principal it was given to, that principal is its assignee and the
     /// name is only its label: another person who now wears the name is not.
+    #[cfg(test)]
     pub fn update_task(
         &self,
         room: &str,
@@ -65,6 +90,45 @@ impl Hub {
         is_operator: bool,
         by_principal: Option<&str>,
     ) -> Result<Task, TaskError> {
+        let actor = if is_operator {
+            TaskActor::Operator
+        } else {
+            TaskActor::Participant
+        };
+        self.update_task_as(room, id, req, actor, by_principal)
+    }
+    /// Update a task with the authority the route layer resolved. On top of
+    /// the house rules above, the Lead (checked by principal) may assign or
+    /// reassign an unfinished task unless the current assignment is an
+    /// operator's, and may cancel an untaken task it declared itself.
+    pub fn update_task_as(
+        &self,
+        room: &str,
+        id: u64,
+        req: UpdateTask,
+        actor: TaskActor,
+        by_principal: Option<&str>,
+    ) -> Result<Task, TaskError> {
+        let is_operator = actor == TaskActor::Operator;
+        let is_lead = actor == TaskActor::Lead;
+        let note = req
+            .note
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string);
+        let reason = req
+            .reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string);
+        if [&note, &reason].iter().any(|text| {
+            text.as_ref()
+                .is_some_and(|t| t.chars().count() > TASK_NOTE_MAX)
+        }) {
+            return Err(TaskError::TooLong);
+        }
         let now = (self.now_ms)();
         let new_principal = req
             .assigned_to
@@ -81,7 +145,11 @@ impl Hub {
         };
 
         if let Some(assignee) = req.assigned_to.clone() {
-            if !is_operator {
+            let made_as = if is_operator {
+                TaskActor::Operator
+            } else if is_lead && Self::lead_may_assign(&out) {
+                TaskActor::Lead
+            } else {
                 // An unassigned task may be self-claimed by whoever takes it;
                 // stealing someone else's assignment needs operator authority.
                 if out.assigned_to.is_some() && !is_assignee(&out) {
@@ -90,24 +158,39 @@ impl Hub {
                 if assignee != req.by {
                     return Err(TaskError::Forbidden);
                 }
-            }
+                TaskActor::Participant
+            };
             if out.assigned_to.as_deref() != Some(assignee.as_str()) {
                 progressed = true;
                 out.assigned_principal = new_principal;
+                out.assigned_by = Some(req.by.clone());
+                out.assigned_as = Some(made_as);
                 if assignee != req.by {
                     newly_assigned = Some(assignee.clone());
                 }
             }
             out.assigned_to = Some(assignee);
         }
-        if let Some(st) = req.status {
+        let mut moved = board::Transition::Plain;
+        if let Some(asked) = req.status {
             let mine = is_assignee(&out);
-            let allowed = match st {
-                TaskStatus::Taken | TaskStatus::Done => is_operator || mine,
-                TaskStatus::Cancelled | TaskStatus::Open => is_operator,
+            let asker = board::Asker {
+                board: r.settings.extension_enabled("board"),
+                operator: is_operator,
+                lead: is_lead,
+                mine,
+                lead_declared_untaken: is_lead && self.lead_may_cancel(&out, &req.by, by_principal),
+                has_reason: reason.is_some(),
             };
-            if !allowed {
-                return Err(TaskError::Forbidden);
+            let (st, kind) = board::transition(out.status, asked, asker)?;
+            moved = kind;
+            match kind {
+                board::Transition::ReviewAsked => {
+                    out.review_note = note.clone();
+                    out.review_reason = None;
+                }
+                board::Transition::NoGo => out.review_reason = reason.clone(),
+                board::Transition::Plain | board::Transition::Go => {}
             }
             // The assignee's own act binds a task given by name alone (before
             // the principal was recorded, or to a name nobody wore yet) to the
@@ -142,7 +225,18 @@ impl Hub {
         r.tasks.insert(id, out.clone());
         let _ = r.tx.send(ServerFrame::Task { task: out.clone() });
         if let Some(assignee) = newly_assigned.as_deref() {
-            self.announce_assignment(r, room, id, &req.by, assignee);
+            let made_as = out.assigned_as.unwrap_or(TaskActor::Operator);
+            self.announce_assignment(r, room, id, &assigner_label(&req.by, made_as), assignee);
+        }
+        if moved != board::Transition::Plain {
+            self.announce_board_move(
+                r,
+                room,
+                id,
+                moved,
+                &assigner_label(&req.by, actor),
+                out.assigned_to.as_deref(),
+            );
         }
         if let Some(goal) = linked_goal {
             r.care_marks.remove(&format!("goal:{}", goal.id));
@@ -180,31 +274,16 @@ impl Hub {
     /// out on purpose, so an `@name` written in it cannot wake anybody else;
     /// the assignee reads it from the task list.
     fn announce_assignment(&self, r: &mut Room, room: &str, id: u64, by: &str, assignee: &str) {
-        let msg = Message {
-            attachments: Vec::new(),
-            id: self.next_id.fetch_add(1, Ordering::Relaxed),
-            room: room.to_string(),
-            sender: "loca".into(),
-            sender_type: SenderType::User,
-            target: Some(assignee.to_string()),
-            text: format!("{by} assigned task #{id} to @{assignee}."),
-            reply_to: None,
-            reply_to_sender: None,
-            sender_principal: None,
-            kind: protocol::MessageKind::Announce,
-            ts: (self.now_ms)(),
-        };
-        // The task change has already committed; its announcement must not
-        // depend on a second write (the `announce_join_request` rule). A
-        // failed write is logged and the line is still shown and delivered.
-        if let Err(error) = self.store.insert_message(&msg, None) {
-            tracing::error!(%error, room, task_id = id, "could not persist a task assignment line");
-        }
-        r.history.push(msg.clone());
-        if r.history.len() > HISTORY_LIMIT {
-            let overflow = r.history.len() - HISTORY_LIMIT;
-            r.history.drain(0..overflow);
-        }
-        let _ = r.tx.send(ServerFrame::Msg { message: msg });
+        let text = format!("{by} assigned task #{id} to @{assignee}.");
+        self.announce_task_line(r, room, id, assignee, text);
+    }
+}
+
+/// Who the assignment line names as the assigner: the Lead says so, so the
+/// room can tell a Lead's decision from an operator's.
+fn assigner_label(by: &str, actor: TaskActor) -> String {
+    match actor {
+        TaskActor::Lead => format!("Lead {by}"),
+        TaskActor::Operator | TaskActor::Participant => by.to_string(),
     }
 }

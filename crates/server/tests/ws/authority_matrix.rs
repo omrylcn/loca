@@ -835,7 +835,10 @@ const ROWS: &[Row] = &[
     // suggest progress, but they cannot open or change a goal". "Birebir": no
     // tasks or goals.
     row("GET /rooms/:id/tasks", Rule::Feature, &[]),
-    row("POST /rooms/:id/tasks", Rule::Manage, &[]),
+    // PRINCIPLES "Loca layer", Lead: the Lead may also declare and assign
+    // tasks in its loca. The loca's agent is its Lead (`the_agent`), named
+    // by principal; in Care that is `loca-care`.
+    row("POST /rooms/:id/tasks", Rule::AgentOrManage, &[]),
     // The probe claims the seeded task for the caller itself.
     row("PATCH /rooms/:id/tasks/:tid", Rule::Feature, &[]).iso(PerCaller),
     row("GET /rooms/:id/goals", Rule::Feature, &[]),

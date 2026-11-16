@@ -97,7 +97,7 @@ function renderReminderHistory() {
     list.appendChild(row);
   }
 }
-const TLABEL = { open: "To do", taken: "In progress", done: "Done", cancelled: "Removed" };
+const TLABEL = { open: "To do", taken: "In progress", review: "Review", done: "Done", cancelled: "Removed" };
 
 // The number of the unfinished task a person holds, worn beside their name in
 // the roster and on their lines. A task belongs to the principal the server
@@ -106,9 +106,9 @@ const TLABEL = { open: "To do", taken: "In progress", done: "Done", cancelled: "
 // by a seat or a line nobody verified. Inside this loca only.
 function taskBadgeFor(name, principal) {
   if (!name || isDm(state.room)) return "";
-  const rank = t => (t.status === "taken" ? 0 : 1);
+  const rank = t => ({ taken: 0, review: 1 }[t.status] ?? 2);
   const held = Object.values(state.tasks || {})
-    .filter(t => t.room === state.room && (t.status === "open" || t.status === "taken") && t.assigned_to
+    .filter(t => t.room === state.room && ["open", "taken", "review"].includes(t.status) && t.assigned_to
       && (t.assigned_principal ? t.assigned_principal === principal : (!principal && t.assigned_to === name)))
     .sort((a, b) => rank(a) - rank(b) || a.id - b.id);
   if (!held.length) return "";
@@ -165,7 +165,7 @@ function renderTasks() {
     $("goalCard").innerHTML = `<span class="goallabel">Room goal</span><span class="goaloutcome" title="${esc(activeGoal.outcome)}">${esc(activeGoal.outcome)}</span>${proof}<span class="tacts">${acts}</span>`;
     $("goalPanelCard").innerHTML = `<span><b>${esc(activeGoal.outcome)}</b>${activeGoal.checkpoint ? `<small style="display:block;color:var(--dim);margin-top:3px">Proof: ${esc(activeGoal.checkpoint)}</small>` : ""}</span>${isLocaOperator() ? `<button data-goal-prefill>Edit with @goal</button>` : ""}`;
   }
-  $("taskCreate").classList.toggle("hidden", !isLocaOperator());
+  $("taskCreate").classList.toggle("hidden", !mayDeclareTasks());
   // Everyone can see which reminders are active and who receives them; only
   // the master can change the rules.
   $("reminderSettings").classList.remove("hidden");
@@ -179,6 +179,7 @@ function renderTasks() {
   const box = $("taskList");
   const ids = Object.keys(state.tasks).map(Number).sort((a, b) => b - a);
   if (!ids.length) { box.innerHTML = `<div class="sysline">No explicit tasks. Most work can stay in Chat.</div>`; return; }
+  if (extensionOn("board")) { renderBoard(box); return; }
   box.innerHTML = "";
   for (const id of ids) {
     const t = state.tasks[id];
@@ -209,6 +210,7 @@ async function taskAct(act, id) {
   if (act === "done") body.status = "done";
   if (act === "cancel") body.status = "cancelled";
   if (act === "reopen") body.status = "open";
+  if (act === "go" || act === "nogo") return boardReview(act, id);
   const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(state.room)}/tasks/${id}`, {
     method: "PATCH", headers: adminHeaders({ "content-type": "application/json" }), body: JSON.stringify(body),
   });
@@ -219,7 +221,7 @@ async function createTask(title, fromMessage, assignee) {
     method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ title, by: state.name, from_message: fromMessage || null, assigned_to: assignee || null }),
   });
-  if (r.status === 403) { addSys("Only a loca operator can add a next step."); return false; }
+  if (r.status === 403) { addSys("Only a loca operator or the Lead can add a next step."); return false; }
   return r.ok;
 }
 function currentGoal() {

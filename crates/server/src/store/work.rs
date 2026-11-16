@@ -1,4 +1,5 @@
 use super::*;
+use protocol::TaskActor;
 
 impl Store {
     pub fn upsert_task(&self, t: &Task) -> rusqlite::Result<()> {
@@ -9,13 +10,15 @@ impl Store {
         let st = match t.status {
             TaskStatus::Open => "open",
             TaskStatus::Taken => "taken",
+            TaskStatus::Review => "review",
             TaskStatus::Done => "done",
             TaskStatus::Cancelled => "cancelled",
         };
         c.execute(
-            "INSERT OR REPLACE INTO tasks (id, room, title, created_by, from_message, assigned_to, status, created_at, progress_at, closed_at, assigned_principal)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            params![t.id, t.room, t.title, t.created_by, t.from_message, t.assigned_to, st, t.created_at, t.progress_at, t.closed_at, t.assigned_principal],
+            "INSERT OR REPLACE INTO tasks (id, room, title, created_by, from_message, assigned_to, status, created_at, progress_at, closed_at, assigned_principal, assigned_by, assigned_as, created_as, created_principal, review_note, review_reason)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            params![t.id, t.room, t.title, t.created_by, t.from_message, t.assigned_to, st, t.created_at, t.progress_at, t.closed_at, t.assigned_principal,
+                t.assigned_by, t.assigned_as.map(task_actor_text), t.created_as.map(task_actor_text), t.created_principal, t.review_note, t.review_reason],
         )
         .inspect_err(|e| tracing::error!(error = %e, "upsert_task failed"))
         .map(|_| ())
@@ -150,7 +153,8 @@ impl Store {
         };
         let mut out = Vec::new();
         if let Ok(mut stmt) = c.prepare(
-            "SELECT id, title, created_by, from_message, assigned_to, status, created_at, progress_at, closed_at, assigned_principal
+            "SELECT id, title, created_by, from_message, assigned_to, status, created_at, progress_at, closed_at, assigned_principal,
+                    assigned_by, assigned_as, created_as, created_principal, review_note, review_reason
              FROM tasks WHERE room = ?1 ORDER BY id",
         ) {
             if let Ok(rows) = stmt.query_map(params![room], |r| {
@@ -163,8 +167,15 @@ impl Store {
                     from_message: r.get(3)?,
                     assigned_to: r.get(4)?,
                     assigned_principal: r.get(9)?,
+                    assigned_by: r.get(10)?,
+                    assigned_as: r.get::<_, Option<String>>(11)?.as_deref().and_then(task_actor_of),
+                    created_as: r.get::<_, Option<String>>(12)?.as_deref().and_then(task_actor_of),
+                    created_principal: r.get(13)?,
+                    review_note: r.get(14)?,
+                    review_reason: r.get(15)?,
                     status: match st.as_str() {
                         "taken" => TaskStatus::Taken,
+                        "review" => TaskStatus::Review,
                         "done" => TaskStatus::Done,
                         "cancelled" => TaskStatus::Cancelled,
                         _ => TaskStatus::Open,
@@ -296,5 +307,24 @@ impl Store {
             }
         }
         out
+    }
+}
+
+/// How a [`TaskActor`] is stored in the `tasks` table.
+fn task_actor_text(actor: TaskActor) -> &'static str {
+    match actor {
+        TaskActor::Operator => "operator",
+        TaskActor::Lead => "lead",
+        TaskActor::Participant => "participant",
+    }
+}
+
+/// A stored [`TaskActor`]; an unknown word reads as none.
+fn task_actor_of(text: &str) -> Option<TaskActor> {
+    match text {
+        "operator" => Some(TaskActor::Operator),
+        "lead" => Some(TaskActor::Lead),
+        "participant" => Some(TaskActor::Participant),
+        _ => None,
     }
 }

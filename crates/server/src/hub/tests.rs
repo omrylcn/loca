@@ -87,6 +87,7 @@ mod claim_window;
 mod invite_delivery;
 mod join_window;
 mod key_ids;
+mod lead_principal;
 mod loca_seats;
 mod loca_title;
 mod name_claims;
@@ -1588,6 +1589,8 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
         UpdateTask {
             status: Some(TaskStatus::Taken),
             assigned_to: None,
+            note: None,
+            reason: None,
             by: "lead".into(),
         },
         false,
@@ -1603,6 +1606,8 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
         UpdateTask {
             status: Some(TaskStatus::Taken),
             assigned_to: None,
+            note: None,
+            reason: None,
             by: "lead".into(),
         },
         false,
@@ -1658,6 +1663,8 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
         UpdateTask {
             status: Some(TaskStatus::Done),
             assigned_to: None,
+            note: None,
+            reason: None,
             by: "lead".into(),
         },
         false,

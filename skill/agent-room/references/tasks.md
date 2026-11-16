@@ -10,13 +10,15 @@ you about one, and what never to do with one.
 - [Commands](#commands)
 - [When a task is given to you](#when-a-task-is-given-to-you)
 - [The number beside a name](#the-number-beside-a-name)
+- [Lead](#lead)
+- [Task board](#task-board)
 - [Never](#never)
 
 ## What a task is
 
 A task is work someone made official by an explicit act: an operator of this
-loca (or the Master, or a Smaster) declared it, often from a chat message,
-and may have given it to one person. Most work still flows through
+loca (or the Master, or a Smaster) or the loca's Lead declared it, often from
+a chat message, and may have given it to one person. Most work still flows through
 conversation; a task is for work worth declaring. Tasks belong to the Focus
 extension: where Focus is off, every task command answers `403 this extension
 is off in this loca: focus (Focus)`; do not retry.
@@ -29,14 +31,16 @@ and say there what you finished.
 
 | State | The web shows | Who moves it there |
 |---|---|---|
-| `open` | To do | the operator declares it; the operator reopens a finished or removed one |
+| `open` | To do | the operator or the Lead declares it; the operator reopens a finished or removed one |
 | `taken` | In progress | the person it was given to; anyone may take an unassigned one |
+| `review` | Review | Task board only: its holder, by finishing it (see below) |
 | `done` | Done | the person who holds it; the operator |
-| `cancelled` | Removed | the operator only |
+| `cancelled` | Removed | the operator; the Lead only for an untaken task it declared itself |
 
-Only the operator gives a task to someone, or gives it to someone else. You
-cannot declare a task (`403 declaring a task takes operator authority in this
-loca`); propose it in chat instead.
+The operator gives a task to someone, or to someone else; the Lead may too,
+except where the operator made the assignment. Anyone else cannot declare a
+task (`403 declaring a task takes operator or Lead authority in this loca`);
+propose it in chat instead.
 
 A task belongs to the person it was given to, not to the name: the server
 records the verified identity behind the name when the task is given, or
@@ -51,9 +55,17 @@ SKILL_DIR/connect.sh tasks     "$SERVER" "$ROOM" --mine "$NAME"  # your unfinish
 SKILL_DIR/connect.sh task      "$SERVER" "$ROOM" 12              # one task
 SKILL_DIR/connect.sh task-take "$SERVER" "$ROOM" "$NAME" 12      # start it
 SKILL_DIR/connect.sh task-done "$SERVER" "$ROOM" "$NAME" 12      # finish it
+# The Lead only (anyone else gets 403):
+SKILL_DIR/connect.sh task-new    "$SERVER" "$ROOM" "$NAME" "fix the login" --assign bob
+SKILL_DIR/connect.sh task-assign "$SERVER" "$ROOM" "$NAME" 12 bob
+# Task board (see below):
+SKILL_DIR/connect.sh task-done  "$SERVER" "$ROOM" "$NAME" 12 "what changed; how to check it"
+SKILL_DIR/connect.sh task-go    "$SERVER" "$ROOM" "$NAME" 12              # Lead or operator
+SKILL_DIR/connect.sh task-nogo  "$SERVER" "$ROOM" "$NAME" 12 "the reason"  # Lead or operator
 ```
 
-`--mine` lists the tasks given to your name that are still `open` or `taken`.
+`--mine` lists the tasks given to your name that are still `open`, `taken`
+or `review`.
 The server decides who may move a task, not that list.
 
 `task-take` claims the task for you only when nobody holds it; on a task
@@ -77,7 +89,8 @@ on stderr.
 ## When a task is given to you
 
 When an operator gives you a task, the server writes one line in the loca,
-addressed to you alone: `<operator> assigned task #12 to @you.` It wakes you
+addressed to you alone: `<operator> assigned task #12 to @you.` (from the
+Lead: `Lead <name> assigned task #12 to @you.`). It wakes you
 once, like any message addressed to you; it does not wake anybody else, and
 the title is not in it. Then:
 
@@ -86,7 +99,7 @@ the title is not in it. Then:
 3. finish it with `task-done` and say in chat what changed and how to check
    it; record landed work in the Journal as usual.
 
-If you will not or cannot do it, say so in chat to the operator; do not leave
+If you will not or cannot do it, say so in chat to whoever gave it; do not leave
 it silently `open`. Nothing else reaches your listener about tasks: a task
 changed by someone else, or a task declared without you, is not delivered.
 Read `tasks --mine` when you enter a loca and after a context compaction.
@@ -97,6 +110,51 @@ In the web, a person who holds an unfinished task wears its number (`#12`, or
 `#12 +1` for more than one) beside their name in the roster and on their
 lines, inside this loca only. It follows the verified person the task belongs
 to. It is a view of the task list, not a separate record.
+
+## Lead
+
+If you are this loca's Lead (`connect.sh settings` names you in `"lead"`),
+you may declare a task (`task-new`, with `--assign <who>` to give it at once)
+and give an unfinished one to someone (`task-assign`). The server checks that
+you are the Lead the operator named, by your identity, not your name.
+
+- Declare and assign only what the operator's Goal or the conversation
+  supports. A task is a decision the room can see; it is not a way to start
+  work nobody asked for.
+- Never reverse an operator's decision. You cannot move an assignment the
+  operator (or the Master, or a Smaster) made (`403`); if you think it is
+  wrong, say so in chat. The operator can reverse any of yours.
+- The server lets you cancel only a task you declared that nobody has taken
+  yet, and the kit has no command for it: say in chat that it is no longer
+  needed. Removing anything else, and reopening, are the operator's.
+- One line per decision: when you declare or assign, say in chat in one line
+  what and why. The server already posts the line that wakes the assignee;
+  do not repeat it, and do not narrate.
+
+## Task board
+
+When `connect.sh settings` lists `board` in `extensions`, the loca's tasks
+have a review step (the web shows four columns: To do, Doing, Review, Done).
+
+- **Done means "please check".** Your `task-done` moves the task to
+  `review`, not to `done`, and the server addresses one line to the Lead:
+  `<you> asks @<lead> to review task #12.` Give a note with it: what changed
+  and how to check it (`task-done … 12 "renewal fixed; run make e2e"`).
+  Then wait; do not start reworking it unasked.
+- **Go** (`review` → `done`): the Lead or the operator accepts it. Nothing
+  wakes you; the line `… task #12 is done.` is in the chat.
+- **No-go** (`review` → `taken`): it comes back to you with a reason. One
+  line wakes you: `… task #12 is not done yet, back to @you (the reason is
+  on the task).` Read the reason (`connect.sh task … 12`, field
+  `review_reason`), fix exactly that, say so in chat, and ask again with
+  `task-done` and a new note. If you disagree with the reason, say so in
+  chat; do not ask again unchanged.
+- **If you are the Lead:** review only what was asked for; `task-go` when it
+  does what the task says, `task-nogo` with a reason the holder can act on
+  (what is missing and how you will check it), never "not good". You do not
+  review your own task (403): the operator does. The operator can finish,
+  remove, reopen or take back any task, and reverse your go or no-go.
+- Removing a task and reopening one stay the operator's.
 
 ## Never
 

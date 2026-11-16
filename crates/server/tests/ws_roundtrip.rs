@@ -1736,6 +1736,8 @@ mod hidden_locas;
 mod key_ids;
 #[path = "ws/keys.rs"]
 mod keys;
+#[path = "ws/lead_tasks.rs"]
+mod lead_tasks;
 #[path = "ws/lobby_delivery.rs"]
 mod lobby_delivery;
 #[path = "ws/loca_identity.rs"]
@@ -1764,6 +1766,8 @@ mod server;
 mod sessions;
 #[path = "ws/suspension.rs"]
 mod suspension;
+#[path = "ws/task_board.rs"]
+mod task_board;
 #[path = "ws/upgrade.rs"]
 mod upgrade;
 #[path = "ws/vault.rs"]

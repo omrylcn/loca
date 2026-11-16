@@ -551,6 +551,63 @@ it and never interprets it.
 
 From: PRINCIPLES "Vault".
 
+## 8. Tasks: who declares and assigns
+
+**Rule.** A task is declared by an explicit act. The loca's Operator, the
+Master and Smasters declare and assign; the loca's Lead may also declare and
+assign, within bounds the Operator keeps. Every assignment is one chat line
+that wakes the assignee.
+
+- **The Lead is a principal.** `POST /rooms/:id/lead` stores, beside
+  `RoomSettings.lead`, `RoomSettings.lead_principal`: the one active principal
+  wearing that name (absent when nobody, or more than one, does, and on a
+  Lead named before the field existed). The task routes compare the caller's
+  verified principal with it, never the name; someone who later wears the
+  name is not the Lead. Where no principal exists (no database, or no
+  Building key) the name is compared, as for operators there. No client sets
+  the field.
+- **Declare:** `POST /rooms/:id/tasks` by an operator or the Lead; anyone else
+  gets 403 `declaring a task takes operator or Lead authority in this loca`.
+- **Assign:** `PATCH /rooms/:id/tasks/:tid {"assigned_to"}`. The Lead may give
+  an unfinished task to anyone, and move an assignment a Lead made or a
+  holder claimed; it may not move one an operator made (403, unchanged).
+  The Operator moves any assignment, a Lead's included.
+- **Cancel:** the Lead cancels (`"status": "cancelled"`) only an `open` task
+  it declared itself, under its own principal. Every other rule is as
+  before: the holder takes and finishes; cancelling anything else and
+  reopening are the Operator's.
+- **Record:** `Task` gains `assigned_by` (who made the current assignment),
+  `assigned_as` and `created_as` (`operator`, `lead` or `participant`: the
+  authority the assignment or the declaration was made with) and
+  `created_principal`. All optional: an older task has none, and an assigned
+  older task counts as an operator's assignment.
+- **Line:** an assignment to someone other than the assigner posts an
+  `announce` from `loca` with `target` the assignee: `<by> assigned task #N
+  to @<assignee>.`, or `Lead <by> assigned …` when the Lead made it. The
+  title is left out, so an `@name` in it wakes nobody.
+
+- **Task board** (`board` extension, off by default; it owns no route).
+  While it is on: `TaskStatus` `review` exists; the holder's `"status":
+  "done"` (or `"review"`) on an `open` or `taken` task moves it to `review`,
+  with an optional `"note"` stored as `review_note`; the Lead (not on a task
+  it holds) or an operator answers with `"status": "done"` (go) or
+  `"status": "taken"` with a required `"reason"` (no-go, stored as
+  `review_reason`; 400 without one). Note and reason are at most 2000
+  characters (400). Finishing without a review and taking finished work back
+  are an operator's; removing and reopening stay an operator's. With the
+  board off, `"status": "review"` gets the extension refusal (403 `this
+  extension is off in this loca: board (Task board)…`, section 5) and every
+  other rule is as above. Turning it on without a Lead, or without Focus, answers 409;
+  `POST /rooms/:id/lead {"lead": null}` while it is on answers 409; removing
+  Focus removes it in the same change; `POST /rooms` with it answers 409.
+- **Board lines** (`announce` from `loca`): a request for review, `<by> asks
+  @<lead> to review task #N.` (target the Lead); a no-go, `<by>: task #N is
+  not done yet, back to @<holder> (the reason is on the task).` (target the
+  holder); a go, `<by>: task #N is done.` (target `all`, which wakes nobody).
+  `<by>` reads `Lead <name>` for the Lead.
+
+From: PRINCIPLES "Loca layer" (Lead), "A task".
+
 ## Known divergences
 
 Places where today's code and the binding documents disagree, or where a

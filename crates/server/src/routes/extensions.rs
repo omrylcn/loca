@@ -144,7 +144,9 @@ fn apply(
             let status = match error {
                 hub::ExtensionError::Unknown(_) => StatusCode::BAD_REQUEST,
                 hub::ExtensionError::Dm => StatusCode::FORBIDDEN,
-                hub::ExtensionError::NotWritable => StatusCode::CONFLICT,
+                hub::ExtensionError::NotWritable
+                | hub::ExtensionError::BoardNeedsFocus
+                | hub::ExtensionError::BoardNeedsLead => StatusCode::CONFLICT,
                 hub::ExtensionError::Storage => StatusCode::SERVICE_UNAVAILABLE,
             };
             (status, error.message()).into_response()

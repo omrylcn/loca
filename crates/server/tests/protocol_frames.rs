@@ -47,6 +47,7 @@ fn message() -> Value {
 fn settings() -> RoomSettings {
     RoomSettings {
         lead: Some("proto-bot".into()),
+        lead_principal: Some("pr_proto".into()),
         extensions: Some(vec!["notes".into()]),
         title: Some("Proto loca".into()),
         description: Some("What this loca is for.".into()),

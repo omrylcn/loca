@@ -319,6 +319,7 @@
     "RoomSettings": {
       "fields": {
         "lead": "string",
+        "lead_principal": "string",
         "rate_limit": "u32",
         "rate_window_secs": "u32",
         "live": "bool",
@@ -345,7 +346,7 @@
         "labels": "string[]",
         "vault_rev": "u64"
       },
-      "optional": ["lead", "extensions", "title", "description", "seats", "icon", "color", "labels", "vault_rev"]
+      "optional": ["lead", "lead_principal", "extensions", "title", "description", "seats", "icon", "color", "labels", "vault_rev"]
     }
   }
 }
