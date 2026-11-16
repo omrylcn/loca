@@ -129,6 +129,13 @@ went wrong or who noticed:
   `docs/backup-restore.md`.
 
 ### Changed
+
+- **This Loca reads at a glance.** The panel is set in reading sizes: what the
+  loca is for comes first, then who answers for it, then what it carries; each
+  act (Edit, Change, Manage) sits at the end of its own row.
+- **A closed floor says so.** Under a closed floor a line tells how many locas
+  it holds back ("+ 8 more on this floor") and opens it. Floors, the Ground
+  floor included, wear a layers mark.
 - The sign-in page is a page, not only a form: beside the sign-in card it says
   what loca is, with a small picture of a Building, its floors and locas, and
   the card's fields and buttons are laid out with clearer weight (one primary

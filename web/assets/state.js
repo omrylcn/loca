@@ -652,7 +652,7 @@ function renderRooms() {
       const badge = collapsed && unread
         ? `<span class="unreadbadge" title="${unread} unread message${unread === 1 ? "" : "s"} on this floor">${unread > 99 ? "99+" : unread}</span>`
         : "";
-      head.innerHTML = `${typeof GROUP_ICON === "string" && floor.key !== GROUND_FLOOR ? GROUP_ICON : ""}` +
+      head.innerHTML = `${typeof GROUP_ICON === "string" ? GROUP_ICON : ""}` +
         `<span class="rgroupname" title="${esc(floor.name)}">${esc(floor.name)}</span>${badge}` +
         `<span class="rgroupcount" aria-label="${floor.rooms.length} locas">${floor.rooms.length}</span>`;
       // The loca one is in stays in sight under a closed floor (drawn just
@@ -673,6 +673,18 @@ function renderRooms() {
         const kept = roomItem(here);
         kept.classList.add("floorkept");
         list.appendChild(kept);
+      }
+      // A closed floor says so in words: without this line the one loca kept
+      // in sight reads as the whole floor.
+      const hidden = collapsed ? floor.rooms.length - (here ? 1 : 0) : 0;
+      if (hidden) {
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "floormore";
+        more.dataset.floorMore = floor.key;
+        more.textContent = here ? `+ ${hidden} more on this floor` : `Show ${hidden} loca${hidden === 1 ? "" : "s"}`;
+        more.addEventListener("click", () => { setFloorCollapsed(floor.key, false); renderRooms(); });
+        list.appendChild(more);
       }
     }
   }

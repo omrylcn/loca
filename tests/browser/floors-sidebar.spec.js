@@ -206,6 +206,27 @@ test("going into a loca opens its floor", async ({ browser, request }) => {
   await context.close();
 });
 
+test("a closed floor says how many locas it holds back, and that line opens it", async ({ browser, request }) => {
+  const tag = "fl5b";
+  const { master } = await building(request, tag);
+  const { context, page } = await openAsMaster(browser, master);
+  const alpha = floorOf(page, `${tag}-alpha`);
+  const more = page.locator(`#roomList .floormore`, { hasText: "on this floor" });
+  await expect(page.locator("#roomList .floormore")).toHaveCount(0);
+  // Closed from outside: the line counts every loca of the floor.
+  await alpha.locator(":scope > summary").click();
+  await expect(page.locator("#roomList .floormore", { hasText: "Show 2 locas" })).toBeVisible();
+  // Closed while inside: one's own loca stays, the line counts the rest.
+  await page.evaluate(room => joinRoom(room), `${tag}-a2`);
+  await alpha.locator(":scope > summary").click();
+  await expect(more).toHaveText("+ 1 more on this floor");
+  await more.click();
+  await expect(alpha).toHaveAttribute("open", "");
+  await expect(page.locator("#roomList .roomitem", { hasText: `${tag}-a1` })).toBeVisible();
+  await expect(page.locator("#roomList .floormore")).toHaveCount(0);
+  await context.close();
+});
+
 test("move up and down reorder locas within their floor", async ({ browser, request }) => {
   const tag = "fl6";
   const { master } = await building(request, tag);

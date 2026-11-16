@@ -9,7 +9,8 @@ state.groupsLoaded = false;
 state.groupFilter = "all";
 state.profilesList = null;
 
-const GROUP_ICON = '<svg class="grpicon" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 19c0-3.3 2.7-5 6-5s6 1.7 6 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14.2c2.9.1 5 1.6 5 4.8"/></svg>';
+// A floor is drawn as layers: storeys of the Building, not a crowd of people.
+const GROUP_ICON = '<svg class="grpicon" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 7.8l9 4.8 9-4.8z"/><path d="m3 12.4 9 4.8 9-4.8"/><path d="m3 17 9 4.8 9-4.8"/></svg>';
 const GROUP_REMOVE_ICON = '<svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 async function fetchGroups(render = true) {
