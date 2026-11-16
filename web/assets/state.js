@@ -639,15 +639,11 @@ function renderRooms() {
     // owner's rule: no exception). It is listed first there.
     const home = ground.rooms.find(rm => isRankHome(rm.room));
     if (home) ground.rooms = [home, ...ground.rooms.filter(rm => rm !== home)];
-    // With one floor in sight there is nothing to fold away: closing it would
-    // hide every loca behind one stray click. It stays open, whatever was
-    // stored, and its heading does not close it.
-    const only = [ground, ...named].filter(floor => floor.rooms.length).length === 1;
     for (const floor of [ground, ...named]) {
       if (!floor.rooms.length) continue;   // no loca of it listed here
-      const collapsed = !only && prefs.collapsed.includes(floor.key);
+      const collapsed = prefs.collapsed.includes(floor.key);
       const details = document.createElement("details");
-      details.className = "floor" + (only ? " onlyfloor" : "");
+      details.className = "floor";
       details.dataset.floor = floor.key;
       details.open = !collapsed;
       const head = document.createElement("summary");
@@ -663,9 +659,7 @@ function renderRooms() {
       // badge, and no loca of it (the owner's rule: no row left standing).
       details.append(head, ...floor.rooms.map(roomItem));
       // Open or closed is this viewer's own (kept with the sidebar order).
-      if (only) head.addEventListener("click", event => event.preventDefault());
       details.addEventListener("toggle", () => {
-        if (only) return;
         if (details.open === !loadRoomPreferences().collapsed.includes(floor.key)) return;
         const focused = document.activeElement === head;
         setFloorCollapsed(floor.key, !details.open);

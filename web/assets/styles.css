@@ -145,8 +145,11 @@
   body.locked .herosource { margin: 18px 0 0; color: var(--dim); font-size: 11px; }
   body.locked .herosource a { color: var(--accent2); }
   /* The card. */
+  /* The card may be taller than the window (a short laptop screen, the
+     desktop client's default window): it scrolls inside itself, so no control
+     is ever out of the mouse's reach. */
   body.locked .side { width: min(440px, 92vw); border-radius: 18px; background: var(--panel);
-    border-color: color-mix(in srgb, var(--accent) 16%, var(--line)); }
+    border-color: color-mix(in srgb, var(--accent) 16%, var(--line)); overflow-y: auto; }
   body.locked .side h1 { padding: 18px 22px 14px; }
   body.locked .doorline { padding: 0 22px; color: var(--muted); font-size: 12px; line-height: 1.6; }
   body.locked .conn { padding: 16px 22px 22px; display: flex; flex-direction: column; gap: 6px; }
@@ -1611,8 +1614,6 @@
   .floor > summary.rgrouphead::before { content: "▸"; color: var(--dim); font-size: 9px; width: 8px;
     transition: transform .12s ease; }
   .floor[open] > summary.rgrouphead::before { transform: rotate(90deg); }
-  .floor.onlyfloor > summary.rgrouphead { cursor: default; }
-  .floor.onlyfloor > summary.rgrouphead::before { content: none; }
   .floor > summary.rgrouphead:hover { color: var(--txt); }
   .floor > summary.rgrouphead .unreadbadge { min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex;
     align-items: center; justify-content: center; border-radius: 9px; background: var(--accent);
