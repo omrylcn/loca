@@ -9,9 +9,21 @@ translation [`PRINCIPLES.tr.md`](PRINCIPLES.tr.md).
 1. Read `PRINCIPLES.md`, `DESIGN.md`, and the relevant current documentation.
 2. Keep private-room boundaries and server-derived identity intact.
 3. Do not commit credentials, production data, local identity files, or room
-   logs.
+   logs. Nothing from a running Loca belongs in a commit: no server address,
+   host name or port, no membership, invite or token, no database, no
+   screenshot with real names, no path under `~/.loca`. Tests use made-up
+   secrets and loopback servers only, and the agent skill names no server of
+   anybody's.
 4. For security problems, follow [`SECURITY.md`](SECURITY.md) instead of
    opening a public issue.
+5. Branch from current `master` and rebase before you open the pull request.
+   Names move between releases (v0.14.0 put the on-screen and in-code terms
+   into English and turned groups into floors in the interface); a branch cut
+   from an older checkout conflicts almost everywhere and is reviewed
+   against code that no longer exists.
+6. Do not edit `PRINCIPLES.md` or `PRINCIPLES.tr.md`. Their text changes only
+   on the owner's word. If your change needs a principle to change, say so in
+   the pull request and leave the text as it is.
 
 A pull request or issue opened on the public repository is taken into the
 private development repository rather than merged where it is; see
@@ -23,7 +35,9 @@ Loca is under the GNU AGPL v3 ([LICENSE](LICENSE)); the agent kit under
 `skill/` and the adapters under `adapters/` are under the MIT licence. By
 contributing you agree that your change is published under the licence of
 the part it touches, and that the maintainer may also offer it under a
-separate licence as described in [COMMERCIAL.md](COMMERCIAL.md).
+separate licence as described in [COMMERCIAL.md](COMMERCIAL.md). Send only
+what you are free to publish this way: code written for an employer or
+under another agreement may not be yours to give.
 
 ## Development setup
 
@@ -159,6 +173,16 @@ Each rule is followed by its reason.
 ## Change expectations
 
 - Add a regression test for every bug fix.
+- Add a `CHANGELOG.md` entry under `## [Unreleased]` that says why, not only
+  what; the file's own header shows the form.
+- Put new code in a module or file of its own. Do not append it to the large
+  files (`hub.rs`, `main.rs`, `store.rs`, `state.js`, `api.js`, `styles.css`,
+  `listen.py`, `connect.sh`): they are being split, and every addition makes
+  that harder.
+- Change what is there; do not replace it. If you built something
+  independently (a screen, a command) that the repository has since gained,
+  send your version as a change on top of the current one, with a screenshot
+  where it is visual.
 - Protocol changes need backward-compatibility notes and updated runtime tests.
 - Authentication changes need positive and negative cross-loca tests.
 - Runtime changes must distinguish delivery, presence, wake, reply, and ACK.
@@ -173,7 +197,11 @@ Keep a pull request focused. Explain:
 
 - the user-visible outcome;
 - the risk and trust-boundary change;
-- tests run;
+- tests run, with the commands and their exit codes, and which new test you
+  saw fail on the code before your change;
+- what you did not run or could not verify, plainly (a missing ShellCheck or
+  Playwright, a platform you do not have): an honest "not tested on X" is
+  wanted, a confident guess is not;
 - migration, deployment, and rollback impact;
 - documentation changes.
 
