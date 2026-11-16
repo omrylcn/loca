@@ -18,7 +18,10 @@ function loadRoomPreferences() {
     if (roomPreferenceKey) resetRoomPreferenceIdentity();
     return state.roomPreferences;
   }
-  const key = `loca-room-preferences:${serverBase()}:${principal}`;
+  // The Host's own server takes a new port at every start, so its address
+  // cannot name the place: there the place is "host" (one Host, one server).
+  const place = window.__LOCA_LOCK_SERVER__ === true ? "host" : serverBase();
+  const key = `loca-room-preferences:${place}:${principal}`;
   if (key === roomPreferenceKey) return state.roomPreferences;
   roomPreferenceKey = key;
   try {

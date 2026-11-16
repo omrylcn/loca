@@ -178,8 +178,9 @@ function renderTasks() {
     : "";
   const box = $("taskList");
   const ids = Object.keys(state.tasks).map(Number).sort((a, b) => b - a);
-  if (!ids.length) { box.innerHTML = `<div class="sysline">No explicit tasks. Most work can stay in Chat.</div>`; return; }
+  // The board shows its four columns from the start, empty or not.
   if (extensionOn("board")) { renderBoard(box); return; }
+  if (!ids.length) { box.innerHTML = `<div class="sysline">No explicit tasks. Most work can stay in Chat.</div>`; return; }
   box.innerHTML = "";
   for (const id of ids) {
     const t = state.tasks[id];
@@ -309,6 +310,10 @@ function switchTab(tab) {
   $("tabPeople").classList.toggle("active", tab === "people");
   document.querySelectorAll(".tabs [role=tab]").forEach((button) => {
     button.setAttribute("aria-selected", String(button.dataset.tab === tab));
+    // The tab bar scrolls sideways when it is full: keep the chosen tab in it.
+    if (button.dataset.tab === tab && typeof button.scrollIntoView === "function") {
+      button.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
   });
   const chat = tab === "chat";
   $("feed").classList.toggle("hidden", !chat);
