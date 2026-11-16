@@ -96,7 +96,7 @@ function groupCardHtml(g) {
       `<button type="button" class="btn danger" data-group-delete="${esc(g.id)}">Delete</button>`
     : "";
   const locas = (g.locas || []).length
-    ? g.locas.map(l => `<span class="locachip">#${esc(l)}</span>`).join("")
+    ? g.locas.map(l => `<span class="locachip" title="${esc(locaIdNote(l))}">#${esc(locaName(l))}</span>`).join("")
     : `<span class="pnowhere">no locas yet</span>`;
   const members = (g.members || []).map(m => {
     const kind = m.kind === "agent" ? "agent" : "human";

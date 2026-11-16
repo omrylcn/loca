@@ -474,6 +474,371 @@ async fn a_locas_identity_is_set_read_governed_journaled_and_kept() {
     );
 }
 
+/// A title is what people see in place of the id. It is set by whoever may
+/// change the loca's identity, refused for everyone else with nothing
+/// changed, bounded, journaled, kept by every save that does not name it,
+/// and display only: the loca's address stays its id.
+#[tokio::test]
+async fn a_locas_title_is_display_only_governed_and_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("title.db");
+    let (port, guard) = closed_building(&db, &[]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    use reqwest::Method;
+    let room = "release-14";
+    for name in [room, "harbor", "den"] {
+        let (status, v) = create(
+            &base,
+            serde_json::json!({"name": name, "extensions": ["notes", "journal"],
+                               "description": "Ship it."}),
+        )
+        .await;
+        assert_eq!(status, 201, "{name}: {v}");
+    }
+    let title_of = |v: &Value| v.get("title").cloned();
+
+    // The cast: an appointed operator, a participant, an agent named Lead,
+    // and a member who may not enter.
+    let oper_key = member(&base, "oper", "user").await;
+    let part_key = member(&base, "part", "user").await;
+    let bot_key = member(&base, "bot", "agent").await;
+    let lobby_key = member(&base, "lobbyist", "user").await;
+    let mut invites = std::collections::HashMap::new();
+    for name in ["oper", "part", "bot"] {
+        let (status, v) = invite(&base, room, name).await;
+        assert!(status < 300, "{v}");
+        invites.insert(name, v["token"].as_str().unwrap().to_string());
+    }
+    let oper = session(&base, ("x-room-token", &oper_key), "oper", "user").await;
+    let part = session(&base, ("x-room-token", &part_key), "part", "user").await;
+    let bot = session(&base, ("x-room-token", &bot_key), "bot", "agent").await;
+    let lobby = session(&base, ("x-room-token", &lobby_key), "lobbyist", "user").await;
+    let oper_id = principal_of(&base, "oper").await;
+    send(
+        Method::DELETE,
+        format!("{base}/rooms/{room}/operators"),
+        ADMIN,
+        None,
+    )
+    .await;
+    let (status, v) = send(
+        Method::POST,
+        format!("{base}/rooms/{room}/operators"),
+        ADMIN,
+        Some(serde_json::json!({ "principal_id": oper_id })),
+    )
+    .await;
+    assert!(status < 300, "appoint: {v}");
+    let (status, v) = send(
+        Method::POST,
+        format!("{base}/rooms/{room}/lead"),
+        ADMIN,
+        Some(serde_json::json!({ "lead": "bot" })),
+    )
+    .await;
+    assert!(status < 300, "lead: {v}");
+
+    // No title yet: the settings and the loca list carry no `title` key.
+    assert_eq!(title_of(&settings(&base, room, ADMIN).await.1), None);
+
+    // Refused, with nothing changed, for everyone who may not change the
+    // loca's identity: a participant, the Lead (an agent), a member outside.
+    for (who, token) in [("part", &part), ("bot", &bot), ("lobbyist", &lobby)] {
+        let (status, v) = put_settings(
+            &base,
+            room,
+            ("x-session-token", token),
+            serde_json::json!({"title": "Taken over"}),
+        )
+        .await;
+        assert!(matches!(status, 401 | 403 | 404), "{who}: {status} {v}");
+        assert_eq!(
+            title_of(&settings(&base, room, ADMIN).await.1),
+            None,
+            "{who}"
+        );
+    }
+
+    // The appointed operator titles it; everyone at the table reads it, in
+    // the settings and in the loca list, beside the unchanged id.
+    let (status, v) = put_settings(
+        &base,
+        room,
+        ("x-session-token", &oper),
+        serde_json::json!({"title": "  Release 15  "}),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["title"], "Release 15");
+    for who in [&oper, &part, &bot] {
+        let (status, s) = settings(&base, room, ("x-session-token", who)).await;
+        assert_eq!(status, 200);
+        assert_eq!(s["title"], "Release 15");
+        let (_, rooms) = send(
+            Method::GET,
+            format!("{base}/rooms"),
+            ("x-session-token", who),
+            None,
+        )
+        .await;
+        let row = rooms
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["room"] == room)
+            .unwrap_or_else(|| panic!("{room} not listed: {rooms}"));
+        assert_eq!(row["title"], "Release 15");
+    }
+    let (_, rooms) = send(
+        Method::GET,
+        format!("{base}/rooms"),
+        ("x-session-token", &lobby),
+        None,
+    )
+    .await;
+    assert!(!rooms.to_string().contains("Release 15"), "{rooms}");
+
+    // Bounded plain text; mixed with other settings it is refused; nothing
+    // changes on a refusal.
+    for (body, want) in [
+        (serde_json::json!({"title": "x".repeat(65)}), 400),
+        (serde_json::json!({"title": "two\nlines"}), 400),
+        (serde_json::json!({"title": "hidden\u{200B}space"}), 400),
+        (serde_json::json!({"title": "Other", "rate_limit": 5}), 400),
+        // Another loca the caller can see, by its id, without letter case.
+        (serde_json::json!({"title": "HARBOR"}), 409),
+    ] {
+        let (status, v) = put_settings(&base, room, ADMIN, body.clone()).await;
+        assert_eq!(status, want, "{body}: {v}");
+        assert_eq!(
+            settings(&base, room, ADMIN).await.1["title"],
+            "Release 15",
+            "{body}"
+        );
+    }
+    // ... and by its title.
+    let (status, v) =
+        put_settings(&base, "harbor", ADMIN, serde_json::json!({"title": "Dock"})).await;
+    assert_eq!(status, 200, "{v}");
+    let (status, v) = put_settings(&base, room, ADMIN, serde_json::json!({"title": "dock"})).await;
+    assert_eq!(status, 409, "{v}");
+    assert!(v.as_str().unwrap().contains("already called that"), "{v}");
+    // The operator does not see `den`, so its name is not compared (and the
+    // answer does not tell it exists); the operator's title stays its own.
+    let (status, v) = put_settings(
+        &base,
+        room,
+        ("x-session-token", &oper),
+        serde_json::json!({"title": "Den"}),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let (status, v) = put_settings(
+        &base,
+        room,
+        ("x-session-token", &oper),
+        serde_json::json!({"title": "Release 15"}),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+
+    // A save that does not name the title keeps it: an older client's
+    // identity edit, an ordinary settings change, an extension change. The
+    // extension choice is kept by the identity save too.
+    let (status, v) = put_settings(
+        &base,
+        room,
+        ("x-session-token", &oper),
+        serde_json::json!({"description": "Ship it soon.", "labels": ["release"]}),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["title"], "Release 15");
+    assert_eq!(v["extensions"], serde_json::json!(["notes", "journal"]));
+    let (status, v) = put_settings(&base, room, ADMIN, serde_json::json!({"rate_limit": 5})).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["title"], "Release 15");
+    let (status, v) = send(
+        Method::PUT,
+        format!("{base}/rooms/{room}/extensions"),
+        ADMIN,
+        Some(serde_json::json!({"enabled": ["notes", "journal", "focus"]})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let s = settings(&base, room, ADMIN).await.1;
+    assert_eq!(
+        (
+            s["title"].clone(),
+            s["description"].clone(),
+            s["rate_limit"].clone()
+        ),
+        (
+            serde_json::json!("Release 15"),
+            serde_json::json!("Ship it soon."),
+            serde_json::json!(5)
+        )
+    );
+
+    // The address stays the id: the loca answers at its id and not at its
+    // title, an invite issued now names the id, and a seat's invite opens the
+    // id's REST and socket doors.
+    assert_eq!(
+        settings(&base, "Release%2015", ADMIN).await.0 / 100,
+        4,
+        "a title is not an address"
+    );
+    let _ = member(&base, "late", "agent").await;
+    let (status, v) = invite(&base, room, "late").await;
+    assert!(status < 300, "{v}");
+    assert_eq!(v["room"], room);
+    assert_eq!(
+        rest_can(&base, room, &[("x-room-token", &invites["part"])]).await,
+        200
+    );
+    assert_ne!(
+        rest_can(&base, "Release%2015", &[("x-room-token", &invites["part"])]).await,
+        200
+    );
+    assert!(ws_protocol_can(port, room, &invites["bot"]).await);
+
+    // Journaled with who did it.
+    let lines = journal(&base, room).await;
+    assert!(
+        lines.contains(&"oper | identity: title \"Release 15\"".to_string()),
+        "{lines:?}"
+    );
+    assert!(
+        lines.contains(&"oper | identity: title \"Den\"".to_string()),
+        "{lines:?}"
+    );
+    assert_eq!(
+        journal(&base, "harbor").await.last().map(String::as_str),
+        Some("Master | identity: title \"Dock\"")
+    );
+
+    // A direct message has none.
+    let (status, opened) = send(
+        Method::POST,
+        format!("{base}/birebirs"),
+        ("x-session-token", &oper),
+        Some(serde_json::json!({ "name": "part" })),
+    )
+    .await;
+    assert_eq!(status, 201, "{opened}");
+    let bb = opened["birebir"]["room"].as_str().unwrap().to_string();
+    let (status, v) = put_settings(
+        &base,
+        &bb,
+        ("x-session-token", &oper),
+        serde_json::json!({"title": "Our corner"}),
+    )
+    .await;
+    assert!(matches!(status, 401 | 403), "{status} {v}");
+    assert!(settings(&base, &bb, ("x-session-token", &oper))
+        .await
+        .1
+        .get("title")
+        .is_none());
+
+    // Closed: the title stays and does not change.
+    assert_eq!(
+        put_settings(&base, room, ADMIN, serde_json::json!({"archived": true}))
+            .await
+            .0,
+        200
+    );
+    let (status, v) = put_settings(&base, room, ADMIN, serde_json::json!({"title": "Later"})).await;
+    assert_eq!(status, 409, "{v}");
+    assert_eq!(settings(&base, room, ADMIN).await.1["title"], "Release 15");
+    assert_eq!(
+        put_settings(&base, room, ADMIN, serde_json::json!({"archived": false}))
+            .await
+            .0,
+        200
+    );
+
+    // A restart keeps it; an empty title clears it and the id shows again.
+    drop(guard);
+    wait_for_server_shutdown(port).await;
+    let (port, _guard) = closed_building(&db, &[]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    assert_eq!(settings(&base, room, ADMIN).await.1["title"], "Release 15");
+    let (status, v) = put_settings(&base, room, ADMIN, serde_json::json!({"title": ""})).await;
+    assert_eq!(status, 200, "{v}");
+    assert!(v.get("title").is_none(), "{v}");
+    assert_eq!(
+        journal(&base, room).await.last().map(String::as_str),
+        Some("Master | identity: title removed")
+    );
+}
+
+/// A database written before titles existed (0.14.0 stores the settings
+/// JSON with no `title` key): every loca opens under its id, with no title,
+/// and the loca list shows the ids exactly as before.
+#[tokio::test]
+async fn a_database_from_before_titles_shows_its_ids_as_before() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("before-titles.db");
+    let names = ["alpha", "Beta Room", "proj.a"];
+    let listed_before = {
+        let (port, _guard) = closed_building(&db, &[]).await;
+        let base = format!("http://127.0.0.1:{port}");
+        for name in names {
+            let (status, v) = create(
+                &base,
+                serde_json::json!({"name": name, "description": "Kept.", "icon": "book"}),
+            )
+            .await;
+            assert_eq!(status, 201, "{name}: {v}");
+        }
+        let (_, rooms) = send(reqwest::Method::GET, format!("{base}/rooms"), ADMIN, None).await;
+        rooms
+    };
+    // The settings exactly as such a server stored them: no `title` key.
+    {
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        let mut stmt = conn.prepare("SELECT room, settings FROM rooms").unwrap();
+        let rows: Vec<(String, String)> = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        for (room, stored) in rows {
+            let value: Value = serde_json::from_str(&stored).unwrap();
+            assert!(value.get("title").is_none(), "title stored for {room}");
+        }
+    }
+    let (port, _guard) = closed_building(&db, &[]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let (_, rooms) = send(reqwest::Method::GET, format!("{base}/rooms"), ADMIN, None).await;
+    let ids = |rooms: &Value| -> Vec<String> {
+        rooms
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["room"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(ids(&rooms), ids(&listed_before));
+    assert!(names
+        .iter()
+        .all(|name| ids(&rooms).contains(&name.to_string())));
+    for row in rooms.as_array().unwrap() {
+        assert!(row.get("title").is_none(), "{row}");
+        if names.contains(&row["room"].as_str().unwrap()) {
+            assert_eq!(row["description"], "Kept.");
+        }
+    }
+    for name in names {
+        let path = name.replace(' ', "%20");
+        let (status, s) = settings(&base, &path, ADMIN).await;
+        assert_eq!(status, 200, "{name}");
+        assert!(s.get("title").is_none(), "{s}");
+        assert_eq!(s["icon"], "book");
+    }
+}
+
 /// An older database: a loca stored before identity existed reads with no
 /// identity and the Building's seats, and takes one without losing anything.
 #[tokio::test]

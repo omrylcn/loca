@@ -30,6 +30,7 @@ pub(super) const ROOM_KEYED_TABLES: &[&str] = &[
     "loca_wiki_history",
     "loca_wiki_batches",
     "loca_wiki_receipts",
+    "loca_vault",
     "wiki_context_selection",
     "wiki_context_receipts",
     "wiki_native_runtime",

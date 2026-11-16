@@ -339,6 +339,29 @@ class ListenerDeliveryTests(unittest.TestCase):
         self.assertEqual(LISTENER.runtime_turn_max(base, settings), 3)
         self.assertEqual(settings["description"], "Ship release 14.")
 
+    def test_a_locas_title_changes_no_key_seat_or_address(self):
+        # A loca's title is what people see; its id stays the address. The
+        # settings answer carrying a title reads as before, the seat list
+        # (which names the id) ignores any extra field, and the invite key is
+        # derived from the id alone.
+        body = json.dumps({
+            "lead": "worker", "turn_max_messages": 3, "title": "Release 15",
+        }).encode()
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = body
+        base = "ws://127.0.0.1:9/ws?room=release-14&name=worker"
+        with mock.patch.object(LISTENER.urllib.request, "urlopen", return_value=response):
+            settings = LISTENER.fetch_room_settings(base)
+            lead = LISTENER.fetch_room_lead(base)
+        self.assertEqual(lead, "worker")
+        self.assertEqual(LISTENER.runtime_turn_max(base, settings), 3)
+        self.assertEqual(settings["title"], "Release 15")
+        seats = LISTENER.parse_seat_snapshot(
+            [{"room": "release-14", "invite_id": "ivid_x", "title": "Release 15"}]
+        )
+        self.assertEqual(seats, {"release-14": "ivid_x"})
+        self.assertEqual(LISTENER.room_env_key("release-14"), "DAVET_release_14")
+
     def test_chunk_messages_preserves_order_and_bounds_every_delivery(self):
         batches = list(LISTENER.chunk_messages(list(range(11)), 4))
         self.assertEqual(batches, [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10]])
@@ -453,6 +476,27 @@ class ListenerDeliveryTests(unittest.TestCase):
                 skip_own="lead-engineer",
                 only_direct="lead-engineer",
                 current_lead=True,
+            )
+        )
+
+    def test_a_task_assignment_line_is_kept_only_by_its_assignee(self):
+        # The server's line for a task given to someone (Hub::create_task /
+        # update_task): an announcement addressed to the assignee alone.
+        line = {
+            "sender": "loca",
+            "sender_type": "user",
+            "kind": "announce",
+            "target": "worker",
+            "text": "op assigned task #12 to @worker.",
+        }
+        self.assertTrue(
+            LISTENER.should_deliver_message(
+                line, skip_own="worker", only_direct="worker", current_lead=False
+            )
+        )
+        self.assertFalse(
+            LISTENER.should_deliver_message(
+                line, skip_own="bystander", only_direct="bystander", current_lead=False
             )
         )
 

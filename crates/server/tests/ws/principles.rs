@@ -303,6 +303,9 @@ const WORK_RECORDS: &[&str] = &[
     "loca_wiki_batches",
     "loca_wiki_leases",
     "loca_wiki_receipts",
+    // The Vault's rules: written only by an explicit act of those who run
+    // the loca (PRINCIPLES "Vault").
+    "loca_vault",
 ];
 
 /// Everything else in the schema. None of these is a work record: the words
@@ -1365,6 +1368,14 @@ fn route_matrix() -> Vec<(&'static str, reqwest::Method, &'static str, Option<Va
             Method::POST,
             "/rooms/:id/wiki/maintenance/renew",
             any(),
+        ),
+        ("vault", Method::GET, "/rooms/:id/vault", None),
+        ("vault", Method::GET, "/rooms/:id/vault/history", None),
+        (
+            "vault",
+            Method::PUT,
+            "/rooms/:id/vault",
+            json(serde_json::json!({"body": "rules", "base_rev": 0})),
         ),
         (
             "live",

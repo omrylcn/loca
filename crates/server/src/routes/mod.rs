@@ -16,6 +16,7 @@ mod lobby;
 mod membership;
 mod notifications;
 mod rooms;
+mod vault;
 mod wiki;
 mod work;
 pub(crate) use wiki::{
@@ -81,6 +82,7 @@ pub(crate) use rooms::{
     list_building_bans, list_invites, list_rooms, moderate, revoke_invite,
     revoke_loca_operator_route, room_decision_of, set_lead, set_mode, set_settings,
 };
+pub(crate) use vault::{get_vault, get_vault_history, put_vault};
 pub(crate) use work::{
     clear_wait, create_goal, create_task, list_goals, list_tasks, list_waits, set_wait,
     update_goal, update_task,

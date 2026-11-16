@@ -295,6 +295,17 @@ def notification_text(packet: dict[str, Any] | None) -> str:
     return text + "\n" + json.dumps(packet, ensure_ascii=False)
 
 
+def vault_text(attention: dict[str, Any]) -> str:
+    """The listener's Vault change notice, as loca context (never orders)."""
+    notice = json.loads(str(attention["event_json"])).get("vault_context")
+    if not isinstance(notice, dict) or not notice.get("note"):
+        return ""
+    return (
+        f"\n\nLoca context (Vault, revision {notice.get('rev')}): "
+        f"{notice['note']}"
+    )
+
+
 def attention_prompt(
     identity: str,
     attention: dict[str, Any],
@@ -335,6 +346,7 @@ def attention_prompt(
     if notifications is None:
         notifications = notification_packet(attention)[0]
     body += notification_text(notifications)
+    body += vault_text(attention)
     return (
         f"Loca attention for {identity} in private room {attention['room']}.\n"
         "Runtime context: this is an automatically dispatched headless Loca "

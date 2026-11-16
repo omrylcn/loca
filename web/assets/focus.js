@@ -42,6 +42,7 @@ async function fetchTasks() {
   } catch (e) {}
   if (state.room !== room) return;
   markLocaContextReady("goals", room);
+  refreshTaskBadges();
   // The compact Goal strip is room-wide, so it must update even while Chat is
   // open. The rest of the Focus panel is harmless while hidden.
   renderTasks();
@@ -97,6 +98,30 @@ function renderReminderHistory() {
   }
 }
 const TLABEL = { open: "To do", taken: "In progress", done: "Done", cancelled: "Removed" };
+
+// The number of the unfinished task a person holds, worn beside their name in
+// the roster and on their lines. A task belongs to the principal the server
+// recorded for it (`assigned_principal`), never to whoever wears the name now;
+// a task given by name alone (the open sandbox, an older record) is worn only
+// by a seat or a line nobody verified. Inside this loca only.
+function taskBadgeFor(name, principal) {
+  if (!name || isDm(state.room)) return "";
+  const rank = t => (t.status === "taken" ? 0 : 1);
+  const held = Object.values(state.tasks || {})
+    .filter(t => t.room === state.room && (t.status === "open" || t.status === "taken") && t.assigned_to
+      && (t.assigned_principal ? t.assigned_principal === principal : (!principal && t.assigned_to === name)))
+    .sort((a, b) => rank(a) - rank(b) || a.id - b.id);
+  if (!held.length) return "";
+  const more = held.length > 1 ? ` +${held.length - 1}` : "";
+  const tip = held.map(t => `#${t.id} ${t.title} (${TLABEL[t.status]})`).join("\n");
+  return ` <span class="tasktag" title="${esc(tip)}">#${held[0].id}${more}</span>`;
+}
+
+// Tasks changed: redraw the numbers people wear.
+function refreshTaskBadges() {
+  renderMembers();
+  refreshSenderTags();
+}
 /// The building from above: who belongs, where they sit, where they are barred.
 ///
 /// Bans are per-loca, so without this the master had to walk into each room to
@@ -278,6 +303,7 @@ function switchTab(tab) {
   $("tabTasks").classList.toggle("active", tab === "tasks");
   $("tabJournal").classList.toggle("active", tab === "journal");
   $("tabWiki").classList.toggle("active", tab === "wiki");
+  $("tabVault").classList.toggle("active", tab === "vault");
   $("tabPeople").classList.toggle("active", tab === "people");
   document.querySelectorAll(".tabs [role=tab]").forEach((button) => {
     button.setAttribute("aria-selected", String(button.dataset.tab === tab));
@@ -292,12 +318,14 @@ function switchTab(tab) {
   $("journalPanel").classList.toggle("hidden", tab !== "journal");
   $("memoryPanel").classList.toggle("hidden", tab !== "memory");
   $("wikiPanel").classList.toggle("hidden", tab !== "wiki");
+  $("vaultPanel").classList.toggle("hidden", tab !== "vault");
   $("peoplePanel").classList.toggle("hidden", tab !== "people");
   if (tab === "tasks") { $("tasksDot").classList.remove("on"); renderTasks(); }
   if (tab === "journal") { $("journalDot").classList.remove("on"); fetchJournal(); }
   if (tab === "people") fetchPeople();
   if (tab === "memory") fetchMemory();
   if (tab === "wiki") fetchWiki();
+  if (tab === "vault") fetchVault();
   $("typing").classList.toggle("hidden", !chat);
   if (tab === "notes") { $("notesDot").classList.remove("on"); renderNotes(); }
   else {

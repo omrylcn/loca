@@ -352,7 +352,9 @@ addressing only says who is invited to answer.
   `reply_to_sender` is that name, or when the text holds `@name` as a whole
   word (case-insensitive). `target: "all"` or `@all` addresses everyone at the
   table, except in an `announce` (server notices such as a lead change), where
-  `all` calls nobody. No `target` is a wall post.
+  `all` calls nobody. A server notice for one person (a new Lead, a task given
+  to someone) carries that person as its `target`, so it wakes them and nobody
+  else. No `target` is a wall post.
 - **History.** `GET /rooms/:id/messages` returns the recent tail (at most 200);
   `?since=<id>&limit=<1..1000, default 200>` returns durable messages with
   `id > since`, oldest first. Ids only increase.
@@ -392,6 +394,7 @@ identity, then `history` and `members` (`filter=all` only). After that:
 | `control` | yes | – | yes, immediately (a `stop` also discards the pending turn) |
 | `care` | yes | – | when addressed to this identity |
 | `reaction` | yes | own messages | own messages |
+| `vault` | yes | yes | yes |
 | `kicked`, `evicted` | only to the connection concerned | same | same |
 | everything else | yes | – | – |
 
@@ -467,13 +470,21 @@ From: PRINCIPLES "Loca extensions".
 extension: a description, its own number of seats, an icon, a colour and
 labels, all optional and all additive on the wire.
 
-- **Where:** `RoomSettings` gains `description` (string, at most 280
+- **Where:** `RoomSettings` gains `title` (string, at most 64 characters,
+  one line), `description` (string, at most 280
   characters, one line), `seats` (u32), `icon` (one of `protocol::LOCA_ICONS`),
   `color` (one of `protocol::LOCA_COLORS`) and `labels` (string[], at most 5
   of at most 24 characters). Each is absent when unset, so an older loca and
   an older client see exactly what they saw. `GET /rooms` rows carry
-  `description`, `icon`, `color` and `labels` (not `seats`). A client that
+  `title`, `description`, `icon`, `color` and `labels` (not `seats`). A client that
   does not know the fields ignores them.
+- **Title:** what people see in place of the id. Display only: the id the
+  loca was opened with stays its address (routes, `/ws?room=`, invites, Lobby
+  `seats`, the kit's `DAVET_<id>` keys, `ROOM_RENAME`), so a title change
+  moves no record and grants nothing. Absent means "show the id". Not taken
+  by `POST /rooms`; set with `PUT /rooms/:id/settings {"title"}`. A title
+  equal, without letter case, to the id or title of another loca the caller
+  may enter answers 409; locas the caller may not enter are not compared.
 - **Set:** `POST /rooms {"name", ..., "description"?, "seats"?, "icon"?,
   "color"?, "labels"?}`; later `PUT /rooms/:id/settings` with only these
   fields (`""` or `[]` clears one; mixed with other settings: 400). Who may
@@ -499,7 +510,7 @@ labels, all optional and all additive on the wire.
   seats, and the settings answer and frame show that number in force; the
   stored number is kept and returns if the ceiling rises again.
 - **Journal:** every change is a line with who and when, e.g. `identity:
-  description set; seats 7 → 12`; a loca created with identity fields starts
+  description set; seats 7 → 12` or `identity: title "Release 15"`; a loca created with identity fields starts
   with `identity: opened with …`. The line is pushed only while the Journal
   is on, like an extension change.
 - **Agents:** the kit already reads `GET /rooms/:id/settings` on connecting
@@ -507,6 +518,38 @@ labels, all optional and all additive on the wire.
   the loca is for without a new call.
 
 From: PRINCIPLES "A loca's identity".
+
+## 7. Vault
+
+**Rule.** A loca's rules for agents and people live in its Vault, the `vault`
+extension (off unless turned on). Its first part is one rules document. It
+informs; it does not command: it grants no authority, and the server stores
+it and never interprets it.
+
+- **Read:** `GET /rooms/:id/vault` → `{room, rev, body, updated_by?,
+  updated_at?, can_edit}`; `rev` is 0 and `body` empty before the first
+  write. `GET /rooms/:id/vault/history` → `{room, revisions}`, up to 50, newest
+  first, each `{room, rev, body, updated_by, updated_at}`. Whoever may enter
+  the loca reads; a direct message has none (403, no extensions).
+- **Write:** `PUT /rooms/:id/vault {"body", "base_rev"}` by the loca's
+  appointed Operator, the Master or a Smaster (`can_edit`); everyone else,
+  every agent included, gets 403. `base_rev` is the revision the writer read:
+  another answers 409 with the newest revision. A text over 8192 bytes answers
+  413; a control or invisible formatting character other than a line break,
+  400; a closed loca, 409; a deployment without a database, 503. An empty
+  `body` clears the rules (a revision too).
+- **Record:** every write is a new revision with who and when; older ones are
+  kept. The Journal gets `vault: rules updated (revision N)` (or `… cleared
+  …`) in the same write, pushed only while the Journal is on.
+- **Change:** `RoomSettings.vault_rev` (absent until the first write) names
+  the newest revision; the server sends `settings` (`filter=all`) and a
+  `vault` frame `{room, rev, updated_by, updated_at}` on **every** filter,
+  without the text. An agent's listener keeps the frame out of the model and
+  adds a `vault_context` notice to the agent's next real turn, once.
+- **Refusal:** while `vault` is off, all three routes answer the extension
+  refusal (section 5); the revisions are kept.
+
+From: PRINCIPLES "Vault".
 
 ## Known divergences
 
@@ -522,9 +565,10 @@ this document.
 2. **Agents are not told when extensions change.** PRINCIPLES "Loca
    extensions" says an agent receives its extensions on connecting and the
    current version whenever they change. Agent runtimes use `filter=mentions`,
-   which never carries `settings`; and the Vault (AGENT.md, skills, hooks,
-   loca card) it describes does not exist yet: the catalog has `notes`,
-   `focus`, `journal`, `wiki`, `live`.
+   which never carries `settings`. Of the Vault it describes (AGENT.md,
+   skills, hooks, loca card) only the rules document exists (section 7); its
+   own `vault` frame reaches `filter=mentions`, the rest of `settings` does
+   not.
 3. **Last writer wins, except for humans.** PRINCIPLES says a new connection
    with the same identity takes over the old seat. For two human connections
    with the same name and kind the server keeps both (deliberately: two

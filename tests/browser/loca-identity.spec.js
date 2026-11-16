@@ -250,6 +250,7 @@ test("a coloured icon reads in both themes, and the panel fits a phone", async (
 // nothing of them stays in the page.
 async function identityFieldsAreEmpty(page) {
   await expect(page.locator("#extCreate")).toBeHidden();
+  await expect(page.locator("#locaTitle")).toHaveValue("");
   await expect(page.locator("#locaDesc")).toHaveValue("");
   await expect(page.locator("#locaLabels")).toHaveValue("");
   await expect(page.locator("#extCreateName")).toHaveValue("");
@@ -307,5 +308,100 @@ test("the identity panel of one loca does not stay open over another", async ({ 
   await expect(page.locator("#locaDesc")).toHaveValue("This one.");
   await page.evaluate(() => joinRoom("id-there"));
   await identityFieldsAreEmpty(page);
+  await page.close();
+});
+
+test("a title is the name people see; the id stays the address and keeps pins and read position", async ({ browser, request }) => {
+  const room = "id-titled";
+  const made = await request.post("/rooms", { headers: MASTER, data: { name: room, description: "Ship it." } });
+  expect([201, 409]).toContain(made.status());
+  // Someone seated there, for the Building's location column, who says a
+  // line (so there is a read position to keep).
+  const seated = "id-titled-seat";
+  const admitted = await request.post("/members", { headers: MASTER, data: { name: seated, kind: "user" } });
+  const key = admitted.ok() ? (await admitted.json()).token : null;
+  if (key) {
+    expect((await request.post(`/rooms/${room}/invites`, { headers: MASTER, data: { name: seated } })).ok()).toBeTruthy();
+    const session = await (await request.post("/sessions", { headers: { "x-room-token": key }, data: { name: seated, kind: "user" } })).json();
+    const said = await request.post(`/rooms/${room}/messages`, {
+      headers: { "x-session-token": session.session_token }, data: { sender: seated, sender_type: "user", text: "before the title" },
+    });
+    expect(said.ok(), await said.text()).toBeTruthy();
+  }
+  const page = await masterPage(browser, request);
+  const puts = [];
+  page.on("request", req => {
+    if (req.method() === "PUT" && new URL(req.url()).pathname === `/rooms/${room}/settings`) puts.push(req.postDataJSON());
+  });
+  await page.evaluate((room) => joinRoom(room), room);
+  await expect.poll(() => page.evaluate(() => state.ws?.readyState)).toBe(1);
+  // Pinned and read up to that line, both kept under the id.
+  await expect.poll(() => page.evaluate((room) => Number(state.readCursors[room] || 0), room)).toBeGreaterThan(0);
+  await page.evaluate((room) => updateRoomPreference("pin", room), room);
+  const readBefore = await page.evaluate((room) => state.readCursors[room], room);
+
+  // The create panel opens a loca under its name: no title field there.
+  await page.locator("#newRoomBtn").click();
+  await expect(page.locator("#locaTitleField")).toBeHidden();
+  await page.keyboard.press("Escape");
+
+  // This Loca › Loca identity: the name is the id, the title its own field.
+  await page.locator("#sideLocaTab").click();
+  await page.locator("#locaSummary #identityOpen").click();
+  await expect(page.locator("#extCreateName")).toHaveValue(room);
+  await expect(page.locator("#locaTitleField")).toBeVisible();
+  await expect(page.locator("#locaTitle")).toHaveValue("");
+  await page.locator("#locaTitle").fill("Release Fifteen");
+  await expect(page.locator("#locaTitleCount")).toHaveText("15 / 64");
+  await page.locator("#extCreateSubmit").click();
+  await expect(page.locator("#extCreate")).toBeHidden();
+  expect(puts).toEqual([{ title: "Release Fifteen" }]);
+  expect((await serverSettings(request, room)).title).toBe("Release Fifteen");
+
+  // The title everywhere the name was; the id one step away.
+  await expect(page.locator("#curRoom")).toHaveText("Release Fifteen");
+  await expect(page.locator("#curRoom")).toHaveAttribute("title", `id: ${room}`);
+  await expect(page.locator("#locaSummary .locasummaryhead b")).toHaveText("Release Fifteen");
+  await expect(page.locator("#locaSummary .locasummaryhead .locaid")).toHaveText(`id ${room}`);
+  await page.locator("#sideBuildingTab").click();
+  const row = page.locator("#roomList .room", { has: page.locator(".rname", { hasText: /^Release Fifteen$/ }) });
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveAttribute("title", `Release Fifteen\nid: ${room}\nShip it.`);
+  await page.evaluate(() => switchTab("people"));
+  const chip = page.locator("#peopleList .locachip", { hasText: "#Release Fifteen" });
+  await expect(chip).toHaveCount(1);
+  await expect(chip).toHaveAttribute("title", `seated in Release Fifteen (id: ${room})`);
+  await page.evaluate(() => switchTab("chat"));
+  await expect(page.locator("#curRoom")).toHaveText("Release Fifteen");
+
+  // An edit that does not touch the title does not send it, and it stays.
+  await page.locator("#sideLocaTab").click();
+  await page.locator("#locaSummary #identityOpen").click();
+  await expect(page.locator("#locaTitle")).toHaveValue("Release Fifteen");
+  await page.locator("#locaDesc").fill("Ship it soon.");
+  await page.locator("#extCreateSubmit").click();
+  await expect(page.locator("#extCreate")).toBeHidden();
+  expect(puts[1]).toEqual({ description: "Ship it soon." });
+  expect((await serverSettings(request, room)).title).toBe("Release Fifteen");
+
+  // After a reload the pin and the read position are still there: they are
+  // kept under the id, which did not move.
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
+  await page.evaluate((room) => joinRoom(room), room);
+  await expect.poll(() => page.evaluate(() => state.ws?.readyState)).toBe(1);
+  expect(await page.evaluate((room) => loadRoomPreferences().pinned.includes(room), room)).toBe(true);
+  expect(await page.evaluate((room) => state.readCursors[room], room)).toBe(readBefore);
+  await expect(page.locator("#roomList .rname", { hasText: /^Release Fifteen$/ })).toHaveCount(1);
+
+  // Cleared, the id shows again.
+  await page.locator("#sideLocaTab").click();
+  await page.locator("#locaSummary #identityOpen").click();
+  await page.locator("#locaTitle").fill("");
+  await page.locator("#extCreateSubmit").click();
+  await expect(page.locator("#extCreate")).toBeHidden();
+  await expect(page.locator("#curRoom")).toHaveText(room);
+  await expect(page.locator("#curRoom")).toHaveAttribute("title", "");
+  await expect(page.locator("#locaSummary .locasummaryhead .locaid")).toHaveCount(0);
   await page.close();
 });

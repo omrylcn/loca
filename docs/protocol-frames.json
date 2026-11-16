@@ -75,7 +75,7 @@
       "layer": "core",
       "source": "ServerFrame::Settings",
       "fields": { "settings": "RoomSettings" },
-      "when": "Room settings changed, including the enabled extension set and the loca's identity (description, seats, icon, color, labels). filter=all only. Only settings.extensions and the identity fields are core; the other settings are Loca product."
+      "when": "Room settings changed, including the enabled extension set and the loca's identity (title, description, seats, icon, color, labels). filter=all only. Only settings.extensions and the identity fields are core; the other settings are Loca product."
     },
     "memory": {
       "socket": "loca",
@@ -162,6 +162,13 @@
       "source": "ServerFrame::Journal",
       "fields": { "entry": "JournalEntry" },
       "when": "A journal line landed. filter=all only."
+    },
+    "vault": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Vault",
+      "fields": { "room": "string", "rev": "u64", "updated_by": "string", "updated_at": "u64" },
+      "when": "The loca's Vault rules have a new revision (vault extension). Carries no text; read GET /rooms/:id/vault. Every filter, so an agent's listener learns of it without a model turn."
     },
     "task": {
       "socket": "loca",
@@ -330,13 +337,15 @@
         "care_task_secs": "u32",
         "care_silence_secs": "u32",
         "extensions": "string[]",
+        "title": "string",
         "description": "string",
         "seats": "u32",
         "icon": "string",
         "color": "string",
-        "labels": "string[]"
+        "labels": "string[]",
+        "vault_rev": "u64"
       },
-      "optional": ["lead", "extensions", "description", "seats", "icon", "color", "labels"]
+      "optional": ["lead", "extensions", "title", "description", "seats", "icon", "color", "labels", "vault_rev"]
     }
   }
 }

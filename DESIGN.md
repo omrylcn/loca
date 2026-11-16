@@ -189,8 +189,11 @@ Tasks), Journal, Loca Wiki, Live. Chat her zaman açıktır.
 - Birebirde eklenti yoktur.
 
 `PRINCIPLES.md` şunları da tanımlar; bu sürümde yoktur ve burada uygulama
-taahhüdü olarak okunmaz: Loca açıklaması, Vault (AGENT.md, Loca kuralları,
-skill'ler, hook'lar), Loca kartı ve görev panosu.
+taahhüdü olarak okunmaz: Loca açıklaması, Vault'un AGENT.md, skill ve hook
+kısımları, Loca kartı ve görev panosu. Vault'un ilk parçası olan Loca
+kuralları belgesi `vault` eklentisi olarak vardır: onu locanın Operator'ı,
+Master ve Smaster'lar yazar, locada oturan herkes okur, agent'lar dahil;
+bilgilendirir, emretmez.
 
 ### Building bildirimleri
 

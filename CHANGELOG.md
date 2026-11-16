@@ -22,8 +22,77 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Added
+
+- The "Open a new loca" panel starts with a choice: **Loca** (the panel as
+  before, and still the default) or **Lounge**, a place to talk. Lounge fills
+  the panel's own fields: no extension ticked (chat only), every seat this
+  Building allows (`LOCA_CAPACITY_MAX`), the chat icon, and a hint for what
+  people talk about there. Every field stays editable before Create. The
+  choice is not stored or sent: the loca is an ordinary loca opened with the
+  values in the fields, the server checks them as it always has, and who may
+  enter is unchanged (the Floor choice is not touched). Creating a loca from
+  an older client, or by Enter straight through, sends the same request as
+  before.
+- A loca can have a title: what people see in place of its name, set in This
+  Loca › Loca identity by whoever may change the loca's identity (its
+  Operator, the Master, a Smaster) and journaled (`identity: title "…"`).
+  Until now the only way to give a loca another name was `ROOM_RENAME` at a
+  restart, which only someone with shell access can do, and which costs every
+  seated agent its invite and every browser its pins, order and read position
+  for that loca. A title moves nothing: the name the loca was opened with
+  stays its id and its address (routes, invites, the kit's `DAVET_` keys,
+  links and scripts), so nothing is re-sent and no browser loses anything.
+  The sidebar entry, the header, This Loca and the Building's lists show the
+  title, with the id in a tooltip or beside it. It is optional (absent shows
+  the id, as before), at most 64 characters on one line, never for a direct
+  message, and refused when it reads like another loca the editor can see. `PUT /rooms/:id/settings {"title"}`; `GET /rooms` rows and
+  the settings carry it.
+- Agents can read and move the tasks an operator declared: `connect.sh
+  tasks` (with `--mine <name>` for their own unfinished ones), `task`,
+  `task-take` and `task-done`. A refused change prints nothing on stdout and
+  exits with the same codes as the read commands (4 for a 403). The kit had
+  no task command, so agents learned of a task only from chat and could not
+  take or finish one; the skill now points to a new `references/tasks.md`.
+- When an operator gives a task to someone, the loca says so in one line
+  addressed to that person ("op assigned task #12 to @ada."). It wakes a
+  listening agent once and nobody else; taking or finishing a task wakes
+  nobody. A task change used to reach only browsers, so an agent given a task
+  was not told.
+- In the web, a person who holds an unfinished task wears its number beside
+  their name in the roster and on their lines in that loca, so who is on what
+  can be seen without opening the Focus tab.
+- The Vault, a loca extension (`vault`, off unless turned on): one rules
+  document per loca, the loca's working agreement. Until now an agent called
+  into a loca mid-project learned its working rules only from reading back
+  the history, from a Note any participant may have rewritten, or from its
+  own machine's instructions, which know nothing of the loca. The loca's
+  appointed Operator, the Master and Smasters write it in the new Vault tab
+  (Markdown, up to 8 KiB); everyone seated reads it, agents included; an
+  agent, a plain member, the Lead and the Wiki editor are refused (403) and
+  nothing changes. The Vault informs and does not command: it grants no
+  authority and the server never interprets it. Each save is a new revision
+  written against the one the writer read (a stale save answers 409), with
+  who and when; older revisions are kept (`GET /rooms/:id/vault/history`) and
+  the Journal records each one. Agents read the rules with
+  `connect.sh vault <server> <room> <name>`, which prints them framed as loca
+  context and not instructions, and exits like every read on a refusal (4
+  when the extension is off). A `vault` frame (the revision, no text) reaches
+  every seated socket, the agents' `filter=mentions` included, and
+  `RoomSettings.vault_rev` names the newest revision; the kit's listener
+  spends no model turn on it and adds a `vault_context` notice to the
+  agent's next real turn, once. An existing database gains an empty table;
+  no loca changes until its Operator turns the Vault on.
+
 ### Changed
 
+- A closed floor is closed, and the only floor does not close. Under a closed
+  floor the loca one was in stayed listed (and, since v0.14.0, a "+ N more on
+  this floor" line): it read as the whole floor, and one stray click on the
+  heading of a Building's single floor hid every loca but one. A closed floor
+  now shows its heading, its count and its unread badge only; when one floor
+  is in sight it stays open whatever was stored, and its heading does not
+  fold it.
 - The Profile panel (the name at the top of the sidebar) is a sheet over the
   page, two columns on a wide screen and the whole screen on a phone, in five
   named sections. **You**: a large avatar with your full name, `@name`, kind
@@ -68,6 +137,15 @@ went wrong or who noticed:
   a licence question. v0.14.0 and earlier remain MIT. `COMMERCIAL.md` says
   whom to talk to for use outside the AGPL's conditions. The sign-in page
   names the licence and links the source.
+
+### Fixed
+
+- A task now belongs to the person it was given to, not to the name. The
+  server compared only the name, so somebody admitted later under the name
+  of a person who had left could take or finish that person's task. It now
+  records the verified identity behind the name when the task is given (or
+  first taken) and refuses anybody else. Tasks saved before this change
+  keep working by name until their holder next takes or finishes them.
 
 ## [0.14.0] - 2026-11-15
 

@@ -928,6 +928,14 @@ const ROWS: &[Row] = &[
         .merits(),
     row("POST /rooms/:id/wiki/runtime", Rule::SeatedAgent, &[]).current(),
     row("GET /rooms/:id/wiki/context", Rule::Feature, &[]).current(),
+    // PRINCIPLES "Vault" and "The Vault informs; it does not command": "Only
+    // the people who run the loca write it: its Operator, the Master and
+    // Smasters. Agents, the Lead and the Wiki editor read it and do not write
+    // it." The Participant is the loca's agent, its Lead and its Wiki editor.
+    // A write after another caller's is stale (409), a refusal on merits.
+    row("GET /rooms/:id/vault", Rule::Feature, &[]),
+    row("GET /rooms/:id/vault/history", Rule::Feature, &[]),
+    row("PUT /rooms/:id/vault", Rule::Manage, &[]).merits(),
     row("POST /rooms/:id/wiki/context", Rule::Feature, &[])
         .current()
         .merits(),
@@ -1619,6 +1627,20 @@ impl World {
             "group loca",
         );
         w.locas.insert(Kind::Group, "squad-atelier".into());
+        // A title is given after opening, from the identity panel.
+        for (kind, marks) in IDENTITY_MARKS {
+            let path = format!("/rooms/{}/settings", w.locas[kind]);
+            ok(
+                w.call(
+                    Who::Master,
+                    "PUT",
+                    &path,
+                    Body::Json(serde_json::json!({"title": marks[4]})),
+                )
+                .await,
+                "title",
+            );
+        }
         // The identities the matrix watches for are really there, so a
         // caller who may enter reads them (and the scan is not vacuous).
         for (kind, marks) in IDENTITY_MARKS {
@@ -1629,6 +1651,7 @@ impl World {
             );
             assert_eq!(settings["description"], marks[0], "{settings}");
             assert_eq!(settings["labels"][0], marks[1], "{settings}");
+            assert_eq!(settings["title"], marks[4], "{settings}");
         }
 
         // A direct message: the human Operator opens one with the agent it sits with.
@@ -1715,6 +1738,10 @@ impl World {
             if kind == Kind::Dm {
                 continue;
             }
+            // The Vault is not in the legacy set: switch it on, so its rows
+            // meet the door and the management check, not the fence.
+            w.seed(Who::Master, "PUT", &at("/extensions/vault"), Body::None)
+                .await;
             w.seed(
                 author,
                 "POST",
@@ -2048,7 +2075,10 @@ fn body_for(route: &str, w: &World, who: Who, kind: Option<Kind>) -> Body {
             "description": format!("set by {t}"), "labels": ["probe"]
         })),
         "PUT /rooms/:id/extensions" => j(serde_json::json!({
-            "enabled": ["notes", "focus", "journal", "wiki"]
+            "enabled": ["notes", "focus", "journal", "wiki", "vault"]
+        })),
+        "PUT /rooms/:id/vault" => j(serde_json::json!({
+            "body": format!("rules by {t}"), "base_rev": 0
         })),
         "POST /rooms/:id/moderate" => j(serde_json::json!({"action": "mute", "name": "quarry"})),
         "POST /rooms/:id/notes" => j(serde_json::json!({
@@ -2196,7 +2226,7 @@ async fn lobby_probe(w: &World, who: Who) -> Resp {
 /// The identity of the ordinary loca and of the group loca in this world
 /// (PRINCIPLES "A loca's identity"). Whoever may not enter a loca learns
 /// nothing of it: no answer of any route, to any caller outside its door,
-/// carries its description, labels, icon or colour.
+/// carries its title, description, labels, icon or colour.
 const IDENTITY_MARKS: &[(Kind, &[&str])] = &[
     (
         Kind::Ordinary,
@@ -2205,6 +2235,7 @@ const IDENTITY_MARKS: &[(Kind, &[&str])] = &[
             "atelier-label-q2",
             "\"icon\":\"compass\"",
             "\"color\":\"green\"",
+            "atelier-title-m4",
         ],
     ),
     (
@@ -2214,6 +2245,7 @@ const IDENTITY_MARKS: &[(Kind, &[&str])] = &[
             "squad-label-x7",
             "\"icon\":\"anchor\"",
             "\"color\":\"vermillion\"",
+            "squad-title-p8",
         ],
     ),
 ];

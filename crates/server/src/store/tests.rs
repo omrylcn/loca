@@ -14,6 +14,7 @@ mod notification_limit;
 mod preferences;
 mod profile_card;
 mod upgrade_v0_13_0;
+mod vault;
 
 #[test]
 fn failed_suspension_rolls_back_access_and_suspension_marker() {
@@ -534,6 +535,52 @@ fn legacy_goal_and_task_rows_gain_explicit_progress_at_creation_time() {
     let goal = store.load_goals("proj").pop().expect("goal");
     assert_eq!(task.progress_at, task.created_at);
     assert_eq!(goal.progress_at, goal.created_at);
+}
+
+/// A database written before tasks recorded who they were given to (v0.13.0,
+/// and 0.14.0, which has the same `tasks` table) gains the column, keeps every
+/// task as it was, and binds none of them to a principal by its name.
+#[test]
+fn tasks_from_before_the_assigned_principal_keep_every_field_and_bind_nobody() {
+    const V0_13_0_DUMP: &str = include_str!("../../tests/fixtures/upgrade-v0.13.0/v0.13.0.sql");
+    let directory = tempfile::tempdir().expect("tempdir");
+    let path = directory.path().join("old.db");
+    let old = Connection::open(&path).expect("old db");
+    old.execute_batch(V0_13_0_DUMP).expect("v0.13.0 dump");
+    let read = |conn: &Connection| -> Vec<(String, u64, String, Option<String>, String)> {
+        conn.prepare("SELECT room, id, title, assigned_to, status FROM tasks ORDER BY room, id")
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    let before = read(&old);
+    assert!(
+        before.iter().any(|task| task.3.is_some()),
+        "the fixture holds an assigned task"
+    );
+    drop(old);
+
+    let store = Store::open(Some(path.to_str().expect("db path"))).expect("upgrade");
+    assert_eq!(read(&store.conn().unwrap()), before);
+    for (room, ..) in &before {
+        for task in store.load_tasks(room) {
+            assert_eq!(task.assigned_principal, None, "{room} #{}", task.id);
+        }
+    }
+    drop(store);
+    // Opening again is a no-op for the column.
+    let store = Store::open(Some(path.to_str().expect("db path"))).expect("reopen");
+    assert_eq!(read(&store.conn().unwrap()), before);
 }
 
 #[test]

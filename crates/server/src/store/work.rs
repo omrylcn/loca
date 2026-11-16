@@ -13,9 +13,9 @@ impl Store {
             TaskStatus::Cancelled => "cancelled",
         };
         c.execute(
-            "INSERT OR REPLACE INTO tasks (id, room, title, created_by, from_message, assigned_to, status, created_at, progress_at, closed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![t.id, t.room, t.title, t.created_by, t.from_message, t.assigned_to, st, t.created_at, t.progress_at, t.closed_at],
+            "INSERT OR REPLACE INTO tasks (id, room, title, created_by, from_message, assigned_to, status, created_at, progress_at, closed_at, assigned_principal)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![t.id, t.room, t.title, t.created_by, t.from_message, t.assigned_to, st, t.created_at, t.progress_at, t.closed_at, t.assigned_principal],
         )
         .inspect_err(|e| tracing::error!(error = %e, "upsert_task failed"))
         .map(|_| ())
@@ -150,7 +150,7 @@ impl Store {
         };
         let mut out = Vec::new();
         if let Ok(mut stmt) = c.prepare(
-            "SELECT id, title, created_by, from_message, assigned_to, status, created_at, progress_at, closed_at
+            "SELECT id, title, created_by, from_message, assigned_to, status, created_at, progress_at, closed_at, assigned_principal
              FROM tasks WHERE room = ?1 ORDER BY id",
         ) {
             if let Ok(rows) = stmt.query_map(params![room], |r| {
@@ -162,6 +162,7 @@ impl Store {
                     created_by: r.get(2)?,
                     from_message: r.get(3)?,
                     assigned_to: r.get(4)?,
+                    assigned_principal: r.get(9)?,
                     status: match st.as_str() {
                         "taken" => TaskStatus::Taken,
                         "done" => TaskStatus::Done,

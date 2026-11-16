@@ -48,6 +48,7 @@ const LOCA_COLOR_NAMES = {
   purple: "Purple",
 };
 
+const LOCA_TITLE_MAX = 64;
 const LOCA_DESCRIPTION_MAX = 280;
 const LOCA_SEATS_MIN = 2;
 
@@ -56,6 +57,18 @@ let locaPanelMode = "create";
 // number of its own, and the most a loca's own number may reach.
 let locaSeatDefault = 7;
 let locaSeatCeiling = 32;
+
+// The create panel's presets. A preset fills fields the panel already has;
+// it is not stored, not sent, and grants nothing: the loca it opens is an
+// ordinary loca with exactly the values in the fields when Create is
+// pressed, and the server decides every one of them. "loca" is the panel as
+// it always was. "lounge" opens a place to talk: chat only (no extension
+// ticked), every seat the Building allows, the chat icon. Who may enter is
+// not a preset's business: the Floor choice stays where it is.
+const LOCA_PRESETS = {
+  loca: { seats: () => locaSeatDefault, icon: "", hint: "One short paragraph. Agents read it when they enter." },
+  lounge: { seats: () => locaSeatCeiling, icon: "chat", hint: "What people talk about here. Agents read it when they enter." },
+};
 
 function locaIconSvg(icon, size = 14) {
   const paths = LOCA_ICON_PATHS[icon];
@@ -74,9 +87,27 @@ function locaMarkHtml(identity) {
     `${icon ? locaIconSvg(icon) : "#"}</span>`;
 }
 
-/// The sidebar entry's tooltip: the name, what it is for, its labels.
+/// A loca's title: what people see in place of its id ("" when it has none,
+/// and the id is shown). Display only: every route, invite, command and
+/// `@` keeps the id. The current loca's settings are the freshest; any other
+/// loca's comes from the loca list.
+function locaTitle(room) {
+  if (!room || isDm(room)) return "";
+  if (room === state.room && isLocaContextReady("settings")) return state.settings?.title || "";
+  return (state.rooms || []).find(rm => rm.room === room)?.title || "";
+}
+
+/// What a person reads as a loca's name: its title, or its id.
+function locaName(room) { return locaTitle(room) || room; }
+
+/// Where a title is shown the id stays reachable: a tooltip line naming it.
+function locaIdNote(room) { return locaTitle(room) ? `id: ${room}` : ""; }
+
+/// The sidebar entry's tooltip: the name (and the id under a title), what it
+/// is for, its labels.
 function locaRowTitle(rm) {
-  const lines = [rm.room];
+  const lines = [locaName(rm.room)];
+  if (locaIdNote(rm.room)) lines.push(locaIdNote(rm.room));
   if (rm.description) lines.push(rm.description);
   if (Array.isArray(rm.labels) && rm.labels.length) lines.push(`Labels: ${rm.labels.join(" · ")}`);
   if (rm.archived) lines.push("closed · read-only");
@@ -123,6 +154,13 @@ function applyLocaIdentity() {
   if (color) holder.dataset.locaColor = color;
   else delete holder.dataset.locaColor;
   $("curRoom").classList.toggle("marked", !!(icon || color));
+  // The title in the header (the Building view keeps its own word), the id
+  // in its tooltip.
+  if (state.room && !isDm(state.room) && state.tab !== "people") {
+    $("curRoom").textContent = roomLabel(state.room);
+  }
+  $("curRoom").title = state.room && !isDm(state.room) && state.tab !== "people"
+    ? locaIdNote(state.room) : "";
   const desc = $("roomDesc");
   desc.textContent = s.description || "";
   desc.title = s.description || "";
@@ -160,8 +198,14 @@ function syncDescCount() {
   $("locaDescCount").textContent = `${[...$("locaDesc").value].length} / ${LOCA_DESCRIPTION_MAX}`;
 }
 
+function syncTitleCount() {
+  $("locaTitleCount").textContent = `${[...$("locaTitle").value].length} / ${LOCA_TITLE_MAX}`;
+}
+
 /// Fill the identity fields from `settings` (empty for a new loca).
 function fillIdentityFields(settings) {
+  $("locaTitle").value = settings?.title || "";
+  syncTitleCount();
   $("locaDesc").value = settings?.description || "";
   $("locaSeats").min = String(LOCA_SEATS_MIN);
   $("locaSeats").max = String(locaSeatCeiling);
@@ -171,6 +215,28 @@ function fillIdentityFields(settings) {
   setPicked("locaIcon", settings?.icon || "");
   setPicked("locaColor", settings?.color || "");
   syncDescCount();
+}
+
+/// The preset chosen on the create panel: "loca" unless Lounge is picked.
+function createPreset() {
+  return document.querySelector("#locaPreset input:checked")?.value === "lounge" ? "lounge" : "loca";
+}
+
+/// Fill the fields from the chosen preset. Everything stays editable after.
+function applyCreatePreset() {
+  const preset = LOCA_PRESETS[createPreset()];
+  $("locaSeats").value = String(preset.seats());
+  delete $("locaSeats").dataset.touched;
+  setPicked("locaIcon", preset.icon);
+  $("locaDesc").placeholder = preset.hint;
+  applyPresetExtensions();
+}
+
+/// Back to the panel as it always was: the "loca" preset, its hint.
+function resetCreatePreset() {
+  const loca = document.querySelector("#locaPreset input[value=loca]");
+  if (loca) loca.checked = true;
+  $("locaDesc").placeholder = LOCA_PRESETS.loca.hint;
 }
 
 function setIdentityFieldsDisabled(disabled) {
@@ -202,6 +268,7 @@ function identityLabelsDraft() {
 /// The fields as the panel holds them now.
 function identityDraft() {
   return {
+    title: $("locaTitle").value.replace(/[\r\n]+/g, " ").trim(),
     description: $("locaDesc").value.replace(/[\r\n]+/g, " ").trim(),
     seats: Number($("locaSeats").value),
     icon: pickedValue("locaIcon"),
@@ -227,6 +294,7 @@ function identityCreateFields() {
 function identityChangedFields(settings) {
   const draft = identityDraft();
   const body = {};
+  if (draft.title !== (settings?.title || "")) body.title = draft.title;
   if (draft.description !== (settings?.description || "")) body.description = draft.description;
   if (Number.isFinite(draft.seats) && draft.seats && draft.seats !== locaSeatsOf(settings)) body.seats = draft.seats;
   if (draft.icon !== (settings?.icon || "")) body.icon = draft.icon;
@@ -241,6 +309,10 @@ function setLocaPanelMode(mode, canManage = true) {
   const create = mode === "create";
   $("extCreateTitle").textContent = create ? "Open a new loca" : "Loca identity";
   $("extCreateName").disabled = !create;
+  $("locaPreset").classList.toggle("hidden", !create);
+  if (!create) resetCreatePreset();
+  // A new loca is opened under its name (its id); a title is given later.
+  $("locaTitleField").classList.toggle("hidden", create);
   $("extCreateExtensions").classList.toggle("hidden", !create);
   $("extCreateTabs").classList.toggle("hidden", !create);
   if (!create) $("extCreateGroupField").classList.add("hidden");
@@ -259,11 +331,13 @@ function setLocaPanelMode(mode, canManage = true) {
 function resetIdentityForCreate() {
   setLocaPanelMode("create");
   fillIdentityFields(null);
+  resetCreatePreset();
   refreshSeatCeiling().then(() => {
     if (locaPanelMode !== "create") return;
-    // The default follows the Building's number; a number typed stays.
+    // The default follows the Building's numbers (the chosen preset's: the
+    // default or the ceiling); a number typed stays.
     $("locaSeats").max = String(locaSeatCeiling);
-    if (!$("locaSeats").dataset.touched) $("locaSeats").value = String(locaSeatDefault);
+    if (!$("locaSeats").dataset.touched) $("locaSeats").value = String(LOCA_PRESETS[createPreset()].seats());
   });
 }
 
@@ -280,6 +354,7 @@ function closeLocaPanel() {
   $("extCreateSubmit").disabled = false;
   setLocaPanelMode("create");
   fillIdentityFields(null);
+  resetCreatePreset();
 }
 
 /// Another loca was entered: a panel showing the previous one's identity
@@ -298,7 +373,8 @@ async function openLocaIdentity() {
   // this loca's identity is not theirs to be shown any more.
   if (buildingStale(gen) || room !== state.room) return;
   const canManage = !!state.locaExtensions?.can_manage;
-  $("extCreateName").value = roomLabel(state.room);
+  // The Name field shows the id, the loca's address; the title is its own field.
+  $("extCreateName").value = state.room;
   $("extCreateError").textContent = "";
   $("extCreateSubmit").disabled = false;
   setLocaPanelMode("identity", canManage);
@@ -340,6 +416,7 @@ async function submitLocaIdentity() {
 }
 
 renderIdentityPickers();
+$("locaTitle").addEventListener("input", syncTitleCount);
 $("locaDesc").addEventListener("input", () => {
   // One paragraph: a pasted line break becomes a space.
   const value = $("locaDesc").value;
@@ -354,4 +431,5 @@ $("locaDesc").addEventListener("keydown", (e) => {
   }
 });
 $("locaSeats").addEventListener("input", () => { $("locaSeats").dataset.touched = "1"; });
+$("locaPreset").addEventListener("change", applyCreatePreset);
 $("locaSummary").addEventListener("click", (e) => { if (e.target.closest("#identityOpen")) openLocaIdentity(); });

@@ -177,6 +177,19 @@ fn probes(room: &str) -> Vec<(&'static str, reqwest::Method, String, Option<Valu
             format!("/rooms/{room}/wiki/config"),
             Some(serde_json::json!({})),
         ),
+        ("vault", Method::GET, format!("/rooms/{room}/vault"), None),
+        (
+            "vault",
+            Method::GET,
+            format!("/rooms/{room}/vault/history"),
+            None,
+        ),
+        (
+            "vault",
+            Method::PUT,
+            format!("/rooms/{room}/vault"),
+            Some(serde_json::json!({"body":"rules","base_rev":0})),
+        ),
     ]
 }
 
@@ -196,8 +209,8 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
     let admin = ("x-admin-token", MASTER);
     use reqwest::Method;
 
-    // The catalog: five of today's modules; notes, journal and wiki are
-    // ticked for a new loca; chat is not an extension.
+    // The catalog: five of today's modules and the Vault; notes, journal and
+    // wiki are ticked for a new loca; chat is not an extension.
     let (status, catalog) = call(Method::GET, format!("{base}/extensions"), admin, None).await;
     assert_eq!(status, 200);
     let ids: Vec<&str> = catalog["catalog"]
@@ -206,7 +219,7 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
         .iter()
         .map(|spec| spec["id"].as_str().unwrap())
         .collect();
-    assert_eq!(ids, ["notes", "focus", "journal", "wiki", "live"]);
+    assert_eq!(ids, ["notes", "focus", "journal", "wiki", "live", "vault"]);
     assert_eq!(
         catalog["defaults"],
         serde_json::json!(["notes", "journal", "wiki"])
@@ -396,7 +409,7 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
             body,
         )
         .await;
-        if ext == "focus" || ext == "notes" {
+        if ext == "focus" || ext == "notes" || ext == "vault" {
             assert_eq!(status, 403, "{method} {path}: {v}");
         } else {
             assert!(
@@ -576,8 +589,14 @@ async fn existing_locas_keep_every_extension_across_an_upgrade() {
     let admin = ("x-admin-token", MASTER);
     let v = extensions_of(&base, "old", admin).await;
     assert_eq!(enabled(&v), ["notes", "focus", "journal", "wiki", "live"]);
-    for (_, method, path, body) in probes("old") {
+    for (ext, method, path, body) in probes("old") {
         let (status, v) = call(method.clone(), format!("{base}{path}"), admin, body).await;
+        // An extension added to the catalog later is not switched on in a
+        // loca from before extensions existed.
+        if ext == "vault" {
+            assert!(fenced(status, &v), "{method} {path}: {status} {v}");
+            continue;
+        }
         assert!(
             !fenced(status, &v),
             "{method} {path} must stay open after the upgrade: {v}"

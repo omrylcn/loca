@@ -25,6 +25,8 @@ skill/agent-room/references/identity.md
 skill/agent-room/references/loca-wiki.md
 skill/agent-room/references/locas.md
 skill/agent-room/references/runtimes.md
+skill/agent-room/references/tasks.md
+skill/agent-room/references/vault.md
 skill/agent-room/runtime.sh
 skill/agent-room/runtime_agent.py
 skill/agent-room/runtime_consumer.py

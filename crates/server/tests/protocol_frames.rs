@@ -48,11 +48,13 @@ fn settings() -> RoomSettings {
     RoomSettings {
         lead: Some("proto-bot".into()),
         extensions: Some(vec!["notes".into()]),
+        title: Some("Proto loca".into()),
         description: Some("What this loca is for.".into()),
         seats: Some(5),
         icon: Some("rocket".into()),
         color: Some("sky".into()),
         labels: vec!["backend".into()],
+        vault_rev: Some(2),
         ..RoomSettings::default()
     }
 }
@@ -111,6 +113,9 @@ server_frames! {
     Journal => ServerFrame::Journal {
         entry: de(json!({"id": 1, "room": "proto-room", "by": "proto-bot",
             "by_type": "agent", "text": "done", "at": NOW_MS})),
+    },
+    Vault => ServerFrame::Vault {
+        room: "proto-room".into(), rev: 2, updated_by: "proto-ayse".into(), updated_at: NOW_MS,
     },
     Task => ServerFrame::Task {
         task: de(json!({"id": 1, "room": "proto-room", "title": "t", "created_by": "proto-ayse",

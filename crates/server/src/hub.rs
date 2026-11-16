@@ -15,6 +15,7 @@ mod identity;
 mod keys;
 mod notifications;
 mod profile_card;
+mod vault;
 mod work;
 
 pub use claims::ClaimRefusal;
@@ -24,6 +25,7 @@ pub use groups::{GroupError, GroupView};
 pub use identity::{IdentityEdit, IdentityError};
 pub use keys::KeyRevokeError;
 pub use notifications::{NotificationAudience, NotificationError, NOTIFICATION_SEND_LIMIT};
+pub use vault::VaultError;
 pub use work::{GoalError, TaskError, WaitError};
 
 use std::collections::HashMap;
@@ -6336,6 +6338,7 @@ impl Hub {
                     group: groups.get(name).map(|(_, group)| group.clone()),
                     group_id: groups.get(name).map(|(id, _)| id.clone()),
                     // Only callers `reach` lets in see these, like the rest.
+                    title: r.settings.title.clone(),
                     description: r.settings.description.clone(),
                     icon: r.settings.icon.clone(),
                     color: r.settings.color.clone(),

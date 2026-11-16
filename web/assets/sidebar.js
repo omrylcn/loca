@@ -142,8 +142,8 @@ function renderHiddenRooms() {
   $("hiddenLocas").classList.toggle("hidden", !hidden.length);
   $("hiddenLocaCount").textContent = hidden.length;
   $("hiddenRoomList").innerHTML = hidden.map(room =>
-    `<div class="hiddenroom"><span># ${esc(room.room)}</span>` +
-      `<button type="button" data-room-preference="show" data-room="${esc(room.room)}" aria-label="Show ${esc(room.room)}">show</button></div>`
+    `<div class="hiddenroom"><span title="${esc(locaIdNote(room.room))}"># ${esc(locaName(room.room))}</span>` +
+      `<button type="button" data-room-preference="show" data-room="${esc(room.room)}" aria-label="Show ${esc(locaName(room.room))}">show</button></div>`
   ).join("");
 }
 
@@ -225,7 +225,9 @@ function renderLocaSidebar() {
   // What the loca is for comes first, then who answers for it, then what it
   // carries. Each fact is one row: the name on the left, its act on the right.
   $("locaSummary").innerHTML =
-    `<div class="locasummaryhead">${mark}<b>${esc(state.room)}</b>` +
+    `<div class="locasummaryhead">${mark}${locaTitle(state.room)
+      ? `<span class="locanamecol"><b>${esc(locaName(state.room))}</b><small class="locaid">id ${esc(state.room)}</small></span>`
+      : `<b>${esc(state.room)}</b>`}` +
       `<span class="lifecycle ${lifecycle.toLowerCase()}">${esc(lifecycle)}</span></div>` +
     locaIdentityBlock() +
     `<dl class="locafacts">` +

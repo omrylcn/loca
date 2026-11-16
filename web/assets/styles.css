@@ -231,6 +231,10 @@
   .locafacts dd small { flex: 0 0 auto; color: var(--dim); font-size: 10px; }
   .locafacts dd .extlink { flex: 0 0 auto; }
   .locafacts .myrole dd { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .06em; }
+  /* A titled loca keeps its id in reach under the title. */
+  .locasummaryhead .locanamecol { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+  .locasummaryhead .locaid { color: var(--dim); font: 10px var(--mono); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
   .side h1 { display: flex; align-items: center; gap: 9px; font-size: 14px; margin: 0;
     height: 56px; padding: 0 16px; border-bottom: 1px solid var(--line);
     letter-spacing: .5px; font-weight: 600; }
@@ -1551,6 +1555,11 @@
     background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .optag::before { content: "▲"; font-size: 7px; }
   .roletags .leadtag, .roletags .rankbadge { margin-left: 0; }
+  /* The number of the task a person holds, worn like a title. */
+  .tasktag { display: inline-flex; align-items: center; padding: 0 6px; border-radius: 9px; margin-left: 6px;
+    font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--txt);
+    border: 1px solid color-mix(in srgb, var(--txt) 30%, transparent); }
+  .roletags .tasktag { margin-left: 0; }
 
   /* Groups (groups.js): the Groups tab, the People group column and filter,
      the sidebar group headers, the create choice and a person's card. */
@@ -1602,15 +1611,13 @@
   .floor > summary.rgrouphead::before { content: "▸"; color: var(--dim); font-size: 9px; width: 8px;
     transition: transform .12s ease; }
   .floor[open] > summary.rgrouphead::before { transform: rotate(90deg); }
+  .floor.onlyfloor > summary.rgrouphead { cursor: default; }
+  .floor.onlyfloor > summary.rgrouphead::before { content: none; }
   .floor > summary.rgrouphead:hover { color: var(--txt); }
   .floor > summary.rgrouphead .unreadbadge { min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex;
     align-items: center; justify-content: center; border-radius: 9px; background: var(--accent);
     color: var(--on-accent, #06231d); font: 800 9px/1 var(--mono); letter-spacing: 0; }
   #roomList > .floor:first-child > summary.rgrouphead { border-top: 0; }
-  .floormore { display: block; width: calc(100% - 24px); margin: 4px 12px 6px; padding: 6px 10px; text-align: left;
-    background: transparent; border: 1px dashed var(--line); border-radius: 7px; color: var(--muted);
-    font: 11px var(--mono); cursor: pointer; }
-  .floormore:hover, .floormore:focus-visible { color: var(--accent); border-color: var(--accent); outline: none; }
   .extfield select { box-sizing: border-box; width: 100%; background: var(--panel); border: 1px solid var(--line);
     color: var(--txt); border-radius: 7px; padding: 7px 10px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
   .extfield select:focus { outline: none; border-color: var(--accent); }
@@ -1806,6 +1813,15 @@
   .identopt input:disabled + .identswatch { opacity: .55; cursor: default; }
   .identopt input:disabled:checked + .identswatch { opacity: 1; }
   @media (max-width: 520px) { .identswatch { width: 34px; height: 34px; } }
+  /* The create panel's preset (Loca or Lounge): two rows like the extension
+     rows, the chosen one outlined. */
+  .createpreset { margin-bottom: 12px; }
+  .presetopts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .presetopt { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--panel); cursor: pointer; min-width: 0; }
+  .presetopt input { flex: 0 0 auto; margin: 2px 0 0; width: 14px; height: 14px; accent-color: var(--accent); }
+  .presetopt:has(input:checked) { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .presetopt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* ── full name and profile icon (people.js personLabelHtml) ─────────────
    The full name leads; the @name stays beside it, quieter but always there.
    Icons are line glyphs in the text colour, sized to the text. */

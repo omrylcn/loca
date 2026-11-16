@@ -159,6 +159,40 @@ test("with only Ground-floor locas the list is headed Ground floor, and there is
   await context.close();
 });
 
+test("the only floor in sight stays open: a stored close and a click on its heading do not hide the locas", async ({ browser, request }) => {
+  // A fresh Building has only Ground-floor locas here; other tests' floors
+  // are hidden from this member, who is on none of them.
+  const tag = "fl3c";
+  const m = await masterSession(request);
+  const as = { "x-session-token": m.session_token };
+  for (const name of [`${tag}-one`, `${tag}-two`]) {
+    expect((await request.post("/rooms", { headers: as, data: { name } })).status()).toBe(201);
+  }
+  const member = `${tag}-member`;
+  const { token } = await (await request.post("/members", { headers: MASTER, data: { name: member, kind: "user" } })).json();
+  for (const name of [`${tag}-one`, `${tag}-two`]) {
+    expect((await request.post(`/rooms/${name}/invites`, { headers: MASTER, data: { name: member } })).ok()).toBeTruthy();
+  }
+  const { context, page } = await openAsMember(browser, member, token);
+  const floorsShown = page.locator("#roomList details.floor");
+  await expect(floorsShown).toHaveCount(1);
+  const one = page.locator("#roomList .roomitem", { hasText: `${tag}-one` });
+  await expect(one).toBeVisible();
+  // The heading does not close it.
+  await floorsShown.locator(":scope > summary").click();
+  await expect(floorsShown).toHaveAttribute("open", "");
+  await expect(one).toBeVisible();
+  // A close stored earlier (when there were more floors, or by the older
+  // page) does not hide the list either.
+  await page.evaluate(() => { setFloorCollapsed("", true); renderRooms(); });
+  await expect(floorsShown).toHaveAttribute("open", "");
+  await expect(one).toBeVisible();
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => state.principalId)).toBeTruthy();
+  await expect(page.locator("#roomList .roomitem", { hasText: `${tag}-one` })).toBeVisible();
+  await context.close();
+});
+
 test("a floor closes and opens, by mouse and keyboard, and stays as left across a reload", async ({ browser, request }) => {
   const tag = "fl4";
   const { master } = await building(request, tag);
@@ -198,32 +232,26 @@ test("going into a loca opens its floor", async ({ browser, request }) => {
   const a2 = page.locator("#roomList .roomitem .room", { hasText: `${tag}-a2` });
   await expect(a2).toBeVisible();
   await expect(a2).toHaveAttribute("aria-current", "page");
-  // Closing the floor one is in still keeps one's own loca in sight.
-  await alpha.locator(":scope > summary").click();
-  await expect(alpha).not.toHaveAttribute("open", "");
-  await expect(page.locator("#roomList .room[aria-current=page]", { hasText: `${tag}-a2` })).toBeVisible();
-  await expect(page.locator("#roomList .roomitem", { hasText: `${tag}-a1` })).toBeHidden();
   await context.close();
 });
 
-test("a closed floor says how many locas it holds back, and that line opens it", async ({ browser, request }) => {
+test("a closed floor shows no loca at all, not even the one the viewer is in", async ({ browser, request }) => {
   const tag = "fl5b";
   const { master } = await building(request, tag);
   const { context, page } = await openAsMaster(browser, master);
   const alpha = floorOf(page, `${tag}-alpha`);
-  const more = page.locator(`#roomList .floormore`, { hasText: "on this floor" });
-  await expect(page.locator("#roomList .floormore")).toHaveCount(0);
-  // Closed from outside: the line counts every loca of the floor.
-  await alpha.locator(":scope > summary").click();
-  await expect(page.locator("#roomList .floormore", { hasText: "Show 2 locas" })).toBeVisible();
-  // Closed while inside: one's own loca stays, the line counts the rest.
   await page.evaluate(room => joinRoom(room), `${tag}-a2`);
+  await expect(page.locator("#roomList .room[aria-current=page]", { hasText: `${tag}-a2` })).toBeVisible();
   await alpha.locator(":scope > summary").click();
-  await expect(more).toHaveText("+ 1 more on this floor");
-  await more.click();
-  await expect(alpha).toHaveAttribute("open", "");
-  await expect(page.locator("#roomList .roomitem", { hasText: `${tag}-a1` })).toBeVisible();
-  await expect(page.locator("#roomList .floormore")).toHaveCount(0);
+  await expect(alpha).not.toHaveAttribute("open", "");
+  for (const name of [`${tag}-a1`, `${tag}-a2`]) {
+    await expect(page.locator("#roomList .roomitem", { hasText: name })).toBeHidden();
+  }
+  // Nothing of the floor is drawn outside it, and the heading still counts it.
+  await expect(page.locator("#roomList > .roomitem")).toHaveCount(0);
+  await expect(alpha.locator(":scope > summary .rgroupcount")).toHaveText("2");
+  await alpha.locator(":scope > summary").click();
+  await expect(page.locator("#roomList .room[aria-current=page]", { hasText: `${tag}-a2` })).toBeVisible();
   await context.close();
 });
 

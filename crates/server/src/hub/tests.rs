@@ -88,11 +88,13 @@ mod invite_delivery;
 mod join_window;
 mod key_ids;
 mod loca_seats;
+mod loca_title;
 mod name_claims;
 mod notification_limit;
 mod profile_card;
 mod reissue;
 mod session_lifetime;
+mod task_assignment;
 
 static TEST_NOW: AtomicU64 = AtomicU64::new(0);
 static TEST_CLOCK_LOCK: Mutex<()> = Mutex::new(());
@@ -1506,6 +1508,7 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
                 assigned_to: Some("lead".into()),
                 by: "operator".into(),
             },
+            None,
         )
         .expect("task");
     let goal = hub
@@ -1588,6 +1591,7 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
             by: "lead".into(),
         },
         false,
+        None,
     )
     .expect("task progress");
     let progressed_goal_at = hub.goals("proj")[0].progress_at;
@@ -1602,6 +1606,7 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
             by: "lead".into(),
         },
         false,
+        None,
     )
     .expect("idempotent task patch");
     assert_eq!(
@@ -1656,6 +1661,7 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
             by: "lead".into(),
         },
         false,
+        None,
     )
     .expect("finish linked task");
     assert_eq!(hub.goals("proj")[0].status, GoalStatus::Achieved);

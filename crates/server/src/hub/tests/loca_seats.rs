@@ -58,7 +58,7 @@ fn held_seats_are_the_live_invites_or_the_people_seated_whichever_is_more() {
     hub.invite_member_to_room(&b.id, "atelier", "master")
         .unwrap();
     assert_eq!(
-        hub.edit_identity("atelier", &seats(1), "Master", SenderType::User)
+        hub.edit_identity("atelier", &seats(1), "Master", SenderType::User, |_| false)
             .unwrap_err(),
         IdentityError::Invalid(
             "seats must be between 2 and 32 (this Building's ceiling, LOCA_CAPACITY_MAX)".into()
@@ -70,7 +70,7 @@ fn held_seats_are_the_live_invites_or_the_people_seated_whichever_is_more() {
         assert!(hub.join("atelier", who, who, SenderType::User, n as u64 + 1));
     }
     assert_eq!(
-        hub.edit_identity("atelier", &seats(2), "Master", SenderType::User)
+        hub.edit_identity("atelier", &seats(2), "Master", SenderType::User, |_| false)
             .unwrap_err(),
         IdentityError::SeatsHeld { held: 3, wanted: 2 }
     );
@@ -80,7 +80,7 @@ fn held_seats_are_the_live_invites_or_the_people_seated_whichever_is_more() {
         "a refused edit changes nothing"
     );
     let lowered = hub
-        .edit_identity("atelier", &seats(3), "Master", SenderType::User)
+        .edit_identity("atelier", &seats(3), "Master", SenderType::User, |_| false)
         .expect("exactly the seats held");
     assert_eq!(lowered.seats, Some(3));
     assert_eq!(hub.room_capacity("atelier"), 3);
@@ -89,7 +89,7 @@ fn held_seats_are_the_live_invites_or_the_people_seated_whichever_is_more() {
     hub.leave("atelier", "rank-1", 1);
     hub.leave("atelier", "rank-2", 2);
     let held = hub
-        .edit_identity("atelier", &seats(2), "Master", SenderType::User)
+        .edit_identity("atelier", &seats(2), "Master", SenderType::User, |_| false)
         .expect("two invites, one seated: two held");
     assert_eq!(held.seats, Some(2));
     let c = hub.admit_member("held-c", "agent", "master").unwrap();

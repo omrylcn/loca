@@ -32,7 +32,7 @@ interface calls a group a Floor and the default group the Ground floor.
 - Everything in a **loca** is its own. At most one **Operator** runs it (mode,
   turns and moderation); the **Lead** advises and gives no work; its
   participants are the people and agents in its seats. **Chat** is always on;
-  the extensions are Notes, Focus, Journal, Loca Wiki and Live.
+  the extensions are Notes, Focus, Journal, Loca Wiki, Live and Vault.
 
 The sections below define each word in full.
 
@@ -435,8 +435,8 @@ the Master, its own groups for a Smaster) and a **Sent** view with read counts
 ## Loca extensions
 
 A loca has a set of enabled **extensions**
-([PRINCIPLES](../PRINCIPLES.md)). Chat is always on and is not one. Today's
-extensions are the modules every loca already had:
+([PRINCIPLES](../PRINCIPLES.md)). Chat is always on and is not one. The
+first five are the modules every loca already had; the Vault came later:
 
 | Id | Name | Adds | Routes it owns |
 |---|---|---|---|
@@ -445,8 +445,21 @@ extensions are the modules every loca already had:
 | `journal` | Journal | the Journal tab | `/rooms/:id/journal` |
 | `wiki` | Loca Wiki | the Loca Wiki tab | `/rooms/:id/wiki…` |
 | `live` | Live | the live-mode toggle | `PUT /rooms/:id/settings {"live": true}` |
+| `vault` | Vault | the Vault tab (the loca's rules) | `/rooms/:id/vault…` |
 
 Attentions, waits, reminders and memory are not extensions; they stay on.
+
+**The Vault** holds one rules document per loca: the loca's working
+agreement, plain text up to 8 KiB. The loca's appointed Operator, the Master
+and Smasters write it; everyone seated reads it, agents included; an agent
+never writes it. It informs and does not command: it grants no authority,
+and an agent reads it as loca context below the instructions of whoever runs
+it, never as instructions to obey. Each write is a new revision written
+against the one the writer read (409 otherwise), with who and when; older
+revisions are kept and the Journal records each one. `RoomSettings.vault_rev`
+names the newest revision, and a `vault` frame (revision only, no text)
+reaches every seated socket, the agents' included, so the kit learns of a
+change without a model turn. The server never interprets the text.
 
 - **Existing locas keep everything.** The set is `RoomSettings.extensions`. A
   loca saved without that field has all five above (the frozen legacy set);
@@ -500,6 +513,13 @@ matches it.
 A loca is its own place ([PRINCIPLES](../PRINCIPLES.md) "A loca's
 identity"). Besides its name it may have:
 
+- **a title** — what people see in place of the name (64 characters, one
+  line): the sidebar entry, the loca header, This Loca and the Building's
+  lists show it, with the name in a tooltip or beside it. The name the loca
+  was opened with stays its id and its address: invites, links, commands and
+  the agent kit keep using it, so a title change moves nothing, keeps every
+  browser's pins and read position, and grants nothing. A title that reads
+  like another loca you can see is refused;
 - **a description** — what it is for, one short paragraph (280 characters,
   one line). This Loca shows it, the sidebar entry's tooltip and the loca
   header (where there is room) show it, and agents read it in the settings

@@ -104,6 +104,7 @@ async function fetchExtensionData() {
   fetchTasks();
   if (extensionOn("journal")) fetchJournal();
   if (state.tab === "wiki" && extensionOn("wiki")) fetchWiki();
+  if (state.tab === "vault" && extensionOn("vault")) fetchVault();
 }
 
 async function fetchLocaExtensions(attempt = 0) {
@@ -228,13 +229,23 @@ async function openCreateLoca(name = "", group = "") {
     $("extCreateDefault").innerHTML =
       `<label class="extrow fixed"><input type="checkbox" checked disabled>` +
         `<span class="extrowtext"><b>Chat</b><small>Always on. Not an extension.</small></span></label>` +
-      catalog.filter(spec => defaults.includes(spec.id)).map(spec => extensionRow(spec, true)).join("");
+      catalog.filter(spec => defaults.includes(spec.id)).map(spec => extensionRow(spec, createPreset() === "loca")).join("");
     $("extCreateAdd").innerHTML =
       catalog.filter(spec => !defaults.includes(spec.id)).map(spec => extensionRow(spec, false)).join("");
     renderCreateTabsLine();
   } catch (error) {
     if (!buildingStale(gen)) $("extCreateError").textContent = `Could not load the extension list: ${error.message}`;
   }
+}
+
+/// The create panel's preset (identity.js) ticks the extensions: the
+/// catalog's defaults for a Loca, none for a Lounge. Ticks stay changeable.
+function applyPresetExtensions() {
+  const defaults = createPreset() === "loca" ? extensionCatalogCache?.defaults || [] : [];
+  for (const input of document.querySelectorAll("#extCreateDefault input:not(:disabled), #extCreateAdd input")) {
+    input.checked = defaults.includes(input.value);
+  }
+  renderCreateTabsLine();
 }
 
 async function submitCreateLoca(event) {
