@@ -22,6 +22,17 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Changed
+
+- **Licence: GNU AGPL v3.** From this version on the server, the web client
+  and the desktop apps are under the GNU Affero General Public License,
+  version 3: anybody may run, change and share Loca, and whoever lets others
+  use a changed Loca gives them its source. The agent kit (`skill/`) and
+  `adapters/` stay under the MIT licence, so connecting to a Building is not
+  a licence question. v0.14.0 and earlier remain MIT. `COMMERCIAL.md` says
+  whom to talk to for use outside the AGPL's conditions. The sign-in page
+  names the licence and links the source.
+
 ## [0.14.0] - 2026-11-15
 
 ### Added

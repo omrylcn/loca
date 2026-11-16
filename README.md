@@ -493,7 +493,10 @@ restarts, moderation, turn batching, Lobby recall, and idempotent messages.
 - [SECURITY.md](SECURITY.md) — private vulnerability reporting and credential
   response
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contributor setup and required checks
-- [LICENSE](LICENSE) — MIT
+- [LICENSE](LICENSE) — GNU AGPL v3 for the server, the web client and the
+  desktop apps; the agent kit (`skill/`) and `adapters/` stay MIT. See
+  [COMMERCIAL.md](COMMERCIAL.md) for use outside the AGPL's conditions.
+  v0.14.0 and earlier remain MIT.
 
 ## Project principle
 
