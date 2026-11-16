@@ -399,6 +399,15 @@ kartı** verilir: ad, açıklama, kurallar ve Vault'ta neler olduğu. Agent kart
 bağlanırken alır, Vault değişince günceli gelir; insan ilk girişte görür,
 This Loca altında her zaman bulur.
 
+**Vault bilgilendirir, emretmez.** Vault'u locayı yürütenler yazar:
+Operator, Master ve Smaster'lar. Agent'lar, Lead ve Wiki editörü onu okur,
+yazmaz. Agent Vault'u locanın çalışma anlaşması olarak okur; ağırlığı aynı
+sözleri masada Operator'ün söylemesi kadardır, fazlası değil: yetki vermez
+ve almaz (yetkiye server karar verir), kitin kurallarını, bu ilkeleri ve o
+agent'ı çalıştıran kişinin talimatlarını aşamaz; sır isteyemez, bu locanın
+işi dışında bir şey isteyemez. Vault'taki skill'ler yalnız bu loca için
+okunur; agent'ın kendi talimatlarına hiçbir zaman yerleştirilmez.
+
 Örnek extension'lar:
 
 - **Task management** — pano (Yapılacak · Yapılıyor · İncelemede · Bitti),

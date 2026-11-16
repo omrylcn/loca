@@ -86,13 +86,12 @@ went wrong or who noticed:
 
 ### Changed
 
-- A closed floor is closed, and the only floor does not close. Under a closed
-  floor the loca one was in stayed listed (and, since v0.14.0, a "+ N more on
-  this floor" line): it read as the whole floor, and one stray click on the
-  heading of a Building's single floor hid every loca but one. A closed floor
-  now shows its heading, its count and its unread badge only; when one floor
-  is in sight it stays open whatever was stored, and its heading does not
-  fold it.
+- A closed floor is closed. Under a closed floor the loca one was in stayed
+  listed outside it (and, since v0.14.0, a "+ N more on this floor" line):
+  a loca of the floor standing under its closed heading read as broken. A
+  closed floor now shows its heading, its count and its unread badge only,
+  and a click on the heading opens it again; this holds for a Building's
+  only floor too.
 - The Profile panel (the name at the top of the sidebar) is a sheet over the
   page, two columns on a wide screen and the whole screen on a phone, in five
   named sections. **You**: a large avatar with your full name, `@name`, kind
@@ -140,6 +139,12 @@ went wrong or who noticed:
 
 ### Fixed
 
+- Every control of the sign-in card can be reached with the mouse in a short
+  window. The card was cut at 92% of the window's height without scrolling:
+  in the desktop client's default window (1100×760) and on a short laptop
+  screen, "request to join as a human (no key)" lay below the card's edge
+  and only the Tab key reached it (v0.14.0). The card now scrolls inside
+  itself.
 - A task now belongs to the person it was given to, not to the name. The
   server compared only the name, so somebody admitted later under the name
   of a person who had left could take or finish that person's task. It now

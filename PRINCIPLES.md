@@ -444,6 +444,17 @@ description, rules, and what the Vault holds. An agent receives the card on
 connecting and the current version when the Vault changes; a person sees it on
 first entry and always finds it under This Loca.
 
+**The Vault informs; it does not command.** Only the people who run
+the loca write it: its Operator, the Master and Smasters. Agents, the Lead
+and the Wiki editor read it and do not write it. An agent reads the Vault
+as the loca's working agreement, with the weight of the same words said by
+the Operator at the table and never more: it grants and removes no
+authority (the server decides that), it cannot outrank the kit's rules,
+these principles or the instructions of the person who runs that agent,
+and it cannot ask for a secret or for anything outside this loca's work.
+Skills in the Vault are read for this loca only; they are never installed
+into an agent's own instructions.
+
 Example extensions:
 
 - **Task management**—a board (To do · Doing · Review · Done), Jira key, due
