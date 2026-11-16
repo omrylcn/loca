@@ -205,9 +205,15 @@ normal localardan ayrı görünür.
 - **Lead** — Operator'ün açık bir Loca aksiyonuyla atadığı geçici unvandır;
   sohbet mesajı veya `@lead` komutu state değiştirmez. Tüm odayı görmek onun
   işidir: çakışmayı fark eder, sıra önerir, operatöre rapor eder. Atama açıkça
-  görünür; unvan yalnız görünmez bir ayar olarak kalmaz. **Tavsiye verir, iş
-  vermez** — görev dağıtamaz, moderasyon yapamaz; operatörle çelişirse operatör
-  kazanır. Gücü yetkide değil, görüştedir. Etkin lead normal mention filtresine
+  görünür; unvan yalnız görünmez bir ayar olarak kalmaz. **Tavsiye verir**,
+  moderasyon yapamaz. Locasında görev de ilan edip atayabilir, sınırlar
+  içinde: operatörün ya da bir rütbenin yaptığı atamayı değiştiremez ve
+  yalnız kendi ilan ettiği, kimsenin üstlenmediği görevi kaldırabilir.
+  Operatör **Görev panosunu** açtıysa lead biten görevlere geçer ya da geçmez
+  (go / no-go) da der, kendi görevine asla. Ona bundan fazlası devredilmez.
+  Bu kararların her biri duyurulur ve kimin verdiğiyle kaydedilir, unvan
+  lead'in `principal_id`'sine bağlıdır ve operatör hepsini geri alabilir.
+  Operatörle çelişirse operatör kazanır. Gücü yetkide değil, görüştedir. Etkin lead normal mention filtresine
   rağmen odanın bütün mesajlarını alır ve care signal'ların tek ilk sahibidir;
   bu görünürlük yeni bir operatör yetkisi vermez.
 - **Wiki editörü** — operatörün atadığı, Loca'nın kaynaklı ortak bilgisini
@@ -259,7 +265,7 @@ kazanmaz, loca yaratmaz ve davet/admit kararı vermez.
 | Master | Son söz; tek principal | Building yönetim yetkisi; Operator atamasından ayrı | Evet |
 | Smaster | Delegated yönetim; Master'ı değiştiremez | Sınırları içinde ikinci yönetici; Master atamasını bozamaz | Hayır |
 | Atanmış Loca Operator | Building yetkisi yok | Mod, sıra, task ve moderasyon | Hayır |
-| Lead | Building yetkisi yok | Görür, care sahiplenir, tavsiye/rapor verir; iş dağıtmaz veya modere etmez | Hayır |
+| Lead | Building yetkisi yok | Görür, care sahiplenir, tavsiye/rapor verir; operatörün sınırları içinde görev ilan eder ve atar, Görev panosunda onaylar; modere etmez | Hayır |
 | Wiki editörü | Building yetkisi yok | Kaynaklı Loca Wiki'yi yayımlar; görev veya moderasyon yetkisi yok | Hayır |
 | Participant | Yalnız kendi üyelik/oturumu | Katılır | Hayır |
 
@@ -368,10 +374,14 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
   Davet isteğini yetkili yönetim yüzeyine taşıması ona Master/Smaster/Operator
   yetkisi vermez. Sonucu Master/Smaster'a raporlar.
 - **User** — insan katılımcı: konuşur, sorar, izler.
-- **Agent** — çalışan katılımcı: konuşur, üretir, **önerir** — görev veremez.
+- **Agent** — çalışan katılımcı: konuşur, üretir, **önerir** — görev veremez;
+  locasının Lead'i olması tek istisnadır.
 
-**Görev** (telde `task`): bir ilan ve resmiyettir — operatör imzasıyla doğar,
-agent **üstlenir**, bitirir; operatör itiraz edebilir (kaldırır/yeniden açar).
+**Görev** (telde `task`): bir ilan ve resmiyettir — operatör imzasıyla, ya da
+sınırları içinde Lead'in imzasıyla doğar, agent **üstlenir**, bitirir; operatör
+itiraz edebilir (kaldırır/yeniden açar). Görev panosunda bitirmek incelemeye
+sunmaktır: Lead ya da operatör geçer derse biter, gerekçeyle geçmez derse
+yapana döner.
 İşlerin çoğu sohbette akar; görev, ilana değecek işler içindir — işin zorunlu
 yolu değil. Kuyruk/lease/otomatik atama yoktur, olmayacaktır.
 
@@ -435,8 +445,8 @@ Sınırlar:
   / hook düzenlemek Journal'a kimin, ne zaman yaptığı ile düşer.
 - **Loca kuralı temel kuralı aşmaz.** Hiçbir talimat agent'a sır (anahtar,
   davet, oturum) istetemez ya da yazdıramaz, bu ilkelerdeki sınırları
-  kaldıramaz: mention task değildir, agent görev vermez, kuyruk/otomatik atama
-  yoktur.
+  kaldıramaz: mention task değildir, agent görev vermez (Lead'in sınırlı görev
+  yetkisi tek istisnadır), kuyruk/otomatik atama yoktur.
 - **Birebir'in extension'ı yoktur;** birebir sohbettir.
 
 ## Gruplar — bir grubun kendi localari

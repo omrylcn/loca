@@ -209,8 +209,9 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
     let admin = ("x-admin-token", MASTER);
     use reqwest::Method;
 
-    // The catalog: five of today's modules and the Vault; notes, journal and
-    // wiki are ticked for a new loca; chat is not an extension.
+    // The catalog: five of today's modules, the Vault and the Task board;
+    // notes, journal and wiki are ticked for a new loca; chat is not an
+    // extension.
     let (status, catalog) = call(Method::GET, format!("{base}/extensions"), admin, None).await;
     assert_eq!(status, 200);
     let ids: Vec<&str> = catalog["catalog"]
@@ -219,7 +220,10 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
         .iter()
         .map(|spec| spec["id"].as_str().unwrap())
         .collect();
-    assert_eq!(ids, ["notes", "focus", "journal", "wiki", "live", "vault"]);
+    assert_eq!(
+        ids,
+        ["notes", "focus", "journal", "wiki", "live", "vault", "board"]
+    );
     assert_eq!(
         catalog["defaults"],
         serde_json::json!(["notes", "journal", "wiki"])

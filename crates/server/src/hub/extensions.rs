@@ -19,6 +19,10 @@ pub enum ExtensionError {
     Dm,
     /// The loca is closed (read-only) or sealed.
     NotWritable,
+    /// The Task board without Focus.
+    BoardNeedsFocus,
+    /// The Task board turned on in a loca with no Lead.
+    BoardNeedsLead,
     Storage,
 }
 
@@ -28,6 +32,8 @@ impl ExtensionError {
             Self::Unknown(name) => format!("unknown extension: {name}"),
             Self::Dm => "a birebir has no extensions".into(),
             Self::NotWritable => "this loca is closed — read-only".into(),
+            Self::BoardNeedsFocus => "the Task board needs Focus: turn Focus on first".into(),
+            Self::BoardNeedsLead => "the Task board needs a Lead: select a Lead first".into(),
             Self::Storage => "could not save extensions — try again".into(),
         }
     }
@@ -178,6 +184,7 @@ impl Hub {
                 normalize_extensions(&wanted)?
             }
         };
+        let enabled = super::work::settle_board(&before, enabled, r.settings.lead.is_some())?;
         let added: Vec<String> = enabled
             .iter()
             .filter(|id| !before.contains(id))

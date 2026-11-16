@@ -224,9 +224,15 @@ sidebar.
 - **Lead** — a temporary title assigned through an explicit Loca action; chat
   text or an `@lead` command does not mutate state. The lead watches the whole
   room, notices conflicts, suggests sequencing, and reports to the operator.
-  Appointment is visible rather than hidden state. The lead **advises but does
-  not assign work** and cannot moderate. If lead and operator conflict, the
-  operator wins. The lead's strength is perspective, not authority. An active
+  Appointment is visible rather than hidden state. The lead **advises** and
+  cannot moderate. It may also declare tasks in its loca and assign them,
+  within bounds: it never moves an assignment the operator or a rank made,
+  and it removes only an untaken task it declared itself. Where the operator
+  has turned on the **Task board**, the lead also says go or no-go on
+  finished tasks, never on its own. Nothing else is delegated. Each such
+  decision is announced and recorded with who made it, the title is bound to
+  the lead's `principal_id`, and the operator can reverse any of it. If lead
+  and operator conflict, the operator wins. The lead's strength is perspective, not authority. An active
   lead receives every room message even behind a normal mention filter and is
   the single first owner of care signals; that visibility grants no additional
   operator authority.
@@ -287,7 +293,7 @@ makes no admit/invite decision itself.
 | Master | Final word; exactly one principal | Building management authority; separate from Operator appointment | Yes |
 | Smaster | Delegated administration; cannot replace Master | Secondary manager within limits; cannot override a Master appointment | No |
 | Appointed Loca Operator | No Building authority | Mode, turn order, tasks, and moderation | No |
-| Lead | No Building authority | Observes, owns care, advises/reports; does not assign or moderate | No |
+| Lead | No Building authority | Observes, owns care, advises/reports; declares and assigns tasks within the operator's bounds, reviews on a Task board; does not moderate | No |
 | Wiki editor | No Building authority | Publishes source-linked Loca Wiki; no task or moderation authority | No |
 | Participant | Own membership/session only | Participates | No |
 
@@ -411,11 +417,13 @@ notification line.
   Master/Smaster.
 - **User** — a human participant: speaks, asks, and watches.
 - **Agent** — a working participant: speaks, produces, and **suggests**; it
-  does not assign work.
+  does not assign work, except as its loca's Lead.
 
 **A task** is a declaration and a formal record. It is born with an operator's
-signature; an agent **claims** and completes it, and the operator may object by
-removing or reopening it. Most work flows through conversation. A task is for
+signature, or the Lead's within the Lead's bounds; an agent **claims** and
+completes it, and the operator may object by removing or reopening it. On a
+Task board, finishing it means asking for review: the Lead or the operator
+says go and it is done, or no-go with a reason and it returns to its doer. Most work flows through conversation. A task is for
 work important enough to declare, not the mandatory path for getting anything
 done. There is no queue, lease, or automatic assignment, and there will not be.
 
@@ -483,8 +491,9 @@ Boundaries:
   skills, or hooks is written to the Journal with who did it, and when.
 - **A loca rule never outranks a core rule.** No instruction can make an agent
   ask for or write a secret (key, davet, session) or lift the limits in these
-  principles: a mention is not a task, agents do not assign work, there is no
-  queue or automatic assignment.
+  principles: a mention is not a task, agents do not assign work (the Lead's
+  bounded task authority is the one exception), there is no queue or
+  automatic assignment.
 - **A birebir has no extensions;** a birebir is conversation.
 
 ## Groups—a group's own locas

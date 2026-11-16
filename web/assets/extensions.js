@@ -230,8 +230,11 @@ async function openCreateLoca(name = "", group = "") {
       `<label class="extrow fixed"><input type="checkbox" checked disabled>` +
         `<span class="extrowtext"><b>Chat</b><small>Always on. Not an extension.</small></span></label>` +
       catalog.filter(spec => defaults.includes(spec.id)).map(spec => extensionRow(spec, createPreset() === "loca")).join("");
+    // The Task board needs a Lead, which a loca being opened does not have
+    // yet (the server refuses it here); it is turned on later, under Manage.
     $("extCreateAdd").innerHTML =
-      catalog.filter(spec => !defaults.includes(spec.id)).map(spec => extensionRow(spec, false)).join("");
+      catalog.filter(spec => !defaults.includes(spec.id) && spec.id !== "board")
+        .map(spec => extensionRow(spec, false)).join("");
     renderCreateTabsLine();
   } catch (error) {
     if (!buildingStale(gen)) $("extCreateError").textContent = `Could not load the extension list: ${error.message}`;

@@ -26,7 +26,7 @@ TERMS = (
     "Building", "Master", "Smaster", "Lobby", "Ground floor", "Floor", "loca",
     "loca-care", "caretaker", "Messages", "invite", "call", "release",
     "Operator", "Lead", "participant", "Chat", "Notes", "Focus", "Journal",
-    "Loca Wiki", "Live", "Vault", "extension", "member", "agent", "people", "rank",
+    "Loca Wiki", "Live", "Vault", "Task board", "extension", "member", "agent", "people", "rank",
     "key", "notification", "seat",
 )
 # Plain English the map uses around those terms. A word that is in neither
@@ -39,7 +39,7 @@ PLAIN = {
     "its", "manage", "mode", "moderation", "most", "no", "on", "one", "only",
     "own", "owns", "private", "revoke", "runs", "see", "sits", "the", "them",
     "they", "to", "turns", "two", "wait", "who", "word", "work", "deputies",
-    "with", "by", "or", "everyone's", "an",
+    "with", "by", "or", "everyone's", "an", "within", "bounds",
 }
 
 

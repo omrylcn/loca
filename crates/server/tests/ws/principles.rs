@@ -1383,6 +1383,15 @@ fn route_matrix() -> Vec<(&'static str, reqwest::Method, &'static str, Option<Va
             "/rooms/:id/settings",
             json(serde_json::json!({"live": true})),
         ),
+        // The Task board owns no route either: its door is the review state
+        // of Focus's task route, refused while it is off (tests/ws/task_board.rs).
+        // Like `live`, the fence does not cover it.
+        (
+            "board",
+            Method::PATCH,
+            "/rooms/:id/tasks/:tid",
+            json(serde_json::json!({"status": "review", "by": "x"})),
+        ),
     ]
 }
 
@@ -1582,7 +1591,7 @@ fn every_fenced_route_is_in_the_matrix() {
             .collect();
     let mut matrix = BTreeSet::new();
     for (ext, method, template, _) in route_matrix() {
-        if ext == "live" {
+        if ext == "live" || ext == "board" {
             continue;
         }
         let segment = template
@@ -1606,6 +1615,17 @@ fn every_fenced_route_is_in_the_matrix() {
         stale.is_empty(),
         "route_matrix entries the router does not register: {stale:?}"
     );
+}
+
+async fn name_lead(base: &str, room: &str, lead: &str) {
+    let (status, v) = call(
+        reqwest::Method::POST,
+        format!("{base}/rooms/{room}/lead"),
+        &admin(),
+        Some(serde_json::json!({ "lead": lead })),
+    )
+    .await;
+    assert_eq!(status, 200, "name {room}'s Lead: {v}");
 }
 
 async fn set_extensions(base: &str, room: &str, enabled: &[&str]) {
@@ -1706,6 +1726,9 @@ async fn an_extension_that_is_off_is_refused_and_outsiders_learn_nothing() {
     set_extensions(&base, "fenced", &[]).await;
     for (who, token) in [("ayse", &ayse), ("bot", &bot)] {
         for (ext, method, path, body) in routes_of("fenced") {
+            if ext == "board" {
+                continue; // no fence of its own (see `route_matrix`)
+            }
             let headers: Vec<(&str, &str)> = if ext == "live" {
                 admin().to_vec()
             } else {
@@ -1718,7 +1741,10 @@ async fn an_extension_that_is_off_is_refused_and_outsiders_learn_nothing() {
             );
         }
     }
-    // With every extension on, none of those requests meets the fence.
+    // With every extension on, none of those requests meets the fence. The
+    // Task board needs a Lead to be turned on.
+    name_lead(&base, "fenced", "bot").await;
+    name_lead(&base, "crew-room", "ayse").await;
     set_extensions(&base, "fenced", &all).await;
     for (ext, method, path, body) in routes_of("fenced") {
         if method != reqwest::Method::GET && ext != "live" {
@@ -1820,6 +1846,8 @@ async fn turning_an_extension_off_closes_it_at_once_and_back_on_resurrects_nothi
     seat(&base, "busy", "ayse").await;
     seat(&base, "busy", "bot").await;
     let ayse = session(&base, ("x-room-token", &ayse_key), "ayse", "user").await;
+    // The Task board, in the catalog, needs a Lead to be turned on.
+    name_lead(&base, "busy", "bot").await;
     let mut tab = ws_as(port, "busy", "ayse", "user", &ayse).await;
     let post = |path: &'static str, token: String, body: Value| {
         let base = base.clone();
@@ -1871,7 +1899,7 @@ async fn turning_an_extension_off_closes_it_at_once_and_back_on_resurrects_nothi
     // Off, all four at once (live stays): the very next request is refused.
     set_extensions(&base, "busy", &["live"]).await;
     for (ext, method, path, body) in routes_of("busy") {
-        if ext == "live" {
+        if ext == "live" || ext == "board" {
             continue;
         }
         let (status, v) = call(method.clone(), format!("{base}{path}"), &sess(&ayse), body).await;

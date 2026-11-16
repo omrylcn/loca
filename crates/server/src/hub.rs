@@ -531,6 +531,8 @@ impl From<OperatorAssignmentError> for CreateLocaError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeadError {
     ActiveGoal,
+    /// The Task board is on: it needs a Lead.
+    BoardOn,
     Storage,
 }
 
@@ -4679,6 +4681,8 @@ impl Hub {
         if self.is_deleted(room) {
             return Ok(self.settings(room));
         }
+        // The Lead's task authority follows this principal, not the name.
+        let lead_principal = lead.as_deref().and_then(|name| self.principal_named(name));
         let mut rooms = self.rooms.lock_or_recover();
         let (mode, mut settings) = rooms
             .get(room)
@@ -4693,7 +4697,11 @@ impl Hub {
         {
             return Err(LeadError::ActiveGoal);
         }
+        if lead.is_none() && settings.extension_enabled("board") {
+            return Err(LeadError::BoardOn);
+        }
         settings.lead = lead.clone();
+        settings.lead_principal = lead_principal;
         let text = match &lead {
             Some(name) => format!("{by} set @lead {name}."),
             None => format!("{by} set @lead none."),

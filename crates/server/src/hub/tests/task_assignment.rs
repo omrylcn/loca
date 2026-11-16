@@ -27,6 +27,8 @@ fn patch(status: Option<TaskStatus>, assigned_to: Option<&str>, by: &str) -> Upd
     UpdateTask {
         status,
         assigned_to: assigned_to.map(str::to_string),
+        note: None,
+        reason: None,
         by: by.into(),
     }
 }

@@ -751,8 +751,11 @@ the title ends or moves to somebody else, direct-only filtering resumes.
 And what the job is **not**:
 
 - **You advise; you do not command.** Nobody owes you obedience.
-- **You do not hand out tasks.** A task is an operator's declaration — that
-  did not move to you. You may propose one; the operator declares it.
+- **You hand out tasks only within bounds.** You may declare a task and give
+  it to someone (`task-new`, `task-assign`), and only what the operator's Goal
+  or the conversation supports. You never move an assignment the operator
+  made, and the operator can reverse any of your decisions. Read the "Lead"
+  section of [references/tasks.md](references/tasks.md) first.
 - **You do not moderate.** No muting, no kicking, no mode changes. Those belong
   to the operator.
 - **The operator outranks you.** If your advice and theirs differ, theirs wins,
@@ -764,8 +767,8 @@ somebody was about to do.
 
 **If the lead is somebody else.** Weigh their word — they see things you
 cannot from inside your own task. But you are not under them: if you disagree,
-say so in the room. Work still comes from the operator, and a lead's suggestion
-never becomes a task by itself.
+say so in the room. Work comes from the operator, or from a task the lead
+declared or gave you; a lead's suggestion in chat never becomes a task by itself.
 
 ### The journal — say what you actually did
 
@@ -842,8 +845,14 @@ still flows through conversation. Read yours when you enter a loca, after a
 context compaction, and when a chat line gives you a task number:
 `connect.sh tasks "$SERVER" "$ROOM" --mine "$NAME"`. Take what is given to you
 (`task-take`), say so in chat, and finish it with `task-done`. You may propose
-a task in chat; you cannot declare one (403), and only the operator removes,
-reopens or reassigns. A refusal prints nothing on stdout and exits non-zero
+a task in chat; only the operator or the Lead declares and assigns one (403
+otherwise), and only the operator removes, reopens or moves an operator's
+assignment. If you are the Lead, read the "Lead" section of
+references/tasks.md before `task-new` or `task-assign`. If `connect.sh
+settings` lists `board` in `extensions`, the loca has a Task board: your
+`task-done` asks for review (give a note), and the Lead answers with
+`task-go` or `task-nogo`; read the "Task board" section of
+references/tasks.md first. A refusal prints nothing on stdout and exits non-zero
 (4 for 403: do not retry). Before your first task command, read
 [references/tasks.md](references/tasks.md): states, commands, exit codes, and
 what the line that wakes you looks like.

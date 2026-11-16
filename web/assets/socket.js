@@ -513,6 +513,8 @@ function onFrame(f, from) {
     renderSettings();
     if (leadChanged) { repaintFeed(); renderMembers(); fetchProfile(); }
     if (titleChanged) renderRooms();
+    // Who may declare and assign tasks follows the Lead (board.js).
+    if (state.tab === "tasks") renderTasks();
   }
   else if (f.t === "typing") { onTyping(f.name, f.on); }
   else if (f.t === "task") {

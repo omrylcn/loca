@@ -36,6 +36,8 @@ class TaskCommandTest(unittest.TestCase):
         self.patch_status = 200
         self.patch_body = b"{}"
         self.patch_401_once = False
+        self.post_status = 201
+        self.post_body = b"{}"
         self.seen = []
         case = self
 
@@ -64,6 +66,8 @@ class TaskCommandTest(unittest.TestCase):
                     return self._send(201, json.dumps({"session_token": SESSION}).encode())
                 if self.command == "GET" and self.path == "/rooms/sb-dev/tasks":
                     return self._send(200, json.dumps(TASKS).encode())
+                if self.command == "POST" and self.path == "/rooms/sb-dev/tasks":
+                    return self._send(case.post_status, case.post_body)
                 if self.command == "PATCH" and self.path.startswith("/rooms/sb-dev/tasks/"):
                     if case.patch_401_once:
                         case.patch_401_once = False
@@ -186,6 +190,163 @@ class TaskCommandTest(unittest.TestCase):
         for args in (["task", self.origin, "sb-dev", "x"],
                      ["task-take", self.origin, "sb-dev", "reviewer", ""],
                      ["task-done", self.origin, "sb-dev", "reviewer", "1;2"]):
+            with self.subTest(args=args):
+                result = self.run_connect(*args)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(self.seen, [])
+
+
+class LeadTaskCommandTest(TaskCommandTest):
+    """task-new and task-assign: the Lead's acts, over the same routes, with
+    the same refusal contract as the holder's."""
+
+    # The same fixture server; the holder's tests run once, in their class.
+    for _inherited in [name for name in vars(TaskCommandTest) if name.startswith("test_")]:
+        vars()[_inherited] = None
+    del _inherited
+
+    def written(self, method):
+        return [request for request in self.seen if request["method"] == method]
+
+    def test_task_new_declares_with_and_without_an_assignee(self):
+        self.post_body = json.dumps({"id": 6, "status": "open"}).encode()
+        for extra, body in (
+            ([], {"title": "write the upgrade note", "by": "reviewer"}),
+            (["--assign", "Other"], {"title": "write the upgrade note", "by": "reviewer", "assigned_to": "Other"}),
+        ):
+            with self.subTest(extra=extra):
+                self.seen.clear()
+                result = self.run_connect("task-new", self.origin, "sb-dev", "reviewer",
+                                          "write the upgrade note", *extra)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {"id": 6, "status": "open"})
+                post = self.written("POST")
+                post = [request for request in post if request["path"] == "/rooms/sb-dev/tasks"]
+                self.assertEqual(len(post), 1)
+                self.assertEqual(post[0]["body"], body)
+                self.assertEqual(post[0]["invite"], INVITE)
+                self.assertEqual(post[0]["session"], SESSION)
+                self.assert_no_secret(result)
+
+    def test_task_assign_gives_a_task_to_someone(self):
+        self.patch_body = json.dumps({"id": 1, "assigned_to": "other"}).encode()
+        result = self.run_connect("task-assign", self.origin, "sb-dev", "reviewer", "1", "other")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {"id": 1, "assigned_to": "other"})
+        patch = self.written("PATCH")
+        self.assertEqual(len(patch), 1)
+        self.assertEqual(patch[0]["path"], "/rooms/sb-dev/tasks/1")
+        self.assertEqual(patch[0]["body"], {"assigned_to": "other", "by": "reviewer"})
+        self.assertEqual(patch[0]["invite"], INVITE)
+        self.assertEqual(patch[0]["session"], SESSION)
+        self.assert_no_secret(result)
+
+    def test_a_refused_lead_act_prints_nothing_and_exits_with_the_read_codes(self):
+        answers = {
+            401: (b"invalid or missing session", 7),
+            403: (b"declaring a task takes operator or Lead authority in this loca", 4),
+            404: (b"no such task", 8),
+            409: (b"this loca is closed - read-only", 8),
+            429: (b"rate limit exceeded", 5),
+            503: (b"could not save task - try again", 8),
+        }
+        commands = (
+            ("task-new", ["task-new", self.origin, "sb-dev", "reviewer", "a title", "--assign", "other"]),
+            ("task-assign", ["task-assign", self.origin, "sb-dev", "reviewer", "5", "reviewer"]),
+        )
+        for command, args in commands:
+            for status, (sentence, expected) in answers.items():
+                with self.subTest(command=command, status=status):
+                    self.post_status = self.patch_status = status
+                    self.post_body = self.patch_body = sentence
+                    result = self.run_connect(*args)
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertIn(sentence.decode(), result.stderr)
+                    self.assertIn(str(status), result.stderr)
+                    self.assertIn("not changed", result.stderr.lower())
+                    self.assert_no_secret(result)
+
+    def test_the_lead_acts_check_their_arguments_before_asking(self):
+        for args in (["task-new", self.origin, "sb-dev", "reviewer", "  "],
+                     ["task-new", self.origin, "sb-dev", "reviewer", "t", "--assign"],
+                     ["task-new", self.origin, "sb-dev", "reviewer", "t", "--from", "3"],
+                     ["task-assign", self.origin, "sb-dev", "reviewer", "x", "other"],
+                     ["task-assign", self.origin, "sb-dev", "reviewer", "1"]):
+            with self.subTest(args=args):
+                result = self.run_connect(*args)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, "")
+                self.assertEqual(self.seen, [])
+
+
+class BoardTaskCommandTest(LeadTaskCommandTest):
+    """The Task board: task-done with a note asks for review; task-go and
+    task-nogo are the review, with the same refusal contract."""
+
+    for _inherited in [name for name in vars(LeadTaskCommandTest) if name.startswith("test_")]:
+        vars()[_inherited] = None
+    del _inherited
+
+    def test_board_commands_send_the_documented_bodies(self):
+        self.patch_body = json.dumps({"id": 3, "status": "review"}).encode()
+        for args, body in (
+            (["task-done", self.origin, "sb-dev", "reviewer", "3", "renewal fixed; run the e2e"],
+             {"status": "done", "note": "renewal fixed; run the e2e", "by": "reviewer"}),
+            (["task-go", self.origin, "sb-dev", "reviewer", "3"],
+             {"status": "done", "by": "reviewer"}),
+            (["task-nogo", self.origin, "sb-dev", "reviewer", "3", "the expiry path is untested"],
+             {"status": "taken", "reason": "the expiry path is untested", "by": "reviewer"}),
+        ):
+            with self.subTest(command=args[0]):
+                self.seen.clear()
+                result = self.run_connect(*args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), {"id": 3, "status": "review"})
+                patch = self.written("PATCH")
+                self.assertEqual(len(patch), 1)
+                self.assertEqual(patch[0]["path"], "/rooms/sb-dev/tasks/3")
+                self.assertEqual(patch[0]["body"], body)
+                self.assertEqual(patch[0]["invite"], INVITE)
+                self.assertEqual(patch[0]["session"], SESSION)
+                self.assert_no_secret(result)
+
+    def test_a_task_in_review_is_still_mine(self):
+        TASKS.append({"id": 6, "room": "sb-dev", "title": "mine in review", "created_by": "op",
+                      "assigned_to": "reviewer", "status": "review",
+                      "created_at": 1_800_000_000_000, "progress_at": 1_800_000_000_000})
+        try:
+            result = self.run_connect("tasks", self.origin, "sb-dev", "--mine", "reviewer")
+        finally:
+            TASKS.pop()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([task["id"] for task in json.loads(result.stdout)], [2, 3, 6])
+
+    def test_a_refused_review_prints_nothing_and_exits_with_the_read_codes(self):
+        answers = {
+            400: (b"a no-go needs a reason", 8),
+            401: (b"invalid or missing session", 7),
+            403: (b"house rules: agents take/finish their own tasks; ...", 4),
+            404: (b"no such task", 8),
+            429: (b"rate limit exceeded", 5),
+        }
+        for args in (["task-go", self.origin, "sb-dev", "reviewer", "5"],
+                     ["task-nogo", self.origin, "sb-dev", "reviewer", "5", "why"]):
+            for status, (sentence, expected) in answers.items():
+                with self.subTest(command=args[0], status=status):
+                    self.patch_status, self.patch_body = status, sentence
+                    result = self.run_connect(*args)
+                    self.assertEqual(result.returncode, expected, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertIn(sentence.decode(), result.stderr)
+                    self.assertIn("not changed", result.stderr.lower())
+                    self.assert_no_secret(result)
+
+    def test_a_no_go_needs_a_reason_before_asking(self):
+        for args in (["task-nogo", self.origin, "sb-dev", "reviewer", "3"],
+                     ["task-nogo", self.origin, "sb-dev", "reviewer", "3", "  "],
+                     ["task-go", self.origin, "sb-dev", "reviewer", "x"]):
             with self.subTest(args=args):
                 result = self.run_connect(*args)
                 self.assertEqual(result.returncode, 2)

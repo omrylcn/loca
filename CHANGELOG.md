@@ -84,6 +84,34 @@ went wrong or who noticed:
   agent's next real turn, once. An existing database gains an empty table;
   no loca changes until its Operator turns the Vault on.
 
+- The loca's Lead can declare a task and give it to someone, as the Operator
+  can: from the Focus tab, or with the kit's new `task-new` and
+  `task-assign`. The owner wants the work handed out by the Lead too, not
+  only by the Operator; until now the Lead could only say so in chat and
+  wait for the Operator. The bounds: the Lead never moves an assignment the
+  Operator, the Master or a Smaster made, it removes only an untaken task it
+  declared itself, and the Operator can reverse any of its decisions. The
+  Lead is recognised by the identity it was named with
+  (`RoomSettings.lead_principal`), not by its name, so someone who later
+  wears that name gets none of this; a Lead named before this version gains
+  it once it is named again. Tasks now record who made an assignment and
+  with what authority, and the line that wakes the assignee says
+  "Lead <name> assigned task #12 to @x."
+- The Task board, a loca extension (`board`, off unless the Operator turns
+  it on): the Focus tab shows four columns (To do, Doing, Review, Done),
+  and finishing a task becomes a request for review. The owner wants the
+  Lead to hand out work, check each piece and say go or no-go; until now
+  "done" was final the moment its holder said so, and the check happened in
+  chat with no record on the task. The holder's done (web, or the kit's
+  `task-done … [note]`) moves the task to `review` with an optional note
+  and asks the Lead in one chat line; the Lead (never on its own task) or
+  the Operator answers go (done) or no-go with a reason (back to the
+  holder, who is woken), in the web or with `task-go` / `task-nogo`.
+  Removing and reopening stay the Operator's. The board needs Focus and a
+  Lead: turning it on without a Lead, or clearing the Lead while it is on,
+  is refused, and removing Focus removes it. With the board off nothing
+  changes. An `all_tasks` Goal closes on the go, not on the request.
+
 ### Changed
 
 - A closed floor is closed. Under a closed floor the loca one was in stayed
