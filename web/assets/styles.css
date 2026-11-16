@@ -205,23 +205,30 @@
   .hiddenroom span { flex: 1; overflow: hidden; text-overflow: ellipsis; }
   .hiddenroom button { border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--accent2); font: 9px var(--mono); cursor: pointer; }
   .locaview .online { flex: 1 1 auto; min-height: 100px; max-height: none; }
-  .locasummary { flex: 0 0 auto; padding: 12px 13px; border-bottom: 1px solid var(--line); }
-  .locasummaryhead { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .locasummaryhead > span:nth-child(2) { min-width: 0; display: flex; flex-direction: column; }
-  .locasummaryhead b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
-  .locasummaryhead small { color: var(--dim); font-size: 9px; }
-  .locaglyph { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px;
-    background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); font-weight: 800; }
-  .lifecycle { margin-left: auto; border: 1px solid var(--line); border-radius: 999px;
-    padding: 1px 7px; font-size: 8px; text-transform: uppercase; letter-spacing: .06em; }
-  .lifecycle.open { color: var(--human); }
-  .lifecycle.closed { color: var(--warn); }
-  .locafacts { display: grid; gap: 0; margin: 10px 0 0; }
-  .locafacts > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 7px;
-    padding: 5px 0; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
-  .locafacts dt { color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .05em; }
-  .locafacts dd { margin: 0; color: var(--txt); font-size: 10px; overflow-wrap: anywhere; }
-  .locafacts dd small { display: block; color: var(--dim); font-size: 8px; }
+  /* This Loca: what it is for, who answers for it, what it carries.
+     Reading sizes, not captions: nothing here is under 10px. */
+  .locasummary { flex: 0 0 auto; padding: 14px 14px 13px; border-bottom: 1px solid var(--line); }
+  .locasummaryhead { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .locasummaryhead b { flex: 1 1 auto; min-width: 0; font-size: 15px; letter-spacing: -.01em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .locasummaryhead .locamark, .locaglyph { flex: 0 0 auto; width: 30px; height: 30px; display: grid;
+    place-items: center; border-radius: 8px; }
+  .locaglyph { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent);
+    font-weight: 800; font-size: 15px; }
+  .lifecycle { flex: 0 0 auto; border: 1px solid currentColor; border-radius: 999px;
+    padding: 2px 9px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+  .lifecycle.open { color: var(--human); background: color-mix(in srgb, var(--human) 10%, transparent); }
+  .lifecycle.closed { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+  .lifecycle.loading { color: var(--dim); }
+  .locafacts { display: grid; gap: 0; margin: 12px 0 0; }
+  .locafacts > div { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; align-items: baseline;
+    padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .locafacts dt { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+  .locafacts dd { margin: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    min-width: 0; color: var(--txt); font-size: 12.5px; overflow-wrap: anywhere; }
+  .locafacts dd small { flex: 0 0 auto; color: var(--dim); font-size: 10px; }
+  .locafacts dd .extlink { flex: 0 0 auto; }
+  .locafacts .myrole dd { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .06em; }
   .side h1 { display: flex; align-items: center; gap: 9px; font-size: 14px; margin: 0;
     height: 56px; padding: 0 16px; border-bottom: 1px solid var(--line);
     letter-spacing: .5px; font-weight: 600; }
@@ -1262,15 +1269,15 @@
 
   /* Loca extensions (extensions.js): the This Loca block, the create screen
      and the manage list. One card, one row shape, the shared .btn. */
-  .locaext { margin-top: 8px; padding-top: 7px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .locaext { margin-top: 0; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
   .locaexthead { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .locaexthead > span { color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .05em; }
-  .extlink { border: 0; background: transparent; padding: 0; color: var(--accent2); font: 600 10px var(--mono); cursor: pointer; }
+  .locaexthead > span { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+  .extlink { border: 0; background: transparent; padding: 0; color: var(--accent2); font: 600 11px var(--mono); cursor: pointer; }
   .extlink:hover, .extlink:focus-visible { color: var(--txt); text-decoration: underline; outline: none; }
-  .extchips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-  .extchip { padding: 1px 7px; border-radius: 6px; background: var(--panel2); border: 1px solid var(--line);
-    color: var(--accent2); font-size: 10px; white-space: nowrap; }
-  .extnone { color: var(--dim); font-size: 10px; }
+  .extchips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .extchip { padding: 2px 8px; border-radius: 6px; background: var(--panel2); border: 1px solid var(--line);
+    color: var(--accent2); font-size: 11px; white-space: nowrap; }
+  .extnone { color: var(--dim); font-size: 11px; }
   .extoverlay { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: 16px; }
   .extbackdrop { position: absolute; inset: 0; border: 0; padding: 0; background: rgba(3,5,8,.66); cursor: default; }
   .extcard { position: relative; width: min(460px, 100%); max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px);
@@ -1598,6 +1605,10 @@
     align-items: center; justify-content: center; border-radius: 9px; background: var(--accent);
     color: var(--on-accent, #06231d); font: 800 9px/1 var(--mono); letter-spacing: 0; }
   #roomList > .floor:first-child > summary.rgrouphead { border-top: 0; }
+  .floormore { display: block; width: calc(100% - 24px); margin: 4px 12px 6px; padding: 6px 10px; text-align: left;
+    background: transparent; border: 1px dashed var(--line); border-radius: 7px; color: var(--muted);
+    font: 11px var(--mono); cursor: pointer; }
+  .floormore:hover, .floormore:focus-visible { color: var(--accent); border-color: var(--accent); outline: none; }
   .extfield select { box-sizing: border-box; width: 100%; background: var(--panel); border: 1px solid var(--line);
     color: var(--txt); border-radius: 7px; padding: 7px 10px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
   .extfield select:focus { outline: none; border-color: var(--accent); }
@@ -1757,16 +1768,16 @@
   .roomdesc { flex: 0 1000 auto; min-width: 0; max-width: 360px; color: var(--muted); font-size: 10px; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
   @media (max-width: 1360px) { .roomdesc { display: none; } }
-  .locaident { margin-top: 8px; padding-top: 7px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
-  .locadesc { margin: 6px 0 0; color: var(--txt); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
-  .locadesc.empty { color: var(--dim); font-size: 10px; }
-  .locaseats { display: block; margin-top: 6px; color: var(--dim); font-size: 10px; }
+  .locaident { margin-top: 12px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .locadesc { margin: 7px 0 0; color: var(--txt); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+  .locadesc.empty { color: var(--dim); font-size: 11.5px; }
+  .locaseats { display: block; margin-top: 7px; color: var(--dim); font-size: 11px; }
   /* A label is not a badge: square corners, a dashed outline, plain case,
      regular weight, no fill. Rank and role badges are rounded, filled or
      solid, bold and upper-case. */
   .localabels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
   .localabel { display: inline-block; max-width: 100%; padding: 0 5px; border: 1px dashed var(--line); border-radius: 2px;
-    color: var(--muted); background: transparent; font: 400 10px/1.6 var(--mono); text-transform: none; letter-spacing: 0;
+    color: var(--muted); background: transparent; font: 400 11px/1.6 var(--mono); text-transform: none; letter-spacing: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .identfields { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
   .extfield textarea { box-sizing: border-box; width: 100%; resize: vertical; min-height: 44px; background: var(--panel);

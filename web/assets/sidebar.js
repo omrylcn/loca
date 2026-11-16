@@ -220,17 +220,21 @@ function renderLocaSidebar() {
     ? locaRoleLabels(state.profile.loca).join(" · ")
     : "PARTICIPANT";
   const lifecycle = sidebarLifecycle();
+  const mark = (typeof locaMarkHtml === "function" && locaMarkHtml(state.settings))
+    || `<span class="locaglyph">#</span>`;
+  // What the loca is for comes first, then who answers for it, then what it
+  // carries. Each fact is one row: the name on the left, its act on the right.
   $("locaSummary").innerHTML =
-    `<div class="locasummaryhead"><span class="locaglyph">#</span><span><b>${esc(state.room)}</b>` +
-      `<small>This Loca · ${esc(lifecycle)}</small></span><span class="lifecycle ${lifecycle.toLowerCase()}">${esc(lifecycle)}</span></div>` +
+    `<div class="locasummaryhead">${mark}<b>${esc(state.room)}</b>` +
+      `<span class="lifecycle ${lifecycle.toLowerCase()}">${esc(lifecycle)}</span></div>` +
+    locaIdentityBlock() +
     `<dl class="locafacts">` +
       `<div><dt>Operator</dt><dd>${esc(operator)}${operatorSource ? `<small>${esc(operatorSource)}</small>` : ""}</dd></div>` +
       `<div><dt>Lead</dt><dd>${esc(lead)}</dd></div>` +
-      `<div><dt>Your role</dt><dd>${esc(myRole)}</dd></div>` +
+      `<div class="myrole"><dt>Your role</dt><dd>${esc(myRole)}</dd></div>` +
       (typeof locaGroupFact === "function" ? locaGroupFact() : "") +
     `</dl>` +
     (typeof locaGroupMoveHtml === "function" ? locaGroupMoveHtml() : "") +
-    locaIdentityBlock() +
     locaExtensionsBlock();
 }
 
