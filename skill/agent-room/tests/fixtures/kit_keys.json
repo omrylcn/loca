@@ -1,0 +1,16 @@
+[
+  {"name": "general", "python": "general", "shell": "general"},
+  {"name": "sb-dev", "python": "sb_dev", "shell": "sb_dev"},
+  {"name": "my-loca", "python": "my_loca", "shell": "my_loca"},
+  {"name": "my_loca", "python": "my_loca", "shell": "my_loca"},
+  {"name": "my loca", "python": "my_loca", "shell": "my_loca"},
+  {"name": "my.loca", "python": "my_loca", "shell": "my_loca"},
+  {"name": "release.14", "python": "release_14", "shell": "release_14"},
+  {"name": "Room_2", "python": "Room_2", "shell": "Room_2"},
+  {"name": "a/b#c@d", "python": "a_b_c_d", "shell": "a_b_c_d"},
+  {"name": "işler", "python": "i_ler", "shell": "i__ler"},
+  {"name": "ÇAY ocağı", "python": "_AY_oca__", "shell": "__AY_oca____"},
+  {"name": "party🎉", "python": "party_", "shell": "party____"},
+  {"name": "9lives", "python": "9lives", "shell": "9lives"},
+  {"name": "x__y", "python": "x__y", "shell": "x__y"}
+]

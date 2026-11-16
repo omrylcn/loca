@@ -35,8 +35,10 @@ pub(crate) async fn create_loca_route(
     Json(body): Json<CreateLoca>,
 ) -> impl IntoResponse {
     let name = body.name.trim();
-    if name.is_empty() || name.len() > 128 || name.chars().any(char::is_control) {
-        return (StatusCode::BAD_REQUEST, "invalid loca name").into_response();
+    // The character rule needs no other loca; the kit-key clash is asked
+    // with the locas held, when the loca is opened.
+    if let Err(error) = hub::loca_name::check_chars(name) {
+        return name_refusal(&error);
     }
     let extensions = match body.extensions.as_deref().map(hub::normalize_extensions) {
         None => None,
@@ -70,6 +72,7 @@ pub(crate) async fn create_loca_route(
         Err(hub::CreateLocaError::Identity(error)) => {
             (StatusCode::BAD_REQUEST, error.message()).into_response()
         }
+        Err(hub::CreateLocaError::Name(error)) => name_refusal(&error),
         Err(hub::CreateLocaError::Operator(hub::OperatorAssignmentError::AuthorityRequired)) => {
             (StatusCode::FORBIDDEN, "Building authority required").into_response()
         }
@@ -84,6 +87,24 @@ pub(crate) async fn create_loca_route(
         )
             .into_response(),
     }
+}
+
+/// A new loca's name refused (`hub::loca_name`): 409 when its agent kit key
+/// is an existing loca's, 400 otherwise.
+pub(crate) fn name_refusal(error: &hub::LocaNameError) -> axum::response::Response {
+    let status = if error.is_conflict() {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::BAD_REQUEST
+    };
+    (status, error.message()).into_response()
+}
+
+/// The loopback sandbox opens a loca the first time a route or the socket
+/// names it; refuse there an id the rule refuses (`Hub::refuse_implicit_loca`).
+pub(crate) fn implicit_loca_refusal(hub: &Hub, room: &str) -> Option<axum::response::Response> {
+    hub.refuse_implicit_loca(room)
+        .map(|error| name_refusal(&error))
 }
 
 #[derive(serde::Deserialize)]

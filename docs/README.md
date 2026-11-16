@@ -44,6 +44,20 @@ which document is authoritative.
 These are living documents and must describe shipped behavior. Planned work
 belongs in explicit GitHub issues, not in a permanent speculative roadmap.
 
+## Architecture pages
+
+[`architecture/`](architecture/README.md) holds one doc per feature, written
+for teammates, with a generator that turns each into a standalone HTML page
+(`scripts/docs-to-page.py`). They describe shipped behavior; a **Not built**
+line marks only what a reader might otherwise assume exists, and planned
+work stays in GitHub issues.
+
+- [`notifications.md`](architecture/notifications.md) — Building
+  notifications end to end: permissions, flows, the sending limit, data
+  model, API, known gaps.
+- [`extensions.md`](architecture/extensions.md) — Loca extensions: the
+  rules, the catalog and fence, the Vault and the Task board.
+
 ## Operations and releases
 
 - [`PRODUCTION.md`](../PRODUCTION.md) — current deployment, security, backup,

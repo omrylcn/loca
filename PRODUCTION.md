@@ -165,7 +165,11 @@ environment'tan kaldırılır. Loca'nın bütün kayıtları adıyla birlikte ta
 konuşma, ekler, Notes, Tasks, Goal, Journal, Loca Wiki, davetler, Operator
 ataması, grup bağı ve Reminder kayıtları (başka bir Loca'ya yönlendirilmiş
 olanlar dahil). Birebir yeniden adlandırılmaz ve `bb-` ile başlayan bir hedef
-reddedilir.
+reddedilir. Hedef yeni bir Loca id'sidir, bu yüzden yeni Loca adı kuralına
+uyar: yalnızca ASCII harf, rakam, `.`, `_` ve `-`, harf ya da rakamla başlar;
+kit anahtarı (`DAVET_<ad>`) mevcut bir Loca'nınkiyle çakışamaz. Uymayan hedefte
+sunucu başlamayı reddeder ve hiçbir şey taşınmaz. Boşluklu bir görünen ad
+Loca'nın başlığıdır (This Loca › Loca identity).
 
 Bu düzeltmeden önceki bir sürümde `ROOM_RENAME` çalıştırılmışsa, o Loca'nın
 Operator ataması, Loca Wiki'si, ek referansları ve arşiv hafızası eski adın

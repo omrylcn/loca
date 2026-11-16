@@ -8,6 +8,9 @@
 <link rel="stylesheet" href="/assets/styles.css" />
 <link rel="stylesheet" href="/assets/appearance.css" />
 <link rel="stylesheet" href="/assets/profile.css" />
+<link rel="stylesheet" href="/assets/ranks.css" />
+<link rel="stylesheet" href="/assets/caretaker.css" />
+<link rel="stylesheet" href="/assets/floors.css" />
 <script src="/assets/theme.js"></script>
 </head>
 <body>
@@ -487,7 +490,8 @@
           <span class="extrowtext"><b>Lounge</b><small>For talk: chat only, every seat.</small></span></label>
       </div></fieldset>
       <label class="extfield" for="extCreateName"><span>Name</span>
-        <input id="extCreateName" maxlength="128" autocomplete="off" placeholder="e.g. release-14" /></label>
+        <input id="extCreateName" maxlength="128" autocomplete="off" placeholder="e.g. release-14" aria-describedby="extCreateNameHint" />
+        <small class="identnote hidden" id="extCreateNameHint" aria-live="polite"></small></label>
       <div class="identfields" id="locaIdentityFields">
         <label class="extfield hidden" for="locaTitle" id="locaTitleField"><span>Title</span>
           <input id="locaTitle" maxlength="64" autocomplete="off" aria-describedby="locaTitleNote"
@@ -732,6 +736,7 @@
   </div>
 
 <script src="/assets/state.js"></script>
+<script src="/assets/clipboard.js"></script>
 <script src="/assets/avatar.js"></script>
 <script src="/assets/dm.js"></script>
 <script src="/assets/tooltip.js"></script>

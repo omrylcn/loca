@@ -11,6 +11,22 @@ state.profilesList = null;
 
 // A floor is drawn as layers: storeys of the Building, not a crowd of people.
 const GROUP_ICON = '<svg class="grpicon" viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 7.8l9 4.8 9-4.8z"/><path d="m3 12.4 9 4.8 9-4.8"/><path d="m3 17 9 4.8 9-4.8"/></svg>';
+// A named floor's colour: one of six palette tokens (floors.css), chosen by
+// its id so it is the same on every screen and after every reload. It shows
+// on the sidebar heading, the floor's card and people's floor chips. The
+// Ground floor (no id) has none and stays neutral.
+const FLOOR_COLOURS = 6;
+function floorColour(id) {
+  if (!id) return "";
+  let h = 0;
+  for (const ch of String(id)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return `var(--floor-${(h % FLOOR_COLOURS) + 1})`;
+}
+/// The class and style that give an element its floor's colour.
+function floorColourAttrs(id) {
+  const colour = floorColour(id);
+  return colour ? { cls: " floorc", style: ` style="--floor: ${colour}"` } : { cls: "", style: "" };
+}
 const GROUP_REMOVE_ICON = '<svg viewBox="0 0 24 24" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
 async function fetchGroups(render = true) {
@@ -53,7 +69,10 @@ function groupsOfPerson(name) {
 function groupChipsHtml(name) {
   const mine = groupsOfPerson(name);
   if (!mine.length) return `<span class="pnowhere">ground floor</span>`;
-  return mine.map(g => `<span class="grpchip" title="member of ${esc(g.name)}">${esc(g.name)}</span>`).join("");
+  return mine.map(g => {
+    const { cls, style } = floorColourAttrs(g.id);
+    return `<span class="grpchip${cls}"${style} title="member of ${esc(g.name)}">${esc(g.name)}</span>`;
+  }).join("");
 }
 
 /// Does a person pass the People tab's group filter?
@@ -116,7 +135,8 @@ function groupCardHtml(g) {
         candidates.map(p => `<option value="${esc(p.id)}">${esc(p.display_name)} · ${p.kind === "agent" ? "agent" : p.role === "smaster" ? "Smaster" : "human"}</option>`).join("") +
       `</select><button type="button" class="btn primary" data-group-add="${esc(g.id)}"${candidates.length ? "" : " disabled"}>Add</button></div>`
     : "";
-  return `<article class="grpcard${g.archived ? " archived" : ""}" data-group="${esc(g.id)}">` +
+  const colour = floorColourAttrs(g.id);
+  return `<article class="grpcard${colour.cls}${g.archived ? " archived" : ""}" data-group="${esc(g.id)}"${colour.style}>` +
     `<div class="grphead"><span class="grpname">${GROUP_ICON}<b title="${esc(g.name)}">${esc(g.name)}</b>${archivedTag}</span>` +
       `<span class="pacts grpacts">${acts}</span>` +
       `<small class="grpowner">${groupOwnerLine(g)} · ${(g.members || []).length} ${(g.members || []).length === 1 ? "person" : "people"}</small></div>` +

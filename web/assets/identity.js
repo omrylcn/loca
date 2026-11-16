@@ -309,6 +309,7 @@ function setLocaPanelMode(mode, canManage = true) {
   const create = mode === "create";
   $("extCreateTitle").textContent = create ? "Open a new loca" : "Loca identity";
   $("extCreateName").disabled = !create;
+  if (!create) $("extCreateNameHint").classList.add("hidden");
   $("locaPreset").classList.toggle("hidden", !create);
   if (!create) resetCreatePreset();
   // A new loca is opened under its name (its id); a title is given later.

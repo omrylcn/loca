@@ -470,6 +470,23 @@ From: PRINCIPLES "Loca extensions".
 extension: a description, its own number of seats, an icon, a colour and
 labels, all optional and all additive on the wire.
 
+- **Name:** the id a loca is opened with, and its address. A new name holds
+  only ASCII letters, digits, `.`, `_` and `-`, starts with a letter or
+  digit, and is at most 128 characters; anything else answers 400, and the
+  message points to the title for a display name with spaces or other
+  letters. A new name whose kit key (`DAVET_` plus the name with every
+  character other than `A-Za-z0-9_` turned into `_`) is already another
+  loca's answers 409: `my_loca` while `my-loca` exists. Keys are compared
+  without regard to case (on Windows the kit's environment keeps one variable
+  for `DAVET_Proj` and `DAVET_proj`). The 409 does not name the other loca:
+  the caller may not be allowed to know that it exists. A name whose key
+  begins `bb_` (the key of a private conversation's id) answers 400 whether
+  or not such a conversation exists, so the answer tells nobody that one
+  does. The rule holds for `POST /rooms`, the target of `ROOM_RENAME` (the
+  server refuses to start), and the loopback sandbox's first use of an id.
+  A `LOCA_AGENT_ROOM` the rule would refuse is opened as configured and
+  named in the log, so that an upgrade never stops a Building from starting.
+  A loca opened before the rule keeps its name on every route.
 - **Where:** `RoomSettings` gains `title` (string, at most 64 characters,
   one line), `description` (string, at most 280
   characters, one line), `seats` (u32), `icon` (one of `protocol::LOCA_ICONS`),

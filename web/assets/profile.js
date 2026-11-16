@@ -443,7 +443,10 @@ function floorName(name) {
 function profileGroupsHtml(profile) {
   const groups = Array.isArray(profile.groups) ? profile.groups : [];
   const chips = [`<span class="grpchip ground">Ground floor</span>`]
-    .concat(groups.map(g => `<span class="grpchip">${GROUP_ICON || ""}${esc(floorName(g.name))}</span>`)).join("");
+    .concat(groups.map(g => {
+      const { cls, style } = typeof floorColourAttrs === "function" ? floorColourAttrs(g.id) : { cls: "", style: "" };
+      return `<span class="grpchip${cls}"${style}>${GROUP_ICON || ""}${esc(floorName(g.name))}</span>`;
+    })).join("");
   const note = groups.length ? "" : `<small class="pnowhere">Ground floor only: no floor has added you yet.</small>`;
   return `<div class="profilegroups"><small>Your floors</small><span class="grpchips">${chips}</span>${note}</div>`;
 }
@@ -864,8 +867,8 @@ async function createProfileCredential() {
   secret.innerHTML = `<b>Copy now — shown once</b><code>${esc(created.secret)}</code>` +
     `<button type="button" id="credentialCopy">Copy</button>`;
   $("credentialCopy").onclick = async () => {
-    await navigator.clipboard.writeText(created.secret);
-    $("credentialCopy").textContent = "Copied";
+    const ok = await copyText(created.secret, secret.querySelector("code"));
+    $("credentialCopy").textContent = ok ? "Copied" : "Selected — press Ctrl+C";
   };
 }
 
@@ -919,12 +922,8 @@ function closeAccountMenu() {
 }
 
 async function copyServerAddress(button) {
-  try {
-    await navigator.clipboard.writeText($("accountServer")?.textContent || "");
-    button.textContent = "Copied";
-  } catch (error) {
-    button.textContent = "Copy failed";
-  }
+  const ok = await copyText($("accountServer")?.textContent || "", $("accountServer"));
+  button.textContent = ok ? "Copied" : "Selected — press Ctrl+C";
 }
 
 $("whoami").addEventListener("click", event => {

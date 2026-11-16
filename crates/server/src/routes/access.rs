@@ -305,6 +305,21 @@ pub(crate) async fn require_membership(
                 .run(axum::extract::Request::from_parts(parts, body))
                 .await;
         }
+        // The sandbox opens a loca the first time a route names it.
+        if hub.admin_open() && path.starts_with("/rooms/") {
+            let (mut parts, body) = req.into_parts();
+            let params = <Path<HashMap<String, String>> as axum::extract::FromRequestParts<Hub>>::from_request_parts(&mut parts, &hub).await;
+            if let Some(refusal) = params
+                .ok()
+                .and_then(|Path(params)| params.get("id").cloned())
+                .and_then(|room| super::implicit_loca_refusal(&hub, &room))
+            {
+                return refusal;
+            }
+            return next
+                .run(axum::extract::Request::from_parts(parts, body))
+                .await;
+        }
         return next.run(req).await;
     }
     // The member's own live key, refused only because the Master suspended

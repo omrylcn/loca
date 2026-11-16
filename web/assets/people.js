@@ -558,13 +558,18 @@ function renderPeople() {
         const where = r.unused
           ? `<span class="pnowhere">nobody has signed in with it yet</span>`
           : whereHtml(r.locas, "not in a loca");
-        const rename = state.profile?.building_role === "master" && r.role === "smaster"
-          ? `<button type="button" class="btn" data-rename-smaster="${esc(r.name)}" title="Set this Smaster's real name">Rename</button>`
+        // A Smaster names themselves at sign-in; the Master only removes,
+        // after a yes in words under the row (keys.js removeSmaster).
+        const manage = state.profile?.building_role === "master" && r.role === "smaster";
+        const remove = manage
+          ? `<button type="button" class="btn danger" data-remove-smaster="${esc(r.name)}" title="Remove this Smaster from the Building">Remove</button>`
           : "";
+        const ask = manage && state.removingSmaster?.name === r.name && state.removingSmaster.gen === state.buildingGen
+          ? removeSmasterAskHtml(r) : "";
         const groups = r.role === "master"
           ? `<span class="pnowhere">sees every floor</span>` : groupChipsHtml(r.name);
         return `<div class="prow rankrow${r.unused ? " unusedcode" : ""}"><span class="pname">${kindMark("human")}${personNameHtml(r.name, cardOf(r))}${rankBadge(r.role)}</span>` +
-          `<span class="pstatuses">${status}</span><span class="pgroups">${groups}</span><span class="pwhere">${where}</span><span class="pacts">${rename}</span></div>`;
+          `<span class="pstatuses">${status}</span><span class="pgroups">${groups}</span><span class="pwhere">${where}</span><span class="pacts">${remove}</span></div>` + ask;
       }).join("") + `</section>`
     : "";
   if (!names.size) {

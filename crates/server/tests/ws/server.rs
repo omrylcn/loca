@@ -157,6 +157,9 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("styles.css", "text/css", ":root"),
         ("appearance.css", "text/css", ":root[data-theme=\"paper\"]"),
         ("profile.css", "text/css", ".profilepanel"),
+        ("ranks.css", "text/css", ".rankconfirm"),
+        ("caretaker.css", "text/css", ".caretakertag"),
+        ("floors.css", "text/css", "--floor-6"),
         ("avatar.js", "text/javascript", "function avatarHtml("),
         ("theme.js", "text/javascript", "function applyAppearance("),
         ("state.js", "text/javascript", "const state ="),
@@ -181,6 +184,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "window.openGettingStarted",
         ),
         ("tooltip.js", "text/javascript", "window.refreshTip"),
+        (
+            "clipboard.js",
+            "text/javascript",
+            "async function copyText(",
+        ),
         ("dm.js", "text/javascript", "function openDm("),
         (
             "keys.js",

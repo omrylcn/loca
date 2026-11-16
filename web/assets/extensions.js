@@ -216,11 +216,54 @@ function syncCreateGroupNote() {
     : "Anyone you invite or call in can enter it.";
 }
 
+/// A new loca's name is ASCII letters, digits, ".", "_" and "-", starting
+/// with a letter or digit: it is the loca's address and its agents' DAVET_
+/// key (the server's rule, crates/server/src/hub/loca_name.rs). A space
+/// becomes "-" as it is typed; anything else the server would refuse stays
+/// in the field and is named under it before Create. A display name with
+/// spaces is the loca's title, given once it is open (this panel takes no
+/// title when it opens a loca).
+let createNameSpaced = false;
+const TITLE_LATER = "A name with spaces or other letters can be the loca's title once it is open: This Loca › Loca identity.";
+
+function locaNameProblem(name) {
+  const bad = [...new Set([...name].filter(c => !/[A-Za-z0-9._-]/.test(c)))];
+  if (bad.length) return `Not allowed in a name: ${bad.map(c => `“${c}”`).join(" ")}. Use letters a–z, digits, “.”, “_” or “-”.`;
+  if (name && !/^[A-Za-z0-9]/.test(name)) return "A name starts with a letter or a digit.";
+  return "";
+}
+
+function syncCreateNameHint() {
+  const hint = $("extCreateNameHint");
+  const name = $("extCreateName").value;
+  const problem = locaNameProblem(name);
+  const note = problem ? `${problem} ${TITLE_LATER}`
+    : createNameSpaced && name ? `Spaces become “-”. ${TITLE_LATER}` : "";
+  hint.textContent = note;
+  hint.classList.toggle("bad", !!problem);
+  hint.style.color = problem ? "var(--bad)" : "";
+  hint.classList.toggle("hidden", !note || locaPanelMode !== "create");
+}
+
+$("extCreateName").addEventListener("input", (e) => {
+  if (locaPanelMode !== "create") return;
+  const field = e.target;
+  if (field.value.includes(" ")) {
+    const { selectionStart, selectionEnd } = field;
+    field.value = field.value.replace(/ /g, "-");
+    field.setSelectionRange(selectionStart, selectionEnd);
+    createNameSpaced = true;
+  }
+  syncCreateNameHint();
+});
+
 async function openCreateLoca(name = "", group = "") {
-  $("extCreateName").value = name;
+  createNameSpaced = name.includes(" ");
+  $("extCreateName").value = name.replace(/ /g, "-");
   $("extCreateError").textContent = "";
   $("extCreateSubmit").disabled = false;
   resetIdentityForCreate();
+  syncCreateNameHint();
   openExtDialog("extCreate", name ? "extCreateSubmit" : "extCreateName");
   renderCreateGroupChoice(group);
   const gen = state.buildingGen;
@@ -282,6 +325,11 @@ async function submitCreateLoca(event) {
   }
   closeExtDialog("extCreate");
   $("newRoomName").value = "";
+  // A loca opened on a floor is on that floor's card at once (Floors tab).
+  // Read before joinRoom: entering a loca drops the profile until it is read
+  // again, and a floor list drawn in that gap would close the Floors tab.
+  if (group && typeof fetchGroups === "function") await fetchGroups();
+  if (buildingStale(gen)) return;
   joinRoom(name);
 }
 

@@ -1,0 +1,11 @@
+/* ── People › Ranks (people.js renderPeople, keys.js removeSmaster) ───────
+   Loaded after styles.css. The Master's Remove beside a Smaster opens its
+   question in words under the row, with No and "Yes, remove". Every colour
+   is a theme token. */
+.rankconfirm { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px;
+  margin: 0 0 6px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line));
+  border-radius: 8px; background: color-mix(in srgb, var(--bad) 8%, transparent);
+  color: var(--txt); font-size: 12px; line-height: 1.45; }
+.rankconfirm > span:first-child { flex: 1 1 280px; min-width: 0; overflow-wrap: anywhere; }
+.rankconfirm b { color: var(--txt); }
+.rankconfirmacts { display: flex; gap: 6px; margin-left: auto; }
