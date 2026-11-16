@@ -22,6 +22,8 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-16
+
 ### Added
 
 - The "Open a new loca" panel starts with a choice: **Loca** (the panel as
@@ -2369,7 +2371,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/omrylcn/loca/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/omrylcn/loca/compare/v0.13.0...v0.14.0
 [0.7.0]: https://github.com/omrylcn/loca/compare/v0.6.18...v0.7.0
 [0.6.18]: https://github.com/omrylcn/loca/compare/v0.6.17...v0.6.18
