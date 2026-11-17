@@ -112,3 +112,66 @@ test("the Master sees an agent's older kit; a browser seat and a member see noth
   }).toBe(0);
   for (const page of [master, member]) await page.close();
 });
+
+// The two other viewers the rule names: the loca's Operator sees the version
+// on that loca's roster (not the Building list, which an Operator does not
+// read), and a Smaster sees it on both, like the Master.
+test("the loca's Operator sees an agent's kit on the roster; a Smaster on the roster and the Building list", async ({ browser, request }) => {
+  const room = "kit-version-viewers";
+  await provisionRooms(request, [room]);
+  const base = new URL(test.info().project.use.baseURL);
+  expect((await request.post("/members", { headers: MASTER, data: { name: "kvv-agent", kind: "agent" } })).ok()).toBeTruthy();
+  const { token: invite } = await (await request.post(`/rooms/${room}/invites`, { headers: MASTER, data: { name: "kvv-agent" } })).json();
+  const session = await (await request.post("/sessions", {
+    headers: { "x-room-token": invite }, data: { name: "kvv-agent", kind: "agent", loca: room },
+  })).json();
+  const agent = open(`ws://${base.host}/ws?room=${room}&name=kvv-agent&type=agent&kit_version=${OLD_KIT}`,
+    ["loca.v1", `loca.session.${session.session_token}`]);
+  await expect.poll(() => agent.frames.includes("history")).toBe(true);
+
+  const join = async (page) => {
+    await page.evaluate(room => joinRoom(room), room);
+    await expect.poll(() => page.evaluate(() => state.ws && state.ws.readyState)).toBe(1);
+  };
+  const seat = (page) => page.locator("#onlineList .omem", { hasText: "kvv-agent" });
+
+  // The Operator: a human member of this loca, appointed.
+  const { token: key } = await (await request.post("/members", { headers: MASTER, data: { name: "kvv-op", kind: "user" } })).json();
+  const { token: opInvite } = await (await request.post(`/rooms/${room}/invites`, { headers: MASTER, data: { name: "kvv-op" } })).json();
+  const opSession = await (await request.post("/sessions", { headers: { "x-room-token": opInvite }, data: { name: "kvv-op", kind: "user" } })).json();
+  const opProfile = await (await request.get(`/profile?room=${room}`, { headers: { "x-session-token": opSession.session_token } })).json();
+  const appointed = await request.post(`/rooms/${room}/operators`, { headers: MASTER, data: { principal_id: opProfile.principal.id } });
+  expect(appointed.ok(), await appointed.text()).toBeTruthy();
+  const operator = await browser.newPage();
+  await operator.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
+  await operator.goto("/");
+  await operator.locator("#entryKind").selectOption("human");
+  await operator.locator("#name").fill("kvv-op");
+  await operator.locator("#roomToken").fill(key);
+  await operator.locator("#connectBtn").click();
+  await expect.poll(() => operator.evaluate(() => state.authStatus)).toBe("authenticated");
+  await join(operator);
+  await expect.poll(() => operator.evaluate(() => isLocaOperator() && !isAdmin())).toBe(true);
+  await expect(seat(operator).locator(".kitver")).toHaveText(`kit ${OLD_KIT}`);
+  await expect(seat(operator).locator(".kitold")).toHaveCount(1);
+
+  // The Smaster.
+  const { token: deputyKey } = await (await request.post("/smasters", { headers: MASTER, data: { name: "kvv-deputy" } })).json();
+  const deputy = await (await request.post("/sessions", {
+    headers: { "x-admin-token": deputyKey }, data: { name: "kvv-deputy", kind: "user" },
+  })).json();
+  const smaster = await browser.newPage();
+  await smaster.addInitScript(({ token, expiresAt }) => {
+    localStorage.setItem("loca-gs-seen", "1");
+    localStorage.setItem("loca-admin-session", JSON.stringify({ token, expiresAt, name: "kvv-deputy" }));
+  }, { token: deputy.session_token, expiresAt: deputy.expires_at });
+  await smaster.goto("/");
+  await expect.poll(() => smaster.evaluate(() => state.profile?.building_role)).toBe("smaster");
+  await join(smaster);
+  await expect(seat(smaster).locator(".kitver")).toHaveText(`kit ${OLD_KIT}`);
+  await smaster.evaluate(() => switchTab("people"));
+  await expect(smaster.locator("#peopleList .prow", { hasText: "kvv-agent" }).locator(".kitver")).toHaveText(`kit ${OLD_KIT}`);
+
+  agent.socket.close();
+  for (const page of [operator, smaster]) await page.close();
+});

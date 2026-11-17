@@ -8,11 +8,12 @@ const { provisionRooms } = require("./support/building");
 
 const MASTER = { "x-admin-token": "MASTER" };
 
-async function memberPage(browser, request, name, room) {
+async function memberPage(browser, request, name, room, before = async () => {}) {
   const { token } = await (await request.post("/members", { headers: MASTER, data: { name, kind: "user" } })).json();
   const invited = await request.post(`/rooms/${room}/invites`, { headers: MASTER, data: { name } });
   expect(invited.ok(), await invited.text()).toBeTruthy();
   const page = await browser.newPage();
+  await before(page);
   await page.addInitScript(() => localStorage.setItem("loca-gs-seen", "1"));
   await page.goto("/");
   await page.locator("#entryKind").selectOption("human");
@@ -78,15 +79,21 @@ test("four columns, a review step, and go / no-go for the Lead only", async ({ b
 test("with the board off the list is as before and an unknown status reads as itself", async ({ browser, request }) => {
   const room = "task-board-off";
   await provisionRooms(request, [room]);
-  const bob = await memberPage(browser, request, "bd-off", room);
+  // The two tasks come from the server's list itself, so every read of it
+  // (the page reads it again when the loca's extensions arrive) gives them:
+  // set into the page by hand, a later read replaced them with the empty list.
+  // Focus holds the task list; the board stays off.
+  const focus = await request.put(`/rooms/${room}/extensions/focus`, { headers: MASTER });
+  expect(focus.ok(), await focus.text()).toBeTruthy();
+  const now = Date.now();
+  const listed = [[901, "review"], [902, "someday"]].map(([id, status]) => (
+    { id, room, title: `task ${status}`, created_by: "x", status, created_at: now, progress_at: now }));
+  const bob = await memberPage(browser, request, "bd-off", room, page =>
+    page.route(`**/rooms/${room}/tasks`, route => route.request().method() === "GET"
+      ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(listed) })
+      : route.continue()));
   await bob.evaluate(() => switchTab("tasks"));
-  await bob.evaluate(() => {
-    const now = Date.now();
-    for (const [id, status] of [[901, "review"], [902, "someday"]]) {
-      state.tasks[id] = { id, room: state.room, title: `task ${status}`, created_by: "x", status, created_at: now, progress_at: now };
-    }
-    renderTasks();
-  });
+  await bob.evaluate(() => fetchTasks());
   await expect(bob.locator("#taskList .taskboard")).toHaveCount(0);
   await expect(bob.locator("#taskList .task", { hasText: "task review" }).locator(".tchip")).toHaveText("Review");
   // An older page has no label for a newer state: the word itself is shown.

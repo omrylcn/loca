@@ -100,7 +100,7 @@ async function signOutHere() {
   setEntryPath(state.entryPath === "master" ? "master" : $("entryKind").value);
   setLocked(true);
   $("doorline").innerHTML = master
-    ? "you signed out.<br>a fresh pairing code signs you in again."
+    ? (isLocaHostPage() ? `you signed out.<br>${HOST_SIGN_IN}` : "you signed out.<br>a fresh pairing code signs you in again.")
     : "you signed out.<br>your key signs you in again.";
   clearBuildingData();
   clearPersonWords();
@@ -590,6 +590,13 @@ setConnOpen(false);
 // document-start to point the first connect at a different server; in a plain
 // browser that global is undefined and this falls back to the page origin.
 $("server").value = window.__LOCA_DEFAULT_SERVER__ || location.origin;
+// Before anyone signs in, a changed address is asked at once: the page says
+// whether it answers (state.js refreshRooms), without a reload. A signed-in
+// page keeps the server it signed in to until its person signs out.
+$("server").addEventListener("change", () => {
+  if (window.__LOCA_LOCK_SERVER__ === true || state.authStatus !== "unauthenticated") return;
+  refreshRooms();
+});
 let authRetryTimer = null;
 function showAuthUnavailable() {
   document.body.classList.add("auth-pending");

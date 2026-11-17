@@ -126,6 +126,47 @@ fn may_navigate(url: &tauri::Url) -> bool {
     url_origin(url) == APP_ORIGIN
 }
 
+// What the window may save to disk: only a file the page itself made
+// (blob:<app origin>/<uuid>), which is how the web UI hands over an attachment
+// it fetched with the session (chat.js attachmentChip). Nothing else: no
+// address of another origin, no data: URL. Without a download handler
+// WebKitGTK saved nothing at all; with one, wry puts the file in the
+// person's Downloads folder under a name that overwrites nothing.
+fn may_download(url: &tauri::Url) -> bool {
+    url.scheme() == "blob" && may_navigate(url)
+}
+
+// The page is told where the file went (or that it was not saved): the
+// window has no download bar of its own.
+fn download_notice(path: Option<&std::path::Path>, success: bool) -> String {
+    match (success, path) {
+        (true, Some(path)) => format!("saved to {}", path.display()),
+        (true, None) => "saved to your Downloads folder".to_string(),
+        (false, _) => "the download did not finish".to_string(),
+    }
+}
+
+fn on_download<R: tauri::Runtime>(
+    webview: tauri::Webview<R>,
+    event: tauri::webview::DownloadEvent<'_>,
+) -> bool {
+    use tauri::webview::DownloadEvent;
+    match event {
+        DownloadEvent::Requested { url, .. } => may_download(&url),
+        DownloadEvent::Finished { url, path, success } => {
+            if may_download(&url) {
+                let notice = download_notice(path.as_deref(), success);
+                if let Ok(text) = serde_json::to_string(&notice) {
+                    let _ =
+                        webview.eval(format!("typeof addSys === \"function\" && addSys({text});"));
+                }
+            }
+            true
+        }
+        _ => true,
+    }
+}
+
 fn kc_entry(key: &str) -> Result<keyring::Entry, String> {
     keyring::Entry::new(KC_SERVICE, key).map_err(|e| e.to_string())
 }
@@ -1368,7 +1409,8 @@ fn main() {
             let origins_json =
                 serde_json::to_string(&[APP_ORIGIN]).unwrap_or_else(|_| "[]".to_string());
             let init = format!(
-                "window.__LOCA_HOST__ = {is_host};\n\
+                "window.__LOCA_DESKTOP__ = true;\n\
+                 window.__LOCA_HOST__ = {is_host};\n\
                  window.__LOCA_LOCK_SERVER__ = {lock_server};\n\
                  window.__LOCA_DEFAULT_SERVER__ = {default_server};\n\
                  window.__LOCA_SKILL_LIBRARY__ = {skill_library_json};\n\
@@ -1385,6 +1427,7 @@ fn main() {
                 .min_inner_size(720.0, 520.0)
                 .initialization_script(&init)
                 .on_navigation(may_navigate)
+                .on_download(on_download)
                 .build()?;
             Ok(())
         })
@@ -1406,6 +1449,40 @@ fn main() {
 #[cfg(test)]
 mod admin_token_boundary {
     use super::*;
+
+    #[test]
+    fn the_window_saves_only_files_the_page_made() {
+        let own_blob = format!("blob:{APP_ORIGIN}/0b1c2d3e-0000-4000-8000-000000000000");
+        assert!(may_download(&tauri::Url::parse(&own_blob).unwrap()));
+        for other in [
+            "blob:https://example.com/0b1c2d3e-0000-4000-8000-000000000000",
+            "https://example.com/file.pdf",
+            "http://127.0.0.1:8787/rooms/a/attachments/x",
+            "data:text/plain,hello",
+            "file:///etc/passwd",
+        ] {
+            assert!(!may_download(&tauri::Url::parse(other).unwrap()), "{other}");
+        }
+        // The app's own origin is a page, not a file to save.
+        assert!(!may_download(&tauri::Url::parse(APP_ORIGIN).unwrap()));
+    }
+
+    #[test]
+    fn the_page_is_told_where_a_download_went() {
+        let path = std::path::Path::new("/home/you/Downloads/report (1).pdf");
+        assert_eq!(
+            download_notice(Some(path), true),
+            "saved to /home/you/Downloads/report (1).pdf"
+        );
+        assert_eq!(
+            download_notice(None, true),
+            "saved to your Downloads folder"
+        );
+        assert_eq!(
+            download_notice(Some(path), false),
+            "the download did not finish"
+        );
+    }
 
     #[test]
     fn the_window_navigates_only_within_the_app_origin() {

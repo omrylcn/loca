@@ -100,8 +100,15 @@ test("Loca Host: after signing out, a reload stays signed out and asks the Host 
   await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
   await page.evaluate(() => signOutHere());
   await expect(page.locator("body")).toHaveClass(/locked/);
+  // The Host's person holds no pairing code: the door names what works
+  // (desktop bug I).
+  await expect(page.locator("#doorline")).toContainText("you signed out");
+  await expect(page.locator("#doorline")).toContainText("reopen Loca Host");
+  await expect(page.locator("#doorline")).not.toContainText("pairing code");
   await page.reload();
   await expect(page.locator("body")).toHaveClass(/locked/);
+  await expect(page.locator("#doorline")).toContainText("reopen Loca Host");
+  await expect(page.locator("#doorline")).not.toContainText("pairing code");
   await page.waitForTimeout(2500);   // past the health poll that could ask again
   expect(await page.evaluate(() => ({
     auth: state.authStatus, held: !!state.session, stored: localStorage.getItem("loca-admin-session"),
