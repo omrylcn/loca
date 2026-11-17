@@ -174,6 +174,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "text/javascript",
             "function refreshContinuityTab()",
         ),
+        (
+            "locadelete.js",
+            "text/javascript",
+            "function openLocaDelete(",
+        ),
         ("notes.js", "text/javascript", "function renderNotes("),
         ("memory.js", "text/javascript", "function renderMemory("),
         ("api.js", "text/javascript", "async function send()"),

@@ -22,6 +22,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rusqlite = { version = "0.41", features = ["bundled", "functions", "fallible_uint"] }
 rand = "0.8"
 sha2 = "0.10"
+# The archive of a loca's records a Master may take before deleting it.
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

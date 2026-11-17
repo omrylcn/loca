@@ -812,6 +812,14 @@ const ROWS: &[Row] = &[
     row("DELETE /rooms/:id", Rule::MasterManage, &[])
         .iso(PerRow)
         .merits(),
+    // PRINCIPLES "Authority and departure matrix": "Delete | Permanent
+    // Master-only decision for a closed Loca … optionally taken first as a
+    // zip archive". The delete needs a close first and never takes the home
+    // loca or Care, so the Master is turned down on its merits here.
+    row("GET /rooms/:id/archive", Rule::MasterManage, &[]),
+    row("DELETE /rooms/:id/records", Rule::MasterManage, &[])
+        .iso(PerRow)
+        .merits(),
     // current behaviour, not stated in PRINCIPLES: release ends the seat
     // named by an invite or a loca-scoped session. A member signed in with its
     // membership key (the Operator, the Participant, the caretaker) is
