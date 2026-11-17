@@ -686,9 +686,9 @@ test("goal command, focus, optional tasks, and reminders share one human surface
   await expect(page.locator("#goalPanelCard")).toContainText("public release is independently verified");
   await expect(page.locator("#tasksPanel")).not.toContainText("Important now");
   await expect(page.locator("#focusPanelSummary, #focusPanelToggle, #search")).toHaveCount(0);
-  await expect(page.locator("#tasksPanel")).toContainText("Tasks");
+  // The tasks are the Loca Board's own tab; Focus lists none.
+  await expect(page.locator("#tasksPanel #taskList")).toHaveCount(0);
   await expect(page.locator("#tasksPanel")).toContainText("Reminders");
-  await expect(page.locator("#taskList")).toContainText("Most work can stay in Chat");
   await expect(page.locator("#reminderSettings")).toContainText("Goal stops moving");
   await expect(page.locator("#reminderRecipient")).toContainText("@operator");
   await expect(page.locator("#reminderActiveSummary")).toContainText("Declared wait after 2 min");

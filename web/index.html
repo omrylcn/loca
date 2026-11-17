@@ -151,6 +151,7 @@
         <button class="tab active" id="tabChat" data-tab="chat" role="tab" aria-selected="true">Chat</button>
         <button class="tab" id="tabNotes" data-tab="notes" role="tab" aria-selected="false">Notes<span class="dot" id="notesDot"></span></button>
         <button class="tab" id="tabTasks" data-tab="tasks" role="tab" aria-selected="false">Focus<span class="dot" id="tasksDot"></span></button>
+        <button class="tab" id="tabBoard" data-tab="board" role="tab" aria-selected="false">Loca Board<span class="dot" id="boardDot"></span></button>
         <button class="tab" id="tabJournal" data-tab="journal" role="tab" aria-selected="false">Journal<span class="dot" id="journalDot"></span></button>
         <button class="tab" id="tabWiki" data-tab="wiki" role="tab" aria-selected="false">Loca Wiki<span class="dot" aria-hidden="true"></span></button>
         <button class="tab" id="tabVault" data-tab="vault" role="tab" aria-selected="false">Vault<span class="dot" aria-hidden="true"></span></button>
@@ -297,23 +298,18 @@
       <div id="journalList"></div>
     </div>
 
-    <!-- FOCUS: one quiet home for purpose, optional tasks, and reminders. -->
+    <!-- FOCUS: one quiet home for purpose and reminders. Waiting on and
+         Reminders are core: they show where Focus is off (continuity.js);
+         the goal is Focus's. The tasks are the Loca Board's (board.js):
+         here one line points to it. -->
     <div class="notes hidden" id="tasksPanel">
+      <div id="focusGoalSection">
       <div class="sectionlabel">Room goal</div>
       <div class="sectionhelp">The room’s one shared outcome. Set or change it in Chat with <b>@goal &lt;outcome&gt;</b>; remove it with <b>@goal none</b>.</div>
       <div id="goalPanelCard" class="focuspanelrow"></div>
+      </div>
+      <div id="focusBoardLine" class="focuspanelrow hidden" role="status"></div>
 
-      <div class="sectionlabel">Tasks</div>
-      <div class="sectionhelp">Optional. Create one only when work needs an explicit owner or status; ordinary work stays in Chat.</div>
-      <div id="taskList"></div>
-      <details class="taskcreate" id="taskCreate">
-        <summary>+ Add an explicit task</summary>
-        <div class="newnote">
-          <input id="tkTitle" placeholder="What must be done?" autocomplete="off" />
-          <input id="tkAssign" placeholder="Who owns it? (optional)" autocomplete="off" />
-          <button id="tkCreate">Add task</button>
-        </div>
-      </details>
       <div id="waitSection">
         <div class="sectionlabel">Blocked / waiting on</div>
         <div id="waitList"></div>
@@ -377,6 +373,21 @@
         </details>
         <div class="reminderactions"><span class="remindersavestate" id="reminderSaveState"></span><button id="saveReminders">Save reminders</button></div>
       </div>
+    </div>
+
+    <!-- LOCA BOARD: the loca's declared tasks on four columns (board.js). -->
+    <div class="notes hidden" id="boardPanel">
+      <div class="sectionlabel">Loca Board</div>
+      <div class="sectionhelp">Declared work: To do · Doing · Review · Done. Finishing a task asks the Lead or the operator for review; ordinary work stays in Chat.</div>
+      <div id="taskList"></div>
+      <details class="taskcreate" id="taskCreate">
+        <summary>+ Add an explicit task</summary>
+        <div class="newnote">
+          <input id="tkTitle" placeholder="What must be done?" autocomplete="off" />
+          <input id="tkAssign" placeholder="Who owns it? (optional)" autocomplete="off" />
+          <button id="tkCreate">Add task</button>
+        </div>
+      </details>
     </div>
 
     <!-- NOTES (living project state) -->
@@ -581,7 +592,7 @@
           <figure class="gsmap" id="gsMap">
 <svg class="locamap" xmlns="http://www.w3.org/2000/svg" width="320" height="676" viewBox="0 0 320 676" role="img" aria-labelledby="locamap-title" aria-describedby="locamap-desc">
 <title id="locamap-title">Building, Floor, Loca: who is who</title>
-<desc id="locamap-desc">The Building holds its people, ranks, keys, floors and notifications. The Master owns it and has the final word. Smasters are its deputies: they admit members, give invites, manage locas and found floors; they cannot revoke a member, appoint a Smaster or revoke an invite the Master gave. Members and agents wait in the Lobby, which has no chat; a call gives them an invite into a loca, and release brings them back. The Ground floor is everyone's, and its locas open by invite. A Floor holds its people and its locas; only its people and the Master see and enter them. The caretaker, loca-care, sits only in the ranks' own loca. Messages are private, for two, with no floor and no extensions. Everything in a loca is its own: at most one Operator runs it (mode, turns and moderation), the Lead advises and gives work within bounds, and its participants are the people and agents in its seats. Chat is always on; the extensions are Notes, Focus, Journal, Loca Wiki, Live, Vault and Task board.</desc>
+<desc id="locamap-desc">The Building holds its people, ranks, keys, floors and notifications. The Master owns it and has the final word. Smasters are its deputies: they admit members, give invites, manage locas and found floors; they cannot revoke a member, appoint a Smaster or revoke an invite the Master gave. Members and agents wait in the Lobby, which has no chat; a call gives them an invite into a loca, and release brings them back. The Ground floor is everyone's, and its locas open by invite. A Floor holds its people and its locas; only its people and the Master see and enter them. The caretaker, loca-care, sits only in the ranks' own loca. Messages are private, for two, with no floor and no extensions. Everything in a loca is its own: at most one Operator runs it (mode, turns and moderation), the Lead advises and gives work within bounds, and its participants are the people and agents in its seats. Chat is always on; the extensions are Notes, Focus, Loca Board, Journal, Loca Wiki, Live and Vault.</desc>
 <defs><marker id="locamap-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto"><path class="lm-tip" d="M0 0L8 4L0 8z"/></marker></defs>
 <rect class="lm-bg" x="0" y="0" width="320" height="676" rx="8"/>
 <g>
@@ -642,8 +653,8 @@
 <text x="26" y="586"><tspan class="lm-b">participants</tspan> — the people and agents</text>
 <text x="26" y="600">in its seats.</text>
 <text x="26" y="620"><tspan class="lm-b">Chat</tspan> is always on. Extensions:</text>
-<text x="26" y="634">Notes · Focus · Journal</text>
-<text x="26" y="648">Loca Wiki · Live · Vault · Task board</text>
+<text x="26" y="634">Notes · Focus · Loca Board</text>
+<text x="26" y="648">Journal · Loca Wiki · Live · Vault</text>
 </g>
 </g>
 </svg>
@@ -662,7 +673,7 @@
           </figure>
           </div>
           <p>A <b>Building</b> is your private space. Inside it, <b>locas</b> are rooms (tables); the <b>Lobby</b> is where members wait to be called into one. People and agents talk, and an agent is <b>woken</b> only when it is mentioned or called in — it never polls.</p>
-          <details class="gsmore"><summary>A little more</summary><p>Each loca keeps <b>Notes</b> (current state), <b>Focus</b> (goal &amp; tasks) and a <b>Journal</b> (what was done). Two roles matter: the <b>Master</b> owns the Building; a <b>caretaker</b> watches delivery and wake-up health.</p></details>
+          <details class="gsmore"><summary>A little more</summary><p>Each loca keeps <b>Notes</b> (current state), <b>Focus</b> (the goal), the <b>Loca Board</b> (tasks) and a <b>Journal</b> (what was done). Two roles matter: the <b>Master</b> owns the Building; a <b>caretaker</b> watches delivery and wake-up health.</p></details>
         </section>
 
         <section class="gspanel hidden" data-gspanel="host" role="tabpanel">
@@ -723,7 +734,7 @@
         <ol class="gssteps">
           <li><b>Take your seat.</b> Use a loca key (invite) the host gave you, or click <b>request to join</b> and name yourself — the host approves you and you join the Lobby.</li>
           <li><b>Your locas.</b> Each loca you are invited to is a private table, listed in the sidebar.</li>
-          <li><b>Talk and coordinate.</b> <b>Chat</b> is the live table; each loca also keeps <b>Notes</b> (current state), <b>Focus</b> (goal &amp; tasks) and a <b>Journal</b> (what was done).</li>
+          <li><b>Talk and coordinate.</b> <b>Chat</b> is the live table; each loca also keeps <b>Notes</b> (current state), <b>Focus</b> (the goal), the <b>Loca Board</b> (tasks) and a <b>Journal</b> (what was done).</li>
           <li><b>You are pinged only when needed.</b> loca quietly nudges the room's coordinator when work stalls — it will not spam you.</li>
         </ol>
         <p class="gsdoclink">New to loca? The full guide → <a href="/docs/getting-started.md" target="_blank" rel="noopener">getting-started</a></p>
@@ -747,6 +758,7 @@
 <script src="/assets/admin.js"></script>
 <script src="/assets/focus.js"></script>
 <script src="/assets/board.js"></script>
+<script src="/assets/continuity.js"></script>
 <script src="/assets/notes.js"></script>
 <script src="/assets/memory.js"></script>
 <script src="/assets/wiki.js"></script>

@@ -97,6 +97,7 @@ const WEB_MEMORY: &str = include_str!("../../../web/assets/memory.js");
 const WEB_WIKI: &str = include_str!("../../../web/assets/wiki.js");
 const WEB_VAULT: &str = include_str!("../../../web/assets/vault.js");
 const WEB_BOARD: &str = include_str!("../../../web/assets/board.js");
+const WEB_CONTINUITY: &str = include_str!("../../../web/assets/continuity.js");
 const WEB_PROFILE: &str = include_str!("../../../web/assets/profile.js");
 const WEB_THEME: &str = include_str!("../../../web/assets/theme.js");
 const WEB_SIDEBAR: &str = include_str!("../../../web/assets/sidebar.js");
@@ -823,6 +824,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "admin.js" => Some(("text/javascript; charset=utf-8", WEB_ADMIN)),
         "focus.js" => Some(("text/javascript; charset=utf-8", WEB_FOCUS)),
         "board.js" => Some(("text/javascript; charset=utf-8", WEB_BOARD)),
+        "continuity.js" => Some(("text/javascript; charset=utf-8", WEB_CONTINUITY)),
         "notes.js" => Some(("text/javascript; charset=utf-8", WEB_NOTES)),
         "memory.js" => Some(("text/javascript; charset=utf-8", WEB_MEMORY)),
         "wiki.js" => Some(("text/javascript; charset=utf-8", WEB_WIKI)),
@@ -959,6 +961,12 @@ async fn admin_console_invite(
         .trim();
     if loca.is_empty() || name.is_empty() {
         return (StatusCode::BAD_REQUEST, "loca and agent are required").into_response();
+    }
+    // In the loopback sandbox an invite opens its loca; a name the rule
+    // refuses is answered as such, not as a loca to be created first (which
+    // would be refused too).
+    if let Some(refusal) = routes::implicit_loca_refusal(&hub, loca) {
+        return refusal;
     }
     let Some(member) = hub.member_by_name(name) else {
         return (

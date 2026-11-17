@@ -130,9 +130,9 @@ fn fenced(status: u16, v: &Value) -> bool {
 fn probes(room: &str) -> Vec<(&'static str, reqwest::Method, String, Option<Value>)> {
     use reqwest::Method;
     vec![
-        ("focus", Method::GET, format!("/rooms/{room}/tasks"), None),
+        ("board", Method::GET, format!("/rooms/{room}/tasks"), None),
         (
-            "focus",
+            "board",
             Method::POST,
             format!("/rooms/{room}/tasks"),
             Some(serde_json::json!({"title":"t"})),
@@ -209,7 +209,7 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
     let admin = ("x-admin-token", MASTER);
     use reqwest::Method;
 
-    // The catalog: five of today's modules, the Vault and the Task board;
+    // The catalog: five of today's modules, the Vault and the Loca Board;
     // notes, journal and wiki are ticked for a new loca; chat is not an
     // extension.
     let (status, catalog) = call(Method::GET, format!("{base}/extensions"), admin, None).await;
@@ -222,7 +222,7 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
         .collect();
     assert_eq!(
         ids,
-        ["notes", "focus", "journal", "wiki", "live", "vault", "board"]
+        ["notes", "focus", "board", "journal", "wiki", "live", "vault"]
     );
     assert_eq!(
         catalog["defaults"],
@@ -234,12 +234,12 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
         catalog["catalog"][1],
         serde_json::json!({
             "id": "focus", "name": "Focus", "tab": "Focus",
-            "summary": "The loca's goal and declared tasks.",
+            "summary": "The loca's goal: the one outcome it works toward.",
             "default_on_new": false, "tab_key": "tasks",
         })
     );
     assert_eq!(
-        catalog["catalog"][4],
+        catalog["catalog"][5],
         serde_json::json!({
             "id": "live", "name": "Live",
             "summary": "A live-mode toggle: every message reaches everyone.",
@@ -347,11 +347,11 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
         "a refused change changes nothing"
     );
 
-    // Focus is off in proj: its reads and writes are refused with a clear
-    // reason, to a participant and an agent alike.
+    // Focus and the Loca Board are off in proj: their reads and writes are
+    // refused with a clear reason, to a participant and an agent alike.
     for who in [&part, &bot] {
         for (ext, method, path, body) in probes("proj") {
-            if ext != "focus" {
+            if ext != "focus" && ext != "board" {
                 continue;
             }
             let (status, v) = call(
@@ -364,7 +364,7 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
             assert_eq!(status, 403, "{method} {path}: {v}");
             let text = v.as_str().unwrap_or_default();
             assert!(
-                text.contains("this extension is off in this loca") && text.contains("focus"),
+                text.contains("this extension is off in this loca") && text.contains(ext),
                 "{text}"
             );
         }
@@ -413,7 +413,7 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
             body,
         )
         .await;
-        if ext == "focus" || ext == "notes" || ext == "vault" {
+        if ext == "focus" || ext == "board" || ext == "notes" || ext == "vault" {
             assert_eq!(status, 403, "{method} {path}: {v}");
         } else {
             assert!(
@@ -423,17 +423,25 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
         }
     }
 
-    // A Smaster adds Focus and Live, the Master puts notes back: the note
-    // written before is still there.
+    // A Smaster adds Focus, the Loca Board (with a Lead named) and Live, the
+    // Master puts notes back: the note written before is still there.
+    let (status, v) = call(
+        Method::POST,
+        format!("{base}/rooms/proj/lead"),
+        admin,
+        Some(serde_json::json!({ "lead": "bot" })),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
     let (status, v) = call(
         Method::PUT,
         format!("{base}/rooms/proj/extensions"),
         ("x-session-token", &deputy),
-        Some(serde_json::json!({ "enabled": ["journal", "wiki", "focus", "live"] })),
+        Some(serde_json::json!({ "enabled": ["journal", "wiki", "focus", "board", "live"] })),
     )
     .await;
     assert_eq!(status, 200, "{v}");
-    assert_eq!(enabled(&v), ["focus", "journal", "wiki", "live"]);
+    assert_eq!(enabled(&v), ["focus", "board", "journal", "wiki", "live"]);
     let (status, _) = call(
         Method::PUT,
         format!("{base}/rooms/proj/extensions/notes"),
@@ -461,7 +469,7 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
         Some(serde_json::json!({ "title": "now allowed", "by": "oper" })),
     )
     .await;
-    assert!(status < 300, "focus is on again: {status} {v}");
+    assert!(status < 300, "the Loca Board is on: {status} {v}");
 
     // Live on, then removing the live extension also ends live mode.
     let (status, _) = call(
@@ -504,7 +512,7 @@ async fn extensions_are_chosen_enforced_governed_and_journaled() {
     let expected = [
         "extensions: opened with Notes, Journal, Loca Wiki",
         "oper | extensions: removed Notes",
-        "deputy | extensions: added Focus, Live",
+        "deputy | extensions: added Focus, Loca Board, Live",
         "extensions: added Notes",
         "oper | extensions: removed Live",
     ];
@@ -595,9 +603,10 @@ async fn existing_locas_keep_every_extension_across_an_upgrade() {
     assert_eq!(enabled(&v), ["notes", "focus", "journal", "wiki", "live"]);
     for (ext, method, path, body) in probes("old") {
         let (status, v) = call(method.clone(), format!("{base}{path}"), admin, body).await;
-        // An extension added to the catalog later is not switched on in a
+        // An extension added to the catalog later (the Vault, the Loca Board,
+        // which now holds the tasks) is not switched on in a
         // loca from before extensions existed.
-        if ext == "vault" {
+        if ext == "vault" || ext == "board" {
             assert!(fenced(status, &v), "{method} {path}: {status} {v}");
             continue;
         }
@@ -804,7 +813,7 @@ async fn a_failed_journal_line_leaves_the_extensions_unchanged() {
     assert_eq!(
         call(
             Method::GET,
-            format!("{base}/rooms/atomic-ext/tasks"),
+            format!("{base}/rooms/atomic-ext/goals"),
             admin,
             None
         )

@@ -1,6 +1,6 @@
-//! The Task board (`board` extension) over the real routes: its
-//! preconditions, the review step with go / no-go, who may do what, the
-//! lines that wake, and the guard that with it off every rule is as before.
+//! The Loca Board (`board` extension) over the real routes: the review step
+//! with go / no-go, who may do what, and the lines that wake. Its
+//! preconditions and what it keeps while off are in `loca_board.rs`.
 
 use super::lead_tasks::{answer, id_of, Loca, Seat, ROOT};
 use super::*;
@@ -37,81 +37,6 @@ impl Loca {
         body["by"] = "x".into();
         self.patch(who, id, body).await
     }
-}
-
-/// The board needs Focus and a Lead: 409 without a Lead, 409 when the Lead
-/// is cleared while it is on, 409 on a new loca; removing Focus removes it in
-/// the same change, and the Journal says so.
-#[tokio::test]
-async fn the_board_needs_focus_and_a_lead() {
-    let loca = Loca::open().await;
-    let _ada = loca.seat("lead-ada").await;
-    let (status, refused) = loca.extension(reqwest::Method::PUT, "board").await;
-    assert_eq!(status, 409, "{refused}");
-    assert!(
-        refused.as_str().unwrap().contains("select a Lead first"),
-        "{refused}"
-    );
-
-    loca.name_lead("lead-ada").await;
-    loca.board_on().await;
-    let cleared = loca
-        .client
-        .post(format!("{}/rooms/proj/lead", loca.base))
-        .header("x-admin-token", ROOT)
-        .json(&serde_json::json!({ "lead": null }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(
-        cleared.status(),
-        409,
-        "the Lead was cleared under the board"
-    );
-    let settings: Value = loca
-        .client
-        .get(format!("{}/rooms/proj/settings", loca.base))
-        .header("x-admin-token", ROOT)
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    assert_eq!(settings["lead"], "lead-ada");
-
-    let (status, view) = loca.extension(reqwest::Method::DELETE, "focus").await;
-    assert_eq!(status, 200, "{view}");
-    assert!(
-        !view["enabled"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|id| id == "board" || id == "focus"),
-        "{view}"
-    );
-    assert_eq!(view["removed"], serde_json::json!(["focus", "board"]));
-    let journal: Vec<Value> =
-        get_json(&loca.client, format!("{}/rooms/proj/journal", loca.base)).await;
-    assert!(
-        journal
-            .iter()
-            .any(|entry| entry["text"] == "extensions: removed Focus, Task board"),
-        "{journal:?}"
-    );
-    // Without Focus the board cannot come back.
-    let (status, _) = loca.extension(reqwest::Method::PUT, "board").await;
-    assert_eq!(status, 409);
-
-    let opened = loca
-        .client
-        .post(format!("{}/rooms", loca.base))
-        .header("x-admin-token", ROOT)
-        .json(&serde_json::json!({ "name": "fresh", "extensions": ["focus", "board"] }))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(opened.status(), 409, "a new loca opened with the board");
 }
 
 /// The whole review step: the holder's done asks the Lead for review with a
@@ -281,52 +206,6 @@ async fn the_lead_does_not_review_its_own_task_and_the_operator_reverses_it() {
     assert_eq!(
         finished["status"], "done",
         "the Operator's veto needs no review"
-    );
-}
-
-/// With the board off every rule is as before: the holder finishes directly,
-/// the Lead reviews nothing, and the review state is refused.
-#[tokio::test]
-async fn with_the_board_off_tasks_work_as_before() {
-    let loca = Loca::open().await;
-    let ada = loca.seat("lead-ada").await;
-    let bob = loca.seat("bob").await;
-    loca.name_lead("lead-ada").await;
-    let (_, task) = loca.declare(Some(&ada), "plain", Some("bob")).await;
-    let id = id_of(&task);
-    let (status, refused) = loca
-        .status(Some(&bob), id, serde_json::json!({"status": "review"}))
-        .await;
-    assert_eq!(status, 403, "the review state with the board off");
-    assert!(
-        refused
-            .as_str()
-            .unwrap()
-            .contains("this extension is off in this loca: board (Task board)"),
-        "{refused}"
-    );
-    loca.status(Some(&bob), id, serde_json::json!({"status": "taken"}))
-        .await;
-    let (status, done) = loca
-        .status(Some(&bob), id, serde_json::json!({"status": "done"}))
-        .await;
-    assert_eq!(status, 200);
-    assert_eq!(done["status"], "done", "with the board off done is done");
-    let (status, _) = loca
-        .status(
-            Some(&ada),
-            id,
-            serde_json::json!({"status": "taken", "reason": "no"}),
-        )
-        .await;
-    assert_eq!(status, 403, "the Lead reviewed with the board off");
-    assert!(
-        !loca
-            .announcements()
-            .await
-            .iter()
-            .any(|(_, text)| text.contains("review")),
-        "a board line with the board off"
     );
 }
 

@@ -1,7 +1,7 @@
 const { test, expect } = require("@playwright/test");
 const { provisionRooms } = require("./support/building");
 
-// The loca's Lead declares and assigns tasks from the Focus tab, like the
+// The loca's Lead declares and assigns tasks from the Loca Board tab, like the
 // Operator; a participant who is not the Lead is not offered the control.
 // The server decides (the Lead is checked by principal); the page only
 // stops offering what would be refused.
@@ -25,9 +25,11 @@ async function memberPage(browser, request, name, room) {
   return page;
 }
 
-async function openFocus(page) {
-  await page.evaluate(() => switchTab("tasks"));
-  await expect(page.locator("#tasksPanel")).toBeVisible();
+// The tasks are the Loca Board's own tab.
+async function openBoard(page) {
+  await expect.poll(() => page.evaluate(() => extensionOn("board"))).toBe(true);
+  await page.evaluate(() => switchTab("board"));
+  await expect(page.locator("#boardPanel")).toBeVisible();
 }
 
 test("the Lead sees and uses the task controls; a participant does not see them", async ({ browser, request }) => {
@@ -38,10 +40,12 @@ test("the Lead sees and uses the task controls; a participant does not see them"
   const named = await request.post(`/rooms/${room}/lead`, { headers: MASTER, data: { lead: "lt-ada" } });
   expect(named.ok(), await named.text()).toBeTruthy();
   expect((await named.json()).lead_principal).toMatch(/^pr_/);
+  const on = await request.put(`/rooms/${room}/extensions/board`, { headers: MASTER });
+  expect(on.ok(), await on.text()).toBeTruthy();
 
   for (const page of [lead, other]) {
     await expect.poll(() => page.evaluate(() => state.settings?.lead)).toBe("lt-ada");
-    await openFocus(page);
+    await openBoard(page);
   }
   await expect(lead.locator("#taskCreate")).toBeVisible();
   await expect(other.locator("#taskCreate")).toBeHidden();

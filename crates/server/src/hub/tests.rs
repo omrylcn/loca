@@ -84,6 +84,7 @@ impl From<&str> for super::OperationScope {
 }
 
 mod claim_window;
+mod continuity_core;
 mod invite_delivery;
 mod join_window;
 mod key_ids;
@@ -1486,6 +1487,14 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
     TEST_NOW.store(1_000, Ordering::Relaxed);
     hub.set_lead("proj", Some("lead".into()), "operator")
         .expect("lead");
+    // Tasks live on the Loca Board, which a goal closed by its tasks needs.
+    hub.set_extensions(
+        "proj",
+        &["focus".into(), "board".into()],
+        "operator",
+        SenderType::User,
+    )
+    .expect("the Loca Board");
     let (mut events, _) = hub.subscribe("proj");
     assert!(hub.join("proj", "member:lead", "lead", SenderType::Agent, 1));
     let heartbeat = || RuntimeHealthUpdate {
@@ -1656,7 +1665,8 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
     );
 
     // The loop remains active while even one linked task is incomplete, then
-    // closes deterministically and leaves no orphan reminder behind.
+    // closes deterministically and leaves no orphan reminder behind. On the
+    // Loca Board the holder's done asks for review; the operator's is final.
     TEST_NOW.store(progressed_goal_at + 11_000, Ordering::Relaxed);
     hub.update_task(
         "proj",
@@ -1666,9 +1676,9 @@ fn goal_care_ages_from_explicit_progress_not_unrelated_chat() {
             assigned_to: None,
             note: None,
             reason: None,
-            by: "lead".into(),
+            by: "operator".into(),
         },
-        false,
+        true,
         None,
     )
     .expect("finish linked task");
@@ -1704,6 +1714,14 @@ fn goal_completion_conditions_are_explicit_and_non_vacuous() {
     );
     hub.set_lead("proj", Some("lead".into()), "operator")
         .expect("lead");
+    // Tasks live on the Loca Board, which a goal closed by its tasks needs.
+    hub.set_extensions(
+        "proj",
+        &["focus".into(), "board".into()],
+        "operator",
+        SenderType::User,
+    )
+    .expect("the Loca Board");
     let manual = hub
         .create_goal(
             "proj",

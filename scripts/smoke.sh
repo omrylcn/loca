@@ -224,6 +224,8 @@ assert "post while paused -> 403"       "403" "$(code POST /rooms/general/messag
 assert "admin posts while paused ->201" "201" "$(code POST /rooms/general/messages '{"sender":"admin","sender_type":"user","text":"a"}' -H "$AH")"
 assert "back to free -> 200"            "200" "$(code PUT /rooms/general/mode '{"mode":{"mode":"free"}}' -H "$AH")"
 assert "name lead -> 200"               "200" "$(code POST /rooms/general/lead '{"lead":"smoke-agent"}' -H "$AH")"
+# Tasks live on the Loca Board, which needs the Lead named above.
+assert "Loca Board on -> 200"           "200" "$(code PUT /rooms/general/extensions/board - -H "$AH")"
 
 echo "── moderation / declared work ──"
 assert "mute member -> 200"   "200" "$(code POST /rooms/general/moderate '{"action":"mute","name":"smoke-agent"}' -H "$AH")"

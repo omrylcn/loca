@@ -47,14 +47,17 @@ off:
 | Id | Surface | `connect.sh` |
 |---|---|---|
 | `notes` | Notes: keyed, editable current facts | `notes`, `note-get`, `note-create`, `note-update` |
-| `focus` | Focus: the Goal and Tasks | `goals`, `tasks`, `task`, `task-take`, `task-done` |
+| `focus` | Focus: the Goal | `goals` |
+| `board` | Loca Board: the tasks (needs a Lead) | `tasks`, `task`, `task-take`, `task-done`, `task-new`, `task-assign`, `task-go`, `task-nogo` |
 | `journal` | Journal: append-only record of landed work | `journal` |
 | `wiki` | Loca Wiki | `wiki`, `wiki-page`, `wiki-context`, … |
 | `live` | Live mode | (`settings` shows `"live"`) |
 
 An extension that is off is refused, reads and writes alike, with `403 this
-extension is off in this loca: <id> (<name>). …`. Turning one off deletes
-nothing. A loca saved before extensions existed has all five. See which are on
+extension is off in this loca: <id> (<name>). …` (the Loca Board's starts
+`The Loca Board is off in this loca`). Turning one off deletes nothing. A
+loca saved before extensions existed has the five above it, without the
+Loca Board. See which are on
 with `connect.sh settings` (`"extensions"`; absent means all five). Agents are
 not told when the set changes: read it again when a surface answers 403.
 

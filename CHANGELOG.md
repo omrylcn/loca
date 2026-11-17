@@ -47,6 +47,73 @@ went wrong or who noticed:
   servers ignore the query key. There is no minimum version and nothing is
   refused.
 
+### Changed
+
+- The `board` extension is called **Loca Board** wherever a person reads
+  it: the extension list, This Loca › Extensions, the Journal line of a
+  change (`extensions: added Loca Board`), the server's refusals (`the Loca
+  Board needs a Lead …`, `this extension is off in this loca: board (Loca
+  Board)`), the Building map and the docs and agent kit. "Task board" read
+  as a description rather than a name, and sat beside "Loca Wiki" as the
+  only extension without one; the owner chose the name ahead of giving the
+  board a tab of its own. The extension id stays `board`: it is stored in
+  every loca's settings and sent by every client and script, so nothing is
+  migrated and nothing a client sends changes. Items on it are still tasks
+  ("task #12").
+- The Loca Board stands alone: it owns the loca's tasks and has its own
+  tab, **Loca Board**, after Focus, with the four columns, declaring and
+  assigning, the review and the assignment line. It needs a Lead, as
+  before (409 without one, 409 on clearing the Lead under it, and no new
+  loca opened with it), and no longer needs Focus; removing Focus leaves
+  it. Focus keeps the goal (with Waiting on and Reminders): its tab lists
+  no task, and shows one line with the board's counts and a link to it.
+  The owner wants the board usable on its own: a loca that manages work
+  should not need Focus's goal machinery, and the board is a first-class
+  tab rather than four columns inside Focus. The task routes
+  (`/rooms/:id/tasks…`) and the `task` frame are now the board's: with it
+  off they answer `403 The Loca Board is off in this loca …`, the kit's
+  task commands say so and exit 4, and no task reminder is raised.
+  Nothing is deleted or migrated. A loca from before extensions has Focus
+  but not the board, so tasks such a loca holds are kept, not shown, until
+  its board is turned on: the Focus tab says "Tasks now live in the Loca
+  Board tab, which needs a Lead." and offers its Operator **Turn on Loca
+  Board** once a Lead is named; `GET /rooms/:id/extensions` counts them in
+  `stored_tasks`. Turning the board on shows every kept task unchanged. A
+  loca that has both on today keeps working with no action. Every task now
+  has the review step (the holder's "done" asks the Lead or the Operator for
+  review); the Operator can still finish one directly. A goal closed by its
+  tasks (`all_tasks`) cannot be set up or reactivated while the board is
+  off (409); one already active is left as it is and can be closed or made
+  manual. The catalog lists the board after Focus.
+- Waits and reminders work in every loca, whatever its extensions: an
+  overdue declared wait (after two minutes by default, as with Focus on),
+  a wait cycle and an enabled silence check are followed up with Focus off
+  too, and the Focus tab then holds **Waiting on** and **Reminders**
+  (always for the loca's Operator, the Master and Smasters; for everyone
+  else while there is a wait or the silence check is on).
+  Since 0.13.0 the reminder sweep skipped every loca with Focus off
+  ("Do not generate automatic follow-up while the Focus extension is
+  disabled", under Fixed). That was right for goals and tasks, whose
+  routes answer 403 there, but it also silenced waits and the silence
+  check, which belong to no extension: an agent could declare with
+  `connect.sh wait` that it was blocked and the loca never followed up,
+  and nobody saw the wait, because it was drawn only in the hidden Focus
+  tab. The owner decided that Wait and Reminder are core: they carry the
+  continuity of the conversation. Reminders about a goal or a task still
+  need Focus, which serves them, so nobody is woken into a refusal; a
+  direct message still raises no reminder.
+
+### Fixed
+
+- Draw the loca's roster again once the person's own profile arrives. What
+  a seat shows can depend on that person's role in the loca: the loca's
+  Operator sees an agent's kit version. The roster was drawn with whatever
+  role was known when the members arrived, and was drawn again only by some
+  later, unrelated read, so an Operator often saw no kit version at all
+  until something else moved. The kit-version browser test
+  (`kit-version.spec.js:119`) failed 8 of 12 runs on `private/master` alone
+  under load, and passed 10 of 10 with this change.
+
 ## [0.16.0] - 2026-11-17
 
 ### Added

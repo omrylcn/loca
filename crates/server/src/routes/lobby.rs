@@ -23,6 +23,11 @@ pub(crate) async fn call_into_loca(
     if name.is_empty() {
         return (StatusCode::BAD_REQUEST, "who?").into_response();
     }
+    // In the loopback sandbox a call opens its loca; a name the rule refuses
+    // is answered as such, not as a loca to be created first.
+    if let Some(refusal) = super::implicit_loca_refusal(&hub, &id) {
+        return refusal;
+    }
     // `reissue: true` replaces the invite the member already holds here with a
     // fresh one. Absent (or null), this is the ordinary call.
     let reissue = match body.get("reissue") {

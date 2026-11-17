@@ -258,8 +258,8 @@ async fn post_with(base: &str, path: &str, header: &str, credential: &str) -> u1
 }
 
 /// Ask every view v0.13.0 answered and compare. The views whose answers the
-/// newer rules change are fx-late's status and the suspended fx-paused's own
-/// key, each checked on its own.
+/// newer rules change are fx-late's status, the suspended fx-paused's own
+/// key, and fx-team's tasks (the Loca Board's now), each checked on its own.
 async fn replay(base: &str, fixture: &Fixture) {
     let late = fixture.expected["join_requests"]["fx-late"]["id"]
         .as_str()
@@ -277,6 +277,16 @@ async fn replay(base: &str, fixture: &Fixture) {
             assert_eq!(body["bootstrap_expired"], true, "{at}");
             continue;
         }
+        if path.ends_with("/tasks") {
+            // The tasks are the Loca Board's now, which a loca from v0.13.0
+            // does not have on: they are kept and refused, and come back
+            // as they were when it is turned on (checked after the restarts).
+            assert_eq!(view["status"], 200, "{at}: v0.13.0's answer");
+            // (`ask` keeps JSON bodies only; the refusal's words are held
+            // in loca_board.rs.)
+            assert_eq!(status, 403, "{at}: {body}");
+            continue;
+        }
         if credential == "member:fx-paused" && header == "x-room-token" {
             // A suspended member's own key is now told so; v0.13.0 answered
             // it as any refused key.
@@ -287,10 +297,12 @@ async fn replay(base: &str, fixture: &Fixture) {
         assert_eq!(status, view["status"], "{at}: {body}");
         // A sign-in records its use; the Master session's expiry was moved
         // by `load`.
+        // Focus's summary no longer mentions the tasks it gave to the Loca
+        // Board; the catalog's summaries are what people read, not data.
         let ignored: &[&str] = if credential == "master-session" {
-            &["last_used_at", "expires_at"]
+            &["last_used_at", "expires_at", "summary"]
         } else {
-            &["last_used_at"]
+            &["last_used_at", "summary"]
         };
         assert_still_answers(&view["body"], &body, &at, ignored);
     }
@@ -384,6 +396,32 @@ async fn a_database_written_by_the_published_v0_13_0_gives_the_same_answers_afte
         200,
         "a late acknowledgement is accepted"
     );
+    // The tasks v0.13.0 stored come back as they were once the Loca Board is
+    // turned on (fx-team has a Lead: its goal is active).
+    let base = format!("http://127.0.0.1:{port}");
+    let on = reqwest::Client::new()
+        .put(format!("{base}/rooms/fx-team/extensions/board"))
+        .header("x-admin-token", ROOT)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(on.status(), 200, "{}", on.text().await.unwrap());
+    let view = fixture.expected["views"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|view| view["path"] == "/rooms/fx-team/tasks")
+        .expect("v0.13.0 listed fx-team's tasks");
+    let credential = view["credential"].as_str().unwrap();
+    let (status, body) = ask(
+        &base,
+        "/rooms/fx-team/tasks",
+        view["header"].as_str().unwrap(),
+        &fixture.credentials[credential],
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_still_answers(&view["body"], &body, "fx-team's tasks", &["last_used_at"]);
 
     // No Smaster code, browser session token, membership key or invite
     // v0.13.0 stored is left in any column: the join-request copies of the

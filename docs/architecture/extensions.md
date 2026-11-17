@@ -28,8 +28,7 @@ and some server sentences keep `birebir`. **Care** is the ranks' own loca.
    |  add or untick more
    v
  each extension that is on = a tab
- (Live is a toggle; the Task board
-  changes the Focus tab)
+ (Live is a toggle, not a tab)
    |
    v
  This Loca > Extensions > Manage (changes)
@@ -37,7 +36,7 @@ and some server sentences keep `birebir`. **Care** is the ranks' own loca.
 
 The `+` screen has two presets. **Loca** ticks the catalog's defaults (Notes,
 Journal, Loca Wiki); **Lounge** ticks none (chat only). Focus, Live and the
-Vault are offered unticked. The Task board is not offered, because a new
+Vault are offered unticked. The Loca Board is not offered, because a new
 loca has no Lead yet; the server refuses it on `POST /rooms` (409). The web
 client sends the ticked list with `POST /rooms {"name", "extensions": [...]}`.
 
@@ -45,7 +44,9 @@ A loca saved before extensions existed has no `extensions` field and keeps
 the five it already had (the frozen `LEGACY_EXTENSIONS`: Notes, Focus,
 Journal, Loca Wiki, Live). `POST /rooms` without `extensions` gets the same
 legacy set, so old scripts are unaffected. Extensions added to the catalog
-later (the Vault, the Task board) are not switched on in such a loca.
+later (the Vault, the Loca Board) are not switched on in such a loca, so
+the tasks such a loca stored are kept but not shown until its Loca Board is
+turned on.
 
 ## Rules every extension follows
 
@@ -74,8 +75,8 @@ in `crates/server/src/hub/extensions.rs`.
 The `extension_fence` middleware (wired in `main.rs`, written in
 `crates/server/src/routes/extensions.rs`) reads the first path segment under
 `/rooms/:id/` and asks the catalog which extension owns it: `notes`,
-`tasks` and `goals` (Focus), `journal`, `wiki`, `vault`. If that extension is
-off it answers:
+`goals` (Focus), `tasks` (Loca Board), `journal`, `wiki`, `vault`. If that
+extension is off it answers:
 
 ```text
 403 this extension is off in this loca:
@@ -91,8 +92,8 @@ Details that follow from the rules:
 
 - Live has no routes. `PUT /rooms/:id/settings {"live": true}` is refused
   with the same 403 while Live is off, and removing Live also ends live mode.
-- The Task board has no routes either. Asking for a task's `review` status
-  while it is off gets the same 403, naming `board (Task board)`.
+- The Loca Board's refusal says so first: `The Loca Board is off in this
+  loca — this extension is off in this loca: board (Loca Board). …`.
 - Loca search returns no notes while Notes is off.
 - A closed loca's set cannot change (409 `this loca is closed — read-only`).
 - The Journal line is written even when Journal itself is off. It is pushed
@@ -117,7 +118,7 @@ cannot change it) under This Loca › Extensions.
 | Method and path | Who | Purpose |
 |---|---|---|
 | `GET /extensions` | Anyone | `{catalog, defaults}`: the catalog and the new-loca defaults. |
-| `GET /rooms/:id/extensions` | Anyone who may enter | `{room, enabled, catalog, can_manage, birebir}`; `birebir` is true for a direct message. |
+| `GET /rooms/:id/extensions` | Anyone who may enter | `{room, enabled, catalog, can_manage, birebir, stored_tasks}`; `birebir` is true for a direct message; `stored_tasks` counts the loca's tasks, kept while the Loca Board is off. |
 | `PUT /rooms/:id/extensions` | Operator, Master, Smaster | Replace the set: `{"enabled": [ids]}`. Answers the view plus `added` and `removed`. |
 | `PUT /rooms/:id/extensions/:ext` | Operator, Master, Smaster | Add one. Same answer. |
 | `DELETE /rooms/:id/extensions/:ext` | Operator, Master, Smaster | Remove one. Its records stay. Same answer. |
@@ -128,7 +129,7 @@ cannot change it) under This Loca › Extensions.
 | 403 | `only this loca's operator, the Master or a Smaster changes its extensions` | Anyone else. |
 | 403 | `a birebir has no extensions` | A direct message. |
 | 409 | `this loca is closed — read-only` | A closed or sealed loca. |
-| 409 | `the Task board needs Focus: turn Focus on first` / `the Task board needs a Lead: select a Lead first` | The board without Focus, or turned on with no Lead. |
+| 409 | `the Loca Board needs a Lead: select a Lead first` | The Loca Board turned on with no Lead. |
 | 503 | `could not save extensions — try again` | A write failed; nothing changed. |
 
 ## Catalog
@@ -136,12 +137,12 @@ cannot change it) under This Loca › Extensions.
 | Extension | Id | What it adds | New loca | Agents |
 |---|---|---|---|---|
 | Notes | `notes` | Keyed notes: the current state of the work. | On | Read and write notes |
-| Focus | `focus` | The loca's goal and declared tasks (open, taken, done). | Off | Take and finish their own tasks; a Lead declares and assigns within its bounds |
+| Focus | `focus` | The loca's goal. | Off | Read the goal |
+| Loca Board | `board` | The loca's declared tasks in their own tab, on four columns with a review step. Needs a Lead. | Not offered | Take their own tasks and ask for review; a Lead declares, assigns, and says go or no-go |
 | Journal | `journal` | What was done here, in the doers' own words. | On | Write their own entries |
 | Loca Wiki | `wiki` | Shared, sourced knowledge, kept by an editor agent. | On | Read; the editor writes |
 | Live | `live` | A toggle, not a tab: every message reaches everyone at the table, no @ needed. | Off | Reached by every message while on |
 | Vault | `vault` | The loca's rules document, in a Vault tab. | Off | Read; never write |
-| Task board | `board` | A review step on Focus tasks, shown as four columns. | Not offered | The holder asks for review; a Lead says go or no-go |
 
 Attentions, waits, reminders and memory are not extensions; they are always
 on.
@@ -182,10 +183,10 @@ The Vault holds one rules document per loca: the loca's working agreement.
 | `PUT /rooms/:id/vault` | Operator, Master, Smaster | The new revision, as above. |
 | `GET /rooms/:id/vault/history` | Anyone who may enter | `{room, revisions}`, newest first. |
 
-## The Task board
+## The Loca Board
 
-The Task board puts a review step on Focus tasks. It owns no route; while it
-is on, it changes the rules of Focus's task routes.
+The Loca Board holds the loca's tasks, in a tab of its own after Focus. It
+owns the task routes (`/rooms/:id/tasks…`) and the `task` frame.
 
 ```text
  To do ---> Doing ---> Review ---> Done
@@ -206,12 +207,18 @@ is on, it changes the rules of Focus's task routes.
 - **The Operator's veto stays.** Finishing without review, taking back
   finished work, removing and reopening stay the Operator's (the Lead may
   still remove an untaken task it declared itself).
-- **It needs Focus and a Lead.** Turning it on without Focus or without a
-  Lead answers 409; removing Focus removes the board in the same change;
-  clearing the Lead while it is on answers 409 `the Task board needs a Lead
-  — transfer the Lead or turn the board off first`.
-- **Off means the old rules.** With the board off every task rule is as
-  before, and the `review` status is refused (the extension 403).
+- **It needs a Lead, not Focus.** Turning it on without a Lead answers 409;
+  clearing the Lead while it is on answers 409 `the Loca Board needs a Lead
+  — transfer the Lead or turn the Loca Board off first`. Removing Focus
+  leaves it.
+- **Off keeps the tasks.** With it off every task route answers the 403
+  above and no task frame or reminder is sent; nothing is deleted, and
+  turning it on shows every task as it was. The Focus tab says "Tasks now
+  live in the Loca Board tab, which needs a Lead." while tasks are kept,
+  and offers the Operator **Turn on Loca Board** once a Lead is named.
+- **Focus points to it.** While it is on, the Focus tab shows one line with
+  its counts and a link to the tab. A goal closed by its tasks
+  (`all_tasks`) cannot be set up or reactivated while it is off (409).
 
 ## Not built
 
@@ -248,3 +255,4 @@ reader should not assume these exist:
 |---|---|---|
 | v1 | 2026-11-13 | First version, written from the 0.12.10 code line. |
 | v2 | 2026-11-16 | Re-verified against v0.15.0: the Vault and the Task board ship, the Lounge preset, the longer fence sentence; designed and later catalog removed. |
+| v3 | 2026-11-17 | The Loca Board (the Task board, renamed) stands alone: its own tab and the task routes, a Lead and no Focus; stored tasks kept while it is off (unreleased). |

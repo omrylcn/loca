@@ -1,16 +1,19 @@
-//! The Task board (the `board` extension): Focus tasks with a review step.
+//! The Loca Board (the `board` extension): the loca's tasks, with a review
+//! step.
 //!
-//! While the board is on, the holder's "done" is a request for review, and
-//! the Lead (never on its own task) or the Operator says go (`review` →
-//! `done`) or no-go with a reason (`review` → `taken`). Removing a task and
-//! reopening one stay the Operator's. With the board off every rule is the
-//! house rule of `update_task_as`. The board owns no route; it changes the
-//! rules of Focus's task routes, and needs Focus and a Lead.
+//! The board owns the task routes (`protocol::EXTENSIONS`), so with it off
+//! they are refused and every stored task is kept. The holder's "done" is a
+//! request for review, and the Lead (never on its own task) or the Operator
+//! says go (`review` → `done`) or no-go with a reason (`review` → `taken`).
+//! Removing a task and reopening one stay the Operator's. `transition` keeps
+//! the house rule for a board that is off, which only a caller inside the
+//! hub can reach. The board needs a Lead, not Focus.
 
 use protocol::{Message, TaskStatus};
 
 use super::super::{ExtensionError, Hub, Room, HISTORY_LIMIT};
 use super::TaskError;
+use crate::sync::RecoverMutex;
 use std::sync::atomic::Ordering;
 
 /// What kind of move a status change is, for the line it posts.
@@ -91,6 +94,13 @@ pub(super) fn transition(
 }
 
 impl Hub {
+    /// How many tasks `room` holds, on the board or kept while it is off.
+    /// A count only: what they say is the board's to show.
+    pub fn stored_task_count(&self, room: &str) -> usize {
+        let rooms = self.rooms.lock_or_recover();
+        rooms.get(room).map_or(0, |r| r.tasks.len())
+    }
+
     /// Post one server line about task `id` in the loca, addressed to
     /// `target` (`all` wakes nobody in an announcement). The task change has
     /// already committed; its line must not depend on a second write (the
@@ -163,27 +173,16 @@ impl Hub {
     }
 }
 
-/// The Task board needs Focus and a Lead. `enabled` is the set a change asks
-/// for, `before` the set it replaces. Removing Focus takes the board with it
-/// in the same change (as removing Live ends live mode); turning the board
-/// on without Focus, or without a Lead, is refused.
+/// The Loca Board needs a Lead, its reviewer. `enabled` is the set a change
+/// asks for, `before` the set it replaces: turning the board on without a
+/// Lead is refused. It does not need Focus, and removing Focus leaves it.
 pub(in crate::hub) fn settle_board(
     before: &[String],
-    mut enabled: Vec<String>,
+    enabled: Vec<String>,
     has_lead: bool,
 ) -> Result<Vec<String>, ExtensionError> {
     let on = |set: &[String], id: &str| set.iter().any(|have| have == id);
-    if !on(&enabled, "board") {
-        return Ok(enabled);
-    }
-    if !on(&enabled, "focus") {
-        if on(before, "board") && on(before, "focus") {
-            enabled.retain(|id| id != "board");
-            return Ok(enabled);
-        }
-        return Err(ExtensionError::BoardNeedsFocus);
-    }
-    if !on(before, "board") && !has_lead {
+    if on(&enabled, "board") && !on(before, "board") && !has_lead {
         return Err(ExtensionError::BoardNeedsLead);
     }
     Ok(enabled)

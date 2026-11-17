@@ -76,22 +76,26 @@ function applyLocaExtensions() {
   for (const tab of document.querySelectorAll(".tabs [role=tab]")) {
     if (tab.dataset.tab === "chat") continue;
     const spec = extensionOfTab(tab.dataset.tab);
-    tab.classList.toggle("hidden", !list || !spec || !list.includes(spec.id));
+    const on = !!list && !!spec && list.includes(spec.id);
+    tab.classList.toggle("hidden", !on && !continuityShowsTab(tab.dataset.tab));
   }
   if (list && !list.includes("live")) {
     $("liveToggle").classList.add("hidden");
     $("liveBadge").classList.add("hidden");
   }
   const current = extensionOfTab(state.tab);
-  if (list && current && !list.includes(current.id)) switchTab("chat");
+  if (list && current && !list.includes(current.id) && !continuityShowsTab(state.tab)) switchTab("chat");
   // An extension switched on while we are here: load what it holds.
   if (list && extensionsAppliedFor.room === state.room && extensionsAppliedFor.enabled) {
     const added = list.filter(id => !extensionsAppliedFor.enabled.includes(id));
+    const removed = extensionsAppliedFor.enabled.filter(id => !list.includes(id));
+    if (added.includes("board") || removed.includes("board")) boardSetChanged();
     if (added.includes("notes")) fetchNotes();
     if (added.includes("focus")) fetchTasks();
     if (added.includes("journal")) fetchJournal();
   }
   extensionsAppliedFor = { room: state.room, enabled: list ? [...list] : null };
+  refreshContinuityTab();
 }
 
 /// The Journal, Notes and Focus data for a just-joined loca, once its
@@ -273,7 +277,7 @@ async function openCreateLoca(name = "", group = "") {
       `<label class="extrow fixed"><input type="checkbox" checked disabled>` +
         `<span class="extrowtext"><b>Chat</b><small>Always on. Not an extension.</small></span></label>` +
       catalog.filter(spec => defaults.includes(spec.id)).map(spec => extensionRow(spec, createPreset() === "loca")).join("");
-    // The Task board needs a Lead, which a loca being opened does not have
+    // The Loca Board needs a Lead, which a loca being opened does not have
     // yet (the server refuses it here); it is turned on later, under Manage.
     $("extCreateAdd").innerHTML =
       catalog.filter(spec => !defaults.includes(spec.id) && spec.id !== "board")

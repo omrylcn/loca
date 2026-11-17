@@ -29,7 +29,8 @@ test("the Vault tab: those who run the loca write the rules, a participant reads
   const page = await masterPage(browser, request);
   await page.evaluate((room) => joinRoom(room), room);
   await expect.poll(() => page.evaluate(() => state.ws?.readyState)).toBe(1);
-  await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Journal", "Vault"]);
+  // Focus's tab stays for whoever runs the loca: Waiting on and Reminders.
+  await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Focus", "Journal", "Vault"]);
   await page.locator("#tabVault").click();
   await expect(page.locator("#vaultStatus")).toHaveText("No rules yet.");
   await expect(page.locator("#vaultEdit")).toBeVisible();

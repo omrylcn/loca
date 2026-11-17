@@ -820,6 +820,9 @@ async function fetchProfile(now = false) {
     renderProfile(now);
     renderLocaSidebar();
     renderOperatorControls();
+    // What a seat shows can depend on this person's role in the loca (an
+    // Operator sees an agent's kit version): draw the roster again with it.
+    if (state.room) renderMembers();
   } catch (error) {
     if (sequence !== profileFetchSequence || room !== state.room || buildingStale(gen)) return;
     state.profile = null;

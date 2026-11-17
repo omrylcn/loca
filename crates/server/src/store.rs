@@ -804,7 +804,7 @@ impl Store {
         add_column(&conn, "tasks", "assigned_as TEXT")?;
         add_column(&conn, "tasks", "created_as TEXT")?;
         add_column(&conn, "tasks", "created_principal TEXT")?;
-        // The Task board's review note and no-go reason; NULL elsewhere.
+        // The Loca Board's review note and no-go reason; NULL elsewhere.
         add_column(&conn, "tasks", "review_note TEXT")?;
         add_column(&conn, "tasks", "review_reason TEXT")?;
         add_column(&conn, "goals", "progress_at INTEGER NOT NULL DEFAULT 0")?;

@@ -2117,3 +2117,108 @@ async fn delete_and_archive_meet_a_move_in_either_order() {
         "the deleted group is still gone and its refused loca untouched"
     );
 }
+
+/// A group loca opened under an old name (a space) before the name rule, as
+/// an older server left it in the database. Its id reaches the server
+/// percent-encoded (`gl%20two`), and the fence must hold on the decoded id:
+/// an outsider gets a missing loca's answer on every route and the socket,
+/// while the group's members and the Master enter it (so the outsider's 404
+/// is the fence, not a loca the server failed to find).
+#[tokio::test]
+async fn an_old_named_group_loca_is_fenced_on_its_decoded_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("groups-old-name.db");
+    let (port, guard) = closed_building(&db).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let (lead_key, lead) = smaster(&base, "kaan").await;
+    let (other_key, _) = smaster(&base, "other").await;
+    let (status, group) = post(
+        format!("{base}/groups"),
+        &lead,
+        serde_json::json!({"name": "secret"}),
+    )
+    .await;
+    assert!(status < 300, "{status} {group}");
+    let gid = group["id"].as_str().unwrap().to_string();
+    let (status, v) = post(
+        format!("{base}/rooms"),
+        &lead,
+        serde_json::json!({"name": "gl", "group": gid}),
+    )
+    .await;
+    assert_eq!(status, 201, "{v}");
+    drop(guard);
+    wait_for_server_shutdown(port).await;
+
+    {
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute(
+            "INSERT INTO rooms (room, mode, settings) \
+             SELECT 'gl two', mode, settings FROM rooms WHERE room = 'gl'",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO group_rooms (room, group_id, set_by, set_at) \
+             SELECT 'gl two', group_id, set_by, set_at FROM group_rooms WHERE room = 'gl'",
+            [],
+        )
+        .unwrap();
+    }
+
+    let (port, _guard) = closed_building(&db).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let master = master_session(&base).await;
+    let lead = session(&base, ("x-admin-token", &lead_key), "kaan", "user").await;
+    let other = session(&base, ("x-admin-token", &other_key), "other", "user").await;
+    let room = "gl%20two";
+
+    for (who, s) in [("master", &master), ("founder", &lead)] {
+        let (status, body) = get(format!("{base}/rooms/{room}/messages"), s).await;
+        assert_eq!(status, 200, "{who} enters the old-named group loca: {body}");
+    }
+    let (status, v) = post(
+        format!("{base}/rooms/{room}/messages"),
+        &lead,
+        serde_json::json!({"sender": "x", "sender_type": "user", "text": "old secret"}),
+    )
+    .await;
+    assert!(status < 300, "{status} {v}");
+
+    let (missing_status, missing_body) =
+        get(format!("{base}/rooms/no-such-loca/messages"), &other).await;
+    let (status, body) = get(format!("{base}/rooms/{room}/messages"), &other).await;
+    assert_eq!(
+        (status, &body),
+        (missing_status, &missing_body),
+        "an outsider gets a missing loca's answer"
+    );
+    assert_eq!(
+        get(format!("{base}/rooms/{room}/search?q=secret"), &other)
+            .await
+            .0,
+        404
+    );
+    assert_eq!(
+        get(format!("{base}/rooms/{room}/settings"), &other).await.0,
+        404
+    );
+    assert_eq!(
+        put(
+            format!("{base}/rooms/{room}/mode"),
+            &other,
+            Some(serde_json::json!({"mode": {"kind": "free"}}))
+        )
+        .await
+        .0,
+        404,
+        "an outsider must not act on it by rank"
+    );
+    let (_, rooms) = get(format!("{base}/rooms"), &other).await;
+    assert!(
+        !names_room(&rooms, "gl two"),
+        "an outsider must not list it"
+    );
+    assert!(!ws_can(port, room, &format!("session={other}")).await);
+    assert!(ws_can(port, room, &format!("session={lead}")).await);
+}

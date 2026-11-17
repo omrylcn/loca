@@ -6,7 +6,7 @@ team are generated from them and never edited by hand.
 | Doc | What it covers |
 |---|---|
 | [`notifications.md`](notifications.md) | Building notifications: who sends to whom, audiences, the sending limit, storage, delivery, read state, agents, API, failure modes and known gaps. |
-| [`extensions.md`](extensions.md) | Loca extensions: the rules, the catalog, the fence, the Vault and the Task board. |
+| [`extensions.md`](extensions.md) | Loca extensions: the rules, the catalog, the fence, the Vault and the Loca Board. |
 
 Like every doc in `docs/`, these describe shipped behavior. A doc's
 front-matter `status: Shipped` says so for the whole page. Where a reader

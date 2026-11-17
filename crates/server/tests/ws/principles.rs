@@ -500,7 +500,10 @@ async fn speech_creates_no_work_record_and_explicit_acts_do() {
 
     // Work records that already exist, so a change to one is visible: a
     // declared task, a declared wait (bot waits for ayse), a note, a Journal
-    // line. No goal and no lead yet.
+    // line. No goal and no lead yet. Tasks live on the Loca Board, which
+    // needs a Lead: it is on while the task is declared, then off again and
+    // the Lead cleared (the task is kept).
+    super::loca_board::turn_board_on(&base, MASTER, "talk", "ayse").await;
     for (path, who, body) in [
         (
             "tasks",
@@ -532,6 +535,22 @@ async fn speech_creates_no_work_record_and_explicit_acts_do() {
         .await;
         assert_eq!(status, 201, "explicit {path}: {v}");
     }
+    let (status, v) = call(
+        Method::DELETE,
+        format!("{base}/rooms/talk/extensions/board"),
+        &admin(),
+        None,
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
+    let (status, v) = call(
+        Method::POST,
+        format!("{base}/rooms/talk/lead"),
+        &admin(),
+        Some(serde_json::json!({"lead": null})),
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
     // One upload per loca, cited later by a message there.
     let mut uploads = BTreeMap::new();
     for (room, who) in [("talk", &ayse), ("crew-room", &bot), (dm.as_str(), &ayse)] {
@@ -750,6 +769,14 @@ async fn speech_creates_no_work_record_and_explicit_acts_do() {
     .await;
     assert_eq!(status, 200, "{v}");
     assert_eq!(v["lead"], "bot", "POST /lead names the lead");
+    let (status, v) = call(
+        Method::PUT,
+        format!("{base}/rooms/talk/extensions/board"),
+        &admin(),
+        None,
+    )
+    .await;
+    assert_eq!(status, 200, "{v}");
     let before_goal = snapshot(&db);
     assert!(
         before_goal["goals"].is_empty(),
@@ -1288,15 +1315,15 @@ fn route_matrix() -> Vec<(&'static str, reqwest::Method, &'static str, Option<Va
         ),
         ("notes", Method::DELETE, "/rooms/:id/notes/:key", None),
         ("notes", Method::GET, "/rooms/:id/notes/:key/history", None),
-        ("focus", Method::GET, "/rooms/:id/tasks", None),
+        ("board", Method::GET, "/rooms/:id/tasks", None),
         (
-            "focus",
+            "board",
             Method::POST,
             "/rooms/:id/tasks",
             json(serde_json::json!({"title": "probe", "by": "x"})),
         ),
         (
-            "focus",
+            "board",
             Method::PATCH,
             "/rooms/:id/tasks/:tid",
             json(serde_json::json!({"status": "done", "by": "x"})),
@@ -1382,15 +1409,6 @@ fn route_matrix() -> Vec<(&'static str, reqwest::Method, &'static str, Option<Va
             Method::PUT,
             "/rooms/:id/settings",
             json(serde_json::json!({"live": true})),
-        ),
-        // The Task board owns no route either: its door is the review state
-        // of Focus's task route, refused while it is off (tests/ws/task_board.rs).
-        // Like `live`, the fence does not cover it.
-        (
-            "board",
-            Method::PATCH,
-            "/rooms/:id/tasks/:tid",
-            json(serde_json::json!({"status": "review", "by": "x"})),
         ),
     ]
 }
@@ -1591,7 +1609,7 @@ fn every_fenced_route_is_in_the_matrix() {
             .collect();
     let mut matrix = BTreeSet::new();
     for (ext, method, template, _) in route_matrix() {
-        if ext == "live" || ext == "board" {
+        if ext == "live" {
             continue;
         }
         let segment = template
@@ -1726,9 +1744,6 @@ async fn an_extension_that_is_off_is_refused_and_outsiders_learn_nothing() {
     set_extensions(&base, "fenced", &[]).await;
     for (who, token) in [("ayse", &ayse), ("bot", &bot)] {
         for (ext, method, path, body) in routes_of("fenced") {
-            if ext == "board" {
-                continue; // no fence of its own (see `route_matrix`)
-            }
             let headers: Vec<(&str, &str)> = if ext == "live" {
                 admin().to_vec()
             } else {
@@ -1742,7 +1757,7 @@ async fn an_extension_that_is_off_is_refused_and_outsiders_learn_nothing() {
         }
     }
     // With every extension on, none of those requests meets the fence. The
-    // Task board needs a Lead to be turned on.
+    // Loca Board needs a Lead to be turned on.
     name_lead(&base, "fenced", "bot").await;
     name_lead(&base, "crew-room", "ayse").await;
     set_extensions(&base, "fenced", &all).await;
@@ -1846,8 +1861,10 @@ async fn turning_an_extension_off_closes_it_at_once_and_back_on_resurrects_nothi
     seat(&base, "busy", "ayse").await;
     seat(&base, "busy", "bot").await;
     let ayse = session(&base, ("x-room-token", &ayse_key), "ayse", "user").await;
-    // The Task board, in the catalog, needs a Lead to be turned on.
+    // The Loca Board, in the catalog, needs a Lead to be turned on; the task
+    // below is its record.
     name_lead(&base, "busy", "bot").await;
+    set_extensions(&base, "busy", &all).await;
     let mut tab = ws_as(port, "busy", "ayse", "user", &ayse).await;
     let post = |path: &'static str, token: String, body: Value| {
         let base = base.clone();
@@ -1899,7 +1916,7 @@ async fn turning_an_extension_off_closes_it_at_once_and_back_on_resurrects_nothi
     // Off, all four at once (live stays): the very next request is refused.
     set_extensions(&base, "busy", &["live"]).await;
     for (ext, method, path, body) in routes_of("busy") {
-        if ext == "live" || ext == "board" {
+        if ext == "live" {
             continue;
         }
         let (status, v) = call(method.clone(), format!("{base}{path}"), &sess(&ayse), body).await;
@@ -1910,7 +1927,7 @@ async fn turning_an_extension_off_closes_it_at_once_and_back_on_resurrects_nothi
         (
             "tasks",
             serde_json::json!({"title": "refused task", "by": "master"}),
-            "focus",
+            "board",
         ),
         (
             "goals",

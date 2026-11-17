@@ -14,12 +14,13 @@ async function fetchTasks() {
   const room = state.room;
   if (!room) return;
   try {
-    // Tasks and goals are the Focus extension; attentions and waits are care
-    // and stay on in every loca.
+    // Goals are Focus's and tasks the Loca Board's; attentions and waits are
+    // care and stay on in every loca.
     const focus = extensionOn("focus");
+    const board = extensionOn("board");
     const none = { ok: true, json: async () => [] };
     const [r, g, a, w] = await Promise.all([
-      focus ? fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/tasks`, { headers: adminHeaders({}) }) : none,
+      board ? fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/tasks`, { headers: adminHeaders({}) }) : none,
       focus ? fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/goals`, { headers: adminHeaders({}) }) : none,
       fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/attentions`, { headers: adminHeaders({}) }),
       fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/waits`, { headers: adminHeaders({}) }),
@@ -165,43 +166,20 @@ function renderTasks() {
     $("goalCard").innerHTML = `<span class="goallabel">Room goal</span><span class="goaloutcome" title="${esc(activeGoal.outcome)}">${esc(activeGoal.outcome)}</span>${proof}<span class="tacts">${acts}</span>`;
     $("goalPanelCard").innerHTML = `<span><b>${esc(activeGoal.outcome)}</b>${activeGoal.checkpoint ? `<small style="display:block;color:var(--dim);margin-top:3px">Proof: ${esc(activeGoal.checkpoint)}</small>` : ""}</span>${isLocaOperator() ? `<button data-goal-prefill>Edit with @goal</button>` : ""}`;
   }
-  $("taskCreate").classList.toggle("hidden", !mayDeclareTasks());
   // Everyone can see which reminders are active and who receives them; only
   // the master can change the rules.
   $("reminderSettings").classList.remove("hidden");
   renderReminderSettings();
+  refreshContinuityTab();
 
   const waits = Object.values(state.waits).sort((a, b) => a.waiter.localeCompare(b.waiter));
   $("waitSection").classList.toggle("hidden", waits.length === 0);
   $("waitList").innerHTML = waits.length
     ? waits.map(w => `<div class="sysline">⏳ <b>${esc(w.waiter)}</b> is waiting for <b>${esc(w.waiting_for)}</b>${w.reason ? ` — ${esc(w.reason)}` : ""}${isLocaOperator() ? ` <button data-clearwait="${esc(w.waiter)}">Clear</button>` : ""}</div>`).join("")
     : "";
-  const box = $("taskList");
-  const ids = Object.keys(state.tasks).map(Number).sort((a, b) => b - a);
-  // The board shows its four columns from the start, empty or not.
-  if (extensionOn("board")) { renderBoard(box); return; }
-  if (!ids.length) { box.innerHTML = `<div class="sysline">No explicit tasks. Most work can stay in Chat.</div>`; return; }
-  box.innerHTML = "";
-  for (const id of ids) {
-    const t = state.tasks[id];
-    const mine = t.assigned_to === state.name;
-    let acts = "";
-    if (t.status === "open" && (mine || !t.assigned_to)) acts += `<button data-tact="take" data-tid="${id}">Start</button>`;
-    if (t.status === "taken" && mine) acts += `<button data-tact="done" data-tid="${id}">Done</button>`;
-    if (isLocaOperator()) {
-      if (t.status === "open" || t.status === "taken") acts += `<button data-tact="cancel" data-tid="${id}">Remove</button>`;
-      if (t.status === "done" || t.status === "cancelled") acts += `<button data-tact="reopen" data-tid="${id}">Reopen</button>`;
-    }
-    const el = document.createElement("div");
-    el.className = "task";
-    el.innerHTML = `<span class="tid">#${id}</span>
-      <span class="ttitle">${esc(t.title)}
-        <span class="tmeta">Added by ${esc(t.created_by)}${t.assigned_to ? " · " + esc(t.assigned_to) : ""}${t.from_message ? ` · <a href="#" data-goto="${t.from_message}" style="color:var(--accent2)">source message</a>` : ""}</span>
-      </span>
-      <span class="tchip ${t.status}">${TLABEL[t.status] || t.status}</span>
-      <span class="tacts">${acts}</span>`;
-    box.appendChild(el);
-  }
+  // The tasks are the Loca Board's tab; Focus keeps one line about them.
+  renderBoardTab();
+  renderFocusBoardLine();
 }
 
 async function taskAct(act, id) {
@@ -304,6 +282,7 @@ function switchTab(tab) {
   $("tabChat").classList.toggle("active", tab === "chat");
   $("tabNotes").classList.toggle("active", tab === "notes");
   $("tabTasks").classList.toggle("active", tab === "tasks");
+  $("tabBoard").classList.toggle("active", tab === "board");
   $("tabJournal").classList.toggle("active", tab === "journal");
   $("tabWiki").classList.toggle("active", tab === "wiki");
   $("tabVault").classList.toggle("active", tab === "vault");
@@ -322,12 +301,14 @@ function switchTab(tab) {
   renderPinned(); // the pinned bar shows only on the chat tab
   $("notesPanel").classList.toggle("hidden", tab !== "notes");
   $("tasksPanel").classList.toggle("hidden", tab !== "tasks");
+  $("boardPanel").classList.toggle("hidden", tab !== "board");
   $("journalPanel").classList.toggle("hidden", tab !== "journal");
   $("memoryPanel").classList.toggle("hidden", tab !== "memory");
   $("wikiPanel").classList.toggle("hidden", tab !== "wiki");
   $("vaultPanel").classList.toggle("hidden", tab !== "vault");
   $("peoplePanel").classList.toggle("hidden", tab !== "people");
   if (tab === "tasks") { $("tasksDot").classList.remove("on"); renderTasks(); }
+  if (tab === "board") { $("boardDot").classList.remove("on"); renderTasks(); }
   if (tab === "journal") { $("journalDot").classList.remove("on"); fetchJournal(); }
   if (tab === "people") fetchPeople();
   if (tab === "memory") fetchMemory();

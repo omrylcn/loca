@@ -544,7 +544,7 @@ impl From<OperatorAssignmentError> for CreateLocaError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeadError {
     ActiveGoal,
-    /// The Task board is on: it needs a Lead.
+    /// The Loca Board is on: it needs a Lead.
     BoardOn,
     Storage,
 }

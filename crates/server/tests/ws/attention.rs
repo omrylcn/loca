@@ -885,13 +885,8 @@ async fn configured_task_goal_and_silence_checks_emit_distinct_care_reasons() {
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
     report_ready_runtime(&client, &base, "bigmaster", "lead").await;
-    client
-        .post(format!("{base}/rooms/proj/lead"))
-        .header("x-admin-token", "bigmaster")
-        .json(&serde_json::json!({ "lead": "lead" }))
-        .send()
-        .await
-        .unwrap();
+    // Focus (the goal) and the Loca Board (the task), with its Lead.
+    super::loca_board::turn_board_on(&base, "bigmaster", "proj", "lead").await;
     client
         .put(format!("{base}/rooms/proj/settings"))
         .header("x-admin-token", "bigmaster")

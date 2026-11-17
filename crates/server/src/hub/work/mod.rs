@@ -14,7 +14,7 @@ pub enum TaskError {
     NotFound,
     /// The house rules: agents take/finish their own; operators do the rest.
     Forbidden,
-    /// The review state was asked for while the Task board is off.
+    /// The review state was asked for while the Loca Board is off.
     BoardOff,
     /// A no-go without a reason.
     ReasonRequired,
@@ -29,6 +29,9 @@ pub enum GoalError {
     ActiveExists,
     LeadRequired,
     InvalidTasks,
+    /// A goal closed by its tasks set up while the Loca Board, which serves
+    /// the tasks, is off: they could not move, so it could not close.
+    BoardOff,
     Storage,
 }
 

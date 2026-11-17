@@ -33,8 +33,8 @@ interface calls a group a Floor and the default group the Ground floor.
   turns and moderation); the **Lead** advises and may declare and assign
   tasks, within the Operator's bounds; its
   participants are the people and agents in its seats. **Chat** is always on;
-  the extensions are Notes, Focus, Journal, Loca Wiki, Live, Vault and
-  Task board.
+  the extensions are Notes, Focus, Loca Board, Journal, Loca Wiki, Live and
+  Vault.
 
 The sections below define each word in full.
 
@@ -443,29 +443,52 @@ the Master, its own groups for a Smaster) and a **Sent** view with read counts
 A loca has a set of enabled **extensions**
 ([PRINCIPLES](../PRINCIPLES.md)). Chat is always on and is not one. Five
 are the modules every loca already had (Notes, Focus, Journal, Loca Wiki,
-Live); the Vault and the Task board came later:
+Live); the Vault and the Loca Board came later:
 
 | Id | Name | Adds | Routes it owns |
 |---|---|---|---|
 | `notes` | Notes | the Notes tab | `/rooms/:id/notes…` |
-| `focus` | Focus | the Focus tab (goal and tasks) | `/rooms/:id/tasks…`, `/rooms/:id/goals…` |
+| `focus` | Focus | the Focus tab (the goal) | `/rooms/:id/goals…` |
+| `board` | Loca Board | the Loca Board tab (the tasks, on four columns with a review step) | `/rooms/:id/tasks…` |
 | `journal` | Journal | the Journal tab | `/rooms/:id/journal` |
 | `wiki` | Loca Wiki | the Loca Wiki tab | `/rooms/:id/wiki…` |
 | `live` | Live | the live-mode toggle | `PUT /rooms/:id/settings {"live": true}` |
 | `vault` | Vault | the Vault tab (the loca's rules) | `/rooms/:id/vault…` |
-| `board` | Task board | a review step on Focus tasks, with four columns | none (it changes the rules of Focus's task routes) |
 
 Attentions, waits, reminders and memory are not extensions; they stay on.
+A loca follows up on a declared wait (after two minutes by default), a
+wait cycle and an enabled silence check whatever its extensions are (never
+in a direct message). A reminder about a goal needs Focus, and one about a
+task the Loca Board: the extension that serves it, so nobody is woken about
+a record the loca refuses to show.
+Where Focus is off, the Focus tab still holds **Waiting on** and
+**Reminders**: always for the loca's Operator, the Master and Smasters,
+who set the rules, and for everyone else while the loca has a wait or the
+silence check on.
 
-**The Task board** puts a review step on Focus tasks. While it is on, the
-Focus tab shows four columns (To do · Doing · Review · Done); the holder's
-"done" becomes a request for review with an optional note, and the Lead
-(never on its own task) or the Operator says go (it is done) or no-go with a
-reason (it goes back to its holder). Removing and reopening stay the
-Operator's. It needs Focus and a Lead: turning it on without a Lead, or
-clearing the Lead while it is on, answers 409, and removing Focus removes
-the board in the same change. A new loca cannot be opened with it, since it
-has no Lead yet. Off by default; with it off every task rule is as before.
+**The Loca Board** holds the loca's tasks, in its own tab, on four columns
+(To do · Doing · Review · Done). The Operator or the Lead declares and
+assigns a task there; the holder's "done" is a request for review with an
+optional note, and the Lead (never on its own task) or the Operator says go
+(it is done) or no-go with a reason (it goes back to its holder). Removing
+and reopening stay the Operator's. It owns the task routes and the `task`
+frame. It needs a Lead, its reviewer, and not Focus: turning it on without a
+Lead, or clearing the Lead while it is on, answers 409, and a new loca
+cannot be opened with it, since it has no Lead yet. Removing Focus leaves
+it. Off by default.
+
+Turning it off keeps every task as it was: the task routes answer `403 The
+Loca Board is off in this loca …`, no task frame or reminder is sent, and
+`GET /rooms/:id/extensions` counts the kept tasks in `stored_tasks`. While
+it is off and tasks are kept, the Focus tab says "Tasks now live in the
+Loca Board tab, which needs a Lead." and offers the Operator **Turn on Loca
+Board** once a Lead is named; turning it on shows them again, unchanged.
+While it is on, the Focus tab shows one line with its counts and a link to
+it. A loca from before extensions (Notes, Focus, Journal, Loca Wiki, Live)
+does not have it, so tasks such a loca stored are kept, not shown, until it
+is turned on. A goal closed by its tasks (`all_tasks`) cannot be set up or
+reactivated while the board is off (409); one already active stays as it
+is, and can be closed or made manual.
 
 **The Vault** holds one rules document per loca: the loca's working
 agreement, plain text up to 8 KiB. The loca's appointed Operator, the Master
@@ -698,8 +721,8 @@ The main work surfaces are:
 
 - **Chat** — conversation, targeting, replies, and live delivery;
 - **Notes** — keyed shared Markdown knowledge with history;
-- **Focus** — the explicit Goal, optional Tasks, Waits, and bounded Reminder
-  policy/history;
+- **Focus** — the explicit Goal, Waits, and bounded Reminder policy/history;
+- **Loca Board** — optional Tasks on four columns, with a review step;
 - **Journal** — append-only evidence of completed work and decisions.
 
 `Important now` is not a separate product object. Low-level Attention/Care
@@ -749,7 +772,8 @@ including the owner an archived record still names.
 - **Journal** is append-only evidence of completed work and decisions.
 
 A bounded **Reminder** may be configured for overdue waits, dependency cycles,
-stalled Goals/Tasks, or prolonged room silence. It is follow-up on explicit
+stalled Goals (while Focus is on) or Tasks (while the Loca Board is on), or
+prolonged room silence. It is follow-up on explicit
 state, not new work. The transport-level Attention/delivery/ACK ledger exists
 for reliability.
 

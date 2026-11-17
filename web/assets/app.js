@@ -315,6 +315,7 @@ $("lobbyList").onclick = (e) => {
   };
 })();
 $("tabTasks").onclick = () => switchTab("tasks");
+$("tabBoard").onclick = () => switchTab("board");
 $("tabJournal").onclick = () => switchTab("journal");
 $("tabPeople").onclick = () => switchTab("people");
 $("tkCreate").onclick = async () => {
@@ -598,11 +599,42 @@ $("server").addEventListener("change", () => {
   refreshRooms();
 });
 let authRetryTimer = null;
+// A held session that cannot be checked is kept and retried: a server that is
+// down is not a sign-out. But the address may be the wrong one (the server
+// moved), and the sign-in page with its server field stays hidden while the
+// session is held. So the line names the address and offers the way out:
+// sign out here and enter another one. The session belongs to the server it
+// came from and is never sent to the new address. Loca Host has only its own
+// server, so it has no other address to offer.
 function showAuthUnavailable() {
   document.body.classList.add("auth-pending");
-  $("doorline").textContent = "connection unavailable — keeping your session and retrying…";
+  const line = $("doorline");
+  const words = `connection unavailable at ${serverBase()} — keeping your session and retrying…`;
+  // Each retry says it again; the button stays the same element, so a click
+  // or keyboard focus on it is not lost to the next retry.
+  const kept = $("authOtherServer");
+  if (kept && kept.parentNode === line && line.firstChild?.nodeType === Node.TEXT_NODE) {
+    line.firstChild.textContent = words;
+  } else {
+    line.textContent = words;
+    if (window.__LOCA_LOCK_SERVER__ !== true) {
+      const other = document.createElement("button");
+      other.type = "button";
+      other.id = "authOtherServer";
+      other.textContent = "sign out and use another server";
+      other.addEventListener("click", useAnotherServer);
+      line.append(document.createElement("br"), other);
+    }
+  }
   if (authRetryTimer) clearTimeout(authRetryTimer);
   authRetryTimer = setTimeout(bootstrapIdentity, 2000);
+}
+async function useAnotherServer() {
+  if (authRetryTimer) { clearTimeout(authRetryTimer); authRetryTimer = null; }
+  await signOutHere();
+  document.body.classList.remove("auth-pending");
+  showServerUnreachable();
+  $("server").focus();
 }
 
 async function bootstrapIdentity() {
@@ -625,7 +657,14 @@ async function bootstrapIdentity() {
   // personal (the hidden and pinned sidebar, one's own appearance) is kept by
   // principal. Learn it now: otherwise everything one has hidden is listed,
   // in the default look, until a loca is entered.
-  else await fetchProfile();
+  else {
+    await fetchProfile();
+    // What a door sign-in starts (api.js doConnect): the Building's facts
+    // (its caretakers, a new build to reload into), the loca list kept fresh
+    // and an owed renewal retried. A page restored from a stored session
+    // never passes the door, and went without all of it.
+    startHealthPoll();
+  }
   await refreshRooms();
 }
 // A Loca Host whose own server did not start has nothing to sign in to: the

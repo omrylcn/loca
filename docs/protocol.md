@@ -461,7 +461,8 @@ every change is journaled.
   `default_on_new`, optional `tab_key` — the `data-tab` of the extension's tab
   in the web page, absent when it adds no tab — and the new-loca `defaults`);
   `GET /rooms/:id/extensions` (`enabled`, `catalog`, `can_manage`,
-  `birebir`); `GET /rooms/:id/settings`.
+  `birebir`, and `stored_tasks`: how many tasks the loca holds, served or
+  kept while the Loca Board is off; a count only); `GET /rooms/:id/settings`.
   The server sends no `settings` frame on connect, so a client reads one of
   these after connecting.
 - **Change:** `PUT /rooms/:id/extensions {"enabled": [...]}`,
@@ -472,7 +473,9 @@ every change is journaled.
   turning the Journal off pushes no Journal line, and the line is read from
   `GET /rooms/:id/journal` once the Journal is on again.
 - **Refusal:** every route an extension owns answers 403 with `this extension
-  is off in this loca: <id> (<name>)…` for reads and writes alike.
+  is off in this loca: <id> (<name>)…` for reads and writes alike. The Loca
+  Board's says so first: `The Loca Board is off in this loca — this extension
+  is off in this loca: board (Loca Board). …`.
 - **Loca product:** the extension ids and what each one adds (see
   [concepts](concepts.md#loca-extensions)). Core is the mechanism: an enabled
   set in the loca's settings, a catalog, server-side refusal, and an
@@ -495,7 +498,12 @@ labels, all optional and all additive on the wire.
   loca's answers 409: `my_loca` while `my-loca` exists. Keys are compared
   without regard to case (on Windows the kit's environment keeps one variable
   for `DAVET_Proj` and `DAVET_proj`). The 409 does not name the other loca:
-  the caller may not be allowed to know that it exists. A name whose key
+  the caller may not be allowed to know which loca it is. That the name is
+  taken is not hidden and cannot be: loca names are one namespace across the
+  Building, so whoever may open a loca (the Master, a Smaster) learns from a
+  409, here or for the exact name, that some loca holds the name or its key,
+  also one in a group the caller does not see. Nothing more: not which loca,
+  its group, title, members or messages. A name whose key
   begins `bb_` (the key of a private conversation's id) answers 400 whether
   or not such a conversation exists, so the answer tells nobody that one
   does. The rule holds for `POST /rooms`, the target of `ROOM_RENAME` (the
@@ -619,20 +627,24 @@ that wakes the assignee.
   to @<assignee>.`, or `Lead <by> assigned …` when the Lead made it. The
   title is left out, so an `@name` in it wakes nobody.
 
-- **Task board** (`board` extension, off by default; it owns no route).
-  While it is on: `TaskStatus` `review` exists; the holder's `"status":
+- **Loca Board** (`board` extension, off by default). It owns the task
+  routes (`/rooms/:id/tasks…`) and the `task` frame; Focus keeps the goal
+  routes. With it off every task route answers the refusal of section 5 and
+  every task is kept. The holder's `"status":
   "done"` (or `"review"`) on an `open` or `taken` task moves it to `review`,
   with an optional `"note"` stored as `review_note`; the Lead (not on a task
   it holds) or an operator answers with `"status": "done"` (go) or
   `"status": "taken"` with a required `"reason"` (no-go, stored as
   `review_reason`; 400 without one). Note and reason are at most 2000
   characters (400). Finishing without a review and taking finished work back
-  are an operator's; removing and reopening stay an operator's. With the
-  board off, `"status": "review"` gets the extension refusal (403 `this
-  extension is off in this loca: board (Task board)…`, section 5) and every
-  other rule is as above. Turning it on without a Lead, or without Focus, answers 409;
-  `POST /rooms/:id/lead {"lead": null}` while it is on answers 409; removing
-  Focus removes it in the same change; `POST /rooms` with it answers 409.
+  are an operator's; removing and reopening stay an operator's. Turning it on
+  without a Lead answers 409; `POST /rooms/:id/lead {"lead": null}` while it
+  is on answers 409; `POST /rooms` with it answers 409. It does not need
+  Focus, and removing Focus leaves it. While it is off, `POST
+  /rooms/:id/goals` with `"completion": "all_tasks"`, and a `PATCH` that
+  sets one up or reactivates one, answer 409 (`a goal closed by its tasks
+  needs the Loca Board on …`); closing such a goal or making it manual does
+  not.
 - **Board lines** (`announce` from `loca`): a request for review, `<by> asks
   @<lead> to review task #N.` (target the Lead); a no-go, `<by>: task #N is
   not done yet, back to @<holder> (the reason is on the task).` (target the

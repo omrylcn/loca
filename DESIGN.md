@@ -180,8 +180,9 @@ ve grubu olmayan Loca varsayılan gruptadır.
 ### Loca eklentileri
 
 Eklenti, server içinde yazılmış ve test edilmiş bir yeteneğin Loca başına
-açılıp kapatılmasıdır; kod yüklenmez. Bugünkü katalog: Notes, Focus (Goal ve
-Tasks), Journal, Loca Wiki, Live. Chat her zaman açıktır.
+açılıp kapatılmasıdır; kod yüklenmez. Bugünkü katalog: Notes, Focus (Goal),
+Loca Board (Tasks; bir Lead ister), Journal, Loca Wiki, Live, Vault. Chat her
+zaman açıktır. Wait ve Reminder eklenti değildir, her Loca'da açıktır.
 
 - Kapalı eklenti gizlenmez, server tarafından reddedilir; kayıtları silinmez.
 - Kümeyi Loca'nın Operator'ı, Master ve Smaster değiştirir; değişiklik
@@ -190,7 +191,7 @@ Tasks), Journal, Loca Wiki, Live. Chat her zaman açıktır.
 
 `PRINCIPLES.md` şunları da tanımlar; bu sürümde yoktur ve burada uygulama
 taahhüdü olarak okunmaz: Loca açıklaması, Vault'un AGENT.md, skill ve hook
-kısımları, Loca kartı ve görev panosu. Vault'un ilk parçası olan Loca
+kısımları ve Loca kartı. Görev panosu `board` eklentisi (Loca Board) olarak vardır. Vault'un ilk parçası olan Loca
 kuralları belgesi `vault` eklentisi olarak vardır: onu locanın Operator'ı,
 Master ve Smaster'lar yazar, locada oturan herkes okur, agent'lar dahil;
 bilgilendirir, emretmez.
@@ -260,8 +261,9 @@ Görünür ana sekmeler:
 
 - **Chat** — konuşma, target, reply ve canlı teslimat;
 - **Notes** — shared keyed Markdown bilgisi;
-- **Focus** — tek Goal, optional Tasks, explicit Waits ve bounded Reminder
-  policy/history;
+- **Focus** — tek Goal, explicit Waits ve bounded Reminder policy/history;
+- **Loca Board** — Tasks: dört sütun (To do · Doing · Review · Done), Lead
+  ya da Operator incelemesi;
 - **Journal** — append-only tamamlanan iş/karar kaydı.
 
 `Important now` ayrı ürün kavramı değildir. Transport-level `Attention`, Care

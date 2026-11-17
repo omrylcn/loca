@@ -514,12 +514,14 @@ function onFrame(f, from) {
     if (leadChanged) { repaintFeed(); renderMembers(); fetchProfile(); }
     if (titleChanged) renderRooms();
     // Who may declare and assign tasks follows the Lead (board.js).
-    if (state.tab === "tasks") renderTasks();
+    if (state.tab === "tasks" || state.tab === "board") renderTasks();
   }
   else if (f.t === "typing") { onTyping(f.name, f.on); }
   else if (f.t === "task") {
     state.tasks[f.task.id] = f.task;
-    if (state.tab === "tasks") renderTasks(); else $("tasksDot").classList.add("on");
+    // The board, and the counts Focus shows of it.
+    renderTasks();
+    if (state.tab !== "board") $("boardDot").classList.add("on");
     refreshTaskBadges();
   }
   else if (f.t === "goal") {
@@ -556,6 +558,7 @@ function onFrame(f, from) {
   }
   else if (f.t === "wait") {
     if (f.wait) state.waits[f.waiter] = f.wait; else delete state.waits[f.waiter];
+    refreshContinuityTab();
     if (state.tab === "tasks") renderTasks();
   }
   else if (f.t === "care") {

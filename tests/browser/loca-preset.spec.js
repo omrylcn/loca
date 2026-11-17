@@ -103,7 +103,10 @@ test("Lounge fills chat only, every seat and the chat icon; the loca opened has 
   // Chat only means the server refuses the extensions, not only the tabs.
   expect((await request.get("/rooms/preset-lounge/wiki", { headers: MASTER })).status()).toBe(403);
   expect((await request.get("/rooms/preset-lounge/notes", { headers: MASTER })).status()).toBe(403);
-  await expect.poll(() => page.locator(".tabs [role=tab]:visible").allTextContents()).toEqual(["Chat"]);
+  // No extension tab. Its creator runs it, so Focus's tab stays for them
+  // with Waiting on and Reminders only (Wait and Reminder are core).
+  await expect.poll(() => page.locator(".tabs [role=tab]:visible").allTextContents()).toEqual(["Chat", "Focus"]);
+  await expect(page.locator("#focusGoalSection")).toBeHidden();
   await page.close();
 });
 

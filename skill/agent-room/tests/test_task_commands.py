@@ -12,6 +12,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 SKILL_DIR = Path(__file__).resolve().parents[1]
 CONNECT = SKILL_DIR / "connect.sh"
 
+# The server's answer on every task route while the loca's Loca Board is off.
+BOARD_OFF = (b"The Loca Board is off in this loca \xe2\x80\x94 this extension is off in this loca: "
+             b"board (Loca Board). Its tasks are kept; the loca's operator, the Master or a "
+             b"Smaster can turn it on, and it needs a Lead.")
+
 INVITE = "dv_reviewerTASKFIXTURE"
 SESSION = "st_reviewerTASKFIXTURE"
 
@@ -38,6 +43,7 @@ class TaskCommandTest(unittest.TestCase):
         self.patch_401_once = False
         self.post_status = 201
         self.post_body = b"{}"
+        self.board_off = False
         self.seen = []
         case = self
 
@@ -64,6 +70,8 @@ class TaskCommandTest(unittest.TestCase):
                 })
                 if self.command == "POST" and self.path == "/sessions":
                     return self._send(201, json.dumps({"session_token": SESSION}).encode())
+                if case.board_off and self.path.startswith("/rooms/sb-dev/tasks"):
+                    return self._send(403, BOARD_OFF)
                 if self.command == "GET" and self.path == "/rooms/sb-dev/tasks":
                     return self._send(200, json.dumps(TASKS).encode())
                 if self.command == "POST" and self.path == "/rooms/sb-dev/tasks":
@@ -178,6 +186,23 @@ class TaskCommandTest(unittest.TestCase):
                     self.assertIn("not changed", result.stderr.lower())
                     self.assert_no_secret(result)
 
+    def test_with_the_loca_board_off_every_task_command_says_so_and_exits_4(self):
+        self.board_off = True
+        for args in (
+            ["tasks", self.origin, "sb-dev"],
+            ["tasks", self.origin, "sb-dev", "--mine", "reviewer"],
+            ["task", self.origin, "sb-dev", "2"],
+            ["task-take", self.origin, "sb-dev", "reviewer", "1"],
+            ["task-done", self.origin, "sb-dev", "reviewer", "3"],
+            ["task-new", self.origin, "sb-dev", "reviewer", "write the note"],
+        ):
+            with self.subTest(command=args[0], args=args[3:]):
+                result = self.run_connect(*args)
+                self.assertEqual(result.returncode, 4, result.stderr)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("The Loca Board is off in this loca", result.stderr)
+                self.assert_no_secret(result)
+
     def test_a_dead_session_is_renewed_once_and_the_change_retried(self):
         self.patch_401_once = True
         self.patch_body = b'{"id": 3, "status": "done"}'
@@ -282,7 +307,7 @@ class LeadTaskCommandTest(TaskCommandTest):
 
 
 class BoardTaskCommandTest(LeadTaskCommandTest):
-    """The Task board: task-done with a note asks for review; task-go and
+    """The Loca Board: task-done with a note asks for review; task-go and
     task-nogo are the review, with the same refusal contract."""
 
     for _inherited in [name for name in vars(LeadTaskCommandTest) if name.startswith("test_")]:

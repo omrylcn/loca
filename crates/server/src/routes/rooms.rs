@@ -42,7 +42,7 @@ pub(crate) async fn create_loca_route(
     }
     let extensions = match body.extensions.as_deref().map(hub::normalize_extensions) {
         None => None,
-        // A new loca has no Lead yet, so it cannot open with the Task board.
+        // A new loca has no Lead yet, so it cannot open with the Loca Board.
         Some(Ok(list)) if list.iter().any(|id| id == "board") => {
             let error = hub::ExtensionError::BoardNeedsLead;
             return (StatusCode::CONFLICT, error.message()).into_response();
@@ -332,7 +332,7 @@ pub(crate) async fn set_lead(
             .into_response(),
         Err(LeadError::BoardOn) => (
             StatusCode::CONFLICT,
-            "the Task board needs a Lead — transfer the Lead or turn the board off first",
+            "the Loca Board needs a Lead — transfer the Lead or turn the Loca Board off first",
         )
             .into_response(),
         Err(LeadError::Storage) => (
