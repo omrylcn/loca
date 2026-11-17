@@ -13,6 +13,7 @@ mod extensions;
 mod groups;
 mod identity;
 mod keys;
+pub mod kit_version;
 pub mod loca_name;
 mod notifications;
 mod profile_card;
@@ -142,6 +143,10 @@ struct Room {
     /// full name and icon (`Hub::prove_seat`); a seat taken by typing a name
     /// has no entry and shows its plain name.
     seat_principals: HashMap<String, String>,
+    /// seat identity -> (the connection that sent it, the kit version it
+    /// sent). Shown only while that connection holds the seat
+    /// (`kit_version.rs`).
+    seat_kits: HashMap<String, (u64, kit_version::KitVersion)>,
     /// Living notes, keyed by `Note::key`.
     notes: HashMap<String, Note>,
     /// What has already been done here, oldest first. Append-only: entries are
@@ -186,6 +191,7 @@ impl Room {
             tx,
             members: HashMap::new(),
             seat_principals: HashMap::new(),
+            seat_kits: HashMap::new(),
             notes: HashMap::new(),
             journal: Vec::new(),
             next_journal_id: 1,
@@ -225,6 +231,7 @@ impl Room {
                     icon: card.and_then(|c| c.icon.clone()),
                     avatar_color: card.and_then(|c| c.avatar_color.clone()),
                     avatar_shape: card.and_then(|c| c.avatar_shape.clone()),
+                    kit_version: self.seat_kit_version(identity).map(|v| v.to_string()),
                 }
             })
             .collect();
@@ -375,6 +382,8 @@ pub struct Hub {
     /// count (rather than a set) keeps presence correct while one identity is
     /// reconnecting.
     lobby_online: Arc<Mutex<HashMap<String, usize>>>,
+    /// The kit version each live Lobby connection sent (`kit_version.rs`).
+    lobby_kits: Arc<Mutex<kit_version::LobbyKits>>,
     /// Adapter health is ephemeral and deliberately separate from transport
     /// presence. Heartbeats never become membership or room history.
     runtime_health: Arc<Mutex<HashMap<String, RuntimeRecord>>>,
@@ -911,6 +920,7 @@ impl Hub {
             name_claims: Arc::new(Mutex::new(())),
             moderation_ranks: Arc::new(Mutex::new(HashMap::new())),
             lobby_online: Arc::new(Mutex::new(HashMap::new())),
+            lobby_kits: Arc::new(Mutex::new(HashMap::new())),
             runtime_health: Arc::new(Mutex::new(HashMap::new())),
             care_deliveries: Arc::new(Mutex::new(HashMap::new())),
             home_room: Arc::new(home_room),

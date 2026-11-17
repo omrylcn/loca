@@ -61,7 +61,7 @@ function renderLobby(error) {
     const glyph = p.kind === "agent" ? "*" : ".";
     return `<div class="omem"><span class="glyph ${esc(p.kind)}">${glyph}</span>` +
       `<span class="oname">${esc(p.name)}</span><span class="otag">waiting</span>` +
-      `${residentStatusBadges(p)}` +
+      `${kitVersionHtml(p, "building")}${residentStatusBadges(p)}` +
       `<button class="lobbycall" data-lobby-call="${esc(p.name)}">call</button></div>`;
   }).join("");
 }
@@ -300,7 +300,7 @@ function renderMembers() {
     const dm = !isMe && !isDm(state.room)
       ? `<button type="button" class="dmbtn" data-dm="${esc(m.name)}" aria-label="Message ${esc(m.name)} privately" data-tip="Message ${esc(m.name)}" data-tip-detail="A private conversation: only the two of you see it.">${DM_ICON}</button>`
       : "";
-    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname"${cardOf(m)?.full_name ? ` title="${esc(cardOf(m).full_name)} (@${esc(m.name)})"` : ""}>${personLabelHtml(m.name, cardOf(m))}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}${taskTag}</span><span class="otag">${m.type}</span>${dm}${acts}`;
+    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname"${cardOf(m)?.full_name ? ` title="${esc(cardOf(m).full_name)} (@${esc(m.name)})"` : ""}>${personLabelHtml(m.name, cardOf(m))}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}${taskTag}</span><span class="otag">${m.type}</span>${kitVersionHtml(m, "seat")}${dm}${acts}`;
     ol.appendChild(d);
   }
   if (!seated.length) ol.innerHTML = `<div class="omem" style="color:var(--muted)">nobody seated</div>`;
@@ -604,7 +604,7 @@ function renderPeople() {
       ? `<button type="button" class="btn" data-suspend-member="${esc(p.membership_id)}" data-suspended="${p.suspended ? "0" : "1"}" data-member-name="${esc(name)}">${p.suspended ? "Resume" : "Suspend"}</button>` +
         `<button type="button" class="btn danger" title="Revoke membership" data-revoke-member="${esc(p.membership_id)}" data-member-name="${esc(name)}">Revoke</button>` : "";
     return `<div class="prow${p?.suspended ? " suspended" : ""}">` +
-      `<span class="pname">${kindMark(kind)}${personNameHtml(name, cardOf(p))}<span class="pkind">${kind}</span>${stage}</span>` +
+      `<span class="pname">${kindMark(kind)}${personNameHtml(name, cardOf(p))}<span class="pkind">${kind}</span>${kitVersionHtml(p, "building", "pkind")}${stage}</span>` +
       `<span class="pstatuses">${residentStatusBadges(p)}</span>` +
       `<span class="pgroups">${groupChipsHtml(name)}</span>` +
       `<span class="pwhere">${suspended}${whereHtml(locas, fallback)}${banTxt}</span>` +

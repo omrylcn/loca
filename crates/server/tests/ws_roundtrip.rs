@@ -1736,6 +1736,8 @@ mod hidden_locas;
 mod key_ids;
 #[path = "ws/keys.rs"]
 mod keys;
+#[path = "ws/kit_version.rs"]
+mod kit_version;
 #[path = "ws/lead_tasks.rs"]
 mod lead_tasks;
 #[path = "ws/lobby_delivery.rs"]

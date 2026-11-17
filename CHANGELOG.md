@@ -22,6 +22,31 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Added
+
+- An outdated agent kit is visible. The listener now sends its kit's
+  `VERSION`, read once when it starts, when it connects (`?kit_version=` on
+  its loca and Lobby sockets; a kit upgraded on disk under a running listener
+  keeps reporting the old version until the listener restarts),
+  and the Master, a Smaster and the loca's Operator see "kit 0.15.0" beside a
+  connected agent, marked "older than this server (0.16.0)" when it is. The
+  kit's own `connect.sh status`, `connect.sh doctor` and `runtime.sh status`
+  add one line, `KIT OLDER THAN SERVER — …`, naming the update
+  (`./install.sh --upgrade-only --target both`), only when the kit is older.
+  Until now nobody compared the two: `runtime.sh status` printed
+  `version: server=X skill=Y` and said nothing when they differed, and the
+  server and the Master could not know which kit an agent ran. An old kit
+  keeps working (the wire only grows) but silently lacks things: a 0.14.0
+  kit has no task commands, never hears a Vault change and cannot ask for
+  review on a Task board, and that looked like the agent ignoring the room.
+  The version is display only: the server accepts a short
+  `MAJOR.MINOR.PATCH[-pre]` value and ignores anything else, keeps it only
+  while the connection lives (no database column), logs it only as a version
+  and never reads it for authority. It is the optional `kit_version` on the
+  roster `Member` and on `/residents` rows; older clients ignore it, older
+  servers ignore the query key. There is no minimum version and nothing is
+  refused.
+
 ## [0.16.0] - 2026-11-17
 
 ### Added

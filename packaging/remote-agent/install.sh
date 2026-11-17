@@ -90,7 +90,7 @@ fi
 
 # Validate the runtime before backing up/replacing any installed skill. A
 # readable SKILL.md alone does not make onboarding or monitoring usable.
-for required in connect.sh credentials.py portable_lock.py join_request.py \
+for required in connect.sh credentials.py portable_lock.py join_request.py kit_version.py \
   listen.py monitor_listener.py runtime.sh runtime_agent.py runtime_consumer.py \
   codex_rpc.py attention_store.py codex_adapter_v2.py orchestrator_queue.py \
   stop_listener.py setup.ps1 references/runtimes.md; do

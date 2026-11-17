@@ -190,6 +190,10 @@ The installer keeps a timestamped backup outside skill discovery at
 Upgrade and rollback do not restart listeners. Restart exactly one selected
 runtime adapter afterward; never run the old and new listener together.
 
+`loca-status` (and `connect.sh status` / `doctor`) prints one line,
+`KIT OLDER THAN SERVER — kit X, server Y: …`, when the installed kit is older
+than the server it talks to; that is the time for `--upgrade-only`.
+
 ## Uninstall an agent
 
 First ask the Building operator to revoke this identity's membership. Local

@@ -345,6 +345,8 @@ SKILL_DIR/connect.sh status "$SERVER" "$NAME"
 
 `status` checks the identity, not the listener: confirm the listener with
 `doctor`.
+A `KIT OLDER THAN SERVER` line from `status`, `doctor` or `runtime.sh status`
+means this kit lacks what the server added: tell the operator; it names the update.
 
 ### First time on a server: `setup`
 

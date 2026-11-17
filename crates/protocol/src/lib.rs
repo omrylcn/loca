@@ -105,6 +105,12 @@ pub struct Member {
     pub avatar_color: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar_shape: Option<String>,
+    /// The agent kit version this seat's live connection sent when it
+    /// connected (`MAJOR.MINOR.PATCH`, validated by the server). Display only,
+    /// never an authority; absent for a browser, an older kit, or once that
+    /// connection is gone. Older clients ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kit_version: Option<String>,
 }
 
 /// Body of `POST /rooms/{id}/messages`. The server fills in `id`/`ts`/`room`.
@@ -1587,6 +1593,11 @@ pub struct Resident {
     /// can be online while the model adapter behind that socket is dead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<RuntimeHealth>,
+    /// The agent kit version a live connection of this member sent (its
+    /// Lobby socket or a seat; the oldest when they differ). Display only;
+    /// absent while nothing that sent one is connected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kit_version: Option<String>,
 }
 
 /// Ephemeral, server-timestamped health of the adapter behind an agent socket.

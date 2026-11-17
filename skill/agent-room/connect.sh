@@ -243,6 +243,14 @@ _var() { printf '%s' "$1" | tr -c 'A-Za-z0-9_' '_'; }
 # Normalize every raw-text read centrally so comparisons, credentials and
 # array entries never retain a trailing carriage return.
 _jq_raw() { jq -r "$@" | tr -d '\r'; }
+# One line when this kit is older than the server version $1 (kit_version.py);
+# nothing otherwise, and never a failure.
+_kit_notice() {
+  if [ -n "${LOCA_KIT_NOTICE_SHOWN:-}" ] || [ ! -f "$SCRIPT_DIR/kit_version.py" ]; then
+    return 0
+  fi
+  python3 "$SCRIPT_DIR/kit_version.py" notice "${1:-}" 2>/dev/null || true
+}
 
 cmd="${1:-}"; shift || true
 
@@ -624,6 +632,9 @@ case "$cmd" in
     else
       echo "LOBBY — '$who' membership is valid; no loca invite is active. Start your listener so the Master's call can reach you over the Lobby socket."
     fi
+    # runtime.sh status has said it already: no second /health request.
+    [ -n "${LOCA_KIT_NOTICE_SHOWN:-}" ] \
+      || _kit_notice "$(curl -sS -m 5 "$server/health" 2>/dev/null | _jq_raw '.version // empty' 2>/dev/null || true)"
     ;;
 
   reconnect)
@@ -1617,6 +1628,7 @@ print(json.dumps(tasks, ensure_ascii=False))' "$mine"
     echo "── server ──"
     if h=$(curl -sS -m 5 "$server/health" 2>/dev/null); then
       echo "  ok: $h"
+      _kit_notice "$(printf '%s' "$h" | _jq_raw '.version // empty' 2>/dev/null)"
     else
       echo "  UNREACHABLE: $server"
       port=$(printf '%s' "$server" | sed -E 's#.*:([0-9]+).*#\1#')

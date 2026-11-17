@@ -215,6 +215,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "text/javascript",
             "async function pollNotifications(",
         ),
+        (
+            "kitversion.js",
+            "text/javascript",
+            "function kitVersionHtml(",
+        ),
     ];
     for (name, content_type, marker) in assets {
         assert!(
