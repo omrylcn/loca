@@ -1517,6 +1517,9 @@ fn fence_segments() -> BTreeMap<String, String> {
 /// reminders and memory are not extensions). `""` is `/rooms/:id` itself.
 const CORE_LOCA_SEGMENTS: &[&str] = &[
     "",
+    // The Master's archive and delete of a closed loca: its lifecycle, as a
+    // seal (`""`) is, whatever extensions it has.
+    "archive",
     "attachments",
     "attentions",
     "call",
@@ -1532,6 +1535,7 @@ const CORE_LOCA_SEGMENTS: &[&str] = &[
     "moderate",
     "operators",
     "reactions",
+    "records",
     "release",
     "search",
     "settings",

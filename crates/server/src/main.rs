@@ -98,6 +98,7 @@ const WEB_WIKI: &str = include_str!("../../../web/assets/wiki.js");
 const WEB_VAULT: &str = include_str!("../../../web/assets/vault.js");
 const WEB_BOARD: &str = include_str!("../../../web/assets/board.js");
 const WEB_CONTINUITY: &str = include_str!("../../../web/assets/continuity.js");
+const WEB_LOCA_DELETE: &str = include_str!("../../../web/assets/locadelete.js");
 const WEB_PROFILE: &str = include_str!("../../../web/assets/profile.js");
 const WEB_THEME: &str = include_str!("../../../web/assets/theme.js");
 const WEB_SIDEBAR: &str = include_str!("../../../web/assets/sidebar.js");
@@ -574,6 +575,11 @@ async fn main() {
         )
         .route("/rooms/:id/moderate", get(get_mod).post(moderate))
         .route("/rooms/:id", axum::routing::delete(delete_room))
+        .route("/rooms/:id/archive", get(loca_archive))
+        .route(
+            "/rooms/:id/records",
+            axum::routing::delete(delete_loca_records),
+        )
         .route("/rooms/:id/invites", get(list_invites).post(create_invite))
         .route(
             "/rooms/:id/invites/:token",
@@ -825,6 +831,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "focus.js" => Some(("text/javascript; charset=utf-8", WEB_FOCUS)),
         "board.js" => Some(("text/javascript; charset=utf-8", WEB_BOARD)),
         "continuity.js" => Some(("text/javascript; charset=utf-8", WEB_CONTINUITY)),
+        "locadelete.js" => Some(("text/javascript; charset=utf-8", WEB_LOCA_DELETE)),
         "notes.js" => Some(("text/javascript; charset=utf-8", WEB_NOTES)),
         "memory.js" => Some(("text/javascript; charset=utf-8", WEB_MEMORY)),
         "wiki.js" => Some(("text/javascript; charset=utf-8", WEB_WIKI)),

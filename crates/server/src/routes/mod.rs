@@ -13,6 +13,7 @@ mod extensions;
 mod groups;
 mod keys;
 mod lobby;
+mod loca_removal;
 mod membership;
 mod notifications;
 mod rooms;
@@ -60,6 +61,7 @@ pub(crate) use groups::{
 };
 pub(crate) use keys::{issue_key, list_keys, rename_smaster_route, revoke_key_route};
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};
+pub(crate) use loca_removal::{delete_loca_records, loca_archive};
 pub(crate) use membership::{
     ack_join_request_route, ack_membership_claim_route, admit_member, approve_join_request_route,
     bootstrap_join_request_route, caretaker_residents, caretaker_viewer, claim_membership,

@@ -31,6 +31,7 @@ mod content;
 mod groups;
 mod identity;
 mod keys;
+pub(crate) mod loca_removal;
 mod memory;
 mod messages;
 mod notifications;

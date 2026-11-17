@@ -1241,6 +1241,11 @@ impl Hub {
             .insert(room.to_string(), group.to_string());
     }
 
+    /// A deleted loca leaves its group (its `group_rooms` row is gone).
+    pub(super) fn unbind_group_loca(&self, room: &str) {
+        self.groups.lock_or_recover().rooms.remove(room);
+    }
+
     /// A founding Smaster was revoked: every group it owned passes to the
     /// Master, recorded, and it leaves those groups.
     pub(super) fn pass_groups_to_master(&self, principal: &str) {

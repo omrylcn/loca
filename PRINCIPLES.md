@@ -303,6 +303,7 @@ makes no admit/invite decision itself.
 | Release | The person's Loca seat ends; Building membership remains in Lobby |
 | Close | The Loca becomes read-only; records remain and Master may reopen it |
 | Seal | Permanent Master-only decision; the Loca cannot reopen and audit history remains |
+| Delete | Permanent Master-only decision for a closed Loca; its records are removed from the server, optionally taken first as a zip archive; the name stays sealed |
 
 The sidebar carries this separation through two views: **Your Locas** shows
 Building identity and personal navigation preferences; **This Loca** shows the

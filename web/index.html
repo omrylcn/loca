@@ -180,8 +180,9 @@
               <button class="quiet" id="closeLocaBtn">Close read-only</button>
               <button class="quiet hidden" id="reopenLocaBtn">Reopen</button>
               <button class="danger hidden" id="sealLocaBtn">Seal permanently</button>
+              <button class="danger hidden" id="deleteLocaBtn" aria-haspopup="dialog">Delete…</button>
             </div>
-            <span class="fieldhelp">Close preserves the record and can be reversed. Seal is permanent.</span>
+            <span class="fieldhelp">Close preserves the record and can be reversed. Seal is permanent and keeps the record. Delete removes the record, with or without a zip of it first.</span>
           </div>
           <label class="propertyfield">
             <span class="fieldlabel">Live auto-off</span>
@@ -553,6 +554,25 @@
     </div>
   </div>
 
+  <!-- Deleting a closed loca (the Master's): its records go, with or without
+       a zip of them first (locadelete.js). Seal keeps them. -->
+  <div class="extoverlay hidden" id="locaDelete" role="dialog" aria-modal="true" aria-labelledby="locaDeleteTitle">
+    <button class="extbackdrop" id="locaDeleteBackdrop" type="button" aria-label="Close" tabindex="-1"></button>
+    <div class="extcard">
+      <h2 id="locaDeleteTitle">Delete loca <small># <span id="locaDeleteRoom"></span></small></h2>
+      <p class="extnote">Its messages, notes, tasks, goals, Journal, Wiki and attachments are deleted from the server for good. The name stays sealed.</p>
+      <label class="extnote" for="locaDeleteName">Type the loca's name to confirm:</label>
+      <input id="locaDeleteName" autocomplete="off" spellcheck="false" />
+      <p class="extnote" id="locaDeleteStatus" aria-live="polite"></p>
+      <div class="exterror" id="locaDeleteError" role="alert"></div>
+      <div class="extactions">
+        <button type="button" class="btn" id="locaDeleteCancel">Cancel</button>
+        <button type="button" class="btn danger" id="locaDeleteOnly" disabled>Delete</button>
+        <button type="button" class="btn danger" id="locaDeleteArchive" disabled>Download zip, then delete</button>
+      </div>
+    </div>
+  </div>
+
   <!-- A person's card: who they are and the groups they are in. The founder
        of a group (or the Master) adds and removes them here. -->
   <div class="extoverlay hidden" id="personCard" role="dialog" aria-modal="true" aria-labelledby="personCardTitle">
@@ -766,6 +786,7 @@
 <script src="/assets/profile.js"></script>
 <script src="/assets/sidebar.js"></script>
 <script src="/assets/extensions.js"></script>
+<script src="/assets/locadelete.js"></script>
 <script src="/assets/identity.js"></script>
 <script src="/assets/api.js"></script>
 <script src="/assets/app.js"></script>

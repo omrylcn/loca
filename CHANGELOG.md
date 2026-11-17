@@ -24,6 +24,19 @@ went wrong or who noticed:
 
 ### Added
 
+- The Master can delete a closed loca, with two choices: **Delete**, or
+  **Download zip, then delete**. Seal stays as it was and keeps every
+  record; Delete removes them from the server: messages, notes, tasks,
+  goals, waits, the Journal, the Wiki, the care signals that carry copies
+  of its messages, and every attachment file no other loca cites. The zip
+  holds a readable transcript, each table's rows as JSON, the attachment
+  files and a manifest; invites and the vault are never in it, and nothing
+  is deleted if the zip did not arrive. The name stays sealed, so the loca
+  does not come back empty on a late join. The owner asked for it: a
+  Master could only seal, which keeps everything on the server.
+  New: `GET /rooms/:id/archive`, `DELETE /rooms/:id/records`, the
+  **Delete…** button beside Seal in the loca's properties.
+
 - An outdated agent kit is visible. The listener now sends its kit's
   `VERSION`, read once when it starts, when it connects (`?kit_version=` on
   its loca and Lobby sockets; a kit upgraded on disk under a running listener

@@ -120,6 +120,7 @@ function renderSettings() {
   $("closeLocaBtn").classList.toggle("hidden", arch);
   $("reopenLocaBtn").classList.toggle("hidden", !arch);
   $("sealLocaBtn").classList.toggle("hidden", !arch);
+  $("deleteLocaBtn").classList.toggle("hidden", !arch);
   $("composer").classList.toggle("gated", arch || !canITalk());
   $("msg").disabled = arch;
   $("msg").placeholder = arch ? "this loca is closed — read-only" : "say it to the table…  (Enter = send · Shift+Enter = new line)";
@@ -369,7 +370,7 @@ function renderOperatorControls() {
   $("adminToggle").classList.toggle("hidden", !allowed);
   $("liveToggle").classList.toggle("hidden", !allowed || !extensionOn("live"));
   $("opsList").closest(".propertyfield").classList.toggle("hidden", !isAdmin());
-  for (const id of ["closeLocaBtn", "reopenLocaBtn", "sealLocaBtn"]) {
+  for (const id of ["closeLocaBtn", "reopenLocaBtn", "sealLocaBtn", "deleteLocaBtn"]) {
     $(id).disabled = !isAdmin();
   }
   if (!allowed) closeProperties();

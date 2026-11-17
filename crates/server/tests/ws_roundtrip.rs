@@ -1752,6 +1752,8 @@ mod lobby_delivery;
 mod loca_board;
 #[path = "ws/loca_board_name.rs"]
 mod loca_board_name;
+#[path = "ws/loca_delete.rs"]
+mod loca_delete;
 #[path = "ws/loca_identity.rs"]
 mod loca_identity;
 #[path = "ws/loca_names.rs"]

@@ -557,6 +557,19 @@ labels, all optional and all additive on the wire.
 - **Agents:** the kit already reads `GET /rooms/:id/settings` on connecting
   (`listen.py`), and `connect.sh settings` prints it, so an agent learns what
   the loca is for without a new call.
+- **Close, seal, delete:** a closed loca (`PUT /rooms/:id/settings`
+  `{"archived": true}`) is read-only and can reopen. The Master then has two
+  ends for it. `DELETE /rooms/:id` seals it: it never reopens and every
+  record stays. `DELETE /rooms/:id/records` (new) deletes it: every row the
+  loca owns, in every loca table, goes from the server, with the care
+  signals that carry copies of its messages and every attachment file no
+  other loca cites; 409 while the loca is open and for the home loca and Care;
+  a birebir answers as a loca that does not exist. Both keep the name: a deleted loca is sealed and empty, so
+  a late join or post does not bring it back. `GET /rooms/:id/archive`
+  (new, the Master's) answers the loca's records as a zip before that:
+  `transcript.txt` (one line per message), `data/<table>.json` (each table's
+  rows as stored), `attachments/` (the files) and `manifest.json` (counts,
+  and the tables left out). Invites and the vault are never in it.
 
 From: PRINCIPLES "A loca's identity".
 
