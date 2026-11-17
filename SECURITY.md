@@ -54,3 +54,8 @@ room, issue, or commit:
   tool permissions remain part of the deployment's security boundary.
 - The loopback master desk must never be placed behind the public reverse
   proxy.
+- Loca names are one namespace across a Building. The Master or a Smaster
+  who tries to open a loca under a name that is taken is told so (409), also
+  when the loca belongs to a group they do not see. The answer names no loca
+  and gives nothing else away; choose loca names that are not themselves
+  secret (docs/protocol.md, "Name").

@@ -180,7 +180,10 @@
   body.locked .conn .joinreq.hidden { display: none; }
   .signintitle { margin: 2px 0 4px; font-size: 15px; font-weight: 700; color: var(--txt); letter-spacing: .2px; }
   .doorline { padding: 0 18px 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
-  body:not(.locked) .doorline { display: none; }
+  /* Signed in, there is no door to talk at. Waiting on a held session there
+     is: the line says what it waits for (app.js showAuthUnavailable). */
+  body:not(.locked):not(.auth-pending) .doorline { display: none; }
+  .doorline button { margin-top: 8px; }
   a { color: var(--accent2); }
   :where(button, input, select, textarea, [tabindex]):focus-visible {
     outline: 2px solid var(--accent); outline-offset: 2px;

@@ -381,3 +381,66 @@ async fn the_sandbox_does_not_open_a_loca_the_rule_refuses() {
         assert!(!ids.contains(&refused), "{refused:?} was opened: {ids:?}");
     }
 }
+
+/// In the sandbox an invite or a call opens its loca too. For a name the
+/// rule refuses, the answer used to be 404 "create the loca before issuing a
+/// davet", which sends the person to a create that is refused as well. It is
+/// the rule's own answer: 400 naming the rule, 409 for a kit-key clash.
+#[tokio::test]
+async fn the_sandbox_answers_an_invite_to_a_refused_name_with_the_rule() {
+    let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let console_port = socket.local_addr().unwrap().port();
+    drop(socket);
+    let (port, _guard) =
+        spawn_server_env("", &[("ADMIN_CONSOLE_PORT", console_port.to_string())]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let console = format!("http://127.0.0.1:{console_port}");
+    let (status, body) = send(
+        reqwest::Method::POST,
+        format!("{console}/api/members"),
+        ("x-loca-console", "1"),
+        Some(serde_json::json!({ "name": "ada", "kind": "agent" })),
+    )
+    .await;
+    assert!(status < 300, "{status} {body}");
+    let (status, body) = send(
+        reqwest::Method::POST,
+        format!("{base}/rooms/my-loca/messages"),
+        ("x-unused", "1"),
+        Some(serde_json::json!({ "sender": "x", "sender_type": "user", "text": "hi" })),
+    )
+    .await;
+    assert!(status < 300, "{status} {body}");
+
+    for (loca, want) in [("my loca", 400), ("my_loca", 409)] {
+        let (status, body) = send(
+            reqwest::Method::POST,
+            format!("{console}/api/invites"),
+            ("x-loca-console", "1"),
+            Some(serde_json::json!({ "loca": loca, "name": "ada" })),
+        )
+        .await;
+        assert_eq!(status, want, "desk invite to {loca:?}: {body}");
+        assert!(!body.contains("create the loca"), "{body}");
+        let (status, body) = send(
+            reqwest::Method::POST,
+            format!("{base}/rooms/{}/call", path(loca)),
+            ("x-unused", "1"),
+            Some(serde_json::json!({ "name": "ada" })),
+        )
+        .await;
+        assert_eq!(status, want, "call into {loca:?}: {body}");
+        assert!(!body.contains("create the loca"), "{body}");
+    }
+    let (status, body) = send(
+        reqwest::Method::POST,
+        format!("{console}/api/invites"),
+        ("x-loca-console", "1"),
+        Some(serde_json::json!({ "loca": "new-loca", "name": "ada" })),
+    )
+    .await;
+    assert!(
+        status < 300,
+        "a name the rule takes still opens: {status} {body}"
+    );
+}

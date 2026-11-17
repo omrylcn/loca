@@ -960,6 +960,12 @@ async fn admin_console_invite(
     if loca.is_empty() || name.is_empty() {
         return (StatusCode::BAD_REQUEST, "loca and agent are required").into_response();
     }
+    // In the loopback sandbox an invite opens its loca; a name the rule
+    // refuses is answered as such, not as a loca to be created first (which
+    // would be refused too).
+    if let Some(refusal) = routes::implicit_loca_refusal(&hub, loca) {
+        return refusal;
+    }
     let Some(member) = hub.member_by_name(name) else {
         return (
             StatusCode::CONFLICT,

@@ -495,7 +495,12 @@ labels, all optional and all additive on the wire.
   loca's answers 409: `my_loca` while `my-loca` exists. Keys are compared
   without regard to case (on Windows the kit's environment keeps one variable
   for `DAVET_Proj` and `DAVET_proj`). The 409 does not name the other loca:
-  the caller may not be allowed to know that it exists. A name whose key
+  the caller may not be allowed to know which loca it is. That the name is
+  taken is not hidden and cannot be: loca names are one namespace across the
+  Building, so whoever may open a loca (the Master, a Smaster) learns from a
+  409, here or for the exact name, that some loca holds the name or its key,
+  also one in a group the caller does not see. Nothing more: not which loca,
+  its group, title, members or messages. A name whose key
   begins `bb_` (the key of a private conversation's id) answers 400 whether
   or not such a conversation exists, so the answer tells nobody that one
   does. The rule holds for `POST /rooms`, the target of `ROOM_RENAME` (the
