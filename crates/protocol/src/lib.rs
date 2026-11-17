@@ -268,7 +268,7 @@ pub struct RoomSettings {
     ///
     /// A lead advises; it does not command. It cannot override a mode or
     /// moderate. It may declare and assign tasks within the operator's
-    /// bounds (and review them on a Task board), checked by
+    /// bounds (and review them on the Loca Board), checked by
     /// `lead_principal`. What it mainly does is see the whole room: it
     /// notices two agents on the same file, says what should probably go
     /// first, and reports back what happened here. Agents weigh its word;
@@ -447,9 +447,9 @@ pub struct ExtensionSpec {
 
 /// The extension catalog, in tab order: the one registry of extensions. The
 /// catalog answer (`GET /extensions`), the extension fence, the web's tabs and
-/// the tests that enumerate extensions all read it. Future extensions (task
-/// board, AGENT.md, skills, hooks) are new entries here; nothing else in the
-/// list changes.
+/// the tests that enumerate extensions all read it. Future extensions
+/// (AGENT.md, skills, hooks) are new entries here; nothing else in the list
+/// changes.
 pub const EXTENSIONS: &[ExtensionSpec] = &[
     ExtensionSpec {
         id: "notes",
@@ -465,11 +465,24 @@ pub const EXTENSIONS: &[ExtensionSpec] = &[
         id: "focus",
         name: "Focus",
         tab: Some("Focus"),
-        summary: "The loca's goal and declared tasks.",
+        summary: "The loca's goal: the one outcome it works toward.",
         default_on_new: false,
+        // The tab kept its key from when it also held the tasks.
         tab_key: Some("tasks"),
-        routes: &["tasks", "goals"],
-        frames: &["task", "goal"],
+        routes: &["goals"],
+        frames: &["goal"],
+    },
+    ExtensionSpec {
+        id: "board",
+        name: "Loca Board",
+        tab: Some("Loca Board"),
+        summary: "The loca's declared tasks on four columns; finished work waits for the Lead's or the Operator's go. Needs a Lead.",
+        default_on_new: false,
+        tab_key: Some("board"),
+        // It owns the loca's tasks and needs a Lead (the reviewer), not
+        // Focus. Turning it off keeps every task for when it comes back.
+        routes: &["tasks"],
+        frames: &["task"],
     },
     ExtensionSpec {
         id: "journal",
@@ -512,19 +525,6 @@ pub const EXTENSIONS: &[ExtensionSpec] = &[
         tab_key: Some("vault"),
         routes: &["vault"],
         frames: &["vault"],
-    },
-    ExtensionSpec {
-        id: "board",
-        name: "Task board",
-        tab: None,
-        summary: "Focus tasks on a board: finished work waits for the Lead's or the Operator's go.",
-        default_on_new: false,
-        tab_key: None,
-        // No route of its own: while it is on it changes the rules of
-        // Focus's task routes (a review step, the Lead's go / no-go). It
-        // needs Focus and a Lead.
-        routes: &[],
-        frames: &[],
     },
 ];
 
@@ -942,11 +942,11 @@ pub struct Task {
     /// declared.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_principal: Option<String>,
-    /// What the holder said when asking for review (Task board): what
+    /// What the holder said when asking for review (Loca Board): what
     /// changed and how to check it. Optional.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_note: Option<String>,
-    /// Why the last review said no-go (Task board). Cleared by the next
+    /// Why the last review said no-go (Loca Board). Cleared by the next
     /// request for review.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_reason: Option<String>,
@@ -967,7 +967,7 @@ pub enum TaskStatus {
     /// The agent has taken it upon themselves (took it on).
     Taken,
     /// Finished by its holder and waiting for the Lead's or the Operator's
-    /// go (Task board only). Older clients show the word as it is.
+    /// go (Loca Board only). Older clients show the word as it is.
     Review,
     Done,
     Cancelled,
@@ -1006,11 +1006,11 @@ pub struct UpdateTask {
     pub status: Option<TaskStatus>,
     #[serde(default)]
     pub assigned_to: Option<String>,
-    /// With a request for review (Task board): what changed and how to
+    /// With a request for review (Loca Board): what changed and how to
     /// check it. Optional.
     #[serde(default)]
     pub note: Option<String>,
-    /// With a no-go (`review` → `taken` on the Task board): why. Required
+    /// With a no-go (`review` → `taken` on the Loca Board): why. Required
     /// there; ignored elsewhere.
     #[serde(default)]
     pub reason: Option<String>,

@@ -12,18 +12,23 @@ use super::rooms::is_room_operator_req;
 use crate::*;
 
 /// The one refusal every disabled extension gives, reads and writes alike.
+/// The Loca Board's says plainly what is off, in front of the shared words.
 pub(crate) fn extension_off(id: &str) -> axum::response::Response {
     let name = protocol::extension_spec(id)
         .map(|spec| spec.name)
         .unwrap_or(id);
-    (
-        StatusCode::FORBIDDEN,
+    let text = if id == "board" {
+        "The Loca Board is off in this loca — this extension is off in this loca: board \
+         (Loca Board). Its tasks are kept; the loca's operator, the Master or a Smaster \
+         can turn it on, and it needs a Lead."
+            .to_string()
+    } else {
         format!(
             "this extension is off in this loca: {id} ({name}). Its records are kept; \
              the loca's operator, the Master or a Smaster can turn it back on."
-        ),
-    )
-        .into_response()
+        )
+    };
+    (StatusCode::FORBIDDEN, text).into_response()
 }
 
 /// The extension fence. A request under `/rooms/:id/...` that belongs to an
@@ -77,6 +82,8 @@ fn room_view(hub: &Hub, room: &str, headers: &HeaderMap) -> serde_json::Value {
     serde_json::json!({
         "room": room,
         "enabled": hub.enabled_extensions(room),
+        // Tasks are kept while the Loca Board is off; Focus says so.
+        "stored_tasks": hub.stored_task_count(room),
         "catalog": protocol::EXTENSIONS,
         "can_manage": may_manage(hub, room, headers),
         "birebir": hub.is_dm(room),
@@ -144,9 +151,9 @@ fn apply(
             let status = match error {
                 hub::ExtensionError::Unknown(_) => StatusCode::BAD_REQUEST,
                 hub::ExtensionError::Dm => StatusCode::FORBIDDEN,
-                hub::ExtensionError::NotWritable
-                | hub::ExtensionError::BoardNeedsFocus
-                | hub::ExtensionError::BoardNeedsLead => StatusCode::CONFLICT,
+                hub::ExtensionError::NotWritable | hub::ExtensionError::BoardNeedsLead => {
+                    StatusCode::CONFLICT
+                }
                 hub::ExtensionError::Storage => StatusCode::SERVICE_UNAVAILABLE,
             };
             (status, error.message()).into_response()

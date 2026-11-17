@@ -20,6 +20,9 @@ impl Hub {
         if r.settings.lead.is_none() {
             return Err(GoalError::LeadRequired);
         }
+        if req.completion == GoalCompletion::AllTasks && !r.settings.extension_enabled("board") {
+            return Err(GoalError::BoardOff);
+        }
         if r.goals
             .values()
             .any(|goal| goal.status == GoalStatus::Active)
@@ -61,6 +64,11 @@ impl Hub {
         let mut rooms = self.rooms.lock_or_recover();
         let r = rooms.get_mut(room).ok_or(GoalError::NotFound)?;
         let mut goal = r.goals.get(&id).cloned().ok_or(GoalError::NotFound)?;
+        // Setting up or reactivating a goal closed by its tasks needs the
+        // board; closing one, or editing its words, does not.
+        let sets_up_tasks = req.completion.is_some()
+            || req.task_ids.is_some()
+            || req.status == Some(GoalStatus::Active);
         let previous = (
             goal.outcome.clone(),
             goal.checkpoint.clone(),
@@ -101,6 +109,13 @@ impl Hub {
                     GoalStatus::Achieved | GoalStatus::Cancelled => Some(now),
                 };
             }
+        }
+        if sets_up_tasks
+            && goal.status == GoalStatus::Active
+            && goal.completion == GoalCompletion::AllTasks
+            && !r.settings.extension_enabled("board")
+        {
+            return Err(GoalError::BoardOff);
         }
         if goal.status == GoalStatus::Active && r.settings.lead.is_none() {
             return Err(GoalError::LeadRequired);

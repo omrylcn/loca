@@ -1752,6 +1752,9 @@ impl World {
                 Body::Json(serde_json::json!({"lead": agent_name})),
             )
             .await;
+            // The tasks are the Loca Board's, which needs the Lead above.
+            w.seed(Who::Master, "PUT", &at("/extensions/board"), Body::None)
+                .await;
             w.seed(
                 author,
                 "POST",
@@ -2078,7 +2081,7 @@ fn body_for(route: &str, w: &World, who: Who, kind: Option<Kind>) -> Body {
             "description": format!("set by {t}"), "labels": ["probe"]
         })),
         "PUT /rooms/:id/extensions" => j(serde_json::json!({
-            "enabled": ["notes", "focus", "journal", "wiki", "vault"]
+            "enabled": ["notes", "focus", "board", "journal", "wiki", "vault"]
         })),
         "PUT /rooms/:id/vault" => j(serde_json::json!({
             "body": format!("rules by {t}"), "base_rev": 0

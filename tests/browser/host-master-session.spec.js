@@ -98,6 +98,9 @@ test("the desktop client (no Host) does not ask for a Master session when one en
 test("Loca Host: after signing out, a reload stays signed out and asks the Host for nothing", async ({ page, request }) => {
   await openPage(page, request, { provisioning: { state: "ready" }, initial: await mintMaster(request) });
   await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
+  // The sign-out line is chosen by who signed out, which the page knows once
+  // its profile has loaded; signing out before that raced it (public CI).
+  await expect.poll(() => page.evaluate(() => state.profile?.building_role)).toBe("master");
   await page.evaluate(() => signOutHere());
   await expect(page.locator("body")).toHaveClass(/locked/);
   // The Host's person holds no pairing code: the door names what works

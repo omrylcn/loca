@@ -185,6 +185,8 @@ async fn the_lead_declares_and_assigns_tasks_and_the_line_names_the_lead() {
     let _bob = loca.seat("bob").await;
     let _carol = loca.seat("carol").await;
     let settings = loca.name_lead("lead-ada").await;
+    // Tasks live on the Loca Board, which needs the Lead named above.
+    super::loca_board::switch_board_on(&loca).await;
     let principal = loca.principal_of(&ada).await;
     assert_eq!(settings["lead"], "lead-ada");
     assert_eq!(
@@ -257,6 +259,8 @@ async fn the_lead_cannot_move_an_operator_assignment_and_the_operator_reverses_t
     let _bob = loca.seat("bob").await;
     let _carol = loca.seat("carol").await;
     loca.name_lead("lead-ada").await;
+    // Tasks live on the Loca Board, which needs the Lead named above.
+    super::loca_board::switch_board_on(&loca).await;
 
     let (_, by_operator) = loca.declare(None, "operator's", Some("bob")).await;
     assert_eq!(by_operator["assigned_as"], "operator");
@@ -313,6 +317,8 @@ async fn the_lead_cancels_only_its_own_untaken_declaration() {
     let ada = loca.seat("lead-ada").await;
     let bob = loca.seat("bob").await;
     loca.name_lead("lead-ada").await;
+    // Tasks live on the Loca Board, which needs the Lead named above.
+    super::loca_board::switch_board_on(&loca).await;
 
     let (_, untaken) = loca.declare(Some(&ada), "untaken", Some("bob")).await;
     let untaken = id_of(&untaken);
@@ -379,6 +385,8 @@ async fn a_participant_who_is_not_the_lead_is_refused() {
     let bob = loca.seat("bob").await;
     let _carol = loca.seat("carol").await;
     loca.name_lead("lead-ada").await;
+    // Tasks live on the Loca Board, which needs the Lead named above.
+    super::loca_board::switch_board_on(&loca).await;
 
     let (status, _) = loca.declare(Some(&bob), "bob's", Some("carol")).await;
     assert_eq!(status, 403);
@@ -423,6 +431,8 @@ async fn the_lead_is_its_principal_not_its_name() {
     let ada = loca.seat("lead-ada").await;
     let carol = loca.seat("carol").await;
     loca.name_lead("lead-ada").await;
+    // Tasks live on the Loca Board, which needs the Lead named above.
+    super::loca_board::switch_board_on(&loca).await;
     let (status, _) = loca.declare(Some(&ada), "before", None).await;
     assert_eq!(status, 201);
 

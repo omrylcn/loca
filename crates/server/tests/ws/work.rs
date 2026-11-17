@@ -1,5 +1,6 @@
 //! Goal, task, journal, and atomic work-state lifecycle.
 
+use super::loca_board::turn_board_on;
 use super::*;
 
 #[tokio::test]
@@ -10,6 +11,9 @@ async fn task_lifecycle_and_operator_authority() {
     create_test_room(port, "bigmaster", "other").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
+    // Tasks live on the Loca Board.
+    turn_board_on(&base, "bigmaster", "proj", "proj-lead").await;
+    turn_board_on(&base, "bigmaster", "other", "other-lead").await;
 
     // An agent cannot declare a task — proposing happens in chat.
     let r = client
@@ -82,18 +86,23 @@ async fn task_lifecycle_and_operator_authority() {
         "a loca operator's authority ends at their loca"
     );
 
-    // The assigned agent takes it, then finishes it.
-    for st in ["taken", "done"] {
+    // The assigned agent takes it, then finishes it: on the Loca Board its
+    // "done" asks for review, and the operator's go makes it done.
+    for (st, now, by) in [
+        ("taken", "taken", "backend"),
+        ("done", "review", "backend"),
+        ("done", "done", "alt-op"),
+    ] {
         let r: Value = client
             .patch(format!("{base}/rooms/proj/tasks/{tid}"))
-            .json(&serde_json::json!({ "status": st, "by": "backend" }))
+            .json(&serde_json::json!({ "status": st, "by": by }))
             .send()
             .await
             .unwrap()
             .json()
             .await
             .unwrap();
-        assert_eq!(r["status"], st);
+        assert_eq!(r["status"], now, "{by} asks {st}");
     }
 
     // Another agent may not cancel; the operator may reopen (contest).
@@ -132,6 +141,7 @@ async fn an_assigned_task_wakes_its_assignee_once_and_nobody_else() {
         .send()
         .await
         .unwrap();
+    turn_board_on(&base, "bigmaster", "proj", "proj-lead").await;
     let mut worker = connect_agent_mentions(port, "proj", "worker").await;
     let mut bystander = connect_agent_mentions(port, "proj", "bystander").await;
     wait_for(&mut worker, |frame| frame["t"] == "memory").await;
@@ -158,6 +168,8 @@ async fn an_assigned_task_wakes_its_assignee_once_and_nobody_else() {
         format!("alt-op assigned task #{tid} to @worker.")
     );
 
+    // Its own take and finish wake neither of them (the finish asks the
+    // Lead, who is not at this table, for review).
     for status in ["taken", "done"] {
         let r = client
             .patch(format!("{base}/rooms/proj/tasks/{tid}"))
@@ -192,6 +204,7 @@ async fn a_task_is_bound_to_the_assignees_principal_not_to_a_claimed_name() {
     create_test_room(port, "bigmaster", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
+    turn_board_on(&base, "bigmaster", "proj", "proj-lead").await;
     let invite = invite_for(&base, "bigmaster", "proj", "ada").await;
     let session = session_with(&base, ("x-room-token", &invite), "ada", Some("proj")).await;
     let task: Value = client
@@ -250,13 +263,7 @@ async fn one_active_goal_can_close_when_its_explicit_task_set_is_done() {
         .send()
         .await
         .unwrap();
-    client
-        .post(format!("{base}/rooms/proj/lead"))
-        .header("x-admin-token", "bigmaster")
-        .json(&serde_json::json!({ "lead": "alt-op" }))
-        .send()
-        .await
-        .unwrap();
+    turn_board_on(&base, "bigmaster", "proj", "alt-op").await;
 
     let mut task_ids = Vec::new();
     for title in ["listener stable", "smoke green"] {
@@ -320,16 +327,21 @@ async fn one_active_goal_can_close_when_its_explicit_task_set_is_done() {
         .unwrap();
     assert_eq!(second.status(), 409, "a loca has only one active goal");
 
+    // The worker's done asks for review; the go closes the task.
     for (index, id) in task_ids.iter().enumerate() {
-        let updated: Value = client
-            .patch(format!("{base}/rooms/proj/tasks/{id}"))
-            .json(&serde_json::json!({ "status": "done", "by": "worker" }))
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
+        let mut updated = Value::Null;
+        for (by, now) in [("worker", "review"), ("alt-op", "done")] {
+            updated = client
+                .patch(format!("{base}/rooms/proj/tasks/{id}"))
+                .json(&serde_json::json!({ "status": "done", "by": by }))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            assert_eq!(updated["status"], now, "{by}");
+        }
         assert_eq!(updated["status"], "done");
         let goals: Value = client
             .get(format!("{base}/rooms/proj/goals"))
@@ -416,6 +428,7 @@ async fn work_state_only_rooms_survive_restart() {
         create_test_room(port, "MASTER", "wait-only").await;
         create_test_room(port, "MASTER", "journal-only").await;
         let base = format!("http://127.0.0.1:{port}");
+        turn_board_on(&base, "MASTER", "task-only", "operator").await;
 
         let task: Value = client
             .post(format!("{base}/rooms/task-only/tasks"))
@@ -546,6 +559,7 @@ async fn storage_failures_are_503_and_do_not_mutate_memory() {
     create_test_room(port, "MASTER", "seal-fail").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
+    turn_board_on(&base, "MASTER", "task-fail", "operator").await;
     let sql = rusqlite::Connection::open(&db).unwrap();
 
     sql.execute_batch("DROP TABLE tasks").unwrap();
@@ -773,6 +787,7 @@ async fn linked_task_and_goal_progress_commit_atomically() {
     create_test_room(port, "MASTER", "proj").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
+    turn_board_on(&base, "MASTER", "proj", "operator").await;
     let task: Value = client
         .post(format!("{base}/rooms/proj/tasks"))
         .header("x-admin-token", "MASTER")
@@ -951,6 +966,7 @@ async fn require_sessions_blocks_task_spoof() {
     let (port, _g) = spawn_server_env("MASTER", &[("REQUIRE_SESSIONS", "1".into())]).await;
     create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
+    turn_board_on(&base, "MASTER", "parlor", "operator").await;
     // No session token, claiming to be "operator".
     let r = reqwest::Client::new()
         .post(format!("{base}/rooms/parlor/tasks"))

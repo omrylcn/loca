@@ -1,10 +1,10 @@
 const { test, expect } = require("@playwright/test");
 const { provisionRooms } = require("./support/building");
 
-// The Task board: with the `board` extension on, the Focus tab shows four
+// The Loca Board: with the `board` extension on, its tab shows four
 // columns; the holder's "done" asks for review; the Lead says go or no-go
-// (with a reason), and a participant is offered neither. With it off the
-// list is as before, and a status the page does not know is shown as is.
+// (with a reason), and a participant is offered neither. With it off there
+// is no list at all (loca-board-tab.spec.js).
 
 const MASTER = { "x-admin-token": "MASTER" };
 
@@ -40,9 +40,9 @@ test("four columns, a review step, and go / no-go for the Lead only", async ({ b
 
   for (const page of [lead, bob]) {
     await expect.poll(() => page.evaluate(() => extensionOn("board"))).toBe(true);
-    await page.evaluate(() => switchTab("tasks"));
+    await page.evaluate(() => switchTab("board"));
   }
-  // The Lead declares the task from the Focus tab, for bob.
+  // The Lead declares the task from the Loca Board tab, for bob.
   await lead.locator("#taskCreate summary").click();
   await lead.locator("#tkTitle").fill("fix the session renewal");
   await lead.locator("#tkAssign").fill("bd-bob");
@@ -74,29 +74,4 @@ test("four columns, a review step, and go / no-go for the Lead only", async ({ b
   await card(lead, "review", "fix the session renewal").getByRole("button", { name: "Go", exact: true }).click();
   for (const page of [lead, bob]) await expect(card(page, "done", "fix the session renewal")).toHaveCount(1);
   for (const page of [lead, bob]) await page.close();
-});
-
-test("with the board off the list is as before and an unknown status reads as itself", async ({ browser, request }) => {
-  const room = "task-board-off";
-  await provisionRooms(request, [room]);
-  // The two tasks come from the server's list itself, so every read of it
-  // (the page reads it again when the loca's extensions arrive) gives them:
-  // set into the page by hand, a later read replaced them with the empty list.
-  // Focus holds the task list; the board stays off.
-  const focus = await request.put(`/rooms/${room}/extensions/focus`, { headers: MASTER });
-  expect(focus.ok(), await focus.text()).toBeTruthy();
-  const now = Date.now();
-  const listed = [[901, "review"], [902, "someday"]].map(([id, status]) => (
-    { id, room, title: `task ${status}`, created_by: "x", status, created_at: now, progress_at: now }));
-  const bob = await memberPage(browser, request, "bd-off", room, page =>
-    page.route(`**/rooms/${room}/tasks`, route => route.request().method() === "GET"
-      ? route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(listed) })
-      : route.continue()));
-  await bob.evaluate(() => switchTab("tasks"));
-  await bob.evaluate(() => fetchTasks());
-  await expect(bob.locator("#taskList .taskboard")).toHaveCount(0);
-  await expect(bob.locator("#taskList .task", { hasText: "task review" }).locator(".tchip")).toHaveText("Review");
-  // An older page has no label for a newer state: the word itself is shown.
-  await expect(bob.locator("#taskList .task", { hasText: "task someday" }).locator(".tchip")).toHaveText("someday");
-  await bob.close();
 });

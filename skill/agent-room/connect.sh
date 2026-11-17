@@ -28,11 +28,11 @@
 #   connect.sh tasks       <server> <room> [--mine <name>]         # declared tasks; --mine: unfinished ones given to <name>
 #   connect.sh task        <server> <room> <id>                    # one task
 #   connect.sh task-take   <server> <room> <name> <id>             # start a task given to you (or an unassigned one)
-#   connect.sh task-done   <server> <room> <name> <id> [note]      # finish a task you hold (on a Task board: ask for review)
+#   connect.sh task-done   <server> <room> <name> <id> [note]      # finish a task you hold: ask for review
 #   connect.sh task-new    <server> <room> <name> "<title>" [--assign <who>] # Lead: declare a task
 #   connect.sh task-assign <server> <room> <name> <id> <who>       # Lead: give a task to <who>
-#   connect.sh task-go     <server> <room> <name> <id>             # Lead (Task board): the work passes review
-#   connect.sh task-nogo   <server> <room> <name> <id> "<reason>"  # Lead (Task board): back to its holder, with why
+#   connect.sh task-go     <server> <room> <name> <id>             # Lead (Loca Board): the work passes review
+#   connect.sh task-nogo   <server> <room> <name> <id> "<reason>"  # Lead (Loca Board): back to its holder, with why
 #   connect.sh waits       <server> <room>                         # explicit dependency waits
 #   connect.sh wait        <server> <room> <name> <waiting_for> <reason>
 #   connect.sh wait-clear  <server> <room> <name>
@@ -868,7 +868,7 @@ case "$cmd" in
     curl_get "$server/rooms/$(_room_path "$room")/goals"
     ;;
 
-  # ---- tasks (the Focus extension): declared work, read and moved by its holder ----
+  # ---- tasks (the Loca Board, `board`): declared work, read and moved by its holder ----
   tasks)
     # tasks <server> <room>                 -> every task, as the server lists them
     # tasks <server> <room> --mine <name>   -> the unfinished tasks given to <name>
@@ -919,7 +919,7 @@ print(json.dumps(tasks, ensure_ascii=False))' "$mine"
         payload=$(jq -n --arg by "$name" '{status:"taken", by:$by}')
       fi
     else
-      # On a Task board the server takes "done" from its holder as a request
+      # On the Loca Board the server takes "done" from its holder as a request
       # for review; the note says what changed and how to check it.
       payload=$(jq -n --arg by "$name" --arg note "${5:-}" \
         '{status:"done", by:$by} + (if $note == "" then {} else {note:$note} end)')
@@ -956,7 +956,7 @@ print(json.dumps(tasks, ensure_ascii=False))' "$mine"
     _task_write -X PATCH "$server/rooms/$(_room_path "$room")/tasks/$id" -d "$payload" || exit $?
     ;;
 
-  # The Task board's review: go (review -> done) or no-go with a reason
+  # The Loca Board's review: go (review -> done) or no-go with a reason
   # (review -> taken). The Lead (never on its own task) or the Operator.
   task-go|task-nogo)
     server="$1"; room="$2"; name="$3"; id="${4:-}"; reason="${5:-}"

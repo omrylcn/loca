@@ -1,4 +1,4 @@
-//! The Task board's transition table (design 3.4), every row for every
+//! The Loca Board's transition table (design 3.4), every row for every
 //! actor, and the guard that with the board off the house rule is unchanged.
 
 use super::board::{settle_board, transition, Asker, Transition};
@@ -208,7 +208,7 @@ fn with_the_board_off_every_rule_is_the_house_rule() {
 }
 
 #[test]
-fn the_board_needs_focus_and_a_lead_and_leaves_with_focus() {
+fn the_board_needs_a_lead_and_not_focus() {
     let set = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
     assert_eq!(
         settle_board(&set(&["focus"]), set(&["focus", "board"]), true),
@@ -218,14 +218,15 @@ fn the_board_needs_focus_and_a_lead_and_leaves_with_focus() {
         settle_board(&set(&["focus"]), set(&["focus", "board"]), false),
         Err(ExtensionError::BoardNeedsLead)
     );
+    // Without Focus, with a Lead.
     assert_eq!(
         settle_board(&set(&["notes"]), set(&["notes", "board"]), true),
-        Err(ExtensionError::BoardNeedsFocus)
+        Ok(set(&["notes", "board"]))
     );
-    // Removing Focus removes the board in the same change.
+    // Removing Focus leaves the board.
     assert_eq!(
         settle_board(&set(&["focus", "board"]), set(&["board"]), true),
-        Ok(set(&[]))
+        Ok(set(&["board"]))
     );
     // A board already on stays on when the Lead question does not arise.
     assert_eq!(

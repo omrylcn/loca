@@ -1876,6 +1876,8 @@ async fn archived_blocks_all_mutations() {
     create_test_room(port, "MASTER", "parlor").await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
+    // Tasks are the Loca Board's: on, so the closed loca is what refuses.
+    super::loca_board::turn_board_on(&base, "MASTER", "parlor", "m").await;
     client
         .post(format!("{base}/rooms/parlor/messages"))
         .header("x-admin-token", "MASTER")

@@ -99,7 +99,7 @@ pub(crate) async fn update_task(
             StatusCode::FORBIDDEN,
             "house rules: agents take/finish their own tasks; cancel/reopen/reassign is the operator's (the Lead's only within its bounds)",
         ).into_response(),
-        // The review state is the Task board's one door: refused with the
+        // The review state is the Loca Board's one door: refused with the
         // refusal every switched-off extension gives.
         Err(TaskError::BoardOff) => super::extensions::extension_off("board"),
         Err(TaskError::ReasonRequired) => (
@@ -180,6 +180,7 @@ pub(crate) async fn create_goal(
             "all_tasks requires existing task ids from this loca",
         )
             .into_response(),
+        Err(GoalError::BoardOff) => goal_needs_board(),
         Err(GoalError::Storage) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "could not save goal — try again",
@@ -249,12 +250,21 @@ pub(crate) async fn update_goal(
             "all_tasks requires existing task ids from this loca",
         )
             .into_response(),
+        Err(GoalError::BoardOff) => goal_needs_board(),
         Err(GoalError::Storage) => (
             StatusCode::SERVICE_UNAVAILABLE,
             "could not save goal — try again",
         )
             .into_response(),
     }
+}
+/// An `all_tasks` goal set up while the Loca Board is off.
+fn goal_needs_board() -> axum::response::Response {
+    (
+        StatusCode::CONFLICT,
+        "a goal closed by its tasks needs the Loca Board on: turn it on (it needs a Lead), or make the goal manual",
+    )
+        .into_response()
 }
 pub(crate) async fn list_waits(State(hub): State<Hub>, access: RoomAccess) -> impl IntoResponse {
     Json(hub.waits(&access.room))

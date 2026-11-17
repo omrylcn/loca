@@ -120,6 +120,11 @@ def check(binary):
             for index in range(5):
                 status, high = building.post("sealed", master, f"sealed-{index}")
                 require(status == 201, "sealed fixture history failed")
+            # Tasks live on the Loca Board, which needs a Lead.
+            require(building.request("POST", "/rooms/sealed/lead", {"lead": "fixture"}, session=master)[0] == 200,
+                    "lead fixture failed")
+            require(building.request("PUT", "/rooms/sealed/extensions/board", session=master)[0] == 200,
+                    "Loca Board fixture failed")
             status, task = building.request("POST", "/rooms/sealed/tasks", {"title": "original", "by": "fixture"}, session=master)
             require(status == 201, "original task fixture failed")
             require(building.request("PUT", "/rooms/sealed/settings", {"archived": True}, session=master)[0] == 200,

@@ -8,6 +8,7 @@ use protocol::{
 };
 
 use super::super::{CareDraft, CareMark, Hub, Room};
+use super::continuity;
 use crate::sync::RecoverMutex;
 
 impl Hub {
@@ -209,12 +210,6 @@ impl Hub {
         for room_name in room_names {
             if rooms
                 .get(&room_name)
-                .is_some_and(|r| !r.settings.extension_enabled("focus"))
-            {
-                continue;
-            }
-            if rooms
-                .get(&room_name)
                 .is_some_and(|room| room.settings.archived)
             {
                 continue;
@@ -400,7 +395,7 @@ impl Hub {
             }
             if room_signal.is_none() {
                 let mut candidates = Vec::new();
-                if room.settings.care_task_secs > 0 {
+                if room.settings.care_task_secs > 0 && continuity::serves(&room.settings, "tasks") {
                     let mut tasks: Vec<Task> = room
                         .tasks
                         .values()
@@ -436,6 +431,7 @@ impl Hub {
                     .goals
                     .values()
                     .find(|goal| goal.status == GoalStatus::Active)
+                    .filter(|_| continuity::serves(&room.settings, "goals"))
                 {
                     let stale_after_secs = goal
                         .stale_after_secs

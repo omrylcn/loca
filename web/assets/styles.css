@@ -896,7 +896,7 @@
   .tchip.cancelled { background: rgba(255,107,107,.12); color: var(--bad); text-decoration: line-through; }
   .task .tacts button { background: var(--panel); border: 1px solid var(--line); color: var(--txt);
     border-radius: 6px; padding: 3px 9px; font: 10px var(--mono); cursor: pointer; margin-left: 4px; }
-  /* Task board (board.js): four columns while the `board` extension is on. */
+  /* Loca Board (board.js): four columns while the `board` extension is on. */
   .tchip.review { background: rgba(245,199,107,.16); color: var(--accent2); }
   .taskboard { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
   .boardcol { min-width: 0; }

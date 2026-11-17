@@ -1185,6 +1185,8 @@ async fn loca_operator_is_one_human_principal_scoped_to_one_room() {
     }
     for room in ["alpha", "beta", "race"] {
         create_test_room(port, root, room).await;
+        // Tasks live on the Loca Board, which needs a Lead.
+        loca_board::turn_board_on(&base, root, room, "board-lead").await;
         // Exercise delegation into a deliberately vacant seat, not replacement
         // of the founder appointed by explicit creation.
         client
@@ -1531,6 +1533,10 @@ async fn legacy_operator_names_migrate_only_when_one_human_principal_is_unambigu
     let (restart_port, _restart_guard) =
         spawn_server_env(root, &[("DB_PATH", db_path.to_string_lossy().into_owned())]).await;
     let restarted = format!("http://127.0.0.1:{restart_port}");
+    // Tasks live on the Loca Board, which needs a Lead.
+    for room in ["single", "multiple", "ambiguous"] {
+        loca_board::turn_board_on(&restarted, root, room, "board-lead").await;
+    }
     let profiles: Vec<Value> = client
         .get(format!("{restarted}/profiles"))
         .header("x-admin-token", root)
@@ -1742,6 +1748,10 @@ mod kit_version;
 mod lead_tasks;
 #[path = "ws/lobby_delivery.rs"]
 mod lobby_delivery;
+#[path = "ws/loca_board.rs"]
+mod loca_board;
+#[path = "ws/loca_board_name.rs"]
+mod loca_board_name;
 #[path = "ws/loca_identity.rs"]
 mod loca_identity;
 #[path = "ws/loca_names.rs"]

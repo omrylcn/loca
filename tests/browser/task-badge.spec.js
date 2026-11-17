@@ -59,6 +59,9 @@ const seatTag = (page, name) => page.locator("#onlineList .omem", { hasText: nam
 
 test("the assignee wears the task number in the roster and on their lines until it is done", async ({ browser, request }) => {
   await provisionRooms(request, ["task-badge"]);
+  // Tasks live on the Loca Board, which needs a Lead.
+  expect((await request.post("/rooms/task-badge/lead", { headers: MASTER, data: { lead: "tb-lead" } })).ok()).toBeTruthy();
+  expect((await request.put("/rooms/task-badge/extensions/board", { headers: MASTER })).ok()).toBeTruthy();
   const master = await masterPage(browser, request, "task-badge");
   const ada = await memberPage(browser, request, "tb-ada", "task-badge");
   await say(ada, "a line by ada");

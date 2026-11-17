@@ -18,7 +18,7 @@ function mayDeclareTasks() {
   return isLocaOperator() || isLocaLead();
 }
 
-// ---- the Task board (the `board` extension) ----
+// ---- the Loca Board (the `board` extension) ----
 // Four columns over the same task list. The holder's "done" is a request for
 // review; the Lead (never on its own task) or the Operator says go or no-go.
 // The server enforces every rule; these buttons only follow them.
@@ -69,7 +69,7 @@ function renderBoard(box) {
   const tasks = Object.values(state.tasks).sort((a, b) => b.id - a.id);
   const board = document.createElement("div");
   board.className = "taskboard";
-  board.setAttribute("aria-label", "Task board");
+  board.setAttribute("aria-label", "Loca Board");
   for (const [status, label] of BOARD_COLUMNS) {
     // Removed tasks sit with the finished ones, so the Operator can reopen them.
     const held = tasks.filter(t => t.status === status || (status === "done" && t.status === "cancelled"));
@@ -97,3 +97,67 @@ async function boardReview(act, id) {
   });
   if (!r.ok) addSys("Could not review the task: " + await r.text());
 }
+
+// ---- the Loca Board's tab, and Focus's line about it ----
+
+// The tab: the four columns, and the declare form for those who may.
+function renderBoardTab() {
+  $("taskCreate").classList.toggle("hidden", !mayDeclareTasks());
+  renderBoard($("taskList"));
+}
+
+// One line in the Focus tab. With the board on: its live counts, and the way
+// to it. With it off and tasks stored: where they went, and for the
+// operator the way to bring them back (the board needs a Lead).
+function renderFocusBoardLine() {
+  const line = $("focusBoardLine");
+  const room = state.room;
+  if (!room || isDm(room) || currentExtensions() === null) { line.classList.add("hidden"); return; }
+  if (extensionOn("board")) {
+    const tasks = Object.values(state.tasks || {}).filter(t => t.room === room);
+    const parts = [["open", "to do"], ["taken", "doing"], ["review", "in review"]]
+      .map(([status, word]) => [tasks.filter(t => t.status === status).length, word])
+      .filter(([n]) => n > 0)
+      .map(([n, word]) => `${n} ${word}`);
+    const goal = currentGoal();
+    if (goal?.completion === "all_tasks") {
+      const left = (goal.task_ids || []).filter(id => state.tasks[id]?.status !== "done").length;
+      if (left) parts.push(`${left} left before the goal closes`);
+    }
+    line.innerHTML = `<span><b>Loca Board:</b> ${esc(parts.length ? parts.join(" · ") : "nothing open")}</span>` +
+      `<button type="button" data-open-board>Open Loca Board</button>`;
+    line.classList.remove("hidden");
+    return;
+  }
+  if (!Number(state.locaExtensions?.stored_tasks || 0)) { line.classList.add("hidden"); return; }
+  const action = !isLocaOperator() ? ""
+    : state.settings?.lead ? `<button type="button" data-board-on>Turn on Loca Board</button>`
+    : `<small>Name a Lead to turn it on.</small>`;
+  line.innerHTML = `<span>Tasks now live in the Loca Board tab, which needs a Lead.</span>${action}`;
+  line.classList.remove("hidden");
+}
+
+// The board came or went (applyLocaExtensions): its tasks are fetched or
+// dropped, and the loca's view says again how many are stored.
+function boardSetChanged() {
+  fetchTasks();
+  fetchLocaExtensions();
+}
+
+async function turnOnBoard() {
+  const room = state.room;
+  const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/extensions/board`, {
+    method: "PUT", headers: adminHeaders({}),
+  });
+  if (!response.ok) { addSys("Could not turn on the Loca Board: " + await response.text()); return; }
+  if (room !== state.room) return;
+  const view = await response.json();
+  state.locaExtensions = view;
+  state.settings = { ...(state.settings || {}), extensions: view.enabled };
+  renderSettings();
+}
+
+$("focusBoardLine").addEventListener("click", (e) => {
+  if (e.target.closest("[data-open-board]")) switchTab("board");
+  else if (e.target.closest("[data-board-on]")) turnOnBoard();
+});

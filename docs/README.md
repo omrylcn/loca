@@ -56,7 +56,7 @@ work stays in GitHub issues.
   notifications end to end: permissions, flows, the sending limit, data
   model, API, known gaps.
 - [`extensions.md`](architecture/extensions.md) — Loca extensions: the
-  rules, the catalog and fence, the Vault and the Task board.
+  rules, the catalog and fence, the Vault and the Loca Board.
 
 ## Operations and releases
 

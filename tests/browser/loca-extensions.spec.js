@@ -77,7 +77,9 @@ test("This Loca › Extensions shows chips and Manage changes the tabs; a partic
   const page = await masterPage(browser, request);
   await page.evaluate((room) => joinRoom(room), room);
   await expect.poll(() => page.evaluate(() => state.ws?.readyState)).toBe(1);
-  await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Notes", "Journal"]);
+  // Focus is off, but its tab keeps Waiting on and Reminders for the
+  // loca's operators (Wait and Reminder are core).
+  await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Notes", "Focus", "Journal"]);
 
   await page.locator("#sideLocaTab").click();
   const block = page.locator("#locaSummary .locaext");
@@ -96,7 +98,7 @@ test("This Loca › Extensions shows chips and Manage changes the tabs; a partic
   await expect(item("Live").locator("button")).toHaveText("Added");
   await item("Notes").locator("button").click();
   await expect(item("Notes").locator("button")).toHaveText("Add");
-  await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Journal", "Loca Wiki"]);
+  await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Focus", "Journal", "Loca Wiki"]);
   await expect(block.locator(".extchip")).toHaveText(["Journal", "Loca Wiki", "Live"]);
   await page.keyboard.press("Escape");
   await expect(manage).toBeHidden();
@@ -186,7 +188,7 @@ test("settings that could not be read turn no extension on: no tabs, no extensio
     await page.unroute(settingsUrl);
     // A later load that succeeds says what is on here, and only that is asked.
     await page.evaluate(() => fetchSettings());
-    await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Notes"]);
+    await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Notes", "Focus"]);
     expect(await page.evaluate(() => currentExtensions())).toEqual(["notes"]);
     await expect(page.locator("#locaSummary .extchip")).toHaveText(["Notes"]);
     expect(asked.filter(name => name !== "notes")).toEqual([]);
@@ -323,7 +325,7 @@ test("a catalog that stays unreadable is asked for a few times, then This Loca s
   // Try again, with the server back: the tabs and chips come.
   await page.unroute(CATALOG_READS);
   await page.locator("#locaSummary #extRetry").click();
-  await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Notes"]);
+  await expect.poll(() => visibleTabs(page)).toEqual(["Chat", "Notes", "Focus"]);
   await expect(page.locator("#locaSummary .extchip")).toHaveText(["Notes"]);
   await page.close();
 });

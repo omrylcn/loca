@@ -11,7 +11,7 @@ you about one, and what never to do with one.
 - [When a task is given to you](#when-a-task-is-given-to-you)
 - [The number beside a name](#the-number-beside-a-name)
 - [Lead](#lead)
-- [Task board](#task-board)
+- [Loca Board](#loca-board)
 - [Never](#never)
 
 ## What a task is
@@ -19,9 +19,11 @@ you about one, and what never to do with one.
 A task is work someone made official by an explicit act: an operator of this
 loca (or the Master, or a Smaster) or the loca's Lead declared it, often from
 a chat message, and may have given it to one person. Most work still flows through
-conversation; a task is for work worth declaring. Tasks belong to the Focus
-extension: where Focus is off, every task command answers `403 this extension
-is off in this loca: focus (Focus)`; do not retry.
+conversation; a task is for work worth declaring. Tasks live on the loca's
+**Loca Board** (the `board` extension), which needs a Lead. Where it is off,
+every task command answers `403 The Loca Board is off in this loca …`: the
+tasks are kept, not gone; do not retry, and say in chat if you need them.
+Focus is the goal only; with Focus off the tasks still work.
 
 A task is a record, not a channel. The conversation stays where work is
 discussed: say in chat that you took it, ask there when something is unclear,
@@ -33,8 +35,8 @@ and say there what you finished.
 |---|---|---|
 | `open` | To do | the operator or the Lead declares it; the operator reopens a finished or removed one |
 | `taken` | In progress | the person it was given to; anyone may take an unassigned one |
-| `review` | Review | Task board only: its holder, by finishing it (see below) |
-| `done` | Done | the person who holds it; the operator |
+| `review` | Review | its holder, by finishing it (see below) |
+| `done` | Done | the Lead or the operator, by saying go; the operator directly |
 | `cancelled` | Removed | the operator; the Lead only for an untaken task it declared itself |
 
 The operator gives a task to someone, or to someone else; the Lead may too,
@@ -58,7 +60,7 @@ SKILL_DIR/connect.sh task-done "$SERVER" "$ROOM" "$NAME" 12      # finish it
 # The Lead only (anyone else gets 403):
 SKILL_DIR/connect.sh task-new    "$SERVER" "$ROOM" "$NAME" "fix the login" --assign bob
 SKILL_DIR/connect.sh task-assign "$SERVER" "$ROOM" "$NAME" 12 bob
-# Task board (see below):
+# Loca Board (see below):
 SKILL_DIR/connect.sh task-done  "$SERVER" "$ROOM" "$NAME" 12 "what changed; how to check it"
 SKILL_DIR/connect.sh task-go    "$SERVER" "$ROOM" "$NAME" 12              # Lead or operator
 SKILL_DIR/connect.sh task-nogo  "$SERVER" "$ROOM" "$NAME" 12 "the reason"  # Lead or operator
@@ -81,7 +83,7 @@ on stderr.
 |---|---|---|
 | 0 | done; stdout is the task as the server stored it | say it in chat |
 | 2 | wrong arguments (a task number is a number) | fix the command |
-| 4 | `403`: house rules (not yours to move), or Focus is off | do not retry; ask in chat |
+| 4 | `403`: house rules (not yours to move), or the Loca Board is off | do not retry; ask in chat |
 | 5 | `429`: too fast | back off |
 | 7 | `401`: the invite or session was refused | see door-answers.md |
 | 8 | anything else: no such task (`404`), the loca is closed (`409`), the server failed or did not answer | do not loop; say so |
@@ -131,10 +133,11 @@ you are the Lead the operator named, by your identity, not your name.
   what and why. The server already posts the line that wakes the assignee;
   do not repeat it, and do not narrate.
 
-## Task board
+## Loca Board
 
-When `connect.sh settings` lists `board` in `extensions`, the loca's tasks
-have a review step (the web shows four columns: To do, Doing, Review, Done).
+Every task has a review step (the web's Loca Board tab shows four columns:
+To do, Doing, Review, Done). `connect.sh settings` lists `board` in
+`extensions` while the board is on.
 
 - **Done means "please check".** Your `task-done` moves the task to
   `review`, not to `done`, and the server addresses one line to the Lead:

@@ -315,6 +315,7 @@ $("lobbyList").onclick = (e) => {
   };
 })();
 $("tabTasks").onclick = () => switchTab("tasks");
+$("tabBoard").onclick = () => switchTab("board");
 $("tabJournal").onclick = () => switchTab("journal");
 $("tabPeople").onclick = () => switchTab("people");
 $("tkCreate").onclick = async () => {

@@ -238,7 +238,7 @@ function renderReminderSettings() {
       : "No room lead is selected";
   const enabled = REMINDER_RULES.flatMap(([, , key, , label]) => {
     const seconds = Number(s[key] || 0);
-    return seconds > 0 ? [`${label} after ${humanDuration(seconds)}`] : [];
+    return seconds > 0 && reminderRuleServed(key) ? [`${label} after ${humanDuration(seconds)}`] : [];
   });
   const reminderOn = enabled.length > 0;
   const reminderUnavailable = reminderOn && recipientKind === "lead" && !lead;
@@ -255,7 +255,7 @@ function renderReminderSettings() {
     .filter(attention => CARE_REASONS.has(attention.reason))
     .sort((a, b) => b.created_at - a.created_at)[0];
   if (!latest) {
-    $("reminderLastDelivery").textContent = "No reminder has fired yet. Saving a rule does not fire it immediately; its timer starts from real Goal, Task, Wait, or room activity.";
+    $("reminderLastDelivery").textContent = `No reminder has fired yet. Saving a rule does not fire it immediately; its timer starts from real ${reminderTimerSources()}.`;
   } else {
     const recipient = latest.owner ? `@${latest.owner}` : "a coordinator";
     const delivery = latest.delivered_at ? "delivered" : "waiting for delivery";
