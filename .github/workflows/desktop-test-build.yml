@@ -36,7 +36,7 @@ jobs:
       sha: ${{ steps.commit.outputs.sha }}
       short: ${{ steps.commit.outputs.short }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
 
@@ -64,7 +64,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ needs.resolve.outputs.sha }}
@@ -115,7 +115,7 @@ jobs:
       # As in the release build, without releaseId or a token: tauri-action
       # then only builds the bundles and uploads nothing.
       - name: Build installers
-        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           LOCA_DEFAULT_SERVER: ${{ matrix.flavor == 'client' && 'https://loca.speakbetter.tech' || 'http://127.0.0.1:8787' }}
         with:
@@ -146,7 +146,7 @@ jobs:
             "Loca-${{ matrix.flavor }}-${{ steps.name.outputs.sha }}.app.zip"
 
       - name: Keep the packages as a workflow artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.name.outputs.artifact }}
           retention-days: 7

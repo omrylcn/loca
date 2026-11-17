@@ -27,10 +27,18 @@ jobs:
       - name: Convert app archives to copyable ZIP bundles
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
         run: |
+          # tauri-action 1.0 puts the app version in the archive's name
+          # (Loca_0.16.0_aarch64.app.tar.gz); releases built before it have
+          # none (Loca_aarch64.app.tar.gz). Take exactly one of each.
+          shopt -s nullglob
+          client_tar=(Loca_*aarch64.app.tar.gz)
+          host_tar=(Loca.Host_*aarch64.app.tar.gz)
+          test "${#client_tar[@]}" -eq 1 && test "${#host_tar[@]}" -eq 1
           mkdir client host
-          tar -xzf Loca_aarch64.app.tar.gz -C client
-          tar -xzf Loca.Host_aarch64.app.tar.gz -C host
+          tar -xzf "${client_tar[0]}" -C client
+          tar -xzf "${host_tar[0]}" -C host
           client_app=$(find client -maxdepth 1 -type d -name '*.app' -print -quit)
           host_app=$(find host -maxdepth 1 -type d -name '*.app' -print -quit)
           test -n "$client_app" && test -n "$host_app"
