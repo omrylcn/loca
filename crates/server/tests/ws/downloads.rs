@@ -61,7 +61,7 @@ async fn skill_bundles_are_public_versioned_and_byte_consistent() {
         let mut hasher = Sha256::new();
         hasher.update(&bytes);
         assert_eq!(
-            format!("{:x}", hasher.finalize()),
+            hex(&hasher.finalize()),
             claimed_sha,
             "served bytes must match the manifest SHA-256 for {name}"
         );

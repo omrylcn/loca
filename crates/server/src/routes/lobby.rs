@@ -294,7 +294,7 @@ where
         };
         let frame = called_frame(hub, &invite.room, &invite_key);
         sent.insert(invite.secret_hash);
-        if sink.send(WsMessage::Text(frame)).await.is_err() {
+        if sink.send(WsMessage::Text(frame.into())).await.is_err() {
             return OwedPass::SocketClosed;
         }
     }
@@ -336,7 +336,7 @@ pub(crate) async fn lobby_ws_session(
         LobbyCredential::Live => {}
         LobbyCredential::Revoked => {
             let frame = credential_revoked_frame(credential_id.as_deref());
-            let _ = sink.send(WsMessage::Text(frame)).await;
+            let _ = sink.send(WsMessage::Text(frame.into())).await;
             leave_lobby_and_close(&hub, &member_id, &mut sink, &mut stream).await;
             return;
         }
@@ -357,7 +357,7 @@ pub(crate) async fn lobby_ws_session(
         "seats": seat_list(&hub, &member_id),
     })
     .to_string();
-    if sink.send(WsMessage::Text(ready)).await.is_err() {
+    if sink.send(WsMessage::Text(ready.into())).await.is_err() {
         hub.lobby_leave(&member_id);
         return;
     }
@@ -370,7 +370,7 @@ pub(crate) async fn lobby_ws_session(
         OwedPass::Done => {}
         OwedPass::Credential(LobbyCredential::Revoked) => {
             let frame = credential_revoked_frame(credential_id.as_deref());
-            let _ = sink.send(WsMessage::Text(frame)).await;
+            let _ = sink.send(WsMessage::Text(frame.into())).await;
             leave_lobby_and_close(&hub, &member_id, &mut sink, &mut stream).await;
             return;
         }
@@ -391,7 +391,7 @@ pub(crate) async fn lobby_ws_session(
                     // Older kits ignore an unknown `t`; the persisted list
                     // (`GET /notifications`) stays the authority after lag.
                     if principal.as_deref().is_some_and(|p| recipients.contains(p))
-                        && sink.send(WsMessage::Text(frame.as_ref().clone())).await.is_err()
+                        && sink.send(WsMessage::Text(frame.as_ref().clone().into())).await.is_err()
                     {
                         break;
                     }
@@ -400,7 +400,7 @@ pub(crate) async fn lobby_ws_session(
                     // Door B: only the sockets opened with this credential.
                     if credential_id.as_deref() == Some(revoked.as_str()) {
                         let frame = credential_revoked_frame(Some(&revoked));
-                        let _ = sink.send(WsMessage::Text(frame)).await;
+                        let _ = sink.send(WsMessage::Text(frame.into())).await;
                         break;
                     }
                 }
@@ -413,20 +413,20 @@ pub(crate) async fn lobby_ws_session(
                     if !hub.call_is_current(&member_id, &room, &token) => {}
                 Ok(LobbyEvent::Called { room, token, .. }) => {
                     let frame = called_frame(&hub, &room, &token);
-                    if sink.send(WsMessage::Text(frame)).await.is_err() {
+                    if sink.send(WsMessage::Text(frame.into())).await.is_err() {
                         break;
                     }
                 }
                 Ok(LobbyEvent::MembershipRevoked { .. }) => {
                     let frame = serde_json::json!({ "t": "membership_revoked" }).to_string();
-                    let _ = sink.send(WsMessage::Text(frame)).await;
+                    let _ = sink.send(WsMessage::Text(frame.into())).await;
                     break;
                 }
                 Ok(LobbyEvent::MembershipSuspended { .. }) => {
                     // Do not send membership_revoked: older listeners erase their
                     // locally held membership on permanent revocation only.
                     let frame = serde_json::json!({ "t": "membership_suspended" }).to_string();
-                    let _ = sink.send(WsMessage::Text(frame)).await;
+                    let _ = sink.send(WsMessage::Text(frame.into())).await;
                     break;
                 }
                 Err(RecvError::Lagged(_)) => {
@@ -437,7 +437,7 @@ pub(crate) async fn lobby_ws_session(
                         LobbyCredential::Live => {}
                         LobbyCredential::Revoked => {
                             let frame = credential_revoked_frame(credential_id.as_deref());
-                            let _ = sink.send(WsMessage::Text(frame)).await;
+                            let _ = sink.send(WsMessage::Text(frame.into())).await;
                             break;
                         }
                         LobbyCredential::Gone => break,
@@ -446,14 +446,14 @@ pub(crate) async fn lobby_ws_session(
                         "t": "seats",
                         "seats": seat_list(&hub, &member_id),
                     }).to_string();
-                    if sink.send(WsMessage::Text(seats)).await.is_err() {
+                    if sink.send(WsMessage::Text(seats.into())).await.is_err() {
                         break;
                     }
                     match send_owed_deliveries(&mut sink, &hub, &presented, &member_id).await {
                         OwedPass::Done => {}
                         OwedPass::Credential(LobbyCredential::Revoked) => {
                             let frame = credential_revoked_frame(credential_id.as_deref());
-                            let _ = sink.send(WsMessage::Text(frame)).await;
+                            let _ = sink.send(WsMessage::Text(frame.into())).await;
                             break;
                         }
                         OwedPass::SocketClosed | OwedPass::Credential(_) => break,
@@ -462,7 +462,7 @@ pub(crate) async fn lobby_ws_session(
                 Err(RecvError::Closed) => break,
             },
             _ = ping.tick() => {
-                if sink.send(WsMessage::Ping(Vec::new())).await.is_err() {
+                if sink.send(WsMessage::Ping(Vec::new().into())).await.is_err() {
                     break;
                 }
             },

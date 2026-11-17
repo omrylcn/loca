@@ -421,7 +421,7 @@ async fn derived_values_are_neither_credentials_nor_claim_ids() {
     assert!(principal.starts_with("pr_"));
     let sha = |value: &str| {
         use sha2::{Digest, Sha256};
-        format!("{:x}", Sha256::digest(value.as_bytes()))
+        hex(&Sha256::digest(value.as_bytes()))
     };
     let derived = [
         sha(&key),

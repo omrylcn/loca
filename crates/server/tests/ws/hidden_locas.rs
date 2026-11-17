@@ -25,7 +25,7 @@ fn loca_routes() -> Vec<(String, String)> {
             continue;
         };
         let rest = &chunk[start + 1..];
-        let path = &rest[..rest.find('"').unwrap()];
+        let path = &super::authority_matrix::colon_path(&rest[..rest.find('"').unwrap()]);
         if path != "/rooms/:id" && !path.starts_with("/rooms/:id/") {
             continue;
         }
@@ -45,6 +45,13 @@ fn loca_routes() -> Vec<(String, String)> {
     }
     out.sort();
     out.dedup();
+    // A reader that matches nothing would pass every test below vacuously
+    // (the router's path syntax changed once under it).
+    assert!(
+        out.len() > 40,
+        "only {} loca routes read from main.rs",
+        out.len()
+    );
     out
 }
 

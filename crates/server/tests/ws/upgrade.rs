@@ -126,7 +126,7 @@ fn load() -> Fixture {
         .collect();
 
     let now = now_ms();
-    let session_hash = format!("{:x}", Sha256::digest(master_session.as_bytes()));
+    let session_hash = hex(&Sha256::digest(master_session.as_bytes()));
     for (sql, key) in [
         (
             "UPDATE admin_sessions SET expires_at = max(expires_at, ?1) WHERE token = ?2",
@@ -236,7 +236,7 @@ async fn ask(base: &str, path: &str, header: &str, credential: &str) -> (u16, Va
     let bytes = response.bytes().await.unwrap();
     let body = if path.contains("/attachments/") {
         if status == 200 {
-            serde_json::json!({ "sha256": format!("{:x}", Sha256::digest(&bytes)) })
+            serde_json::json!({ "sha256": hex(&Sha256::digest(&bytes)) })
         } else {
             Value::Null
         }
@@ -552,7 +552,9 @@ async fn an_operation_v0_13_0_stored_under_a_name_is_never_posted_again() {
             (format!("{name} marker"), format!("{op}-marker")),
         ] {
             let frame = serde_json::json!({"t": "send", "text": text, "op_id": op});
-            ws.send(WsMessage::Text(frame.to_string())).await.unwrap();
+            ws.send(WsMessage::Text(frame.to_string().into()))
+                .await
+                .unwrap();
         }
         let marker = format!("{name} marker");
         wait_for(&mut ws, |v| {
@@ -594,7 +596,7 @@ async fn an_invite_session_s_older_operations_reactions_and_uploads_stay_its_own
     let key = fixture.credentials["member:fx-ada"].clone();
     let invite = fixture.credentials["davet:fx-team:fx-ada"].clone();
     let older = format!("mb:{key}");
-    let pending_sha = format!("{:x}", Sha256::digest(b"fx pending note from ada\n"));
+    let pending_sha = hex(&Sha256::digest(b"fx pending note from ada\n"));
     let conn = rusqlite::Connection::open(&fixture.db).unwrap();
     let mut operations = Vec::new();
     for (text, op) in [
@@ -689,11 +691,15 @@ async fn an_invite_session_s_older_operations_reactions_and_uploads_stay_its_own
     wait_for(&mut ws, |v| v["t"] == "history").await;
     for (_, text, op) in &operations {
         let frame = serde_json::json!({"t": "send", "text": text, "op_id": op});
-        ws.send(WsMessage::Text(frame.to_string())).await.unwrap();
+        ws.send(WsMessage::Text(frame.to_string().into()))
+            .await
+            .unwrap();
     }
     let frame =
         serde_json::json!({"t": "send", "text": "fx ada marker", "op_id": "fx-op-ada-marker"});
-    ws.send(WsMessage::Text(frame.to_string())).await.unwrap();
+    ws.send(WsMessage::Text(frame.to_string().into()))
+        .await
+        .unwrap();
     wait_for(&mut ws, |v| {
         v["t"] == "msg" && v["message"]["text"] == "fx ada marker"
     })

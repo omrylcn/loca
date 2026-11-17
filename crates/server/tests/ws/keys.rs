@@ -250,7 +250,7 @@ async fn admin_ws_can(port: u16, room: &str, credential: &str) -> bool {
 
 fn sha256_hex(text: &str) -> String {
     use sha2::{Digest, Sha256};
-    format!("{:x}", Sha256::digest(text.as_bytes()))
+    hex(&Sha256::digest(text.as_bytes()))
 }
 
 /// What the registry keeps about a Smaster code (its hash), and the ids that

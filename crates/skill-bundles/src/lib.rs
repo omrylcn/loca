@@ -245,7 +245,7 @@ fn check_tree(
             match files.remove(&rel) {
                 Some(want) => {
                     let bytes = std::fs::read(&path)?;
-                    if format!("{:x}", Sha256::digest(&bytes)) != want {
+                    if hex(&Sha256::digest(&bytes)) != want {
                         return Ok(false);
                     }
                 }
@@ -375,6 +375,11 @@ fn make_writable_recursive(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Lower-case hex of `bytes` (a SHA-256 digest no longer formats with `{:x}`).
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -383,7 +388,7 @@ mod tests {
     fn sha(bytes: &[u8]) -> String {
         let mut h = Sha256::new();
         h.update(bytes);
-        format!("{:x}", h.finalize())
+        hex(&h.finalize())
     }
 
     #[test]

@@ -139,7 +139,6 @@ pub(crate) struct RoomAccess {
     pub(crate) room: String,
 }
 
-#[axum::async_trait]
 impl axum::extract::FromRequestParts<Hub> for RoomAccess {
     type Rejection = (StatusCode, &'static str);
 

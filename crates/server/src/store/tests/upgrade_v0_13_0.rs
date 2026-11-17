@@ -91,7 +91,7 @@ fn digest(rows: &[String]) -> String {
         hasher.update(row.as_bytes());
         hasher.update(b"\n");
     }
-    format!("{:x}", hasher.finalize())
+    crate::store::hex_bytes(&hasher.finalize())
 }
 
 /// One content digest per table over every column it has now.

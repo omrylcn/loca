@@ -189,7 +189,7 @@ async fn offline_snapshot_restores_real_http_history_and_attachment() {
         .await
         .unwrap();
     assert_eq!(downloaded.as_ref(), bytes);
-    assert_eq!(format!("{:x}", Sha256::digest(&downloaded)), id);
+    assert_eq!(hex(&Sha256::digest(&downloaded)), id);
 }
 
 #[tokio::test]
@@ -432,4 +432,9 @@ async fn identical_bytes_dedupe_to_one_id() {
         b["id"].as_str().unwrap(),
         "identical bytes are content-addressed to the same id"
     );
+}
+
+/// Lower-case hex of `bytes` (a SHA-256 digest no longer formats with `{:x}`).
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }

@@ -978,7 +978,9 @@ async fn a_watcher_cannot_speak() {
     use futures_util::SinkExt;
     watcher
         .send(tokio_tungstenite::tungstenite::Message::Text(
-            serde_json::json!({ "t": "send", "text": "can you hear me?" }).to_string(),
+            serde_json::json!({ "t": "send", "text": "can you hear me?" })
+                .to_string()
+                .into(),
         ))
         .await
         .unwrap();
