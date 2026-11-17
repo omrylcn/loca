@@ -146,13 +146,61 @@ fn download_notice(path: Option<&std::path::Path>, success: bool) -> String {
     }
 }
 
+// Where a download goes: the person's Downloads folder (XDG), or
+// ~/Downloads when the system names none. Never the process's working
+// directory, which is wry's own fallback: on a session without XDG user dirs
+// a desktop check saved its files into the directory the app was started
+// from.
+fn download_dir(
+    named: Option<std::path::PathBuf>,
+    home: Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    named.or_else(|| home.map(|home| home.join("Downloads")))
+}
+
+// `name` in `dir`, or "name (1).ext", "name (2).ext", ... when taken, the way
+// wry and the browsers number a second copy: nothing is overwritten.
+fn unused_path(dir: &std::path::Path, name: &std::ffi::OsStr) -> std::path::PathBuf {
+    let name = name.to_string_lossy();
+    let (base, ext) = match name.split_once('.') {
+        Some((base, ext)) if !base.is_empty() => (base.to_string(), format!(".{ext}")),
+        _ => (name.to_string(), String::new()),
+    };
+    let mut path = dir.join(&*name);
+    let mut n = 1;
+    while path.exists() {
+        path = dir.join(format!("{base} ({n}){ext}"));
+        n += 1;
+    }
+    path
+}
+
 fn on_download<R: tauri::Runtime>(
     webview: tauri::Webview<R>,
     event: tauri::webview::DownloadEvent<'_>,
 ) -> bool {
     use tauri::webview::DownloadEvent;
     match event {
-        DownloadEvent::Requested { url, .. } => may_download(&url),
+        DownloadEvent::Requested { url, destination } => {
+            if !may_download(&url) {
+                return false;
+            }
+            let Some(dir) = download_dir(
+                webview.path().download_dir().ok(),
+                webview.path().home_dir().ok(),
+            ) else {
+                return false;
+            };
+            if std::fs::create_dir_all(&dir).is_err() {
+                return false;
+            }
+            let name = destination
+                .file_name()
+                .map(|n| n.to_os_string())
+                .unwrap_or_else(|| "attachment".into());
+            *destination = unused_path(&dir, &name);
+            true
+        }
         DownloadEvent::Finished { url, path, success } => {
             if may_download(&url) {
                 let notice = download_notice(path.as_deref(), success);
@@ -1465,6 +1513,39 @@ mod admin_token_boundary {
         }
         // The app's own origin is a page, not a file to save.
         assert!(!may_download(&tauri::Url::parse(APP_ORIGIN).unwrap()));
+    }
+
+    #[test]
+    fn downloads_go_to_the_downloads_folder_never_the_working_directory() {
+        use std::path::PathBuf;
+        let named = PathBuf::from("/home/you/Hämtningar");
+        let home = PathBuf::from("/home/you");
+        assert_eq!(
+            download_dir(Some(named.clone()), Some(home.clone())),
+            Some(named)
+        );
+        assert_eq!(
+            download_dir(None, Some(home)),
+            Some(PathBuf::from("/home/you/Downloads"))
+        );
+        assert_eq!(download_dir(None, None), None);
+    }
+
+    #[test]
+    fn a_second_download_of_a_name_overwrites_nothing() {
+        let dir = std::env::temp_dir().join(format!("loca-dl-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let name = std::ffi::OsStr::new("report.pdf");
+        assert_eq!(unused_path(&dir, name), dir.join("report.pdf"));
+        std::fs::write(dir.join("report.pdf"), b"1").unwrap();
+        assert_eq!(unused_path(&dir, name), dir.join("report (1).pdf"));
+        std::fs::write(dir.join("report (1).pdf"), b"2").unwrap();
+        assert_eq!(unused_path(&dir, name), dir.join("report (2).pdf"));
+        let bare = std::ffi::OsStr::new("README");
+        std::fs::write(dir.join("README"), b"3").unwrap();
+        assert_eq!(unused_path(&dir, bare), dir.join("README (1)"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

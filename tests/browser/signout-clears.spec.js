@@ -112,6 +112,9 @@ test("signing out without a reload leaves no key, witnessed direct message or Bu
   await master.locator("#pairingCode").fill(pairing_code);
   await master.locator("#connectBtn").click();
   await expect(master.locator("body")).not.toHaveClass(/locked/);
+  // The sign-in lands in a loca, and entering a loca leaves the Building view
+  // (socket.js joinRoom): open it after the landing, or the landing closes it.
+  await expect.poll(() => master.evaluate(() => !!state.room && state.ws?.readyState === 1)).toBe(true);
   await master.evaluate(() => switchTab("people"));
   await expect(master.locator("#peopleList")).toBeVisible();
   await expect(master.locator("#peopleList")).toContainText("so-sa");
