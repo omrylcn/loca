@@ -380,10 +380,29 @@ async function fetchAttachmentBlob(room, id) {
   if (!r.ok) throw new Error(`attachment ${r.status}`);
   return URL.createObjectURL(await r.blob());
 }
+// Save an attachment as a file: fetched with the session, handed over as an
+// object URL the page made, and that URL revoked once the save has had time.
+async function saveAttachment(room, a) {
+  const url = await fetchAttachmentBlob(room, a.id);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = (a.name || "attachment").split(/[\\/]/).pop() || "attachment";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
 // Open an attachment in a new tab, then revoke its URL after the tab has had
 // time to load it, so an opened file is never held for the process lifetime.
+// The desktop window opens no second window (main.rs), so there the file is
+// saved instead and the shell says where it went.
 function openAttachment(room, a) {
   const gen = state.buildingGen;
+  if (window.__LOCA_DESKTOP__ === true) {
+    saveAttachment(room, a)
+      .catch(() => { if (!buildingStale(gen)) addSys(`could not save ${a.name || "attachment"}`); });
+    return;
+  }
   fetchAttachmentBlob(room, a.id)
     .then((url) => {
       window.open(url, "_blank", "noopener");
@@ -402,14 +421,7 @@ function attachmentChip(room, a) {
     btn.disabled = true;
     const gen = state.buildingGen;
     try {
-      const url = await fetchAttachmentBlob(room, a.id);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = (a.name || "attachment").split(/[\\/]/).pop() || "attachment";
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      await saveAttachment(room, a);
     } catch (_) {
       if (!buildingStale(gen)) addSys(`could not download ${a.name || "attachment"}`);
     } finally {

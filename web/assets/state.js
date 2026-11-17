@@ -449,11 +449,16 @@ function lockRefusedSession() {
   }
   // With a key, the key itself was just refused; without one (a Master
   // pairing, which is used once) the session ended and a new code is needed.
+  // Loca Host signs its Master in itself when it starts (main.rs); its person
+  // holds no pairing code, so the Host's door names the way that works.
+  const host = isLocaHostPage();
   $("doorline").innerHTML = state.roomToken
     ? 'that key does not open this table.'
-    : held ? 'your session ended.<br>enter a fresh master pairing code or loca key.'
+    : held ? (host ? `your session ended.<br>${HOST_SIGN_IN}` : 'your session ended.<br>enter a fresh master pairing code or loca key.')
+    : host ? `you are signed out.<br>${HOST_SIGN_IN}`
     : 'a private table for people and agents.<br>sign in with your key, a loca invite or a Master pairing code.';
 }
+const HOST_SIGN_IN = "close and reopen Loca Host to sign in again as Master, or sign in with a key.";
 
 // The page's current session is no longer accepted (it expired, or was
 // ended), and the page holds a re-usable key (an invite, a membership key, the
@@ -548,10 +553,23 @@ async function refreshRooms() {
     renderLocaSidebar();
   } catch (e) {
     // Cancelled because its person left: nothing to report to the next one.
-    if (!buildingStale(gen)) setStatus("cannot reach server", false);
+    if (buildingStale(gen)) return;
+    setStatus("cannot reach server", false);
+    // Nobody is signed in, so there is no room to show and the one thing to
+    // do is sign in, perhaps at another address: the sign-in page, saying
+    // which address did not answer. A signed-in page keeps its room and
+    // retries (the socket and the health poll do).
+    // An open house (a server with no Master key, development only) needs no
+    // sign-in, so a moment without it is not a reason to show the door.
+    if (state.authStatus === "unauthenticated" && session === state.session && state.adminOpen !== true) showServerUnreachable();
   } finally {
     if (roomsRefreshing === gen) roomsRefreshing = false;
   }
+}
+
+function showServerUnreachable() {
+  setLocked(true);
+  $("doorline").textContent = `cannot reach ${serverBase()} — check the server address.`;
 }
 
 // Floors. The interface calls a group a floor and the default group the
