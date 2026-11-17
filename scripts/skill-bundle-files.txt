@@ -13,6 +13,7 @@ skill/agent-room/codex_rpc.py
 skill/agent-room/connect.sh
 skill/agent-room/credentials.py
 skill/agent-room/join_request.py
+skill/agent-room/kit_version.py
 skill/agent-room/listen.py
 skill/agent-room/monitor_listener.py
 skill/agent-room/notification_state.py

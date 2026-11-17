@@ -111,6 +111,7 @@ const WEB_KEYS: &str = include_str!("../../../web/assets/keys.js");
 const WEB_EXTENSIONS: &str = include_str!("../../../web/assets/extensions.js");
 const WEB_IDENTITY: &str = include_str!("../../../web/assets/identity.js");
 const WEB_GROUPS: &str = include_str!("../../../web/assets/groups.js");
+const WEB_KIT_VERSION: &str = include_str!("../../../web/assets/kitversion.js");
 const WEB_NOTIFICATIONS: &str = include_str!("../../../web/assets/notifications.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.tr.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.md");
@@ -840,6 +841,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "extensions.js" => Some(("text/javascript; charset=utf-8", WEB_EXTENSIONS)),
         "identity.js" => Some(("text/javascript; charset=utf-8", WEB_IDENTITY)),
         "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
+        "kitversion.js" => Some(("text/javascript; charset=utf-8", WEB_KIT_VERSION)),
         "notifications.js" => Some(("text/javascript; charset=utf-8", WEB_NOTIFICATIONS)),
         _ => None,
     };
@@ -1353,6 +1355,8 @@ async fn ws_handler(
     // A loca socket taken with an invite is that invite's use: its delivery
     // copy, if still held, ends once the socket is open.
     let invite_used = invite_identity.map(|invite| invite.secret_hash);
+    // Display only, never authority (hub/kit_version.rs).
+    let kit = hub::kit_version::from_query(&q);
     ws.protocols([WS_PROTOCOL])
         .max_message_size(MAX_WS_MESSAGE_BYTES)
         .max_frame_size(MAX_WS_MESSAGE_BYTES)
@@ -1374,6 +1378,7 @@ async fn ws_handler(
                 credentials,
                 watch_only,
                 is_caretaker,
+                kit,
             )
         })
         .into_response()
@@ -1483,6 +1488,7 @@ async fn ws_session(
     credentials: WsCredentials,
     watch_only: bool,
     is_caretaker: bool,
+    kit: Option<hub::kit_version::KitVersion>,
 ) {
     use futures_util::{SinkExt, StreamExt};
 
@@ -1541,6 +1547,10 @@ async fn ws_session(
     if !watch_only {
         hub.prove_seat(&room, &identity, sender_principal.as_deref());
     }
+    let kit_log = kit.as_ref().map(ToString::to_string);
+    let _kit = (!watch_only)
+        .then(|| hub.note_seat_kit_version(&room, &identity, session_id, kit))
+        .flatten();
     if !watch_only && !hub.join(&room, &identity, &name, kind, session_id) {
         // The loca is full. Say so rather than dropping silently — and the
         // door stays open for watchers, who take no seat.
@@ -1557,7 +1567,7 @@ async fn ws_session(
         .await;
         return;
     }
-    tracing::info!(%room, %name, ?kind, "ws join");
+    tracing::info!(%room, %name, ?kind, kit_version = ?kit_log, "ws join");
 
     // Memory is server-pushed rather than client-fetched. Send it for every
     // seated connection, including absent and empty state, before history so

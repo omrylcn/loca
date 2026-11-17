@@ -536,7 +536,10 @@ PY
   [ "$runtime" != manual ] || adapter_version=none
   [ "$runtime" != codex-v2 ] || adapter_version=2
   echo "version: server=${server_version:-unknown} skill=${skill_version:-unknown} adapter=$adapter_version"
-  LOCA_ENV="$env_file" "$SKILL_DIR/connect.sh" status "$server" "$name"
+  # One line when this kit is older than the server; said here, not again below.
+  [ ! -f "$SKILL_DIR/kit_version.py" ] \
+    || python3 "$SKILL_DIR/kit_version.py" notice "$server_version" 2>/dev/null || true
+  LOCA_KIT_NOTICE_SHOWN=1 LOCA_ENV="$env_file" "$SKILL_DIR/connect.sh" status "$server" "$name"
   if [ -f "$log_file" ]; then
     echo "── last listener lines ──"
     tail -10 "$log_file"

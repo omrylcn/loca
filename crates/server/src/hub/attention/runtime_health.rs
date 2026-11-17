@@ -155,6 +155,7 @@ impl Hub {
                     kind: m.kind.clone(),
                     locas: Vec::new(),
                     runtime: self.runtime_health_for(&m.name),
+                    kit_version: None,
                 },
             );
         }
@@ -188,6 +189,9 @@ impl Hub {
             }
         }
 
-        by_name.into_values().collect()
+        drop(rooms);
+        let mut residents: Vec<protocol::Resident> = by_name.into_values().collect();
+        self.add_kit_versions(&mut residents);
+        residents
     }
 }

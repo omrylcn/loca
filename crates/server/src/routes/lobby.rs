@@ -205,8 +205,10 @@ pub(crate) async fn lobby_ws_handler(
     // profile door closes this socket and no other (door B). `None` in a
     // memory-only Building, which has no credential records.
     let credential_id = hub.credential_id_for_secret(&token);
+    // Display only, never authority (hub/kit_version.rs).
+    let kit = hub::kit_version::from_query(&q);
     ws.protocols([WS_PROTOCOL])
-        .on_upgrade(move |socket| lobby_ws_session(socket, hub, member, token, credential_id))
+        .on_upgrade(move |socket| lobby_ws_session(socket, hub, member, token, credential_id, kit))
         .into_response()
 }
 
@@ -307,6 +309,7 @@ pub(crate) async fn lobby_ws_session(
     member: crate::store::MemberRecord,
     presented: String,
     credential_id: Option<String>,
+    kit: Option<hub::kit_version::KitVersion>,
 ) {
     use futures_util::{SinkExt, StreamExt};
 
@@ -317,8 +320,10 @@ pub(crate) async fn lobby_ws_session(
     // Presence is counted by the membership's id, never by its key.
     let member_id = member.id.clone();
     let (mut sink, mut stream) = socket.split();
+    let kit_log = kit.as_ref().map(ToString::to_string);
+    let _kit = hub.note_lobby_kit_version(&member_id, kit);
     hub.lobby_join(&member_id);
-    tracing::info!(name = %member.name, "lobby join");
+    tracing::info!(name = %member.name, kit_version = ?kit_log, "lobby join");
 
     // Subscribed: a revoke from now on arrives as an event. One that landed
     // between the handshake and the subscription is caught here.

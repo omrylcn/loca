@@ -101,3 +101,12 @@ issuance staying with the master.
   LISTENER`), and legacy `tail|grep` bridges (`DEGRADED`).
 - The server **roster** must show ONLINE. A running PID is not proof of
   delivery, and delivery is not proof of wake-up — check all three.
+- `connect.sh status`, `connect.sh doctor` and `runtime.sh status` compare the
+  kit's `VERSION` with the server's `/health` version. Only when the kit is
+  older do they add one line, `KIT OLDER THAN SERVER — kit X, server Y: …`,
+  naming the update (`./install.sh --upgrade-only --target both` from the
+  remote-agent kit of the server's release). An equal, newer, missing or
+  unreadable version adds nothing, and no exit code changes. The listener
+  also sends its `VERSION` when it connects, so the Master, a Smaster and the
+  loca's Operator see `kit X` beside a connected agent (marked when older
+  than the server). An older kit keeps working; nothing refuses it.

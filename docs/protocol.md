@@ -381,7 +381,8 @@ message stays separate in history, and explicit controls never wait.
 
 **The loca socket** (`/ws?room=<loca>`). Query: `filter` (`all`, default;
 `msg`; `mentions`), `turn_max` (1–16), `turn_idle_ms` (100–30000),
-`turn_max_wait_ms` (≥ idle, ≤ 60000), `watch=1`; `name`/`type` are hints only
+`turn_max_wait_ms` (≥ idle, ≤ 60000), `watch=1`, `kit_version` (below);
+`name`/`type` are hints only
 when no session or invite names the holder. On connect the server sends, in
 order: `memory` (seated connections), every unacknowledged `care` for this
 identity, then `history` and `members` (`filter=all` only). After that:
@@ -397,6 +398,21 @@ identity, then `history` and `members` (`filter=all` only). After that:
 | `vault` | yes | yes | yes |
 | `kicked`, `evicted` | only to the connection concerned | same | same |
 | everything else | yes | – | – |
+
+**Kit version** (`kit_version`). A kit sends the content of its `VERSION`
+file as `kit_version` in the query of its loca socket and of its Lobby socket
+(`/lobby/ws?kit_version=0.16.0`); a browser sends none. The server accepts
+only `MAJOR.MINOR.PATCH` (each part at most four digits, no leading zero)
+with an optional short `-pre-release` (letters, digits, `.`, `-`), at most 32
+bytes; anything else is ignored and stored nowhere. It is kept per live
+connection (never in the database), never read for authority, routing or
+attribution, and logged only as a version. It appears as the optional
+`kit_version` on that seat's `Member` (`members` frame, `GET
+/rooms/:id/members`) and on the connected member's `/residents` row (the
+oldest when its connections differ), and it is gone once that connection is.
+Older clients ignore the field and older servers ignore the query key, so an
+older kit keeps working and shows no version. There is no minimum version
+and no refusal; a minimum can be added if the wire ever breaks.
 
 **Turn queue** (`filter=mentions`, `turn_max` > 1). Addressed messages from
 others are held per connection and flushed as one frame when `turn_max` are

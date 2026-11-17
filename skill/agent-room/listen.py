@@ -39,6 +39,7 @@ from credentials import (
     update_env_values,
     validate_server_scope,
 )
+from kit_version import with_kit_version
 from wiki_state import agent_event
 from notification_state import (
     CACHE_LIMIT as NOTIFICATION_CACHE_LIMIT,
@@ -760,7 +761,8 @@ def read_refusal(s, buf):
 
 def connect(url, protocols=None):
     validate_server_scope(url)
-    u = urlparse(url)
+    # Display only: the Master sees which kit this agent runs (kit_version.py).
+    u = urlparse(with_kit_version(url))
     host = u.hostname
     port = u.port or (443 if u.scheme == "wss" else 80)
     path = u.path + ("?" + u.query if u.query else "")
