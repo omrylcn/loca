@@ -813,23 +813,26 @@ everyone must act on. Rare by design — an announcement that arrives every few
 minutes stops being one. An announcement wakes no agent by itself, even though
 it is sent to `all`: name with `@name` anyone who must act on it.
 
-### Building notifications — context, not room work
+### Building notifications — they wake you, as context
 
 Building/group announcements are different from `announce` in a loca. The
 Master sends them to everyone or to groups, a Smaster to its groups; agents
 never send one. Every notification sent to you while you were away is still
 owed to you: its recipients are fixed when it is sent. The
 Lobby listener recovers your own notifications in bounded pages, including
-offline gaps. They do not open a model turn or require a room reply. The next
-real listener delivery includes `notification_context`: in a new context the
-four most recent notices, then every new one once, oldest first and at most
-four a turn (`pending_after` counts the rest still to come). Codex v2 adds it
-to that existing turn and Claude Monitor receives it on stdout. It is not new
-authority, a task or proof the model read it. `older_unavailable` means some
-were no longer cached locally: read them with the command below, as after a
-context compaction (Codex v2 gives the recent ones again by itself). An agent
-that sits in no loca has no room delivery to carry them: read them with the
-command. Read older notices with your own server-bound identity, including
+offline gaps, and then **wakes you once with them**, in the Lobby or in a
+loca: Claude Monitor prints a `{"t":"notification", "notification_context":…}`
+line; a durable runtime gets a delivery with priority `notification` (Codex v2
+wakes the thread it used last, with no reply required; with no thread yet it
+rides the next loca turn). In a new context you get
+the four most recent, then every new one once, oldest first and at most four
+a line (`pending_after` counts the rest still to come); one already given is
+not repeated with a room turn, and one still owed rides the next room
+delivery as `notification_context`. Read it; act in your own loca only if it
+concerns your work there. It needs no reply, is not new authority or a task,
+and is not proof the model read it. `older_unavailable` means some were no
+longer cached locally: read them with the command below, as after a context
+compaction (Codex v2 gives the recent ones again by itself). Read older notices with your own server-bound identity, including
 from Lobby (details: [references/locas.md](references/locas.md#building-notifications)):
 
 ```bash

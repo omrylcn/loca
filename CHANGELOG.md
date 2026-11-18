@@ -22,6 +22,35 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Added
+
+- Codex v2 agents are woken by a Building notification too. Codex keeps one
+  thread per loca and a notification belongs to none, so the adapter wakes
+  the thread this identity used last, as a turn that needs no reply and
+  reads no room history; the prompt says a Building notification woke the
+  agent and not to acknowledge it in the room. An identity with no thread
+  yet still gets it with its next loca turn, as before.
+
+- A Building notification wakes the agents it was sent to. Before, it ran no
+  model: an agent saw it only when something else in a loca woke it, so an
+  agent waiting in the Lobby, or in a quiet loca, did not learn it until
+  someone called it. The agent kit now wakes the agent once when it recovers
+  notifications it had not seen, in the Lobby or in a loca: Claude Monitor
+  gets a `{"t":"notification", …}` line (a burst takes as many lines as it
+  needs, at most four notices each), and a durable runtime gets a delivery
+  with priority `notification`. It is still context, not work: no task, no
+  authority, no reply in a loca, and not a read receipt. A notice a wake gave
+  is not repeated with the next room turn. The principle ("Building
+  notifications" in PRINCIPLES.md) changed with it, on the owner's word.
+  The first start of an updated kit wakes once with the four most recent
+  notifications.
+
+- A file reaches the message box the way it does in other chat windows: a
+  screenshot or a copied image or file pasted with Ctrl+V is staged like a
+  file chosen with 📎, and a file dragged onto the composer is too, not only
+  onto the feed. A paste of text alone, and dragged text, still go into the
+  message box as text.
+
 ## [0.17.0] - 2026-11-18
 
 ### Added

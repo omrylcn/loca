@@ -427,8 +427,9 @@ $("onlineList").addEventListener("click", (e) => {
   if (lead) setLead(lead.dataset.lead || null);
 });
 $("sendBtn").onclick = send;
-// Attachments: the 📎 button opens the file picker; drag/drop onto the feed
-// works too. Chosen files upload immediately and appear as staged chips.
+// Attachments: the 📎 button opens the file picker; a file dragged onto the
+// feed or the composer, or pasted (Ctrl+V) into the message box, is staged the
+// same way. Chosen files upload immediately and appear as staged chips.
 $("attachBtn").addEventListener("click", () => $("attachInput").click());
 $("attachInput").addEventListener("change", async (e) => {
   const files = Array.from(e.target.files || []);
@@ -448,6 +449,37 @@ $("attachInput").addEventListener("change", async (e) => {
     if (files.length) await stageAttachments(files);
   });
 })();
+// The composer takes over only a drag that carries files: dragged text still
+// drops into the message box as text.
+(function wireComposerDrop() {
+  const zone = $("composer");
+  if (!zone) return;
+  const carriesFiles = (e) => Array.from(e.dataTransfer?.types || []).includes("Files");
+  ["dragenter", "dragover"].forEach((ev) =>
+    zone.addEventListener(ev, (e) => {
+      if (!carriesFiles(e)) return;
+      e.preventDefault();
+      zone.classList.add("dropping");
+    }));
+  zone.addEventListener("dragleave", (e) => {
+    if (!zone.contains(e.relatedTarget)) zone.classList.remove("dropping");
+  });
+  zone.addEventListener("drop", async (e) => {
+    zone.classList.remove("dropping");
+    if (!carriesFiles(e)) return;
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files || []);
+    if (files.length) await stageAttachments(files);
+  });
+})();
+// Ctrl+V of a file (a screenshot, a copied image or file) stages it; a paste
+// of text alone is left to the browser.
+$("msg").addEventListener("paste", async (e) => {
+  const files = Array.from(e.clipboardData?.files || []);
+  if (!files.length) return;
+  e.preventDefault();
+  await stageAttachments(files);
+});
 $("leadSelect").addEventListener("change", async (e) => {
   const before = state.settings?.lead || "";
   const next = e.target.value || null;

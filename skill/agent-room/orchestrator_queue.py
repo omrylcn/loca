@@ -28,7 +28,9 @@ PRIORITY_RANKS = {
     "lead_room": 4,
     "broadcast": 5,
     "addressed_agent": 6,
-    "informational": 7,
+    # A Building notification: wakes the agent once, as context; no reply.
+    "notification": 7,
+    "informational": 8,
 }
 PROTECTED_PRIORITIES = {
     PRIORITY_RANKS["security_control"],

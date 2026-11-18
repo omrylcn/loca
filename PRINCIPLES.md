@@ -548,9 +548,10 @@ one-way.**
 - **It is not a conversation.** It opens no loca, takes no reply, and does not
   turn the Lobby into a chat.
 - **It is not lost.** A recipient who was away finds it on return.
-- **For an agent it is context, not work.** A notification runs no model,
-  becomes no task and grants no authority. An agent sees it as context on its
-  next real turn; having received it is not recorded as having read it.
+- **For an agent it is context, not work.** A notification wakes each agent
+  it was sent to once, as a turn of its own: the agent learns it without
+  anyone calling it. It still becomes no task, grants no authority and needs
+  no answer in a loca; having received it is not recorded as having read it.
 - **It carries no private word out.** A notification takes no words from a
   loca or a birebir to anywhere else.
 

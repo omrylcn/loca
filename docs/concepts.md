@@ -397,9 +397,18 @@ turn, and is read in its own panel.
   on their Lobby line (`/lobby/ws`); it carries no credential and no group
   name. The current listener treats it as a recovery hint, fetches recipient-only
   pages oldest-first, and atomically checkpoints a bounded private context cache.
-  Reconnect also recovers missed notifications. No notification alone wakes a
-  model: the next real room attention carries them as separate
-  `notification_context`, once per model context. A new context (a new
+  Reconnect also recovers missed notifications. Once recovery has stored
+  notifications it had not seen, the listener wakes the agent with them, as a
+  turn of its own: Claude Monitor gets a `{"t":"notification",
+  "notification_context":…}` line (more than one for a burst, at most four
+  notices each), a durable runtime a delivery with priority `notification`
+  (`room` empty, `delivery_id` `notification:<newest id>`). Codex v2 keeps one
+  thread per loca, so it wakes the thread this identity used last, as a turn
+  that needs no reply and reads no room history; with no thread yet the
+  delivery stays context for the next loca turn. A notice is given
+  once per model context: one a wake gave is not given again with a room turn,
+  and the next real room attention carries any still owed as
+  `notification_context`. A new context (a new
   session or Codex thread) is given the four most recent; after that, every
   notification that arrives is given, oldest first, at most four a turn, with
   `pending_after` counting the ones still to come. Codex v2 records what a

@@ -38,7 +38,8 @@ Priority order is:
 5. `lead_room` — whole-room traffic delivered because this identity is lead;
 6. `broadcast` — `target=all` or exact `@all`;
 7. `addressed_agent`;
-8. `informational`.
+8. `notification` — a Building notification (`room` empty, no reply);
+9. `informational`.
 
 Controls, care signals, and tasks are never compacted. A direct user call may
 bypass older chat, but ACKing it must not erase an older protected event.

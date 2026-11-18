@@ -16,6 +16,10 @@ import orchestrator_queue
 
 TERMINAL_STATUSES = {"failed", "interrupted", "cancelled", "expired"}
 CONTEXT_ONLY_PRIORITIES = {"informational"}
+# A Building notification belongs to no loca. Codex keeps one thread per loca,
+# so it wakes the thread this identity used last; with none it stays context
+# for the next loca turn (notification_context).
+NOTIFICATION_PRIORITY = "notification"
 DEFAULT_REPLY_REQUIRED = {"direct_user"}
 PROTECTED_PRIORITIES = {"security_control", "care_signal", "explicit_task"}
 
@@ -401,6 +405,19 @@ class AttentionStore:
                             )
 
                         priority = str(record.get("priority") or "informational")
+                        if priority == NOTIFICATION_PRIORITY and not room:
+                            latest = connection.execute(
+                                """
+                                SELECT room FROM threads
+                                WHERE identity = ? AND server = ?
+                                ORDER BY updated_at_ms DESC LIMIT 1
+                                """,
+                                (identity, server),
+                            ).fetchone()
+                            if latest is None:
+                                context_only += 1
+                                continue
+                            room = str(latest["room"])
                         if priority in CONTEXT_ONLY_PRIORITIES:
                             context_only += 1
                             continue

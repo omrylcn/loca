@@ -336,8 +336,15 @@ def attention_prompt(
             "already happened."
         )
     signal = care_signal(attention)
+    event_kind = json.loads(str(attention["event_json"])).get("t")
     if signal is not None:
         body = care_prompt_body(attention, signal, context)
+    elif event_kind == "notification":
+        body = (
+            "A Building notification woke you; nobody in this room addressed "
+            "you. Read it as context. Act in this room only if it concerns "
+            "your work here; do not acknowledge or repeat it in the room."
+        )
     else:
         body = (
             "Bounded room context:\n"
@@ -451,6 +458,10 @@ class ContextProvider:
         self.wiki_reader = WikiReader(connect_sh,identity or os.environ.get("LOCA_NAME", ""))
 
     def __call__(self, attention: dict[str, Any]) -> list[dict[str, Any]]:
+        if json.loads(str(attention["event_json"])).get("t") == "notification":
+            # A Building notification carries its own context and names no
+            # room message; there is no id range to read.
+            return []
         from_id = attention.get("context_from_id")
         since = max(0, int(from_id or 0) - MAX_CONTEXT_MESSAGES - 1)
         result = subprocess.run(

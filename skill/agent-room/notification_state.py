@@ -1,7 +1,9 @@
 """Bounded recipient-only Building announcement cache, separate from room work.
 
-Announcements never create a model turn or a room reply. Lobby frames merely
-wake bounded REST recovery; the next real attention carries recent context.
+A Lobby frame wakes bounded REST recovery. Once recovery has stored notices
+it had not seen, it tells the listener (``on_new``), which wakes the agent
+once with them as context: no task, no authority, no room reply. A notice
+already given that way is not given again with a later room turn.
 The server remains the archive and read-state authority.
 """
 import argparse
@@ -246,8 +248,11 @@ class NotificationCache:
 
 
 class NotificationRecovery:
-    def __init__(self, cache, membership):
+    def __init__(self, cache, membership, on_new=None):
         self.cache, self.membership = cache, membership
+        # Called once recovery has caught up after storing notices it had not
+        # seen; the listener wakes the agent with them.
+        self.on_new = on_new
         self.wake = threading.Event()
         self.stopping = threading.Event()
         self.thread = threading.Thread(target=self.run, name="loca-notifications", daemon=True)
@@ -262,15 +267,21 @@ class NotificationRecovery:
     def run(self):
         delay = 0
         failures = 0
+        fresh = False
         while not self.stopping.is_set():
             self.wake.wait(delay)
             self.wake.clear()
             if self.stopping.is_set():
                 return
             try:
+                before = self.cache.cursor()
                 more = self.cache.recover_page(self.membership)
+                fresh = fresh or self.cache.cursor() > before
                 failures = 0
                 delay = 0.1 if more else 5
+                if fresh and not more and self.on_new is not None:
+                    fresh = False
+                    self.on_new()
             except Exception as error:
                 failures += 1
                 # No body, credential, or notification contents in diagnostics.

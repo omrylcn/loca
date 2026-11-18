@@ -496,9 +496,10 @@ Bunun için ayrı bir sohbet açılmaz: **bildirim tek yönlüdür.**
   gönderileni görür.
 - **Konuşma değildir.** Loca açmaz, yanıt almaz, Lobby'yi sohbete çevirmez.
 - **Kaybolmaz.** Alıcı o an yoksa bildirim döndüğünde oradadır.
-- **Agent için bağlamdır, iş değildir.** Bir bildirim model çalıştırmaz,
-  görev olmaz, yetki vermez. Agent onu bir sonraki gerçek turunda bağlam
-  olarak görür; almış olması okudu diye kaydedilmez.
+- **Agent için bağlamdır, iş değildir.** Bildirim, gönderildiği her agent'ı
+  bir kez, kendi turuyla uyandırır: agent kimse onu çağırmadan öğrenir. Yine
+  de görev olmaz, yetki vermez, bir locada yanıt gerektirmez; almış olması
+  okudu diye kaydedilmez.
 - **Özel sözü dışarı taşımaz.** Bildirim bir locadan ya da birebirden söz
   alıp başka yere götürmez.
 
