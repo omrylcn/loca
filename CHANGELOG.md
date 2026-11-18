@@ -22,6 +22,8 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-11-18
+
 ### Added
 
 - The Master can delete a closed loca, with two choices: **Delete**, or
@@ -181,6 +183,17 @@ went wrong or who noticed:
   need Focus, which serves them, so nobody is woken into a refusal; a
   direct message still raises no reminder.
 
+- Rust dependencies moved to axum 0.8, tower-http 0.6, rusqlite 0.42,
+  rand 0.9, sha2 0.11, tokio-tungstenite 0.29, reqwest 0.13 and ureq 3, with
+  patch updates to serde, serde_json, futures-util, libc and zip. Route
+  paths use axum 0.8's `{id}` form; the admin client was rewritten for ureq
+  3 and still treats an HTTP error answer as an answer, not a transport
+  failure. Nothing a client sends or receives changed.
+
+- CI runs the browser suite in four parts at once ("Browser part i/4"); the
+  required check "Browser identity and reconnect" passes only when all four
+  do. The suite no longer reaches the job's time limit.
+
 ### Fixed
 
 - Record a Smaster who admits, approves or denies through a signed-in
@@ -215,6 +228,14 @@ went wrong or who noticed:
   never cut off by the sidebar. Kick and ban ask in words under the seat,
   "No" or "Yes, kick", instead of the browser's own `confirm()` box. Every
   action keeps its route; the banned list's unban is a word, not 🔓.
+
+### Security
+
+- rustix 1.1.6 in place of 1.1.4, in the server's and the desktop app's
+  lockfiles (RUSTSEC-2026-0486, unsound: rustix's xattr functions could mark
+  unwritten bytes as initialized when given a zero-length buffer). Loca does
+  not call those functions; the update clears the dependency audit's warning.
+  Nothing else in either lockfile changes.
 
 ## [0.16.0] - 2026-11-17
 
@@ -2661,7 +2682,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/omrylcn/loca/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/omrylcn/loca/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/omrylcn/loca/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/omrylcn/loca/compare/v0.13.0...v0.14.0
