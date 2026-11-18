@@ -123,8 +123,10 @@ package-check:
 container-check:
 	docker build --tag loca:local-check .
 
+# SHARD=i/n runs one part of the suite (Playwright splits it by file), as CI
+# does in four jobs at once.
 browser-check:
-	npm run test:browser
+	npm run test:browser -- $(if $(SHARD),--shard=$(SHARD))
 
 DELIVERY_BINARY ?= target/debug/room-server
 DELIVERY_LISTENER ?= skill/agent-room/listen.py

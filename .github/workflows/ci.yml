@@ -60,10 +60,18 @@ jobs:
           docker info --format '{{json .RegistryConfig.Mirrors}}'
       - run: make container-check
 
-  browser:
-    name: Browser identity and reconnect
+  # The browser suite in four parts at once: on one runner it took about 15
+  # minutes and the Chromium download up to 5 more, and a 20-minute limit
+  # cancelled master twice with every test passing so far. Each part has its
+  # own runner, server and data; Playwright splits the suite by file.
+  browser-shard:
+    name: Browser part ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # pinned action; toolchain below
@@ -76,4 +84,17 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: make browser-check
+      - run: make browser-check SHARD=${{ matrix.shard }}/4
+
+  # The required check keeps its name: green only when every part is.
+  browser:
+    name: Browser identity and reconnect
+    needs: browser-shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every part passed
+        env:
+          RESULT: ${{ needs.browser-shard.result }}
+        run: test "$RESULT" = success
