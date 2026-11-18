@@ -1129,7 +1129,7 @@ fn parse_routes(block: &str) -> Vec<String> {
             "a route path is not a string literal: {args}"
         );
         let close = args[1..].find('"').expect("unterminated route path") + 1;
-        let path = &args[1..close];
+        let path = &colon_path(&args[1..close]);
         let methods = &args[close + 1..];
         let mut found = Vec::new();
         let bytes = methods.as_bytes();
@@ -2587,4 +2587,18 @@ async fn authority_matrix() {
         ROWS.len(),
         started.elapsed()
     );
+}
+
+/// A route path as the rows spell it: axum 0.8 writes a parameter `{id}`,
+/// the rows (and the documents) `:id`.
+pub(super) fn colon_path(path: &str) -> String {
+    path.split('/')
+        .map(
+            |segment| match segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+                Some(name) => format!(":{name}"),
+                None => segment.to_string(),
+            },
+        )
+        .collect::<Vec<_>>()
+        .join("/")
 }

@@ -192,7 +192,8 @@ async fn the_server_log_carries_no_membership_key_or_invite() {
     first
         .send(WsMessage::Text(
             serde_json::json!({"t": "send", "text": "over the socket", "op_id": "op-log-1"})
-                .to_string(),
+                .to_string()
+                .into(),
         ))
         .await
         .unwrap();

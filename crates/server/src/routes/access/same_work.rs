@@ -222,7 +222,7 @@ fn gates(hub: &Hub) -> axum::Router {
     );
     axum::Router::new()
         .route(
-            "/rooms/:id/messages",
+            "/rooms/{id}/messages",
             axum::routing::get(|_: RoomAccess| async { "reached" }),
         )
         .route_layer(axum::middleware::from_fn_with_state(

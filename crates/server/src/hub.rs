@@ -3219,10 +3219,12 @@ impl Hub {
     fn secure_token(prefix: &str, bytes: usize) -> String {
         use std::fmt::Write as _;
 
-        use rand::{rngs::OsRng, RngCore};
+        use rand::{rngs::OsRng, RngCore, TryRngCore};
 
         let mut random = vec![0_u8; bytes];
-        OsRng.fill_bytes(&mut random);
+        // The operating system's source, as before; a failure to read it
+        // panics as `fill_bytes` did.
+        OsRng.unwrap_err().fill_bytes(&mut random);
         let mut token = String::with_capacity(prefix.len() + random.len() * 2);
         token.push_str(prefix);
         for byte in random {

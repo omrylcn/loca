@@ -1790,3 +1790,8 @@ mod upgrade;
 mod vault;
 #[path = "ws/work.rs"]
 mod work;
+
+/// Lower-case hex of `bytes` (a SHA-256 digest no longer formats with `{:x}`).
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}

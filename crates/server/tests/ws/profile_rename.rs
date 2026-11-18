@@ -219,7 +219,9 @@ async fn a_rename_reaches_only_its_own_messages_live_and_after_restart() {
     wait_for(&mut deputy_ws, |v| v["t"] == "history").await;
     deputy_ws
         .send(WsMessage::Text(
-            serde_json::json!({ "t": "send", "text": "smaster socket words" }).to_string(),
+            serde_json::json!({ "t": "send", "text": "smaster socket words" })
+                .to_string()
+                .into(),
         ))
         .await
         .unwrap();
@@ -387,7 +389,9 @@ async fn a_smaster_code_socket_records_its_principal_and_the_root_key_records_no
         let mut ws = ws_with(port, protocol, "deputy", false).await;
         wait_for(&mut ws, |v| v["t"] == "history").await;
         ws.send(WsMessage::Text(
-            serde_json::json!({ "t": "send", "text": text }).to_string(),
+            serde_json::json!({ "t": "send", "text": text })
+                .to_string()
+                .into(),
         ))
         .await
         .unwrap();

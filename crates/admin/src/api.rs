@@ -54,19 +54,30 @@ impl Api {
         }
     }
 
-    fn get(&self, path: &str) -> R<ureq::Response> {
-        ureq::get(&format!("{}{path}", self.server))
-            .set("x-admin-token", &self.key)
-            .timeout(std::time::Duration::from_secs(10))
-            .call()
-            .map_err(explain)
+    /// The master key, a ten-second limit, and every status answered as a
+    /// response: `answered` reads a refusal's own sentence.
+    fn keyed<B>(&self, request: ureq::RequestBuilder<B>) -> ureq::RequestBuilder<B> {
+        request
+            .header("x-admin-token", self.key.as_str())
+            .config()
+            .timeout_global(Some(std::time::Duration::from_secs(10)))
+            .http_status_as_error(false)
+            .build()
+    }
+
+    fn get(&self, path: &str) -> R<Reply> {
+        answered(
+            self.keyed(ureq::get(&format!("{}{path}", self.server)))
+                .call(),
+            false,
+        )
     }
 
     /// Every loca in the building whose invites the master manages. A
     /// direct message is conversation only (PRINCIPLES "Birebir"): nobody issues or
     /// reads invites for it, so it is not listed.
     pub fn locas(&self) -> R<Vec<String>> {
-        let rows: Vec<RoomRow> = self.get("/rooms")?.into_json().map_err(|e| e.to_string())?;
+        let rows: Vec<RoomRow> = json(self.get("/rooms")?)?;
         Ok(rows
             .into_iter()
             .map(|r| r.room)
@@ -76,19 +87,17 @@ impl Api {
 
     /// Who holds an invite for this loca.
     pub fn invites(&self, loca: &str) -> R<Vec<Invite>> {
-        self.get(&format!("/rooms/{loca}/invites"))?
-            .into_json()
-            .map_err(|e| e.to_string())
+        json(self.get(&format!("/rooms/{loca}/invites"))?)
     }
 
     /// Mint one. Returns the invite itself — shown once, handed over by eye.
     pub fn issue(&self, loca: &str, name: &str) -> R<String> {
-        let resp = ureq::post(&format!("{}/rooms/{loca}/invites", self.server))
-            .set("x-admin-token", &self.key)
-            .timeout(std::time::Duration::from_secs(10))
-            .send_json(ureq::json!({ "name": name }))
-            .map_err(explain_with_reason)?;
-        let d: IssuedInvite = resp.into_json().map_err(|e| e.to_string())?;
+        let resp = answered(
+            self.keyed(ureq::post(&format!("{}/rooms/{loca}/invites", self.server)))
+                .send_json(serde_json::json!({ "name": name })),
+            true,
+        )?;
+        let d: IssuedInvite = json(resp)?;
         Ok(d.token)
     }
 
@@ -96,25 +105,34 @@ impl Api {
     /// takes its place, delivered over their Lobby line like a call. The seat
     /// stays theirs.
     pub fn reissue(&self, loca: &str, name: &str) -> R<Reissued> {
-        let resp = ureq::post(&format!("{}/rooms/{loca}/call", self.server))
-            .set("x-admin-token", &self.key)
-            .timeout(std::time::Duration::from_secs(10))
-            .send_json(ureq::json!({ "name": name, "reissue": true }))
-            .map_err(explain_with_reason)?;
-        let answer: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+        let resp = answered(
+            self.keyed(ureq::post(&format!("{}/rooms/{loca}/call", self.server)))
+                .send_json(serde_json::json!({ "name": name, "reissue": true })),
+            true,
+        )?;
+        let answer: serde_json::Value = json(resp)?;
         reissued_from(&answer)
     }
 
     /// End one. The row survives revocation, so "who was let in" stays
     /// answerable afterwards.
     pub fn revoke(&self, loca: &str, id: &str) -> R<()> {
-        ureq::delete(&format!("{}/rooms/{loca}/invites/{id}", self.server))
-            .set("x-admin-token", &self.key)
-            .timeout(std::time::Duration::from_secs(10))
-            .call()
-            .map(|_| ())
-            .map_err(explain)
+        answered(
+            self.keyed(ureq::delete(&format!(
+                "{}/rooms/{loca}/invites/{id}",
+                self.server
+            )))
+            .call(),
+            false,
+        )
+        .map(|_| ())
     }
+}
+
+type Reply = ureq::http::Response<ureq::Body>;
+
+fn json<T: serde::de::DeserializeOwned>(mut reply: Reply) -> R<T> {
+    reply.body_mut().read_json().map_err(|e| e.to_string())
 }
 
 fn reissued_from(answer: &serde_json::Value) -> R<Reissued> {
@@ -128,32 +146,29 @@ fn reissued_from(answer: &serde_json::Value) -> R<Reissued> {
         .ok_or_else(|| "the building answered without an invite".into())
 }
 
-/// Like `explain`, but keeps the building's own sentence: a re-send or an
-/// issue can be refused for several reasons a bare status cannot tell apart
-/// (not a member yet, a direct message, a full loca).
-fn explain_with_reason(e: ureq::Error) -> String {
-    match e {
-        ureq::Error::Status(401, _) => "the master key was refused".into(),
-        ureq::Error::Status(c, response) => {
-            let reason = response.into_string().unwrap_or_default();
-            if reason.trim().is_empty() {
-                format!("the building answered {c}")
-            } else {
-                reason.trim().to_string()
-            }
+/// Turn an answer into something a person can act on. A refused key and an
+/// unreachable building say so; with `keep_reason`, any other refusal keeps
+/// the building's own sentence, since an issue or a re-send can be refused
+/// for several reasons a bare status cannot tell apart (not a member yet, a
+/// direct message, a full loca).
+fn answered(result: Result<Reply, ureq::Error>, keep_reason: bool) -> R<Reply> {
+    let mut reply = result.map_err(|e| format!("cannot reach the building ({e})"))?;
+    let status = reply.status().as_u16();
+    if status < 400 {
+        return Ok(reply);
+    }
+    if status == 401 {
+        return Err("the master key was refused".into());
+    }
+    if keep_reason {
+        let reason = reply.body_mut().read_to_string().unwrap_or_default();
+        if !reason.trim().is_empty() {
+            return Err(reason.trim().to_string());
         }
-        other => explain(other),
+    } else if status == 404 {
+        return Err("no such loca".into());
     }
-}
-
-/// Turn transport failures into something a person can act on.
-fn explain(e: ureq::Error) -> String {
-    match e {
-        ureq::Error::Status(401, _) => "the master key was refused".into(),
-        ureq::Error::Status(404, _) => "no such loca".into(),
-        ureq::Error::Status(c, _) => format!("the building answered {c}"),
-        ureq::Error::Transport(t) => format!("cannot reach the building ({t})"),
-    }
+    Err(format!("the building answered {status}"))
 }
 
 #[cfg(test)]
@@ -165,14 +180,14 @@ mod tests {
     #[test]
     fn a_reissue_answer_is_read_for_what_it_is() {
         assert_eq!(
-            reissued_from(&ureq::json!({ "name": "w", "loca": "l", "token": "dv_x" })),
+            reissued_from(&serde_json::json!({ "name": "w", "loca": "l", "token": "dv_x" })),
             Ok(Reissued::Fresh("dv_x".into()))
         );
         assert_eq!(
-            reissued_from(&ureq::json!({ "already": true, "name": "w" })),
+            reissued_from(&serde_json::json!({ "already": true, "name": "w" })),
             Ok(Reissued::Unsupported)
         );
-        assert!(reissued_from(&ureq::json!({ "name": "w" })).is_err());
+        assert!(reissued_from(&serde_json::json!({ "name": "w" })).is_err());
     }
 
     /// A building that answers every request with one refusal, after reading

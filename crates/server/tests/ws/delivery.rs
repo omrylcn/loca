@@ -38,7 +38,9 @@ async fn broadcast_reaches_both_clients_and_roster_updates() {
 
     // A user's WS `send` frame should also broadcast.
     user.send(WsMessage::Text(
-        serde_json::json!({ "t": "send", "text": "hi from ws" }).to_string(),
+        serde_json::json!({ "t": "send", "text": "hi from ws" })
+            .to_string()
+            .into(),
     ))
     .await
     .unwrap();
@@ -106,7 +108,9 @@ async fn reply_to_and_typing_flow() {
     let mut agent = connect_ws(port, "general", "typer", "agent").await;
     agent
         .send(WsMessage::Text(
-            serde_json::json!({ "t": "typing", "on": true }).to_string(),
+            serde_json::json!({ "t": "typing", "on": true })
+                .to_string()
+                .into(),
         ))
         .await
         .unwrap();
@@ -204,7 +208,9 @@ async fn filter_msg_suppresses_noise_but_delivers_messages() {
     let mut noisy = connect_ws(port, "general", "noisy", "user").await;
     noisy
         .send(WsMessage::Text(
-            serde_json::json!({ "t": "typing", "on": true }).to_string(),
+            serde_json::json!({ "t": "typing", "on": true })
+                .to_string()
+                .into(),
         ))
         .await
         .unwrap();

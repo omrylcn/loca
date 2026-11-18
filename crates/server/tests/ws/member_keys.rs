@@ -22,7 +22,7 @@ fn persistent(db: &std::path::Path) -> Vec<(&'static str, String)> {
 }
 
 fn sha256(value: &str) -> String {
-    format!("{:x}", sha2::Sha256::digest(value.as_bytes()))
+    hex(&sha2::Sha256::digest(value.as_bytes()))
 }
 
 /// The key ledger's fingerprint: the prefix and four characters.

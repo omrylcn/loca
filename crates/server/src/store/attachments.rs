@@ -122,7 +122,7 @@ impl BlobStore {
     /// existing blob is a no-op, a CORRUPT one is self-healed. Atomic + durable +
     /// `0600`. Refuses a symlink/special file at the blob path.
     pub fn put(&self, bytes: &[u8]) -> io::Result<String> {
-        let sha = format!("{:x}", Sha256::digest(bytes));
+        let sha = crate::store::hex_bytes(&Sha256::digest(bytes));
         // Re-verify the directory chain on every write (cheap; catches a dir that
         // was swapped for a symlink since `new`).
         ensure_dir(&self.root)?;
@@ -243,7 +243,7 @@ impl BlobStore {
     fn read_at(&self, path: &Path, expect: Option<&str>) -> io::Result<Vec<u8>> {
         let buf = self.read_no_follow(path)?;
         if let Some(sha) = expect {
-            if format!("{:x}", Sha256::digest(&buf)) != sha {
+            if crate::store::hex_bytes(&Sha256::digest(&buf)) != sha {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "blob content does not match its id (corrupt/tampered)",
@@ -628,7 +628,7 @@ mod tests {
         let (_d, bs) = store();
         let new_bytes: &[u8] = b"the healed new bytes exactly!";
         let old_bytes: &[u8] = b"old corrupt content bytes??";
-        let sha = format!("{:x}", Sha256::digest(new_bytes));
+        let sha = crate::store::hex_bytes(&Sha256::digest(new_bytes));
         let p = bs.path_for(&sha).unwrap();
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(&p, old_bytes).unwrap();
@@ -660,7 +660,7 @@ mod tests {
     fn windows_parallel_writers_over_corrupt_target_converge() {
         let (_d, bs) = store();
         let bytes: &[u8] = b"concurrent blob bytes over a corrupt target";
-        let sha = format!("{:x}", Sha256::digest(bytes));
+        let sha = crate::store::hex_bytes(&Sha256::digest(bytes));
         let p = bs.path_for(&sha).unwrap();
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(&p, b"corrupt-preexisting").unwrap();
@@ -692,7 +692,10 @@ mod tests {
         assert!(is_sha256_hex(&sha));
         assert_eq!(bs.read(&sha).unwrap(), b"hello attachment");
         assert!(bs.exists(&sha));
-        assert_eq!(sha, format!("{:x}", Sha256::digest(b"hello attachment")));
+        assert_eq!(
+            sha,
+            crate::store::hex_bytes(&Sha256::digest(b"hello attachment"))
+        );
     }
 
     #[test]
@@ -738,7 +741,7 @@ mod tests {
     #[cfg(unix)]
     fn put_refuses_a_symlinked_shard_dir_and_leaves_the_target_untouched() {
         let (_d, bs) = store();
-        let sha = format!("{:x}", Sha256::digest(b"x"));
+        let sha = crate::store::hex_bytes(&Sha256::digest(b"x"));
         // Plant the shard dir <sha[:2]> as a symlink to an external directory.
         let outside = _d.path().join("outside");
         fs::create_dir(&outside).unwrap();
@@ -776,7 +779,7 @@ mod tests {
     #[cfg(unix)]
     fn an_existing_wide_permission_dir_is_tightened_to_0700() {
         let (_d, bs) = store();
-        let sha = format!("{:x}", Sha256::digest(b"tighten"));
+        let sha = crate::store::hex_bytes(&Sha256::digest(b"tighten"));
         let shard = bs.path_for(&sha).unwrap().parent().unwrap().to_path_buf();
         // Pre-create the shard AND tmp dirs world-readable (an older build / wide umask).
         fs::create_dir_all(&shard).unwrap();

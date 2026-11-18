@@ -595,7 +595,9 @@ async fn only_a_verified_writer_is_named_on_a_message() {
     assert_eq!(member(&roster, "alice")["principal_id"], alice_id.as_str());
     alice_ws
         .send(WsMessage::Text(
-            json!({ "t": "send", "text": "alice speaks" }).to_string(),
+            json!({ "t": "send", "text": "alice speaks" })
+                .to_string()
+                .into(),
         ))
         .await
         .unwrap();

@@ -221,7 +221,9 @@ async fn ws_as(port: u16, room: &str, name: &str, kind: &str, session: &str) -> 
 }
 
 async fn ws_send(ws: &mut Ws, frame: Value) {
-    ws.send(WsMessage::Text(frame.to_string())).await.unwrap();
+    ws.send(WsMessage::Text(frame.to_string().into()))
+        .await
+        .unwrap();
 }
 
 /// Every text frame up to and including the first that matches `until`.
@@ -1484,7 +1486,10 @@ fn registered_routes(main_rs: &str) -> BTreeSet<(String, String)> {
             for (pos, _) in chain.match_indices(&format!("{method}(")) {
                 let before = chain[..pos].chars().last();
                 if before.is_none_or(|c| !(c.is_alphanumeric() || c == '_')) {
-                    out.insert((method.to_uppercase(), path.to_string()));
+                    out.insert((
+                        method.to_uppercase(),
+                        super::authority_matrix::colon_path(path),
+                    ));
                 }
             }
         }

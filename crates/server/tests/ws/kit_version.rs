@@ -338,7 +338,7 @@ async fn a_kit_version_never_opens_a_door_or_changes_a_role() {
         serde_json::json!({"t": "send", "text": "kit-after-control"}),
     ] {
         agent
-            .send(WsMessage::Text(frame.to_string()))
+            .send(WsMessage::Text(frame.to_string().into()))
             .await
             .unwrap();
     }

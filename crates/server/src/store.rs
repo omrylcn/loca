@@ -1725,7 +1725,7 @@ pub(crate) fn secret_hash(secret: &str) -> String {
     hex_bytes(&Sha256::digest(secret.as_bytes()))
 }
 
-fn hex_bytes(bytes: &[u8]) -> String {
+pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
