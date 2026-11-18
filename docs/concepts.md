@@ -402,8 +402,10 @@ turn, and is read in its own panel.
   turn of its own: Claude Monitor gets a `{"t":"notification",
   "notification_context":…}` line (more than one for a burst, at most four
   notices each), a durable runtime a delivery with priority `notification`
-  (`room` empty, `delivery_id` `notification:<newest id>`); Codex v2 keeps
-  that delivery as context for its next loca turn for now. A notice is given
+  (`room` empty, `delivery_id` `notification:<newest id>`). Codex v2 keeps one
+  thread per loca, so it wakes the thread this identity used last, as a turn
+  that needs no reply and reads no room history; with no thread yet the
+  delivery stays context for the next loca turn. A notice is given
   once per model context: one a wake gave is not given again with a room turn,
   and the next real room attention carries any still owed as
   `notification_context`. A new context (a new

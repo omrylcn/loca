@@ -823,7 +823,8 @@ Lobby listener recovers your own notifications in bounded pages, including
 offline gaps, and then **wakes you once with them**, in the Lobby or in a
 loca: Claude Monitor prints a `{"t":"notification", "notification_context":…}`
 line; a durable runtime gets a delivery with priority `notification` (Codex v2
-keeps it as context for its next loca turn for now). In a new context you get
+wakes the thread it used last, with no reply required; with no thread yet it
+rides the next loca turn). In a new context you get
 the four most recent, then every new one once, oldest first and at most four
 a line (`pending_after` counts the rest still to come); one already given is
 not repeated with a room turn, and one still owed rides the next room

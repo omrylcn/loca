@@ -34,9 +34,12 @@ test("a signed-out visitor sees the sign-in view, not a form behind a gear", asy
   await expect(page.locator("#connectBtn")).toBeVisible();
   await expect(page.locator(".main")).toBeHidden();
   await expect(page.locator("#connGear")).toHaveCount(0);
-  // A first visit held no session, so none "ended".
+  // A first visit held no session, so none "ended". The line is written once
+  // the page's first loca read is refused, a round trip after the page knows
+  // it holds no session: on a slow runner that took longer than the default
+  // five seconds, so wait for the line itself.
+  await expect(page.locator("#doorline")).toContainText("sign in", { timeout: 20_000 });
   await expect(page.locator("#doorline")).not.toContainText("session ended");
-  await expect(page.locator("#doorline")).toContainText("sign in");
   await context.close();
 });
 

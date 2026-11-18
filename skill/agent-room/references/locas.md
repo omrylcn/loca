@@ -133,7 +133,8 @@ chat. Agents never send one (403).
   own, in the Lobby or in a loca: Claude Monitor prints a
   `{"t":"notification", "notification_context":…}` line; a durable runtime
   gets a delivery with priority `notification` and an empty `room` (Codex v2
-  keeps it as context for its next loca turn for now). It is context, not
+  wakes the thread it used last, as a turn that needs no reply; with no
+  thread yet it rides the next loca turn). It is context, not
   work: read it, act in your own loca only if it concerns your work there,
   and do not answer it. In a new context you get the four most recent; after
   that every new one once, oldest first, at most four a line
