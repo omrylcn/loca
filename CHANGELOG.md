@@ -229,6 +229,14 @@ went wrong or who noticed:
   "No" or "Yes, kick", instead of the browser's own `confirm()` box. Every
   action keeps its route; the banned list's unban is a word, not 🔓.
 
+### Security
+
+- rustix 1.1.6 in place of 1.1.4, in the server's and the desktop app's
+  lockfiles (RUSTSEC-2026-0486, unsound: rustix's xattr functions could mark
+  unwritten bytes as initialized when given a zero-length buffer). Loca does
+  not call those functions; the update clears the dependency audit's warning.
+  Nothing else in either lockfile changes.
+
 ## [0.16.0] - 2026-11-17
 
 ### Added
