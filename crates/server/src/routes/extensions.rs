@@ -123,11 +123,32 @@ pub(crate) fn journal_actor(hub: &Hub, headers: &HeaderMap) -> (String, SenderTy
     ("master".to_string(), SenderType::User)
 }
 
+/// `?open_tasks=keep|done|remove`: what becomes of the Loca Board's
+/// unfinished tasks when a change turns it off.
+#[derive(serde::Deserialize, Default)]
+pub(crate) struct OpenTasksQuery {
+    open_tasks: Option<String>,
+}
+
+impl OpenTasksQuery {
+    /// The choice, or `Err` for a value that is none of the three.
+    fn choice(&self) -> Result<Option<hub::OpenTasks>, ()> {
+        match self.open_tasks.as_deref() {
+            None => Ok(None),
+            Some("keep") => Ok(Some(hub::OpenTasks::Keep)),
+            Some("done") => Ok(Some(hub::OpenTasks::Done)),
+            Some("remove") => Ok(Some(hub::OpenTasks::Remove)),
+            Some(_) => Err(()),
+        }
+    }
+}
+
 fn apply(
     hub: &Hub,
     room: &str,
     headers: &HeaderMap,
     edit: hub::ExtensionEdit<'_>,
+    open_tasks: &OpenTasksQuery,
 ) -> axum::response::Response {
     if hub.is_dm(room) {
         return (StatusCode::FORBIDDEN, "a birebir has no extensions").into_response();
@@ -139,8 +160,28 @@ fn apply(
         )
             .into_response();
     }
+    let Ok(choice) = open_tasks.choice() else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "open_tasks is keep, done or remove",
+        )
+            .into_response();
+    };
     let (by, by_type) = journal_actor(hub, headers);
-    match hub.edit_extensions(room, edit, &by, by_type) {
+    let note = match hub.settle_board_off(room, edit, choice, &by) {
+        Ok(note) => note,
+        Err(hub::BoardOff::Ask(unfinished)) => {
+            return super::board_off::ask(unfinished);
+        }
+        Err(hub::BoardOff::Storage) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "could not close the board's tasks — try again",
+            )
+                .into_response();
+        }
+    };
+    match hub.edit_extensions_noting(room, edit, &by, by_type, note.as_deref()) {
         Ok(change) => {
             let mut view = room_view(hub, room, headers);
             view["added"] = serde_json::json!(change.added);
@@ -166,6 +207,7 @@ pub(crate) async fn put_extensions(
     State(hub): State<Hub>,
     access: RoomAccess,
     headers: HeaderMap,
+    Query(open_tasks): Query<OpenTasksQuery>,
     Json(body): Json<SetExtensions>,
 ) -> impl IntoResponse {
     apply(
@@ -173,6 +215,7 @@ pub(crate) async fn put_extensions(
         &access.room,
         &headers,
         hub::ExtensionEdit::Replace(&body.enabled),
+        &open_tasks,
     )
 }
 
@@ -184,7 +227,13 @@ pub(crate) async fn add_extension(
     Path(params): Path<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let ext = params.get("ext").cloned().unwrap_or_default();
-    apply(&hub, &access.room, &headers, hub::ExtensionEdit::Add(&ext))
+    apply(
+        &hub,
+        &access.room,
+        &headers,
+        hub::ExtensionEdit::Add(&ext),
+        &OpenTasksQuery::default(),
+    )
 }
 
 /// `DELETE /rooms/:id/extensions/:ext` — remove one. Its records stay.
@@ -193,6 +242,7 @@ pub(crate) async fn remove_extension(
     access: RoomAccess,
     headers: HeaderMap,
     Path(params): Path<HashMap<String, String>>,
+    Query(open_tasks): Query<OpenTasksQuery>,
 ) -> impl IntoResponse {
     let ext = params.get("ext").cloned().unwrap_or_default();
     if protocol::extension_spec(&ext).is_none() {
@@ -203,5 +253,6 @@ pub(crate) async fn remove_extension(
         &access.room,
         &headers,
         hub::ExtensionEdit::Remove(&ext),
+        &open_tasks,
     )
 }

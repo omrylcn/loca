@@ -788,6 +788,7 @@ async function updateUnreadCounts(rooms) {
       // conversation would come back without anything new being said. The
       // next refresh counts again from where reading now stands.
       if (Number(state.readCursors[room] || 0) !== read) return;
+      soundForTail(room, messages, state.unreadChecked[room]);
       state.unread[room] = messages.filter(m => m.sender !== state.name).length;
       state.unreadChecked[room] = latest;
     } catch (e) {}

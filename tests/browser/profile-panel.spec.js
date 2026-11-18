@@ -10,6 +10,9 @@ const ROOM = "profile-panel-room";
 const DEFAULTS = {
   theme: "dark", accent: "teal", density: "comfortable", font_size: "normal", font_family: "mono",
   accent_custom: "", layout: "bubbles", time_format: "auto", measure: "normal", own_tint: "on", motion: "system",
+  // Sounds (Profile → Sounds) share the document, at their defaults.
+  sound: "on", sound_message: "off", sound_mention: "on", sound_dm: "on", sound_notice: "on",
+  sound_volume: "medium", sound_background: "on",
 };
 
 async function newPage(browser, viewport) {

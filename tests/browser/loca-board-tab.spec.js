@@ -129,7 +129,7 @@ test("with the board off, Focus says where the stored tasks went and the operato
   await openLoca(request, room, ["notes", "focus"], "lb-eda");
   await boardOn(request, room);
   await declare(request, room, "kept while off");
-  const off = await request.delete(`/rooms/${room}/extensions/board`, { headers: MASTER });
+  const off = await request.delete(`/rooms/${room}/extensions/board?open_tasks=keep`, { headers: MASTER });
   expect(off.ok(), await off.text()).toBeTruthy();
 
   const page = await masterPage(browser, request);
@@ -150,7 +150,7 @@ test("without a Lead the note says one is needed and offers no button", async ({
   await openLoca(request, room, ["focus"], "lb-fay");
   await boardOn(request, room);
   await declare(request, room, "waiting for a Lead");
-  expect((await request.delete(`/rooms/${room}/extensions/board`, { headers: MASTER })).ok()).toBeTruthy();
+  expect((await request.delete(`/rooms/${room}/extensions/board?open_tasks=keep`, { headers: MASTER })).ok()).toBeTruthy();
   expect((await request.post(`/rooms/${room}/lead`, { headers: MASTER, data: { lead: null } })).ok()).toBeTruthy();
 
   const page = await masterPage(browser, request);

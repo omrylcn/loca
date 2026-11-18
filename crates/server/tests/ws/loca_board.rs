@@ -196,7 +196,7 @@ async fn stored_tasks_are_kept_while_the_board_is_off_and_come_back() {
     let (_, view) = root(&loca, reqwest::Method::GET, "/extensions", None).await;
     assert_eq!(view["stored_tasks"], 2, "{view}");
 
-    let (status, view) = extension(&loca, reqwest::Method::DELETE, "board").await;
+    let (status, view) = extension(&loca, reqwest::Method::DELETE, "board?open_tasks=keep").await;
     assert_eq!(status, 200, "{view}");
     assert_eq!(
         view["stored_tasks"], 2,
@@ -252,7 +252,7 @@ async fn a_goal_closed_by_its_tasks_needs_the_board() {
     let ada = loca.seat("lead-ada").await;
     board_on(&loca, "lead-ada").await;
     let (_, task) = loca.declare(Some(&ada), "linked", None).await;
-    let (status, _) = extension(&loca, reqwest::Method::DELETE, "board").await;
+    let (status, _) = extension(&loca, reqwest::Method::DELETE, "board?open_tasks=keep").await;
     assert_eq!(status, 200);
 
     let (status, refused) = root(

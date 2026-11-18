@@ -466,8 +466,12 @@ every change is journaled.
   The server sends no `settings` frame on connect, so a client reads one of
   these after connecting.
 - **Change:** `PUT /rooms/:id/extensions {"enabled": [...]}`,
-  `PUT`/`DELETE /rooms/:id/extensions/:ext` (Operator, Master, Smaster). The
-  server then sends `settings` on the loca socket (`filter=all` only). The
+  `PUT`/`DELETE /rooms/:id/extensions/:ext` (Operator, Master, Smaster). A
+  change that turns the Loca Board off while tasks are not done answers 409
+  `{error, unfinished: {open, taken, review}, choices: ["keep", "done",
+  "remove"]}` unless it carries `?open_tasks=keep|done|remove` (400 for any
+  other value); `RoomSettings.board_since` (server-written) records when the
+  board was last turned on. The server then sends `settings` on the loca socket (`filter=all` only). The
   change is always written to the Journal; the `journal` frame for that line
   is sent only while the Journal is on in the loca after the change, so
   turning the Journal off pushes no Journal line, and the line is read from
@@ -620,6 +624,15 @@ that wakes the assignee.
   name is not the Lead. Where no principal exists (no database, or no
   Building key) the name is compared, as for operators there. No client sets
   the field.
+- **Review history:** `Task.reviews` (absent when empty) lists every
+  request for review, go and no-go, oldest first:
+  `{kind: "asked"|"go"|"nogo", by, at, text?}`, `text` being the note or
+  the reason. Written only by those moves (stored in `task_reviews`); no
+  route edits it.
+- **Read one:** `GET /rooms/:id/tasks/:tid` answers the task as the list
+  holds it, for anyone who may enter the loca; 404 `no such task`; while the
+  Loca Board is off, its refusal (section 5). The web's address for a task
+  is `#board/<loca>/<n>`.
 - **Declare:** `POST /rooms/:id/tasks` by an operator or the Lead; anyone else
   gets 403 `declaring a task takes operator or Lead authority in this loca`.
 - **Assign:** `PATCH /rooms/:id/tasks/:tid {"assigned_to"}`. The Lead may give

@@ -84,6 +84,7 @@ async function pollNotifications() {
       n.items = [...fresh, ...n.items].sort((a, b) => b.id - a.id);
       const unreadFresh = fresh.filter(x => !x.read);
       if (unreadFresh.length) showNotifToast(unreadFresh);
+      soundForNotices(unreadFresh);
     }
     const high = Math.max(n.newest, n.catchup?.newest || 0, ...list.map(x => x.id));
     if (!initial && page.more && list.length) {

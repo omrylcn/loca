@@ -173,6 +173,7 @@ async function fetchAppearance() {
     state.appearancePrincipal = principal;
     cacheAppearance(state.appearance);
     syncAppearanceInputs();
+    soundsFromServer(prefs);
   } catch (error) {}
 }
 
@@ -337,7 +338,7 @@ function profileSummaryHtml(principal) {
 // Reading) stands in a second column beside who and where you are.
 const PROFILE_NAV = [
   ["profileSecYou", "You"], ["profileSecPlace", "Where you are"], ["profileSecAccess", "Session and access"],
-  ["profileSecTheme", "Theme"], ["profileSecReading", "Reading"],
+  ["profileSecTheme", "Theme"], ["profileSecReading", "Reading"], ["profileSecSounds", "Sounds"],
 ];
 function profileNavHtml() {
   return `<nav class="profilenav" aria-label="Profile sections">` +
@@ -359,7 +360,7 @@ function renderProfile(now = false) {
   const principal = profile.principal;
   const body = profileNavHtml() + `<div class="profilebody"><div class="profilecol">` +
     profileYouHtml(profile, principal) + profilePlaceHtml(profile) + profileAccessHtml(profile) +
-    `</div><div class="profilecol">${profileAppearanceHtml()}</div></div>`;
+    `</div><div class="profilecol">${profileAppearanceHtml()}${soundsSectionHtml()}</div></div>`;
   box.innerHTML = profileShellHtml(profileSummaryHtml(principal), body);
   restoreAccountMenu(box, kept);
   box.classList.add("on");

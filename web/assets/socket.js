@@ -458,6 +458,7 @@ function onFrame(f, from) {
     // Native notification only for a message addressed to me (not reactions or
     // ordinary chatter); the desktop shell suppresses it while focused.
     if (isMentionOfMe(f.message, state.name)) notifyDesktop("mention", f.message.sender, state.room, mid);
+    soundForLiveMessage(f.message);
     state.roomLatest[state.room] = Math.max(Number(state.roomLatest[state.room] || 0), mid);
     if (mine || (state.tab === "chat" && !document.hidden)) {
       markRoomRead(state.room, mid);
@@ -519,6 +520,7 @@ function onFrame(f, from) {
   else if (f.t === "typing") { onTyping(f.name, f.on); }
   else if (f.t === "task") {
     state.tasks[f.task.id] = f.task;
+    refreshTaskView(f.task);
     // The board, and the counts Focus shows of it.
     renderTasks();
     if (state.tab !== "board") $("boardDot").classList.add("on");
@@ -552,6 +554,7 @@ function onFrame(f, from) {
       f.attention.room || state.room,
       f.attention.group || f.attention.id,
     );
+    soundForAttention(f.attention);
     if (isReminder) rebuildReminderChatProjection();
     renderReminderSettings();
     renderReminderHistory();
@@ -604,7 +607,7 @@ async function fetchMod() {
   renderMembers();
 }
 async function moderate(action, name) {
-  if ((action === "kick" || action === "ban") && !confirm(`${action} ${name}?`)) return;
+  // Kick and ban were asked in words under the seat first (roster.js).
   const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(state.room)}/moderate`, {
     method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ action, name }),

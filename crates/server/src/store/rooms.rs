@@ -13,6 +13,7 @@ pub(super) const ROOM_KEYED_TABLES: &[&str] = &[
     "notes",
     "note_revisions",
     "tasks",
+    "task_reviews",
     "goals",
     "waits",
     "care_marks",

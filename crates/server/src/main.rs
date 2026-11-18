@@ -82,9 +82,12 @@ const WEB_FAVICON: &str = include_str!("../../../web/assets/favicon.svg");
 const WEB_STYLES: &str = include_str!("../../../web/assets/styles.css");
 const WEB_PROFILE_STYLES: &str = include_str!("../../../web/assets/profile.css");
 const WEB_APPEARANCE_STYLES: &str = include_str!("../../../web/assets/appearance.css");
+const WEB_SOUNDS_STYLES: &str = include_str!("../../../web/assets/sounds.css");
 const WEB_RANKS_STYLES: &str = include_str!("../../../web/assets/ranks.css");
 const WEB_CARETAKER_STYLES: &str = include_str!("../../../web/assets/caretaker.css");
 const WEB_FLOORS_STYLES: &str = include_str!("../../../web/assets/floors.css");
+const WEB_BOARD_LIST_STYLES: &str = include_str!("../../../web/assets/boardlist.css");
+const WEB_ROSTER_STYLES: &str = include_str!("../../../web/assets/roster.css");
 const WEB_AVATAR: &str = include_str!("../../../web/assets/avatar.js");
 const WEB_STATE: &str = include_str!("../../../web/assets/state.js");
 const WEB_SOCKET: &str = include_str!("../../../web/assets/socket.js");
@@ -97,6 +100,8 @@ const WEB_MEMORY: &str = include_str!("../../../web/assets/memory.js");
 const WEB_WIKI: &str = include_str!("../../../web/assets/wiki.js");
 const WEB_VAULT: &str = include_str!("../../../web/assets/vault.js");
 const WEB_BOARD: &str = include_str!("../../../web/assets/board.js");
+const WEB_BOARD_LIST: &str = include_str!("../../../web/assets/boardlist.js");
+const WEB_TASK_VIEW: &str = include_str!("../../../web/assets/taskview.js");
 const WEB_CONTINUITY: &str = include_str!("../../../web/assets/continuity.js");
 const WEB_LOCA_DELETE: &str = include_str!("../../../web/assets/locadelete.js");
 const WEB_PROFILE: &str = include_str!("../../../web/assets/profile.js");
@@ -114,7 +119,9 @@ const WEB_EXTENSIONS: &str = include_str!("../../../web/assets/extensions.js");
 const WEB_IDENTITY: &str = include_str!("../../../web/assets/identity.js");
 const WEB_GROUPS: &str = include_str!("../../../web/assets/groups.js");
 const WEB_KIT_VERSION: &str = include_str!("../../../web/assets/kitversion.js");
+const WEB_ROSTER: &str = include_str!("../../../web/assets/roster.js");
 const WEB_NOTIFICATIONS: &str = include_str!("../../../web/assets/notifications.js");
+const WEB_SOUNDS: &str = include_str!("../../../web/assets/sounds.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.tr.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
@@ -232,6 +239,7 @@ async fn main() {
         color: None,
         labels: Vec::new(),
         vault_rev: None,
+        board_since: None,
     };
 
     // Boot epoch = process start time (seconds); changes every restart.
@@ -659,7 +667,7 @@ async fn main() {
         .route("/rooms/{id}/search", get(search_room))
         .route("/rooms/{id}/journal", get(get_journal).post(post_journal))
         .route("/rooms/{id}/tasks", get(list_tasks).post(create_task))
-        .route("/rooms/{id}/tasks/{tid}", axum::routing::patch(update_task))
+        .route("/rooms/{id}/tasks/{tid}", get(get_task).patch(update_task))
         .route("/rooms/{id}/goals", get(list_goals).post(create_goal))
         .route("/rooms/{id}/goals/{gid}", axum::routing::patch(update_goal))
         .route(
@@ -828,9 +836,12 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "styles.css" => Some(("text/css; charset=utf-8", WEB_STYLES)),
         "profile.css" => Some(("text/css; charset=utf-8", WEB_PROFILE_STYLES)),
         "appearance.css" => Some(("text/css; charset=utf-8", WEB_APPEARANCE_STYLES)),
+        "sounds.css" => Some(("text/css; charset=utf-8", WEB_SOUNDS_STYLES)),
         "ranks.css" => Some(("text/css; charset=utf-8", WEB_RANKS_STYLES)),
         "caretaker.css" => Some(("text/css; charset=utf-8", WEB_CARETAKER_STYLES)),
         "floors.css" => Some(("text/css; charset=utf-8", WEB_FLOORS_STYLES)),
+        "boardlist.css" => Some(("text/css; charset=utf-8", WEB_BOARD_LIST_STYLES)),
+        "roster.css" => Some(("text/css; charset=utf-8", WEB_ROSTER_STYLES)),
         "avatar.js" => Some(("text/javascript; charset=utf-8", WEB_AVATAR)),
         "state.js" => Some(("text/javascript; charset=utf-8", WEB_STATE)),
         "socket.js" => Some(("text/javascript; charset=utf-8", WEB_SOCKET)),
@@ -839,6 +850,8 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "admin.js" => Some(("text/javascript; charset=utf-8", WEB_ADMIN)),
         "focus.js" => Some(("text/javascript; charset=utf-8", WEB_FOCUS)),
         "board.js" => Some(("text/javascript; charset=utf-8", WEB_BOARD)),
+        "boardlist.js" => Some(("text/javascript; charset=utf-8", WEB_BOARD_LIST)),
+        "taskview.js" => Some(("text/javascript; charset=utf-8", WEB_TASK_VIEW)),
         "continuity.js" => Some(("text/javascript; charset=utf-8", WEB_CONTINUITY)),
         "locadelete.js" => Some(("text/javascript; charset=utf-8", WEB_LOCA_DELETE)),
         "notes.js" => Some(("text/javascript; charset=utf-8", WEB_NOTES)),
@@ -860,7 +873,9 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "identity.js" => Some(("text/javascript; charset=utf-8", WEB_IDENTITY)),
         "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
         "kitversion.js" => Some(("text/javascript; charset=utf-8", WEB_KIT_VERSION)),
+        "roster.js" => Some(("text/javascript; charset=utf-8", WEB_ROSTER)),
         "notifications.js" => Some(("text/javascript; charset=utf-8", WEB_NOTIFICATIONS)),
+        "sounds.js" => Some(("text/javascript; charset=utf-8", WEB_SOUNDS)),
         _ => None,
     };
     match asset {

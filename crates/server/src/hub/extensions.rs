@@ -140,12 +140,26 @@ impl Hub {
     /// A single add or remove is worked out from the set as it stands under
     /// the lock, never from a copy the caller read earlier, so two people
     /// changing different extensions at once both keep their change.
+    #[cfg(test)]
     pub fn edit_extensions(
         &self,
         room: &str,
         edit: ExtensionEdit<'_>,
         by: &str,
         by_type: SenderType,
+    ) -> Result<ExtensionChange, ExtensionError> {
+        self.edit_extensions_noting(room, edit, by, by_type, None)
+    }
+
+    /// `edit_extensions`, with `note` added to the Journal line when the
+    /// change removes the Loca Board (what became of its unfinished tasks).
+    pub fn edit_extensions_noting(
+        &self,
+        room: &str,
+        edit: ExtensionEdit<'_>,
+        by: &str,
+        by_type: SenderType,
+        note: Option<&str>,
     ) -> Result<ExtensionChange, ExtensionError> {
         if self.is_dm(room) || room.starts_with(Self::DM_PREFIX) {
             return Err(ExtensionError::Dm);
@@ -197,12 +211,19 @@ impl Hub {
         if !s.extension_enabled("live") {
             s.live = false;
         }
+        if added.iter().any(|id| id == "board") {
+            s.board_since = Some((self.now_ms)());
+        }
+        let mut text = change_line(&added, &removed);
+        if let Some(note) = note.filter(|_| removed.iter().any(|id| id == "board")) {
+            text = format!("{text} ({note})");
+        }
         let entry = (!added.is_empty() || !removed.is_empty()).then(|| protocol::JournalEntry {
             id: r.next_journal_id,
             room: room.to_string(),
             by: by.to_string(),
             by_type,
-            text: change_line(&added, &removed),
+            text,
             at: (self.now_ms)(),
         });
         match entry.as_ref() {

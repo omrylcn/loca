@@ -1,0 +1,38 @@
+/* The Loca Board's view switch, filters, list and one-stage board on a
+   phone (boardlist.js). */
+.boardtools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  margin: 0 0 12px; font-size: 11px; color: var(--dim); }
+.boardtools label { display: inline-flex; align-items: center; gap: 6px; }
+.boardtools select { background: var(--panel); color: var(--txt); border: 1px solid var(--line);
+  border-radius: 8px; padding: 4px 6px; font: inherit; }
+.boardviewswitch, .boardstages { display: inline-flex; border: 1px solid var(--line);
+  border-radius: 9px; overflow: hidden; }
+.boardviewswitch button, .boardstages button { background: transparent; border: 0; color: var(--dim);
+  padding: 5px 12px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.boardviewswitch button.selected, .boardstages button.selected { background: var(--panel2); color: var(--txt); }
+.boardstages { display: flex; margin: 0 0 10px; }
+.boardstages button { flex: 1; padding: 6px 4px; }
+.boardlist { display: flex; flex-direction: column; gap: 6px; }
+.taskboard.onestage { grid-template-columns: 1fr; }
+/* A task's own view (taskview.js). */
+.taskfacts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 10px 0 14px;
+  font-size: 12px; }
+.taskfacts dt { color: var(--dim); }
+.taskfacts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.taskviewacts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.taskviewacts button { background: var(--panel); border: 1px solid var(--line); color: var(--txt);
+  border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.taskreassign { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
+.taskreassign input { background: var(--panel); color: var(--txt); border: 1px solid var(--line);
+  border-radius: 8px; padding: 5px 8px; font: inherit; }
+#taskList .task[data-tid] .ttitle, .tasktag[data-task-ref] { cursor: pointer; }
+@media (max-width: 760px) {
+  .boardlist .task { flex-wrap: wrap; }
+  .boardlist .task .ttitle { flex: 1 1 60%; min-width: 0; overflow-wrap: break-word; }
+  .boardlist .task .tacts { width: 100%; display: flex; justify-content: flex-end; gap: 4px; }
+}
+/* A task's review history (taskview.js): read only. */
+.taskhistory { list-style: none; margin: 6px 0 4px; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.taskhistory li { border-left: 2px solid var(--line); padding: 2px 0 2px 10px; }
+.taskhistory time { color: var(--dim); font-size: 10px; margin-left: 6px; }
+.taskhistorytext { display: block; color: var(--dim); overflow-wrap: anywhere; }

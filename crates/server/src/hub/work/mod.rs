@@ -1,5 +1,7 @@
 mod board;
+mod board_off;
 pub(in crate::hub) use board::settle_board;
+pub use board_off::{BoardOff, OpenTasks, Unfinished};
 #[cfg(test)]
 mod board_tests;
 mod goal;

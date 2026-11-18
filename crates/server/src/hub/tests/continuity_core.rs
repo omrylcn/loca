@@ -250,3 +250,26 @@ fn goal_reminders_follow_focus_and_task_reminders_follow_the_board() {
         );
     }
 }
+
+/// Kept tasks come back with the board; their reminder clock starts again
+/// then, so a task kept for a week does not remind the moment it returns.
+#[test]
+fn task_reminders_count_from_when_the_board_came_back() {
+    let _clock = TEST_CLOCK_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let hub = hub_with(&["board"], false);
+    goal_and_task(&hub);
+    hub.set_extensions("proj", &[], "operator", SenderType::User)
+        .expect("board off");
+    TEST_NOW.store(100_000, Ordering::Relaxed);
+    hub.set_extensions("proj", &["board".into()], "operator", SenderType::User)
+        .expect("board on again");
+    let reasons = reasons_after_sweeps(&hub, 100_500, 1);
+    assert!(
+        !reasons.contains(&CareReason::TaskReminder),
+        "reminded at once: {reasons:?}"
+    );
+    let reasons = reasons_after_sweeps(&hub, 101_501, 1);
+    assert!(reasons.contains(&CareReason::TaskReminder), "{reasons:?}");
+}

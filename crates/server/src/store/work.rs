@@ -20,6 +20,7 @@ impl Store {
             params![t.id, t.room, t.title, t.created_by, t.from_message, t.assigned_to, st, t.created_at, t.progress_at, t.closed_at, t.assigned_principal,
                 t.assigned_by, t.assigned_as.map(task_actor_text), t.created_as.map(task_actor_text), t.created_principal, t.review_note, t.review_reason],
         )
+        .and_then(|_| Self::write_task_reviews(c, t))
         .inspect_err(|e| tracing::error!(error = %e, "upsert_task failed"))
         .map(|_| ())
     }
@@ -183,11 +184,13 @@ impl Store {
                     created_at: r.get(6)?,
                     progress_at: r.get(7)?,
                     closed_at: r.get(8)?,
+                    reviews: Vec::new(),
                 })
             }) {
                 out.extend(rows.flatten());
             }
         }
+        Self::attach_task_reviews(&c, room, &mut out);
         out
     }
     pub fn load_goals(&self, room: &str) -> Vec<Goal> {

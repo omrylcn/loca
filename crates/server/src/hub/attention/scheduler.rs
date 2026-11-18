@@ -404,7 +404,11 @@ impl Hub {
                         .collect();
                     tasks.sort_by_key(|task| task.id);
                     for task in tasks {
-                        let baseline = task.progress_at.max(task.created_at);
+                        // A kept task counts from when the board came back.
+                        let baseline = task
+                            .progress_at
+                            .max(task.created_at)
+                            .max(room.settings.board_since.unwrap_or(0));
                         if now.saturating_sub(baseline)
                             >= room.settings.care_task_secs as u64 * 1_000
                         {

@@ -13,6 +13,7 @@ mod member_keys;
 mod notification_limit;
 mod preferences;
 mod profile_card;
+mod sound_preferences;
 mod upgrade_v0_13_0;
 mod vault;
 

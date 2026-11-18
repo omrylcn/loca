@@ -157,9 +157,12 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("styles.css", "text/css", ":root"),
         ("appearance.css", "text/css", ":root[data-theme=\"paper\"]"),
         ("profile.css", "text/css", ".profilepanel"),
+        ("sounds.css", "text/css", ".soundswitch"),
         ("ranks.css", "text/css", ".rankconfirm"),
         ("caretaker.css", "text/css", ".caretakertag"),
         ("floors.css", "text/css", "--floor-6"),
+        ("boardlist.css", "text/css", ".boardviewswitch"),
+        ("roster.css", "text/css", ".seatmenu"),
         ("avatar.js", "text/javascript", "function avatarHtml("),
         ("theme.js", "text/javascript", "function applyAppearance("),
         ("state.js", "text/javascript", "const state ="),
@@ -169,6 +172,16 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("admin.js", "text/javascript", "function renderSettings()"),
         ("focus.js", "text/javascript", "function renderTasks()"),
         ("board.js", "text/javascript", "function isLocaLead()"),
+        (
+            "boardlist.js",
+            "text/javascript",
+            "function renderBoardViews(",
+        ),
+        (
+            "taskview.js",
+            "text/javascript",
+            "async function openTaskView(",
+        ),
         (
             "continuity.js",
             "text/javascript",
@@ -230,6 +243,8 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "text/javascript",
             "function kitVersionHtml(",
         ),
+        ("sounds.js", "text/javascript", "function playSound("),
+        ("roster.js", "text/javascript", "function seatRowHtml("),
     ];
     for (name, content_type, marker) in assets {
         assert!(

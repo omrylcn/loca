@@ -368,10 +368,7 @@ pub(crate) async fn admit_member(
     if kind != "agent" && kind != "user" {
         return (StatusCode::BAD_REQUEST, "kind must be 'agent' or 'user'").into_response();
     }
-    let by = hub
-        .smaster_name(admin_token_of(&headers))
-        .map(|n| format!("smaster:{n}"))
-        .unwrap_or_else(|| "master".into());
+    let by = super::actor::rank_actor(&hub, &headers);
     match hub.admit_member_once(name, kind, &by) {
         // A fresh member's key is handed out once, here, as before; the
         // server keeps only its hash.
@@ -1308,10 +1305,7 @@ pub(crate) async fn approve_join_request_route(
     if !is_admin_req(&hub, &headers) {
         return (StatusCode::UNAUTHORIZED, "building admin required").into_response();
     }
-    let by = hub
-        .smaster_name(admin_token_of(&headers))
-        .map(|n| format!("smaster:{n}"))
-        .unwrap_or_else(|| "master".into());
+    let by = super::actor::rank_actor(&hub, &headers);
     match hub.approve_join_request(&id, &by) {
         crate::hub::Approve::Approved => (
             StatusCode::OK,
@@ -1353,10 +1347,7 @@ pub(crate) async fn deny_join_request_route(
         return (StatusCode::UNAUTHORIZED, "building admin required").into_response();
     }
     // Record WHICH authority denied, matching the approve route's audit trail.
-    let by = hub
-        .smaster_name(admin_token_of(&headers))
-        .map(|n| format!("smaster:{n}"))
-        .unwrap_or_else(|| "master".into());
+    let by = super::actor::rank_actor(&hub, &headers);
     if hub.deny_join_request(&id, &by) {
         (
             StatusCode::OK,

@@ -1720,6 +1720,8 @@ mod access;
 mod attention;
 #[path = "ws/authority_matrix.rs"]
 mod authority_matrix;
+#[path = "ws/board_off.rs"]
+mod board_off;
 #[path = "ws/building_key.rs"]
 mod building_key;
 #[path = "ws/claims.rs"]
@@ -1770,8 +1772,12 @@ mod principles;
 mod profile_card;
 #[path = "ws/profile_rename.rs"]
 mod profile_rename;
+#[path = "ws/rank_attribution.rs"]
+mod rank_attribution;
 #[path = "ws/reissue.rs"]
 mod reissue;
+#[path = "ws/review_history.rs"]
+mod review_history;
 #[path = "ws/review_regressions.rs"]
 mod review_regressions;
 #[path = "ws/rooms.rs"]
@@ -1784,6 +1790,8 @@ mod sessions;
 mod suspension;
 #[path = "ws/task_board.rs"]
 mod task_board;
+#[path = "ws/task_view.rs"]
+mod task_view;
 #[path = "ws/upgrade.rs"]
 mod upgrade;
 #[path = "ws/vault.rs"]

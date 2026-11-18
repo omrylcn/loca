@@ -8,9 +8,12 @@
 <link rel="stylesheet" href="/assets/styles.css" />
 <link rel="stylesheet" href="/assets/appearance.css" />
 <link rel="stylesheet" href="/assets/profile.css" />
+<link rel="stylesheet" href="/assets/sounds.css" />
 <link rel="stylesheet" href="/assets/ranks.css" />
 <link rel="stylesheet" href="/assets/caretaker.css" />
 <link rel="stylesheet" href="/assets/floors.css" />
+<link rel="stylesheet" href="/assets/boardlist.css" />
+<link rel="stylesheet" href="/assets/roster.css" />
 <script src="/assets/theme.js"></script>
 </head>
 <body>
@@ -380,6 +383,7 @@
     <div class="notes hidden" id="boardPanel">
       <div class="sectionlabel">Loca Board</div>
       <div class="sectionhelp">Declared work: To do · Doing · Review · Done. Finishing a task asks the Lead or the operator for review; ordinary work stays in Chat.</div>
+      <div class="boardtools" id="boardTools"></div>
       <div id="taskList"></div>
       <details class="taskcreate" id="taskCreate">
         <summary>+ Add an explicit task</summary>
@@ -548,6 +552,7 @@
     <div class="extcard">
       <h2 id="extManageTitle">Extensions <small># <span id="extManageRoom"></span></small></h2>
       <div class="extlist" id="extManageList"></div>
+      <div class="hidden" id="boardOffAsk" role="group" aria-label="Unfinished tasks on the Loca Board"></div>
       <p class="extnote" id="extManageNote"></p>
       <div class="exterror" id="extManageError" role="alert"></div>
       <div class="extactions"><button type="button" class="btn" id="extManageClose">Close</button></div>
@@ -570,6 +575,18 @@
         <button type="button" class="btn danger" id="locaDeleteOnly" disabled>Delete</button>
         <button type="button" class="btn danger" id="locaDeleteArchive" disabled>Download zip, then delete</button>
       </div>
+    </div>
+  </div>
+
+  <!-- One task: its facts, its actions for this viewer, its address
+       (taskview.js). -->
+  <div class="extoverlay hidden" id="taskView" role="dialog" aria-modal="true" aria-labelledby="taskViewTitle">
+    <button class="extbackdrop" id="taskViewBackdrop" type="button" aria-label="Close" tabindex="-1"></button>
+    <div class="extcard">
+      <h2 id="taskViewTitle"></h2>
+      <div id="taskViewBody"></div>
+      <p class="extnote" id="taskViewCopied" role="status"></p>
+      <div class="extactions"><button type="button" class="btn" id="taskViewCopy">Copy link</button><button type="button" class="btn" id="taskViewClose">Close</button></div>
     </div>
   </div>
 
@@ -774,16 +791,20 @@
 <script src="/assets/socket.js"></script>
 <script src="/assets/people.js"></script>
 <script src="/assets/kitversion.js"></script>
+<script src="/assets/roster.js"></script>
 <script src="/assets/chat.js"></script>
 <script src="/assets/admin.js"></script>
 <script src="/assets/focus.js"></script>
 <script src="/assets/board.js"></script>
+<script src="/assets/boardlist.js"></script>
+<script src="/assets/taskview.js"></script>
 <script src="/assets/continuity.js"></script>
 <script src="/assets/notes.js"></script>
 <script src="/assets/memory.js"></script>
 <script src="/assets/wiki.js"></script>
 <script src="/assets/vault.js"></script>
 <script src="/assets/profile.js"></script>
+<script src="/assets/sounds.js"></script>
 <script src="/assets/sidebar.js"></script>
 <script src="/assets/extensions.js"></script>
 <script src="/assets/locadelete.js"></script>
