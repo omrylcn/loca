@@ -115,7 +115,7 @@ function taskBadgeFor(name, principal) {
   if (!held.length) return "";
   const more = held.length > 1 ? ` +${held.length - 1}` : "";
   const tip = held.map(t => `#${t.id} ${t.title} (${TLABEL[t.status]})`).join("\n");
-  return ` <span class="tasktag" title="${esc(tip)}">#${held[0].id}${more}</span>`;
+  return ` <span class="tasktag" title="${esc(tip)}" data-task-ref="${held[0].id}" role="link" tabindex="0">#${held[0].id}${more}</span>`;
 }
 
 // Tasks changed: redraw the numbers people wear.

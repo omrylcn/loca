@@ -843,6 +843,7 @@ const ROWS: &[Row] = &[
     // suggest progress, but they cannot open or change a goal". "Birebir": no
     // tasks or goals.
     row("GET /rooms/:id/tasks", Rule::Feature, &[]),
+    row("GET /rooms/:id/tasks/:tid", Rule::Feature, &[]),
     // PRINCIPLES "Loca layer", Lead: the Lead may also declare and assign
     // tasks in its loca. The loca's agent is its Lead (`the_agent`), named
     // by principal; in Care that is `loca-care`.

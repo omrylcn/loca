@@ -42,7 +42,9 @@ fn absent_keys_take_their_defaults_including_the_new_font_family() {
             "theme": "dark", "accent": "teal", "density": "comfortable",
             "font_size": "normal", "font_family": "mono", "accent_custom": "",
             "layout": "bubbles", "time_format": "auto", "measure": "normal",
-            "own_tint": "on", "motion": "system"
+            "own_tint": "on", "motion": "system",
+            "sound": "on", "sound_message": "off", "sound_mention": "on", "sound_dm": "on",
+            "sound_notice": "on", "sound_volume": "medium", "sound_background": "on"
         })
     );
 }
@@ -207,7 +209,9 @@ fn a_row_saved_in_the_old_four_key_shape_loads_unchanged() {
         json!({
             "theme": "light", "accent": "violet", "density": "compact",
             "font_size": "large", "font_family": "mono",
-            "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system"
+            "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system",
+            "sound": "on", "sound_message": "off", "sound_mention": "on", "sound_dm": "on",
+            "sound_notice": "on", "sound_volume": "medium", "sound_background": "on"
         })
     );
     // An older client then writes only the four keys it knows: accepted, and
@@ -227,7 +231,9 @@ fn a_row_saved_in_the_old_four_key_shape_loads_unchanged() {
         json!({
             "theme": "dark", "accent": "teal", "density": "comfortable",
             "font_size": "normal", "font_family": "sans",
-            "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system"
+            "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system",
+            "sound": "on", "sound_message": "off", "sound_mention": "on", "sound_dm": "on",
+            "sound_notice": "on", "sound_volume": "medium", "sound_background": "on"
         })
     );
 }

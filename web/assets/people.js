@@ -262,46 +262,10 @@ function renderMembers() {
     d.className = "omem" + (isMe ? " self" : "") + (m.away ? " away" : "") +
       (isLead ? " is-lead" : "");
     if (isLead) d.title = `${m.name} is this loca's lead`;
-    const flag = muted.has(m.name) ? ` <span class="mflag">🔇</span>` : "";
-    // The title is worn wherever the name appears: it was named out loud, so it
-    // should be visible at a glance rather than buried in settings.
-    const leadTag = isLead ? ` <span class="leadtag" title="loca lead">lead</span>` : "";
-    // The task they hold here, tied to the principal verified for this seat.
-    const taskTag = typeof taskBadgeFor === "function" ? taskBadgeFor(m.name, m.principal_id || "") : "";
-    // The lead title must be visible in the sidebar before the operator has to
-    // open settings or read a badge: the seat itself wears a blue diamond.
-    const glyph = isLead ? "◆" : (m.type === "agent" ? "*" : ".");
-    const glyphClass = `${m.type}${isLead ? " lead" : ""}`;
-    // Admin gets the explicit lead action; chat text never changes authority.
-    const leadAct = isAdmin()
-      ? (isLead
-        ? `<button data-lead="" title="end lead">◇</button>`
-        : `<button data-lead="${esc(m.name)}" title="name as lead">◆</button>`)
-      : "";
-    // Admin (not on self) gets moderation buttons.
-    let acts = "";
-    if (isAdmin()) {
-      let moderation = "";
-      if (!isMe && canModerateSeat(m)) {
-        const mu = muted.has(m.name)
-          ? `<button data-mod="unmute" data-n="${esc(m.name)}" title="unmute">🔊</button>`
-          : `<button data-mod="mute" data-n="${esc(m.name)}" title="mute">🔇</button>`;
-        // Release first: finishing a job is the common case, and it must not
-        // look like a punishment sitting next to kick and ban.
-        moderation =
-          `<button class="release" data-mod="release" data-n="${esc(m.name)}" title="work done — leaves the loca, Building membership stays">release</button>` +
-          `${mu}<button data-mod="kick" data-n="${esc(m.name)}" title="kick — close the connection and stop the invite">👢</button>` +
-          `<button data-mod="ban" data-n="${esc(m.name)}" title="ban — can never enter this loca again">🚫</button>`;
-      }
-      acts = `<span class="omacts">${leadAct}${moderation}</span>`;
-    }
-    // Anyone at the table may speak to one person privately — never from
-    // inside a direct message (there is nobody else to reach).
-    const dm = !isMe && !isDm(state.room)
-      ? `<button type="button" class="dmbtn" data-dm="${esc(m.name)}" aria-label="Message ${esc(m.name)} privately" data-tip="Message ${esc(m.name)}" data-tip-detail="A private conversation: only the two of you see it.">${DM_ICON}</button>`
-      : "";
-    d.innerHTML = `<span class="glyph ${glyphClass}" title="${isLead ? "loca lead" : m.type}">${glyph}</span><span class="oname"${cardOf(m)?.full_name ? ` title="${esc(cardOf(m).full_name)} (@${esc(m.name)})"` : ""}>${personLabelHtml(m.name, cardOf(m))}${isMe ? " (you)" : ""}${rankBadge(m.role)}${flag}${leadTag}${taskTag}</span><span class="otag">${m.type}</span>${kitVersionHtml(m, "seat")}${dm}${acts}`;
+    // The line itself, and a kick or ban waiting for a yes under it (roster.js).
+    d.innerHTML = seatRowHtml(m, { isMe, isLead, muted: muted.has(m.name) });
     ol.appendChild(d);
+    ol.insertAdjacentHTML("beforeend", seatAskHtml(m.name));
   }
   if (!seated.length) ol.innerHTML = `<div class="omem" style="color:var(--muted)">nobody seated</div>`;
   // Banned people aren't connected, so they'd be invisible — list them here
@@ -315,11 +279,12 @@ function renderMembers() {
     for (const n of banned) {
       const d = document.createElement("div");
       d.className = "omem banned";
-      const act = isAdmin() ? `<span class="omacts" style="opacity:1"><button data-mod="unban" data-n="${esc(n)}" title="unban">🔓</button></span>` : "";
+      const act = isAdmin() ? `<span class="omacts" style="opacity:1"><button data-mod="unban" data-n="${esc(n)}" title="unban">unban</button></span>` : "";
       d.innerHTML = `<span class="glyph" style="color:var(--bad)">×</span><span class="oname" style="color:var(--muted)">${esc(n)}</span><span class="otag" style="color:var(--bad)">banned</span>${act}`;
       ol.appendChild(d);
     }
   }
+  syncSeatMenu();
   const sel = $("target");
   const cur = sel.value;
   sel.innerHTML = `<option value="">— (wall)</option><option value="all">@all</option>`;

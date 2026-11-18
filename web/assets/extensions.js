@@ -367,17 +367,21 @@ function openManageExtensions() {
   openExtDialog("extManage", "extManageClose");
 }
 
-async function changeExtension(id, add) {
+async function changeExtension(id, add, openTasks = "") {
   const room = state.room;
   $("extManageError").textContent = "";
+  hideBoardOffAsk();
   for (const button of document.querySelectorAll("#extManageList button")) button.disabled = true;
   const gen = state.buildingGen;
   try {
-    const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/extensions/${encodeURIComponent(id)}`, {
+    const query = openTasks ? `?open_tasks=${encodeURIComponent(openTasks)}` : "";
+    const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/extensions/${encodeURIComponent(id)}${query}`, {
       method: add ? "PUT" : "DELETE", headers: adminHeaders({}),
     });
     if (!response.ok) {
-      $("extManageError").textContent = await response.text() || `HTTP ${response.status}`;
+      const said = await response.text();
+      // Turning the Loca Board off with unfinished tasks: board.js asks.
+      if (!(response.status === 409 && !add && askBoardOff(said))) $("extManageError").textContent = said || `HTTP ${response.status}`;
     } else if (room === state.room) {
       const view = await response.json();
       state.locaExtensions = view;

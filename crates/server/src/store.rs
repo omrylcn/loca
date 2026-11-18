@@ -39,6 +39,7 @@ mod operators;
 mod preferences;
 mod profile_card;
 mod rooms;
+mod task_reviews;
 mod vault;
 mod wiki;
 mod wiki_context;
@@ -706,6 +707,8 @@ impl Store {
         conn.execute_batch(notifications::SCHEMA)?;
         // The Vault's rules (PRINCIPLES "Vault"): a new table only.
         conn.execute_batch(vault::SCHEMA)?;
+        // A task's review history (the Loca Board): a new table only.
+        conn.execute_batch(task_reviews::SCHEMA)?;
         // The Smaster registry. A database written by v0.13.0 or earlier
         // already has an older `smasters` table holding the codes in clear
         // text; this is then a no-op and `migrate_smaster_codes` below

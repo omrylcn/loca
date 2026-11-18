@@ -4,8 +4,10 @@
 //! extraction, authorization decisions, and domain-specific HTTP handlers.
 
 mod access;
+mod actor;
 mod attachments;
 mod attention;
+mod board_off;
 mod content;
 mod dm;
 mod downloads;
@@ -86,6 +88,6 @@ pub(crate) use rooms::{
 };
 pub(crate) use vault::{get_vault, get_vault_history, put_vault};
 pub(crate) use work::{
-    clear_wait, create_goal, create_task, list_goals, list_tasks, list_waits, set_wait,
+    clear_wait, create_goal, create_task, get_task, list_goals, list_tasks, list_waits, set_wait,
     update_goal, update_task,
 };

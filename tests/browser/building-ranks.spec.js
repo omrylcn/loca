@@ -96,13 +96,15 @@ test("loca roster shows rank badges and offers no moderation the server would re
   await expect(row("omrylcn").locator(".rankbadge")).toHaveText("Master");
   await expect(row("selin").locator(".rankbadge")).toHaveText("Smaster");
   await expect(row("worker").locator(".rankbadge")).toHaveCount(0);
-  // A Smaster sees no mute/kick/ban on the Master or a peer Smaster, but does on a member.
+  // A Smaster sees no release/mute on the Master or a peer Smaster, but does
+  // on a member. (Kick and ban sit behind ⋯ under the same check:
+  // table-roster-rows.spec.js.)
   await expect(row("omrylcn").locator("[data-mod]")).toHaveCount(0);
   await expect(row("selin").locator("[data-mod]")).toHaveCount(0);
-  await expect(row("worker").locator('[data-mod="kick"]')).toHaveCount(1);
+  await expect(row("worker").locator('[data-mod="mute"]')).toHaveCount(1);
   // The Master may moderate a Smaster.
   await page.evaluate(() => { state.profile.building_role = "master"; state.name = "omrylcn"; renderMembers(); });
-  await expect(row("selin").locator('[data-mod="kick"]')).toHaveCount(1);
+  await expect(row("selin").locator('[data-mod="mute"]')).toHaveCount(1);
   await expect(row("omrylcn").locator("[data-mod]")).toHaveCount(0);
 });
 

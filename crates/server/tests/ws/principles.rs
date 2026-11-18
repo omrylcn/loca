@@ -290,6 +290,8 @@ async fn backfill(
 /// a row in any of these.
 const WORK_RECORDS: &[&str] = &[
     "tasks",
+    // A task's review history: written only by the review moves.
+    "task_reviews",
     "goals",
     "waits",
     "notes",
@@ -539,7 +541,7 @@ async fn speech_creates_no_work_record_and_explicit_acts_do() {
     }
     let (status, v) = call(
         Method::DELETE,
-        format!("{base}/rooms/talk/extensions/board"),
+        format!("{base}/rooms/talk/extensions/board?open_tasks=keep"),
         &admin(),
         None,
     )
@@ -1318,6 +1320,7 @@ fn route_matrix() -> Vec<(&'static str, reqwest::Method, &'static str, Option<Va
         ("notes", Method::DELETE, "/rooms/:id/notes/:key", None),
         ("notes", Method::GET, "/rooms/:id/notes/:key/history", None),
         ("board", Method::GET, "/rooms/:id/tasks", None),
+        ("board", Method::GET, "/rooms/:id/tasks/:tid", None),
         (
             "board",
             Method::POST,
@@ -1658,7 +1661,8 @@ async fn name_lead(base: &str, room: &str, lead: &str) {
 async fn set_extensions(base: &str, room: &str, enabled: &[&str]) {
     let (status, v) = call(
         reqwest::Method::PUT,
-        format!("{base}/rooms/{room}/extensions"),
+        // Unfinished tasks, if any, are kept (the old behaviour).
+        format!("{base}/rooms/{room}/extensions?open_tasks=keep"),
         &admin(),
         Some(serde_json::json!({ "enabled": enabled })),
     )

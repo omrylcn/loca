@@ -1,0 +1,54 @@
+/* ── At the table (people.js renderMembers, roster.js) ──────────────────────
+   Loaded after styles.css. One line per seat in the 320px sidebar: kind
+   mark, name (cut with an ellipsis), badges, then the actions at the right
+   edge in fixed columns. The ⋯ menu lives on <body>, fixed to the screen,
+   so the sidebar never clips it. Kick and ban ask under the row, like the
+   Master's Remove (ranks.css). Every colour is a theme token. */
+#onlineList .omem:not(.banned) { flex-wrap: nowrap; gap: 6px; min-height: 26px; padding-right: 10px; }
+/* The name gives way first, down to a few letters; the badges only after
+   that, so "lead" or "away" is not the part that is cut. */
+#onlineList .omem .oname { flex: 0 1 auto; min-width: 7ch; }
+/* "away" is a badge now: on the name it was cut off with a long name. */
+#onlineList .omem.away .oname::after { content: none; }
+.omem .obadges { display: inline-flex; align-items: center; gap: 4px; flex: 0 0.02 auto; min-width: 0;
+  overflow: hidden; white-space: nowrap; }
+.omem .obadges > * { flex: 0 0 auto; margin-left: 0; }
+.omem .seatstate { color: var(--dim); font-size: 10px; }
+.omem .mflag { display: inline-flex; color: var(--bad); }
+.omem .mflag svg { width: 12px; height: 12px; }
+.omem .seatacts { display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; margin-left: auto; }
+.seatbtn, .omem .seatacts .dmbtn { display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; margin: 0; padding: 0; flex: 0 0 auto; background: none;
+  border: 1px solid transparent; border-radius: 6px; color: var(--muted); cursor: pointer; }
+.seatbtn:hover, .seatbtn:focus-visible { color: var(--txt); border-color: var(--line); }
+.seatbtn[aria-expanded="true"] { color: var(--txt); border-color: var(--line); background: var(--panel2); }
+.mutebtn[aria-pressed="true"] { color: var(--bad); }
+.mutebtn[aria-pressed="true"]:hover, .mutebtn[aria-pressed="true"]:focus-visible { color: var(--bad); }
+.seatslot { width: 24px; height: 24px; flex: 0 0 auto; }
+.omem .seatacts .release { margin-right: 4px; padding: 3px 6px; border-radius: 7px; cursor: pointer;
+  background: none; border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--accent); font: 700 10px var(--mono); }
+.omem .seatacts .release:hover, .omem .seatacts .release:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent); }
+/* The banned list's unban, in the same quiet pill. */
+.omem.banned .omacts button { padding: 2px 7px; border-radius: 7px; opacity: 1; color: var(--muted);
+  border: 1px solid var(--line); font: 600 10px var(--mono); }
+.omem.banned .omacts button:hover { transform: none; color: var(--txt); }
+
+.seatmenu { position: fixed; z-index: 85; min-width: 150px; padding: 5px; display: grid; gap: 2px;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 9px;
+  box-shadow: 0 10px 30px color-mix(in srgb, #000 48%, transparent); }
+.seatmenu.hidden { display: none; }
+.seatmenuitem { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 30px; padding: 6px 9px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted); text-align: left;
+  font: 600 11px/1.2 var(--mono); cursor: pointer; }
+.seatmenuitem:hover, .seatmenuitem:focus-visible { background: color-mix(in srgb, var(--txt) 5.5%, transparent);
+  color: var(--txt); outline: none; }
+.seatmenuitem.danger, .seatmenuitem.danger:hover, .seatmenuitem.danger:focus-visible { color: var(--bad); }
+
+.seatask { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 2px 12px 6px; padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); border-radius: 8px;
+  background: color-mix(in srgb, var(--bad) 8%, transparent); color: var(--txt); font-size: 11px; line-height: 1.45; }
+.seatask > span:first-child { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+.seatask b { color: var(--txt); }
+.seataskacts { display: flex; gap: 6px; margin-left: auto; }

@@ -1,10 +1,14 @@
-//! Personal appearance preferences, one validated JSON document per principal.
+//! Personal preferences (the look, and sounds), one validated JSON document
+//! per principal.
 //!
 //! These are cosmetic and private: only the signed-in principal reads or
 //! writes their own row. Every value is checked against a closed allow-list so
 //! the browser can put it straight into a `data-*` attribute.
 
 use super::*;
+
+mod sounds;
+use sounds::SoundPreferences;
 
 pub const PREFERENCE_THEMES: &[&str] = &["dark", "light", "ember", "contrast", "paper", "night"];
 /// `custom` means the colour in `accent_custom`; the browser keeps it
@@ -55,6 +59,9 @@ pub struct Preferences {
     pub measure: String,
     pub own_tint: String,
     pub motion: String,
+    /// Sounds (see `sounds`), flat in the same document.
+    #[serde(flatten)]
+    pub sounds: SoundPreferences,
 }
 
 impl Default for Preferences {
@@ -71,6 +78,7 @@ impl Default for Preferences {
             measure: "normal".into(),
             own_tint: "on".into(),
             motion: "system".into(),
+            sounds: SoundPreferences::default(),
         }
     }
 }
@@ -114,11 +122,14 @@ impl Preferences {
                 "measure" => (PREFERENCE_MEASURES, &mut next.measure),
                 "own_tint" => (PREFERENCE_OWN_TINTS, &mut next.own_tint),
                 "motion" => (PREFERENCE_MOTIONS, &mut next.motion),
-                _ => {
-                    return Err(PreferenceError::Invalid(format!(
-                        "unknown preference `{key}`"
-                    )))
-                }
+                _ => match next.sounds.slot(key) {
+                    Some(found) => found,
+                    None => {
+                        return Err(PreferenceError::Invalid(format!(
+                            "unknown preference `{key}`"
+                        )))
+                    }
+                },
             };
             match value.as_str() {
                 Some(text) if allowed.contains(&text) => *slot = text.to_string(),

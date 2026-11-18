@@ -31,7 +31,7 @@ pub use loca_name::LocaNameError;
 pub use loca_removal::LocaRemovalError;
 pub use notifications::{NotificationAudience, NotificationError, NOTIFICATION_SEND_LIMIT};
 pub use vault::VaultError;
-pub use work::{GoalError, TaskError, WaitError};
+pub use work::{BoardOff, GoalError, OpenTasks, TaskError, Unfinished, WaitError};
 
 use std::collections::HashMap;
 use std::collections::VecDeque;

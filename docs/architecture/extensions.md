@@ -130,6 +130,8 @@ cannot change it) under This Loca › Extensions.
 | 403 | `a birebir has no extensions` | A direct message. |
 | 409 | `this loca is closed — read-only` | A closed or sealed loca. |
 | 409 | `the Loca Board needs a Lead: select a Lead first` | The Loca Board turned on with no Lead. |
+| 409 | `{error, unfinished, choices}` | The Loca Board turned off while tasks are not done, with no `?open_tasks=`. |
+| 400 | `open_tasks is keep, done or remove` | Any other `open_tasks`. |
 | 503 | `could not save extensions — try again` | A write failed; nothing changed. |
 
 ## Catalog
@@ -211,11 +213,28 @@ owns the task routes (`/rooms/:id/tasks…`) and the `task` frame.
   clearing the Lead while it is on answers 409 `the Loca Board needs a Lead
   — transfer the Lead or turn the Loca Board off first`. Removing Focus
   leaves it.
+- **Turning it off asks first.** While tasks are not done, removing it (or
+  a set without it) answers 409 with the counts; the caller adds
+  `?open_tasks=keep` (the web's default), `done` or `remove`. The Manage
+  list asks the same question with the counts.
 - **Off keeps the tasks.** With it off every task route answers the 403
   above and no task frame or reminder is sent; nothing is deleted, and
-  turning it on shows every task as it was. The Focus tab says "Tasks now
+  turning it on shows every task as it was, its reminder clock starting
+  again then. The Focus tab says "Tasks now
   live in the Loca Board tab, which needs a Lead." while tasks are kept,
   and offers the Operator **Turn on Loca Board** once a Lead is named.
+- **Each task is an object.** A task's view (`web/assets/taskview.js`)
+  shows its facts, its read-only review history (`Task.reviews`, stored in
+  `task_reviews` by `crates/server/src/store/task_reviews.rs`) and only the
+  actions the viewer may take, through the
+  same routes; `GET /rooms/:id/tasks/:tid` reads one task (gated like the
+  list). Its address is `#board/<loca>/<n>`; "task #N" in chat, the roster
+  badge and Focus's line link to it.
+- **Two views.** The tab shows the tasks as a List (sorted by last
+  change, number or stage) or as the Board's four columns, filtered by
+  Mine, holder and stage (`web/assets/boardlist.js`); the browser keeps
+  the choice in `localStorage`. A phone starts on the List and shows one
+  column at a time.
 - **Focus points to it.** While it is on, the Focus tab shows one line with
   its counts and a link to the tab. A goal closed by its tasks
   (`all_tasks`) cannot be set up or reactivated while it is off (409).

@@ -56,6 +56,7 @@ impl Hub {
             assigned_principal,
             review_note: None,
             review_reason: None,
+            reviews: Vec::new(),
             created_as: Some(actor),
             created_principal: by_principal.map(str::to_string),
             status: TaskStatus::Open,
@@ -192,6 +193,14 @@ impl Hub {
                 board::Transition::NoGo => out.review_reason = reason.clone(),
                 board::Transition::Plain | board::Transition::Go => {}
             }
+            board::record_review(
+                &mut out,
+                kind,
+                &req.by,
+                now,
+                note.as_deref(),
+                reason.as_deref(),
+            );
             // The assignee's own act binds a task given by name alone (before
             // the principal was recorded, or to a name nobody wore yet) to the
             // principal who takes it.

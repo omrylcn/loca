@@ -5,6 +5,11 @@ const { test, expect } = require("@playwright/test");
 const { provisionRooms } = require("./support/building");
 
 const ROOM = "appearance-choices-room";
+// Sounds (Profile → Sounds) share the preferences document.
+const SOUND_DEFAULTS = {
+  sound: "on", sound_message: "off", sound_mention: "on", sound_dm: "on", sound_notice: "on",
+  sound_volume: "medium", sound_background: "on",
+};
 const DEFAULTS = {
   theme: "dark", accent: "teal", density: "comfortable", font_size: "normal", font_family: "mono",
 };
@@ -145,6 +150,7 @@ test("the new choices persist across reload, paint from the cache first, and fol
     theme: "dark", accent: "teal", density: "spacious", font_size: "larger", font_family: "serif",
     // The reading choices added since, at their defaults.
     accent_custom: "", layout: "bubbles", time_format: "auto", measure: "normal", own_tint: "on", motion: "system",
+    ...SOUND_DEFAULTS,
   });
 
   // Reload with the server copy held back: first paint uses the cache.
@@ -195,7 +201,7 @@ test("an old cached look and an old stored row keep their meaning", async ({ bro
   const old = { theme: "light", accent: "violet", density: "compact", font_size: "large" };
   const put = await request.put("/profile/preferences", { headers: { "x-admin-token": "MASTER" }, data: old });
   expect(put.ok()).toBeTruthy();
-  expect(await put.json()).toEqual({ ...old, font_family: "mono", accent_custom: "", layout: "bubbles", time_format: "auto", measure: "normal", own_tint: "on", motion: "system" });
+  expect(await put.json()).toEqual({ ...old, font_family: "mono", accent_custom: "", layout: "bubbles", time_format: "auto", measure: "normal", own_tint: "on", motion: "system", ...SOUND_DEFAULTS });
 
   const { context, page } = await newPage(browser);
   await context.addInitScript(cached => {

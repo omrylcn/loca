@@ -61,7 +61,8 @@ function renderMarkdownInline(text) {
   let html = "";
   let cursor = 0;
 
-  const renderPlain = (plain) => esc(plain)
+  // "task #N" opens that task (taskview.js).
+  const renderPlain = (plain) => taskRefLinks(esc(plain))
     .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
     .replace(/(^|[^\w])\*([^*\n]+)\*/g, "$1<em>$2</em>")

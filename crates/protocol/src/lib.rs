@@ -390,6 +390,12 @@ pub struct RoomSettings {
     /// No client sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vault_rev: Option<u64>,
+    /// When the Loca Board was last turned on (ms), written by the server.
+    /// A kept task's reminder clock counts from then, not from before the
+    /// board was off. Absent until the board is first turned on after this
+    /// field existed. No client sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board_since: Option<u64>,
 }
 
 /// The icons a loca may wear: a closed list, drawn by the clients. Distinct
@@ -634,6 +640,7 @@ impl Default for RoomSettings {
             color: None,
             labels: Vec::new(),
             vault_rev: None,
+            board_since: None,
         }
     }
 }
@@ -957,6 +964,35 @@ pub struct Task {
     pub progress_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<u64>,
+    /// The review history, oldest first: every request for review, go and
+    /// no-go, with who, when, and the note or reason. Written only by those
+    /// moves; no route edits it. Absent on a task never reviewed, and on
+    /// older servers; older clients ignore it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviews: Vec<TaskReview>,
+}
+
+/// One step of a task's review (the Loca Board).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskReview {
+    pub kind: TaskReviewKind,
+    /// The verified name of whoever made the move.
+    pub by: String,
+    pub at: u64,
+    /// The holder's note with a request, the reason with a no-go.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskReviewKind {
+    /// The holder asked for review (`taken` → `review`).
+    Asked,
+    /// The reviewer accepted it (`review` → `done`).
+    Go,
+    /// The reviewer sent it back with a reason (`review` → `taken`).
+    Nogo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

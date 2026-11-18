@@ -467,7 +467,15 @@ who set the rules, and for everyone else while the loca has a wait or the
 silence check on.
 
 **The Loca Board** holds the loca's tasks, in its own tab, on four columns
-(To do · Doing · Review · Done). The Operator or the Lead declares and
+(To do · Doing · Review · Done), or as a List sorted by last change, number
+or stage; both views narrow to Mine, one holder and (the List) one stage.
+Each task has a view of its own (its stage, holder, who declared and who
+assigned it, its times and source message, its review history (each ask,
+go and no-go with who, when and why, read only), and only the actions the
+viewer may take) and an address, `#board/<loca>/<n>`, with Copy link;
+"task #N" in chat, a holder's badge and Focus's line open it. Each
+browser remembers its view; a phone starts on the List, and its Board
+shows one stage at a time. The Operator or the Lead declares and
 assigns a task there; the holder's "done" is a request for review with an
 optional note, and the Lead (never on its own task) or the Operator says go
 (it is done) or no-go with a reason (it goes back to its holder). Removing
@@ -477,9 +485,16 @@ Lead, or clearing the Lead while it is on, answers 409, and a new loca
 cannot be opened with it, since it has no Lead yet. Removing Focus leaves
 it. Off by default.
 
-Turning it off keeps every task as it was: the task routes answer `403 The
-Loca Board is off in this loca …`, no task frame or reminder is sent, and
-`GET /rooms/:id/extensions` counts the kept tasks in `stored_tasks`. While
+Turning it off while tasks are not done asks first: the change answers 409
+with the counts (`unfinished`: `open`, `taken`, `review`), and the caller
+says what becomes of them with `?open_tasks=`: `keep` (the web's default),
+`done` (each is marked done by the Operator, without review) or `remove`.
+The Journal line says which (`extensions: removed Loca Board (3 unfinished
+tasks kept)`). With only finished tasks it turns off at once. Kept tasks
+stay as they were: the task routes answer `403 The Loca Board is off in
+this loca …`, no task frame or reminder is sent, and `GET
+/rooms/:id/extensions` counts them in `stored_tasks`; when the board comes
+back their reminder clock starts again from then. While
 it is off and tasks are kept, the Focus tab says "Tasks now live in the
 Loca Board tab, which needs a Lead." and offers the Operator **Turn on Loca
 Board** once a Lead is named; turning it on shows them again, unchanged.
@@ -624,6 +639,18 @@ anyone else.
 | `measure` | `normal`, `narrow`, `wide` (how wide a message may run) |
 | `own_tint` | `on`, `off` (your own messages tinted with the accent) |
 | `motion` | `system` (follow the device), `reduced` |
+| `sound` | `on`, `off` (all sounds) |
+| `sound_message` | `off`, `on` (a new message in a loca you are in) |
+| `sound_mention` | `on`, `off` (a mention of you, a reply to you, a reminder addressed to you) |
+| `sound_dm` | `on`, `off` (a new private message) |
+| `sound_notice` | `on`, `off` (a Building notification) |
+| `sound_volume` | `medium`, `low`, `high` |
+| `sound_background` | `on` (only while Loca is not the window in front), `off` |
+
+The `sound*` fields are set from the **Sounds** section of the Profile menu.
+The browser makes each sound itself (Web Audio, under 300 ms, no file or
+request), plays nothing for your own messages, for history, or for a system
+line not addressed to you, and at most one of a kind every 1.5 s.
 
 `font_family` picks a face already on the device: `mono` is the monospace
 design face, `sans` the system UI face and `serif` the system serif. Nothing

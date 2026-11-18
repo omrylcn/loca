@@ -35,6 +35,17 @@ fn task_actor(
 pub(crate) async fn list_tasks(State(hub): State<Hub>, access: RoomAccess) -> impl IntoResponse {
     Json(hub.tasks(&access.room))
 }
+/// `GET /rooms/:id/tasks/:tid`: one task, for its own view and address.
+pub(crate) async fn get_task(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+    Path((_id, tid)): Path<(String, u64)>,
+) -> impl IntoResponse {
+    match hub.task(&access.room, tid) {
+        Some(task) => Json(task).into_response(),
+        None => (StatusCode::NOT_FOUND, "no such task").into_response(),
+    }
+}
 pub(crate) async fn create_task(
     State(hub): State<Hub>,
     access: RoomAccess,

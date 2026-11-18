@@ -1,0 +1,45 @@
+/* ── Profile → Sounds (sounds.js) ───────────────────────────────────────────
+   On/off rows are real checkboxes drawn as switches (role="switch"); the
+   volume reuses the look's radio chips. Colours are the theme's tokens, so
+   every theme draws it. */
+
+.soundsec .soundrow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center;
+  gap: 4px 12px; padding: 10px 0; }
+.soundsec .soundrow + .soundrow,
+.soundsec .soundrow + .soundkinds,
+.soundsec .soundkinds + .soundvolume,
+.soundsec .soundvolume + .soundrow { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.soundsec .soundkinds .soundrow { padding-left: 14px; }
+.soundsec .soundkinds .soundrow + .soundrow { border-top-style: dashed; }
+.soundsec .soundtext { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.soundsec .soundtext label { font-size: 13px; color: var(--txt); cursor: pointer; }
+.soundsec .soundtext small { font-size: 11px; line-height: 1.4; color: var(--dim); }
+.soundsec .soundplay { display: inline-flex; align-items: center; gap: 6px; }
+.soundsec .soundplay svg { flex: 0 0 auto; }
+/* Volume: its name above its chips, at every width, so the chips line up
+   with the text of the rows around them. */
+.profilepanel .soundsec .soundvolume { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 0 10px 48px; }
+.profilepanel .soundsec .soundvolume > span { padding-top: 0; font-size: 13px; color: var(--txt); }
+.soundsec .soundstatus:empty { display: none; }
+.soundsec .soundstatus { padding-top: 8px; color: var(--warn); }
+
+/* The switch: a track and a knob, the accent when on. */
+.soundswitch { -webkit-appearance: none; appearance: none; position: relative; flex: 0 0 auto; width: 36px; height: 20px;
+  margin: 0; border-radius: 999px; border: 1px solid var(--line); background: var(--panel2); cursor: pointer;
+  transition: background .15s, border-color .15s; }
+.soundswitch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--muted); transition: transform .15s, background .15s; }
+.soundswitch:hover { border-color: var(--muted); }
+.soundswitch:checked { background: var(--accent); border-color: var(--accent); }
+.soundswitch:checked::after { transform: translateX(16px); background: var(--on-accent, #0b0e12); }
+.soundswitch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Sounds off: the kinds stay changeable (and playable) but read as resting. */
+.soundsec.soundsoff .soundkinds .soundtext,
+.soundsec.soundsoff .soundkinds .soundswitch,
+.soundsec.soundsoff .soundvolume { opacity: .55; }
+
+@media (max-width: 760px) {
+  .soundsec .soundkinds .soundrow { padding-left: 0; }
+  .soundsec .soundplay { min-height: 34px; }
+}

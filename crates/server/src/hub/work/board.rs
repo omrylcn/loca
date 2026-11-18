@@ -9,7 +9,7 @@
 //! the house rule for a board that is off, which only a caller inside the
 //! hub can reach. The board needs a Lead, not Focus.
 
-use protocol::{Message, TaskStatus};
+use protocol::{Message, Task, TaskReview, TaskReviewKind, TaskStatus};
 
 use super::super::{ExtensionError, Hub, Room, HISTORY_LIMIT};
 use super::TaskError;
@@ -93,7 +93,37 @@ pub(super) fn transition(
     }
 }
 
+/// Add a review move to the task's history (read-only once written): a
+/// request with the holder's note, a go, or a no-go with its reason.
+pub(super) fn record_review(
+    task: &mut Task,
+    kind: Transition,
+    by: &str,
+    at: u64,
+    note: Option<&str>,
+    reason: Option<&str>,
+) {
+    let (kind, text) = match kind {
+        Transition::Plain => return,
+        Transition::ReviewAsked => (TaskReviewKind::Asked, note),
+        Transition::Go => (TaskReviewKind::Go, None),
+        Transition::NoGo => (TaskReviewKind::Nogo, reason),
+    };
+    task.reviews.push(TaskReview {
+        kind,
+        by: by.to_string(),
+        at,
+        text: text.map(str::to_string),
+    });
+}
+
 impl Hub {
+    /// One task of `room` by its number.
+    pub fn task(&self, room: &str, id: u64) -> Option<protocol::Task> {
+        let rooms = self.rooms.lock_or_recover();
+        rooms.get(room).and_then(|r| r.tasks.get(&id).cloned())
+    }
+
     /// How many tasks `room` holds, on the board or kept while it is off.
     /// A count only: what they say is the board's to show.
     pub fn stored_task_count(&self, room: &str) -> usize {

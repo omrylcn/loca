@@ -65,14 +65,29 @@ function boardCard(task) {
   return el;
 }
 
-function renderBoard(box) {
-  const tasks = Object.values(state.tasks).sort((a, b) => b.id - a.id);
+// `tasks`: what the filters let through (boardlist.js); `onlyStage`: on a
+// phone, the one column shown, with a switcher between the four.
+function renderBoard(box, tasks = Object.values(state.tasks), onlyStage = null) {
+  tasks = [...tasks].sort((a, b) => b.id - a.id);
+  const inColumn = status => tasks.filter(t => t.status === status || (status === "done" && t.status === "cancelled"));
   const board = document.createElement("div");
-  board.className = "taskboard";
+  board.className = onlyStage ? "taskboard onestage" : "taskboard";
   board.setAttribute("aria-label", "Loca Board");
+  box.innerHTML = "";
+  if (onlyStage) {
+    const switcher = document.createElement("div");
+    switcher.className = "boardstages";
+    switcher.setAttribute("role", "radiogroup");
+    switcher.setAttribute("aria-label", "Stage");
+    switcher.innerHTML = BOARD_COLUMNS.map(([status, label]) =>
+      `<button type="button" role="radio" aria-checked="${status === onlyStage}" class="${status === onlyStage ? "selected" : ""}" ` +
+      `data-board-stage="${status}">${label} · ${inColumn(status).length}</button>`).join("");
+    box.appendChild(switcher);
+  }
   for (const [status, label] of BOARD_COLUMNS) {
+    if (onlyStage && status !== onlyStage) continue;
     // Removed tasks sit with the finished ones, so the Operator can reopen them.
-    const held = tasks.filter(t => t.status === status || (status === "done" && t.status === "cancelled"));
+    const held = inColumn(status);
     const column = document.createElement("div");
     column.className = "boardcol";
     column.dataset.column = status;
@@ -80,7 +95,6 @@ function renderBoard(box) {
     for (const task of held) column.appendChild(boardCard(task));
     board.appendChild(column);
   }
-  box.innerHTML = "";
   box.appendChild(board);
 }
 
@@ -103,7 +117,7 @@ async function boardReview(act, id) {
 // The tab: the four columns, and the declare form for those who may.
 function renderBoardTab() {
   $("taskCreate").classList.toggle("hidden", !mayDeclareTasks());
-  renderBoard($("taskList"));
+  renderBoardViews($("taskList"));
 }
 
 // One line in the Focus tab. With the board on: its live counts, and the way
@@ -120,11 +134,14 @@ function renderFocusBoardLine() {
       .filter(([n]) => n > 0)
       .map(([n, word]) => `${n} ${word}`);
     const goal = currentGoal();
+    let left = [];
     if (goal?.completion === "all_tasks") {
-      const left = (goal.task_ids || []).filter(id => state.tasks[id]?.status !== "done").length;
-      if (left) parts.push(`${left} left before the goal closes`);
+      left = (goal.task_ids || []).filter(id => state.tasks[id]?.status !== "done");
+      if (left.length) parts.push(`${left.length} left before the goal closes`);
     }
-    line.innerHTML = `<span><b>Loca Board:</b> ${esc(parts.length ? parts.join(" · ") : "nothing open")}</span>` +
+    // The tasks the goal still waits for open their own view (taskview.js).
+    const links = left.map(id => `<a href="#" data-task-ref="${Number(id)}">#${Number(id)}</a>`).join(" ");
+    line.innerHTML = `<span><b>Loca Board:</b> ${esc(parts.length ? parts.join(" · ") : "nothing open")}${links ? ` ${links}` : ""}</span>` +
       `<button type="button" data-open-board>Open Loca Board</button>`;
     line.classList.remove("hidden");
     return;
@@ -161,3 +178,44 @@ $("focusBoardLine").addEventListener("click", (e) => {
   if (e.target.closest("[data-open-board]")) switchTab("board");
   else if (e.target.closest("[data-board-on]")) turnOnBoard();
 });
+
+// ---- turning the board off while tasks are not done ----
+// The server answers 409 with the counts (`unfinished`); the Manage list
+// asks what becomes of them, keep being the default, and sends the answer
+// as `?open_tasks=` (extensions.js changeExtension).
+
+/// Show the question for a 409 body; false when it is not that question.
+function askBoardOff(said) {
+  let body = null;
+  try { body = JSON.parse(said); } catch (e) { return false; }
+  const u = body?.unfinished;
+  if (!u) return false;
+  const total = u.open + u.taken + u.review;
+  const box = $("boardOffAsk");
+  box.innerHTML = `<p class="extnote"><b>${total} ${total === 1 ? "task is" : "tasks are"} not done</b> on the Loca Board: ` +
+    `${u.open} to do · ${u.taken} doing · ${u.review} in review. What becomes of ${total === 1 ? "it" : "them"}?</p>` +
+    `<p class="extnote">Kept tasks are not shown while the board is off, and come back as they are when it is turned on again.</p>` +
+    `<div class="extactions" style="flex-wrap: wrap">` +
+    `<button type="button" class="btn" data-board-off="">Cancel</button>` +
+    `<button type="button" class="btn" data-board-off="remove">Remove them</button>` +
+    `<button type="button" class="btn" data-board-off="done">Mark them done</button>` +
+    `<button type="button" class="btn primary" data-board-off="keep">Keep them</button></div>`;
+  box.classList.remove("hidden");
+  box.querySelector('[data-board-off="keep"]').focus();
+  return true;
+}
+
+function hideBoardOffAsk() {
+  $("boardOffAsk").classList.add("hidden");
+  $("boardOffAsk").innerHTML = "";
+}
+
+$("boardOffAsk").addEventListener("click", (e) => {
+  const button = e.target.closest("[data-board-off]");
+  if (!button) return;
+  const choice = button.dataset.boardOff;
+  hideBoardOffAsk();
+  if (choice) changeExtension("board", false, choice);
+  else renderExtensionManage();
+});
+for (const id of ["extManageClose", "extManageBackdrop"]) $(id).addEventListener("click", hideBoardOffAsk);

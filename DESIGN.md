@@ -287,7 +287,7 @@ GET/POST/DELETE /rooms/{loca}/operators
 GET/POST  /rooms/{loca}/notes
 GET/PUT/DELETE /rooms/{loca}/notes/{key}
 GET/POST  /rooms/{loca}/tasks
-PATCH     /rooms/{loca}/tasks/{task_id}
+GET/PATCH /rooms/{loca}/tasks/{task_id}
 GET/POST  /rooms/{loca}/goals
 PATCH     /rooms/{loca}/goals/{goal_id}
 GET/POST  /rooms/{loca}/waits

@@ -60,8 +60,73 @@ went wrong or who noticed:
   servers ignore the query key. There is no minimum version and nothing is
   refused.
 
+- The web client can play a sound when something arrives, each person's own
+  choice in a new **Sounds** section of the Profile menu: a soft chime for a
+  new message in a loca you are in, another for a mention of you, a reply to
+  you or a reminder addressed to you, another for a private message, and a
+  bell for a Building notification, each with a Play button to hear it. The
+  owner asked for it: with Loca in another tab or behind another window,
+  nothing told a person that someone had asked them something, and they saw
+  it only when they came back. The defaults are quiet: mentions, private
+  messages and notifications on, plain messages off, medium volume, and only
+  while Loca is not the window in front. The sounds are made in the browser
+  (Web Audio, under 300 ms each; no file, no request) and only after the page
+  has had a click or a key press; nothing plays for one's own messages, for
+  history, for a system line not addressed to you, or for a loca a Master or
+  Smaster could open but has not sat down in, and a kind plays at most once
+  every 1.5 s. The choices are saved with the look (`sound`, `sound_message`,
+  `sound_mention`, `sound_dm`, `sound_notice`, `sound_volume`,
+  `sound_background` in `GET/PUT /profile/preferences`, closed lists like
+  the others), so they follow the person to every device; a row saved before
+  this reads as the defaults, and an older client that sends only the look
+  leaves them as they are.
+
 ### Changed
 
+- A task keeps its review history: every request for review (with the
+  holder's note), go, and no-go (with its reason), with who and when, shown
+  oldest first in the task's view and sent as `Task.reviews` (absent on a
+  task never reviewed). Only the moves themselves write it; nothing edits
+  it. Until now a task kept only its latest note and latest no-go reason,
+  so the second request for review erased the first and nobody could see
+  how often work had gone back and why. The history is a new table,
+  `task_reviews`, written in the same transaction as its task: a database
+  from an earlier version opens unchanged (its tasks have no history yet),
+  and an earlier server opens a database that has the table and leaves it
+  alone.
+- Each task is an object with a view and an address. Clicking a card or a
+  row opens the task's view: its number, title, stage, holder, who declared
+  it and who assigned it, its times and the message it grew from, and only
+  the actions this viewer may take (start, ask for review, go / no-go,
+  remove, reopen, and giving it to someone for the Operator and, within its
+  bounds, the Lead). Its address `#board/<loca>/<n>` opens the loca's Loca
+  Board and the task, and **Copy link** copies it. "task #N" in chat (the
+  assignment and review lines and people's own words), the number a holder
+  wears in the roster and the tasks Focus's line says a goal still waits for
+  open it. `GET /rooms/:id/tasks/:tid` reads one task, gated like the list.
+  A task was only a card: "task #12" in a line led nowhere, and the only
+  way to point someone at a task was to describe it.
+- The Loca Board has two views of the same tasks: a **List** beside the
+  **Board**. The List's rows show each task's stage, holder and last change,
+  sorted by last change (the default), number or stage; both views narrow
+  to **Mine**, one **holder**, and (in the List) one **stage**, Removed
+  being hidden unless chosen. A switch picks the view, and this browser
+  remembers it. On a phone the List comes first, and the Board shows one
+  stage at a time with a switcher, instead of four columns stacked into one
+  long scroll. A board with more than a handful of tasks was one undivided
+  wall of cards, and nobody could ask it "what is mine?" or "what moved
+  last?".
+- Turning the Loca Board off while tasks are not done asks first. The
+  change answers 409 with the counts (to do, doing, in review), and the
+  Manage list asks what becomes of them: **Keep them** (the default; they
+  come back as they are when the board does), **Mark them done** (the
+  Operator's veto, no review) or **Remove them**; a script sends
+  `?open_tasks=keep|done|remove`. The Journal line says which. With only
+  finished tasks it turns off at once. Since the Loca Board took the tasks
+  (below), turning it off hid every unfinished task without a word, and the
+  people holding them could no longer move them. A kept task's reminder
+  clock now starts again when the board comes back, so it does not remind
+  the moment it returns (`RoomSettings.board_since`, written by the server).
 - The `board` extension is called **Loca Board** wherever a person reads
   it: the extension list, This Loca › Extensions, the Journal line of a
   change (`extensions: added Loca Board`), the server's refusals (`the Loca
@@ -118,6 +183,17 @@ went wrong or who noticed:
 
 ### Fixed
 
+- Record a Smaster who admits, approves or denies through a signed-in
+  session as that Smaster, not as the Master. The three routes named their
+  actor from a raw Smaster key in `x-admin-token` only; a Smaster using the
+  browser, or any client holding a session, fell through to `master`, so
+  `members.admitted_by` and `join_requests.decided_by` credited the Master
+  with decisions it never made, and the key ledger showed those members as
+  issued by the Master. The actor now comes from the same authority every
+  gate resolves (`smaster:<current name>`, or `master`). Rows written before
+  this fix keep the name they were given; nothing can tell which of the old
+  `master` rows were really a Smaster's.
+
 - Draw the loca's roster again once the person's own profile arrives. What
   a seat shows can depend on that person's role in the loca: the loca's
   Operator sees an agent's kit version. The roster was drawn with whatever
@@ -126,6 +202,19 @@ went wrong or who noticed:
   until something else moved. The kit-version browser test
   (`kit-version.spec.js:119`) failed 8 of 12 runs on `private/master` alone
   under load, and passed 10 of 10 with this change.
+
+- Each person at the table is one line in the sidebar: kind mark,
+  name, badges (rank, lead, caretaker, task, away, muted), then release, a
+  mute toggle, the DM icon and "⋯". In the 320px sidebar every seat used to
+  fold onto a second line of lead diamond, release and three emoji buttons
+  (mute 🔇, kick 👢, ban 🚫), so the list was hard to scan, and on a machine
+  without an emoji font those buttons were empty boxes. Mute is now one
+  inline SVG toggle (a speaker, struck through while muted) with
+  `aria-pressed`; the lead title, kick and ban sit in the "⋯" menu, which
+  offers only what the viewer may do (the same checks as before) and is
+  never cut off by the sidebar. Kick and ban ask in words under the seat,
+  "No" or "Yes, kick", instead of the browser's own `confirm()` box. Every
+  action keeps its route; the banned list's unban is a word, not 🔓.
 
 ## [0.16.0] - 2026-11-17
 
