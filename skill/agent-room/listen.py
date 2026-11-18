@@ -1467,6 +1467,76 @@ def main():
         with lock:
             advance_cursor_locked(room, message_id)
 
+    def monitor_print(line, window=None, only_with_notices=False):
+        """Write one Claude Monitor line with the notices this context owes.
+
+        Claude Monitor treats stdout as the wake channel: exactly one line
+        here means exactly one model turn. Called under ``lock``. Returns
+        whether a line was written.
+        """
+        cached = notification_cache.rows() if notification_cache is not None else None
+        if cached is None:
+            rows = (window or {}).get("items") or []
+            complete = not (window or {}).get("more_available")
+        else:
+            rows, complete = cached, len(cached) < NOTIFICATION_CACHE_LIMIT
+        notices, floor = plan_context(rows, monitor_floor[0], monitor_notices, complete)
+        if only_with_notices and not notices:
+            return False
+        if notices:
+            line["notification_context"] = {"recipient": requested_name, **notices}
+        print(json.dumps(line, ensure_ascii=False), flush=True)
+        # Recorded only after the line was accepted by stdout. A failed
+        # write raises to the caller, so nothing is marked shown.
+        monitor_notices.update(context_ids(notices))
+        monitor_floor[0] = floor
+        if floor is not None:
+            monitor_notices.difference_update(
+                [n for n in monitor_notices if n < floor])
+        return True
+
+    def emit_notification():
+        """Wake the agent once for Building notifications it has not been given.
+
+        PRINCIPLES.md, "Building notifications": a notification reaches each
+        agent it was sent to as a turn of its own, as context. It is no task,
+        no authority and needs no answer in a loca. Claude Monitor gets one
+        line (only when this context still owes a notice: one a room turn
+        already carried is not given twice); a durable runtime gets one
+        delivery with priority ``notification``, keyed by the newest notice.
+        """
+        if notification_cache is None:
+            return
+        with lock:
+            try:
+                if sink is None:
+                    # At most four notices a line: a burst takes as many
+                    # lines as it needs, so none waits for an unrelated turn.
+                    while monitor_print({"t": "notification"}, only_with_notices=True):
+                        pass
+                if turn_sink is not None:
+                    context = notification_cache.context()
+                    if context["items"]:
+                        newest = max(item["id"] for item in context["items"])
+                        turn_sink.write(json.dumps({
+                            "protocol_version": ADAPTER_PROTOCOL_VERSION,
+                            "delivery_id": f"notification:{newest}",
+                            "server": origin,
+                            "room": "",
+                            "identity": requested_name,
+                            "priority": "notification",
+                            "attempt": 1,
+                            "deadline_ms": DELIVERY_DEADLINE_MS,
+                            "received_at_ms": int(time.time() * 1000),
+                            "last_id": None,
+                            "event": {"t": "notification", "notification_context": context},
+                        }, ensure_ascii=False) + "\n")
+                durable_flush((sink, turn_sink))
+            except (BrokenPipeError, OSError) as e:
+                sys.stderr.write(f"output gone ({e}) — exiting so no ghost listener remains\n")
+                sys.stderr.flush()
+                os._exit(1)
+
     def emit(room, messages, is_lead=False):
         """Deliver one queued agent turn and advance that room's cursor once."""
         if isinstance(messages, dict) and agent_event(messages) is None:
@@ -1505,27 +1575,10 @@ def main():
                     for message in messages:
                         sink.write(json.dumps(message, ensure_ascii=False) + "\n")
                 else:
-                    # Claude Monitor treats stdout as the wake channel: exactly
-                    # one line here means exactly one model turn.
-                    line = {k: v for k, v in event.items() if k != "notification_context"}
-                    window = event.get("notification_context")
-                    cached = notification_cache.rows() if notification_cache is not None else None
-                    if cached is None:
-                        rows = (window or {}).get("items") or []
-                        complete = not (window or {}).get("more_available")
-                    else:
-                        rows, complete = cached, len(cached) < NOTIFICATION_CACHE_LIMIT
-                    notices, floor = plan_context(rows, monitor_floor[0], monitor_notices, complete)
-                    if notices:
-                        line["notification_context"] = {"recipient": requested_name, **notices}
-                    print(json.dumps(line, ensure_ascii=False), flush=True)
-                    # Recorded only after the line was accepted by stdout. A
-                    # failed write exits below, so nothing is marked shown.
-                    monitor_notices.update(context_ids(notices))
-                    monitor_floor[0] = floor
-                    if floor is not None:
-                        monitor_notices.difference_update(
-                            [n for n in monitor_notices if n < floor])
+                    monitor_print(
+                        {k: v for k, v in event.items() if k != "notification_context"},
+                        event.get("notification_context"),
+                    )
                 if turn_sink is not None:
                     turn_sink.write(json.dumps(delivery, ensure_ascii=False) + "\n")
                 durable_flush((sink, turn_sink))
@@ -2180,6 +2233,7 @@ def main():
 
     try:
         if membership:
+            notification_recovery.on_new = emit_notification
             notification_recovery.start()
             # The lobby is the process anchor. Room listeners come and go as calls
             # arrive and release returns the member here. Do not start from cached

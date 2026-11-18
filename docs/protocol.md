@@ -431,8 +431,9 @@ empty. `care` signals are an outbox: they are replayed on every connect until
 the runtime acknowledges them with `POST /rooms/:id/care/:signal_id/ack`. On
 the Lobby, the invites whose delivery is still owed are sent again as
 `called` after `lobby_ready`, and after a lag together with a `seats` frame;
-a `notification` frame is only a wake hint, and
-`GET /notifications` is the record. A message waiting in a turn queue when the
+a `notification` frame is a hint to read
+`GET /notifications`, which is the record; the agent kit then wakes the agent
+with what it read. A message waiting in a turn queue when the
 socket closes is recovered by the same `?since=` backfill.
 
 - **Loca product:** `memory` and `memoryversion` (the retired memory surface,

@@ -15,7 +15,10 @@ import orchestrator_queue
 
 
 TERMINAL_STATUSES = {"failed", "interrupted", "cancelled", "expired"}
-CONTEXT_ONLY_PRIORITIES = {"informational"}
+# Codex v2 keeps one thread per loca; a Building notification belongs to none,
+# so it stays context for that loca's next turn (notification_context) rather
+# than a turn of its own.
+CONTEXT_ONLY_PRIORITIES = {"informational", "notification"}
 DEFAULT_REPLY_REQUIRED = {"direct_user"}
 PROTECTED_PRIORITIES = {"security_control", "care_signal", "explicit_task"}
 

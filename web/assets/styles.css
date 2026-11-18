@@ -811,6 +811,7 @@
   .attachchip { max-width: 100%; min-height: 44px; flex-wrap: wrap; }
   .attachchip .aname { overflow-wrap: anywhere; min-width: 0; }
   #feed.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
+  #composer.dropping { outline: 2px dashed var(--accent); outline-offset: -2px; }
 
   /* ── notes & tasks panels ── */
   .notes { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
