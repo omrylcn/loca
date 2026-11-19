@@ -101,7 +101,7 @@ test("appearance applies instantly, survives reload and follows the principal to
   // adopts the principal's saved preferences once the session resolves.
   const second = await newPage(browser);
   await second.page.goto("/");
-  await expect(html(second.page)).toHaveAttribute("data-theme", "dark");
+  await expect(html(second.page)).toHaveAttribute("data-theme", "loca");
   await signInAsMaster(second.page, request);
   await expect(html(second.page)).toHaveAttribute("data-theme", "light");
   await expect(html(second.page)).toHaveAttribute("data-accent", "violet");

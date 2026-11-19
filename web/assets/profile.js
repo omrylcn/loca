@@ -20,7 +20,7 @@ function profileKindLabel(kind) {
 }
 
 const APPEARANCE_LABELS = {
-  theme: { dark: "Dark", ember: "Ember", contrast: "High contrast", night: "Night", light: "Light", paper: "Paper" },
+  theme: { loca: "Loca", calm: "Calm", console: "Console", dark: "Dark", ember: "Ember", contrast: "High contrast", night: "Night", light: "Light", paper: "Paper" },
   accent: {
     teal: "Teal", blue: "Blue", indigo: "Indigo", violet: "Violet", rose: "Rose", orange: "Orange",
     amber: "Amber", green: "Green", sky: "Sky", custom: "Custom colour",

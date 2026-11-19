@@ -182,7 +182,7 @@ test("the new choices persist across reload, paint from the cache first, and fol
   // A second browser starts from the defaults and adopts the saved look.
   const second = await newPage(browser);
   await second.page.goto("/");
-  await expect(html(second.page)).toHaveAttribute("data-font-family", "mono");
+  await expect(html(second.page)).toHaveAttribute("data-font-family", "sans");
   await signInAsMaster(second.page, request);
   await expect(html(second.page)).toHaveAttribute("data-font-family", "serif");
   await expect(html(second.page)).toHaveAttribute("data-font-size", "larger");

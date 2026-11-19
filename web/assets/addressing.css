@@ -1,0 +1,6 @@
+/* The line above the message box that says who a message reaches. */
+.addressline { margin: 4px 20px 0; padding: 2px 10px; align-self: flex-start; width: max-content; max-width: calc(100% - 40px);
+  font-size: 12px; line-height: 20px; color: var(--muted); border-radius: 6px; background: var(--panel2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.addressline.addressed { color: var(--agent); background: color-mix(in srgb, var(--agent) 12%, transparent); font-weight: 600; }
+@media (max-width: 760px) { .addressline { margin: 4px 8px 0; max-width: calc(100% - 16px); } }

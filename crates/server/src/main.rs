@@ -82,6 +82,7 @@ const WEB_FAVICON: &str = include_str!("../../../web/assets/favicon.svg");
 const WEB_STYLES: &str = include_str!("../../../web/assets/styles.css");
 const WEB_PROFILE_STYLES: &str = include_str!("../../../web/assets/profile.css");
 const WEB_APPEARANCE_STYLES: &str = include_str!("../../../web/assets/appearance.css");
+const WEB_THEMES_STYLES: &str = include_str!("../../../web/assets/themes.css");
 const WEB_SOUNDS_STYLES: &str = include_str!("../../../web/assets/sounds.css");
 const WEB_RANKS_STYLES: &str = include_str!("../../../web/assets/ranks.css");
 const WEB_CARETAKER_STYLES: &str = include_str!("../../../web/assets/caretaker.css");
@@ -120,6 +121,8 @@ const WEB_IDENTITY: &str = include_str!("../../../web/assets/identity.js");
 const WEB_GROUPS: &str = include_str!("../../../web/assets/groups.js");
 const WEB_KIT_VERSION: &str = include_str!("../../../web/assets/kitversion.js");
 const WEB_ROSTER: &str = include_str!("../../../web/assets/roster.js");
+const WEB_ADDRESSING: &str = include_str!("../../../web/assets/addressing.js");
+const WEB_ADDRESSING_STYLES: &str = include_str!("../../../web/assets/addressing.css");
 const WEB_NOTIFICATIONS: &str = include_str!("../../../web/assets/notifications.js");
 const WEB_SOUNDS: &str = include_str!("../../../web/assets/sounds.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.tr.md");
@@ -836,6 +839,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "styles.css" => Some(("text/css; charset=utf-8", WEB_STYLES)),
         "profile.css" => Some(("text/css; charset=utf-8", WEB_PROFILE_STYLES)),
         "appearance.css" => Some(("text/css; charset=utf-8", WEB_APPEARANCE_STYLES)),
+        "themes.css" => Some(("text/css; charset=utf-8", WEB_THEMES_STYLES)),
         "sounds.css" => Some(("text/css; charset=utf-8", WEB_SOUNDS_STYLES)),
         "ranks.css" => Some(("text/css; charset=utf-8", WEB_RANKS_STYLES)),
         "caretaker.css" => Some(("text/css; charset=utf-8", WEB_CARETAKER_STYLES)),
@@ -874,6 +878,8 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
         "kitversion.js" => Some(("text/javascript; charset=utf-8", WEB_KIT_VERSION)),
         "roster.js" => Some(("text/javascript; charset=utf-8", WEB_ROSTER)),
+        "addressing.js" => Some(("text/javascript; charset=utf-8", WEB_ADDRESSING)),
+        "addressing.css" => Some(("text/css; charset=utf-8", WEB_ADDRESSING_STYLES)),
         "notifications.js" => Some(("text/javascript; charset=utf-8", WEB_NOTIFICATIONS)),
         "sounds.js" => Some(("text/javascript; charset=utf-8", WEB_SOUNDS)),
         _ => None,

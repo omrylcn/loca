@@ -10,7 +10,11 @@ use super::*;
 mod sounds;
 use sounds::SoundPreferences;
 
-pub const PREFERENCE_THEMES: &[&str] = &["dark", "light", "ember", "contrast", "paper", "night"];
+/// `loca` (the default), `calm` and `console` are the redesign's three themes;
+/// the earlier six stay, so a stored choice keeps meaning what it meant.
+pub const PREFERENCE_THEMES: &[&str] = &[
+    "loca", "dark", "light", "ember", "contrast", "paper", "night", "calm", "console",
+];
 /// `custom` means the colour in `accent_custom`; the browser keeps it
 /// readable on the chosen theme (and falls back to teal when none is set).
 pub const PREFERENCE_ACCENTS: &[&str] = &[
@@ -22,7 +26,7 @@ pub const PREFERENCE_DENSITIES: &[&str] = &["comfortable", "compact", "spacious"
 pub const PREFERENCE_FONT_SIZES: &[&str] = &["normal", "large", "small", "larger"];
 /// Typefaces already on the device (no download, no external request):
 /// the monospace design face, the system UI sans and the system serif.
-pub const PREFERENCE_FONT_FAMILIES: &[&str] = &["mono", "sans", "serif"];
+pub const PREFERENCE_FONT_FAMILIES: &[&str] = &["sans", "mono", "serif"];
 /// Reading: message cards (others left, you right) or one flat column.
 pub const PREFERENCE_LAYOUTS: &[&str] = &["bubbles", "flat"];
 /// `auto` is the device's own clock style.
@@ -67,11 +71,11 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Preferences {
-            theme: "dark".into(),
+            theme: "loca".into(),
             accent: "teal".into(),
             density: "comfortable".into(),
             font_size: "normal".into(),
-            font_family: "mono".into(),
+            font_family: "sans".into(),
             accent_custom: String::new(),
             layout: "bubbles".into(),
             time_format: "auto".into(),
@@ -147,7 +151,15 @@ impl Preferences {
     /// Read a stored row leniently: a value retired from the allow-list falls
     /// back to its default instead of breaking the whole document.
     fn from_stored(json: &str) -> Preferences {
-        let mut prefs = Preferences::default();
+        // A saved row keeps the meaning it had when it was saved: a field it
+        // does not name meant the default of that time, the dark theme and
+        // the monospace face. Only someone with no saved row gets today's
+        // defaults (Loca, sans).
+        let mut prefs = Preferences {
+            theme: "dark".into(),
+            font_family: "mono".into(),
+            ..Preferences::default()
+        };
         if let Ok(serde_json::Value::Object(fields)) = serde_json::from_str(json) {
             for (key, value) in fields {
                 let single = serde_json::json!({ key: value });

@@ -108,10 +108,12 @@ function startReply(id) {
   $("replyText").textContent = `↩ replying to ${m.sender}: ${m.text.slice(0, 60)}`;
   $("replybar").classList.remove("hidden");
   $("msg").focus();
+  renderAddressLine();
 }
 function clearReply() {
   state.replyTo = null;
   $("replybar").classList.add("hidden");
+  renderAddressLine();
 }
 function gotoMsg(id) {
   const el = document.querySelector(`.row[data-id="${id}"]`);

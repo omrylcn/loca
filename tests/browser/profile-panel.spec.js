@@ -8,7 +8,7 @@ const { MASTER, smasterKey } = require("./support/switch");
 
 const ROOM = "profile-panel-room";
 const DEFAULTS = {
-  theme: "dark", accent: "teal", density: "comfortable", font_size: "normal", font_family: "mono",
+  theme: "loca", accent: "teal", density: "comfortable", font_size: "normal", font_family: "sans",
   accent_custom: "", layout: "bubbles", time_format: "auto", measure: "normal", own_tint: "on", motion: "system",
   // Sounds (Profile → Sounds) share the document, at their defaults.
   sound: "on", sound_message: "off", sound_mention: "on", sound_dm: "on", sound_notice: "on",
@@ -235,7 +235,7 @@ test("a theme, an accent and every reading choice apply at once and survive a re
   const write = savedPrefs(page);
   await page.locator("#appearanceReset").click();
   await write;
-  await expect(html(page)).toHaveAttribute("data-theme", "dark");
+  await expect(html(page)).toHaveAttribute("data-theme", "loca");
   await expect(html(page)).toHaveAttribute("data-layout", "bubbles");
   await expect(look.getByRole("radio", { name: "Cards", exact: true })).toBeChecked();
   expect(await (await request.get("/profile/preferences", { headers: MASTER })).json()).toEqual(DEFAULTS);
@@ -249,6 +249,8 @@ test("a theme, an accent and every reading choice apply at once and survive a re
 });
 
 test("a custom accent too dark for a dark theme is lightened, said so, and kept after a reload", async ({ browser, request }) => {
+  // The default theme is light now: this is about a dark one.
+  await request.put("/profile/preferences", { headers: MASTER, data: { theme: "dark" } });
   const { context, page } = await newPage(browser);
   await signInAsMaster(page, request);
   await openPanel(page);

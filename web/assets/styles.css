@@ -361,7 +361,7 @@
     border: 1px solid var(--line); color: var(--txt); font-size: 10px; text-align: center; letter-spacing: 0; }
   /* The last column holds a member's three actions (Message · Suspend ·
      Revoke); at 170px they spilled left over Location. */
-  .peoplehead, .prow { display: grid; grid-template-columns: minmax(0,1.6fr) 160px minmax(0,.9fr) minmax(0,.9fr) 216px;
+  .peoplehead, .prow { display: grid; grid-template-columns: minmax(0,1.6fr) 160px minmax(0,.9fr) minmax(0,.9fr) 244px;
     align-items: center; column-gap: 16px; }
   .peoplehead { padding: 6px 10px; color: var(--dim); font-size: 9px; letter-spacing: .08em;
     text-transform: uppercase; border-bottom: 1px solid var(--line); }

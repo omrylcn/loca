@@ -2881,8 +2881,8 @@ async fn profile_preferences_are_private_validated_and_durable() {
     assert_eq!(
         defaults,
         serde_json::json!({
-            "theme": "dark", "accent": "teal", "density": "comfortable", "font_size": "normal",
-            "font_family": "mono", "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system",
+            "theme": "loca", "accent": "teal", "density": "comfortable", "font_size": "normal",
+            "font_family": "sans", "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system",
             "sound": "on", "sound_message": "off", "sound_mention": "on", "sound_dm": "on",
             "sound_notice": "on", "sound_volume": "medium", "sound_background": "on"
         })
@@ -2902,7 +2902,7 @@ async fn profile_preferences_are_private_validated_and_durable() {
         .unwrap();
     let expected = serde_json::json!({
         "theme": "light", "accent": "violet", "density": "compact", "font_size": "normal",
-        "font_family": "mono", "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system",
+        "font_family": "sans", "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system",
         "sound": "on", "sound_message": "off", "sound_mention": "on", "sound_dm": "on",
         "sound_notice": "on", "sound_volume": "medium", "sound_background": "on"
     });
@@ -3025,7 +3025,7 @@ async fn profile_preferences_are_private_validated_and_durable() {
         .json()
         .await
         .unwrap();
-    assert_eq!(bo_saved["theme"], "dark");
+    assert_eq!(bo_saved["theme"], "loca");
     assert_eq!(bo_saved["accent"], "amber");
 
     let expected = serde_json::json!({
@@ -3073,7 +3073,7 @@ async fn profile_preferences_are_private_validated_and_durable() {
         .await
         .unwrap();
     assert_eq!(bo_restored["accent"], "amber");
-    assert_eq!(bo_restored["theme"], "dark");
+    assert_eq!(bo_restored["theme"], "loca");
 }
 
 /// Read an open socket until it ends. It must end, and it must not deliver

@@ -1,0 +1,71 @@
+/* ── the three redesign themes: Loca, Calm, Console ──────────────────────
+   Loca (the default) is warm paper in Loca's own colours: blue for agents,
+   green for people, violet for Care, gold for the Master, ink for actions
+   and the brand teal only in small doses. Calm is white and quiet with one
+   teal accent. Console is a refined dark for long evenings.
+   Every text token keeps 4.5:1 or better on the theme's --bg, --panel and
+   --panel2 (checked when the palette was chosen). Loaded after
+   appearance.css; theme.js marks Loca and Calm as light (data-scheme). */
+
+:root[data-theme="loca"] {
+  --scheme: light;
+  --bg: #f6f1e7; --panel: #fbf8f2; --panel2: #ece4d5; --line: #d9cdb7;
+  --txt: #2b2620; --muted: #4f463c; --dim: #5f5548;
+  --accent: #2b2620; --accent2: #4a4137; --on-accent: #fbf8f2;
+  --agent: #0a5a9e; --human: #0b6643; --iye: #63379f; --iye-deep: #ebe0f7;
+  --warn: #874400; --bad: #ad1f28; --on-bad: #ffffff;
+  --gold: #744c00; --gold-txt: #664300; --master: #744c00; --smaster: #664300;
+  --brand: #00695f;
+}
+:root[data-theme="calm"] {
+  --scheme: light;
+  --bg: #f7f8f6; --panel: #ffffff; --panel2: #eef1ee; --line: #d3dad6;
+  --txt: #17201d; --muted: #46524d; --dim: #56615c;
+  --accent: #0f6b63; --accent2: #0a4f49; --on-accent: #ffffff;
+  --agent: #1d5fa8; --human: #1a6b45; --iye: #6a3db5; --iye-deep: #ece3fb;
+  --warn: #8f4a00; --bad: #b8212a; --on-bad: #ffffff;
+  --gold: #7d5200; --gold-txt: #6e4800; --master: #7d5200; --smaster: #6e4800;
+  --brand: #0f6b63;
+}
+:root[data-theme="console"] {
+  --scheme: dark;
+  --bg: #0e1215; --panel: #12171b; --panel2: #1b2228; --line: #2b343b;
+  --txt: #e4eae7; --muted: #a7b2b8; --dim: #939fa6;
+  --accent: #2dd4bf; --accent2: #5eead4; --on-accent: #062420;
+  --agent: #8cc4ff; --human: #7fdcae; --iye: #c4b5fd; --iye-deep: #2e2550;
+  --warn: #fbbf24; --bad: #ff8a80; --on-bad: #2a0e0e;
+  --gold: #fcd34d; --gold-txt: #fde68a; --master: #fcd34d; --smaster: #f5c84a;
+  --brand: #2dd4bf;
+}
+
+/* In Loca the default ("teal") accent is the theme's ink; a chosen accent
+   still wins through appearance.css's light-page rules. */
+:root[data-theme="loca"][data-accent="teal"] { --accent: #2b2620; --accent2: #4a4137; --on-accent: #fbf8f2; }
+
+/* A loca's own colour, deep enough for every light theme (Light, Paper,
+   Loca, Calm): before, only Light had these shades and Paper drew the dark
+   theme's bright ones on its light ground. */
+:root[data-scheme="light"] [data-loca-color="orange"] { --loca-c: #8f5500; }
+:root[data-scheme="light"] [data-loca-color="sky"] { --loca-c: #155e93; }
+:root[data-scheme="light"] [data-loca-color="green"] { --loca-c: #00704f; }
+:root[data-scheme="light"] [data-loca-color="yellow"] { --loca-c: #6b6200; }
+:root[data-scheme="light"] [data-loca-color="blue"] { --loca-c: #0b3d8c; }
+:root[data-scheme="light"] [data-loca-color="vermillion"] { --loca-c: #a84300; }
+:root[data-scheme="light"] [data-loca-color="purple"] { --loca-c: #8e4577; }
+
+/* What Light says about a few surfaces, said for every light theme. */
+:root[data-scheme="light"] .room.special { border-color: color-mix(in srgb, var(--iye) 45%, var(--line)); }
+:root[data-scheme="light"] .omem .glyph.lead { text-shadow: none; }
+:root[data-scheme="light"] body.locked .side { box-shadow: 0 16px 48px rgba(43, 38, 32, .14); }
+
+/* Reading: the three themes read in a sans face already on the device, at
+   a size you can read, with code, keys and times kept monospace. The face is
+   named, not left to system-ui: system-ui is whatever a Linux machine says
+   (DejaVu Sans on one, a CJK face on another), and its widths decided
+   whether a row of buttons fits. Segoe UI on Windows, the Apple face on a
+   Mac, and Liberation Sans or Arial (one set of widths) elsewhere. */
+:root[data-theme="loca"], :root[data-theme="calm"], :root[data-theme="console"] {
+  --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Liberation Sans", Arial, sans-serif;
+}
+:root[data-theme="loca"] body, :root[data-theme="calm"] body, :root[data-theme="console"] body { font-size: 15px; }
+

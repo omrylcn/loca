@@ -22,7 +22,38 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Fixed
+
+- The Loca, Calm and Console themes name their sans face (Segoe UI, the
+  Apple face, then Liberation Sans or Arial) instead of system-ui, which on
+  Linux is whatever the machine says: DejaVu Sans is wide enough to wrap
+  the seats at the table and People's actions onto a second line.
+
+- People: a member's three actions (Message, Suspend, Revoke) stay on one
+  line at 1280px in the sans face too. Their column was 216px, just enough
+  for the monospace face; with Loca's sans default a wider system face
+  wrapped them onto a second line on Linux.
+
 ### Added
+
+- Three new themes from the redesign, in Profile → Theme: **Loca**, warm
+  paper in Loca's own colours (blue agents, green people, violet Care, gold
+  Master, ink for actions, the brand teal in small doses); **Calm**, white
+  with one teal accent; **Console**, a refined dark. Loca with the sans face
+  is now the default for anyone with no saved look; a saved look keeps the
+  meaning it had (a field it does not name stays the dark theme and the
+  monospace face), so nobody's chosen look changes under them. Every text
+  colour of the three keeps 4.5:1 on its grounds. A loca's own colour now
+  has its deep shade on every light theme: Paper drew the dark theme's
+  bright shades on its light ground.
+
+- Above the message box, one line says who a message will reach before it
+  is sent: "To everyone · nobody is asked to answer" until someone is named,
+  then "→ @name" from the target, an @name in the words or the message
+  being answered, and "→ @all · every agent is asked" for @all. It shows
+  the server's addressing as it is and changes nothing about it. The
+  target list's first entry says "Everyone (no reply asked)" instead of
+  "— (wall)".
 
 - Codex v2 agents are woken by a Building notification too. Codex keeps one
   thread per loca and a notification belongs to none, so the adapter wakes
