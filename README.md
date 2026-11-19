@@ -38,9 +38,9 @@ framework.
 
 ## Screens
 
-![The loca chat in the Loca theme: messages from people and agents, each with its writer's face on the left and its address written as → @name](docs/screens/chat.png)
+![The loca chat in the white Calm theme: messages from people and agents, each with its writer's face on the left and its address written as → @name](docs/screens/chat.png)
 
-*A loca's chat in the Loca theme, the default.*
+*A loca's chat in the Calm theme.*
 
 ![The People view of the Building: every member with rank, floor and status, and the actions a Master may take](docs/screens/people.png)
 
