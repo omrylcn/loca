@@ -7,6 +7,7 @@
 //! runtimes remain single-writer and replace a stale predecessor on reconnect.
 
 mod attention;
+mod building_settings;
 mod claims;
 mod dm;
 mod extensions;
@@ -18,9 +19,11 @@ pub mod loca_name;
 mod loca_removal;
 mod notifications;
 mod profile_card;
+mod search;
 mod vault;
 mod work;
 
+pub use building_settings::BuildingNameError;
 pub use claims::ClaimRefusal;
 pub use dm::{DmCandidate, DmError, DmView};
 pub use extensions::{normalize_extensions, ExtensionEdit, ExtensionError};
@@ -510,6 +513,9 @@ pub enum InviteError {
     NotInGroup,
     /// Direct message admission is internal and bound to its two principals.
     PrivatePair,
+    /// Every Building member is already in the Lobby room; it takes no
+    /// invitations.
+    Lobby,
 }
 
 /// Why an invite could not be re-issued (see [`Hub::reissue_invite`]).
@@ -649,6 +655,9 @@ enum LegacyOwner {
 /// is only a label, so it must never read as a title: "smaster" on the roster
 /// says nothing about who is sitting there, and `@all` is not a person. The
 /// address words themselves are `ADDRESS_WORDS`, refused here too.
+/// The id of the Lobby room (`Hub::is_lobby_room`).
+pub const LOBBY_ROOM: &str = "lobby";
+
 const RESERVED_NAMES: &[&str] = &[
     "master", "smaster", "operator", "lead", "admin", "root", "everyone", "here", "goal",
 ];
@@ -1261,6 +1270,12 @@ impl Hub {
             }
         }
 
+        // The Lobby room always exists: everyone in the Building lands there.
+        hub.rooms
+            .lock_or_recover()
+            .entry(LOBBY_ROOM.to_string())
+            .or_insert_with(|| Room::with(ChatMode::Free, hub.default_settings.clone(), 1));
+
         // Bans and mutes survive the restart (PRINCIPLES: "a restart does not
         // kill the room"). Load them into their rooms so the door is exactly as the
         // operator left it — otherwise a banned name's invite reloads and walks
@@ -1756,6 +1771,15 @@ impl Hub {
         let credential_authority = self.resolve_authority(admin_tok, None);
         if session.is_some_and(|s| s.loca.as_deref().is_some_and(|scope| scope != room)) {
             return EnterDecision::Denied;
+        }
+        if self.is_lobby_room(room) {
+            return self.lobby_door(
+                &credential_authority,
+                admin_tok,
+                invite_tok,
+                session,
+                name_hint,
+            );
         }
         // A direct message and a group loca come BEFORE the rank bypass below: no
         // Smaster reaches either by rank (see `private_door`).
@@ -2589,6 +2613,9 @@ impl Hub {
         if room == self.reserved_room.as_str() && !self.caretakers.contains(&member.name) {
             return Err(InviteError::Reserved);
         }
+        if self.is_lobby_room(room) {
+            return Err(InviteError::Lobby);
+        }
         // The group check, one invite per person, no more invites than seats,
         // and the write below share the invite lock: two concurrent calls (or
         // a call racing a group move) cannot each pass a check and then both
@@ -2816,6 +2843,79 @@ impl Hub {
 
     pub fn is_reserved_room(&self, room: &str) -> bool {
         !self.reserved_room.is_empty() && room == self.reserved_room.as_str()
+    }
+
+    /// The Lobby room: where everyone in the Building lands first and may
+    /// talk. Every Building member reaches it by membership alone; it takes
+    /// no invitations, has no seat limit, carries no extensions, and is never
+    /// deleted, closed or moved into a group (PRINCIPLES "Lobby").
+    pub fn is_lobby_room(&self, room: &str) -> bool {
+        room == LOBBY_ROOM
+    }
+
+    /// Who may enter the Lobby room: the ranks, and any Building member
+    /// signed in with a Building-level credential (their own key, profile
+    /// credential or the building key). A session taken with a loca invite
+    /// stays in its loca; a banned name stays out.
+    fn lobby_door(
+        &self,
+        credential_authority: &RequestAuthority,
+        admin_tok: Option<&str>,
+        invite_tok: Option<&str>,
+        session: Option<&SessionIdentity>,
+        name_hint: Option<&str>,
+    ) -> EnterDecision {
+        if credential_authority.is_building_admin() && admin_tok.is_some() {
+            return EnterDecision::Allowed;
+        }
+        if session.is_some_and(|s| s.admin) {
+            return EnterDecision::Allowed;
+        }
+        if let Some(name) = self.door_name(invite_tok, session, credential_authority, name_hint) {
+            if self.is_banned(LOBBY_ROOM, &name) {
+                return EnterDecision::Banned;
+            }
+        }
+        let building_session = session.is_some_and(|s| s.loca.is_none());
+        if building_session {
+            return EnterDecision::Allowed;
+        }
+        // A member's own key presented as the room credential (an agent's
+        // listener and REST reads do this): a key, not an invite.
+        if session.is_none()
+            && invite_tok.is_some_and(|token| {
+                !self.store.credential_is_revoked(token)
+                    && self.member_for_credential(Some(token)).is_some()
+            })
+        {
+            return EnterDecision::Allowed;
+        }
+        EnterDecision::Denied
+    }
+
+    /// Who calls everyone in the Lobby room. The Lobby holds the whole
+    /// Building, so a member's `@all` there would wake every agent of the
+    /// Building: only a rank (`rank`: the post carries Building-admin
+    /// authority) calls everyone there. A rank's call is stored as `target:
+    /// all`, so every client and a reconnecting agent's REST backfill see it;
+    /// anyone else's `target: all` is dropped and their `@all` stays words.
+    /// The mentions filter counts only `target: all` in the Lobby
+    /// (`msg_addresses`). Every other room is left as it is.
+    pub fn settle_lobby_call(&self, room: &str, body: &mut PostMessage, rank: bool) {
+        if !self.is_lobby_room(room) {
+            return;
+        }
+        let calls_all = body.target.as_deref() == Some("all") || text_calls_all(&body.text);
+        if !calls_all {
+            return;
+        }
+        if rank {
+            if body.target.is_none() {
+                body.target = Some("all".to_string());
+            }
+        } else if body.target.as_deref() == Some("all") {
+            body.target = None;
+        }
     }
 
     pub fn is_caretaker(&self, name: &str) -> bool {
@@ -4044,7 +4144,12 @@ impl Hub {
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
         // Capacity counts identities, not names: an identity rejoining under
         // any name evicts itself, never overflows.
-        let seats = identity::seats_of(&r.settings, self.seat_numbers());
+        // The Lobby room holds the whole Building: it has no seat limit.
+        let seats = if room == LOBBY_ROOM {
+            usize::MAX
+        } else {
+            identity::seats_of(&r.settings, self.seat_numbers())
+        };
         if !r.members.contains_key(identity) && r.members.len() >= seats {
             return false;
         }
@@ -6660,6 +6765,14 @@ pub enum JoinRequestCreate {
     NameWorn,
     /// Too many undecided requests are queued.
     BacklogFull,
+}
+
+/// Does this text call everyone with `@all`, as a whole word in any letter
+/// case? The same words the mentions filter reads (`msg_addresses`).
+pub(crate) fn text_calls_all(text: &str) -> bool {
+    text.to_lowercase()
+        .split(|c: char| !(c.is_alphanumeric() || c == '@' || c == '-' || c == '_'))
+        .any(|token| token == "@all")
 }
 
 /// Does this text address specific people with `@name`, and not everyone with

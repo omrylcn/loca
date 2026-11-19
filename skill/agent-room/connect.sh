@@ -79,7 +79,7 @@ _credential_patch() {
 # interpretation.
 _credential_key_allowed() {
   case "$1" in
-    ROOM_SERVER_URL|LOCA_NAME|LOCA_SESSION|LOCA_MEMBERSHIP|ROOM_TOKEN) return 0 ;;
+    ROOM_SERVER_URL|LOCA_NAME|LOCA_SESSION|LOCA_LOBBY_SESSION|LOCA_MEMBERSHIP|ROOM_TOKEN) return 0 ;;
   esac
   [[ "$1" =~ ^DAVET_[A-Za-z0-9_]+$ ]]
 }
@@ -141,7 +141,7 @@ _load_credential_file() {
   [ -f "$file" ] || return 0
   # A named/pinned identity is authoritative.  Never inherit another agent's
   # credentials merely because both commands share one parent shell.
-  unset LOCA_NAME LOCA_SESSION LOCA_MEMBERSHIP ROOM_SERVER_URL ROOM_TOKEN
+  unset LOCA_NAME LOCA_SESSION LOCA_LOBBY_SESSION LOCA_MEMBERSHIP ROOM_SERVER_URL ROOM_TOKEN
   while IFS='=' read -r key _; do
     case "$key" in DAVET_[A-Za-z0-9_]*) unset "$key" ;; esac
   done < <(env)
@@ -174,6 +174,10 @@ _load_credential_file() {
 #   LOCA_MEMBERSHIP=mb_...
 #   DAVET_general=dv_...
 #   DAVET_mobile=dv_...
+#
+# The Lobby room (`lobby`) takes no invite: the membership key opens it, and a
+# post there carries LOCA_LOBBY_SESSION, a Building session taken with that
+# key (no loca), kept apart from the loca session in LOCA_SESSION.
 #
 # An invite belongs to a loca, not to a person — being in two locas means holding
 # two invites, because you were invited to two places. Revoking one leaves the
@@ -259,6 +263,11 @@ cmd="${1:-}"; shift || true
 # cannot index a variable name directly, so go through the environment.
 invite_for() {
   local loca="$1" var val
+  if [ "$loca" = "lobby" ]; then
+    # The Lobby room is entered by membership, never by an invite.
+    printf '%s' "${LOCA_MEMBERSHIP:-${ROOM_TOKEN:-}}"
+    return
+  fi
   var="DAVET_$(_var "$loca")"
   val=$(printf '%s' "${!var:-}")
   printf '%s' "${val:-${ROOM_TOKEN:-}}"
@@ -343,13 +352,42 @@ fi
 
 # Point every following call at one loca's invite. Called once a command knows
 # which loca it is talking to — before that we only hold the fallback.
+# The Lobby room is the exception: its credential is the membership key, which
+# opens a read by itself; only a write ($2 = write) carries the Building session
+# taken with that key. A loca's session is never presented there (it opens its
+# own loca only, and the Lobby's door would refuse it).
 use_loca() {
   local d
   d=$(invite_for "$1")
   tok_args=()
   [ -n "$d" ] && tok_args=(-H "x-room-token: $d")
-  [ -n "${LOCA_SESSION:-}" ] && tok_args+=(-H "x-session-token: $LOCA_SESSION")
+  if [ "$1" = "lobby" ]; then
+    [ "${2:-}" = "write" ] && [ -n "${LOCA_LOBBY_SESSION:-}" ] \
+      && tok_args+=(-H "x-session-token: $LOCA_LOBBY_SESSION")
+  else
+    [ -n "${LOCA_SESSION:-}" ] && tok_args+=(-H "x-session-token: $LOCA_SESSION")
+  fi
   ROOM_TOKEN="$d"   # so the session-renewal path below re-mints with it
+}
+
+# The /sessions body for $1=name in $2=room: scoped to the loca, or, for the
+# Lobby room, a Building session (no loca) taken with the membership key.
+_session_request() {
+  if [ "$2" = "lobby" ]; then
+    jq -n --arg n "$1" '{name:$n, kind:"agent"}'
+  else
+    jq -n --arg n "$1" --arg l "$2" '{name:$n, kind:"agent", loca:$l}'
+  fi
+}
+
+# Keep a freshly minted session for $1=room in its own slot.
+_keep_session() {
+  local room="$1" new="$2" slot=LOCA_SESSION
+  [ "$room" = "lobby" ] && slot=LOCA_LOBBY_SESSION
+  export "$slot=$new"
+  if [ -f "$LOCA_ENV" ]; then
+    printf '%s\0%s\0' "$slot" "$new" | _credential_patch
+  fi
 }
 
 curl_json() { curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" "$@"; }
@@ -410,14 +448,13 @@ _renew_session() {
   [ -z "$key" ] && return 1
   resp=$(curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $key" \
     -w $'\n%{http_code}' -X POST "$server/sessions" \
-    -d "$(jq -n --arg n "$who" --arg l "$room" '{name:$n, kind:"agent", loca:$l}')") || return 1
+    -d "$(_session_request "$who" "$room")") || return 1
   code=$(printf '%s' "$resp" | tail -n1)
   body=$(printf '%s' "$resp" | sed '$d')
   [ "$code" = "201" ] || return 1
   new=$(printf '%s' "$body" | _jq_raw '.session_token // empty' 2>/dev/null || true)
   [ -z "$new" ] && return 1
-  export LOCA_SESSION="$new"
-  [ -f "$LOCA_ENV" ] && printf 'LOCA_SESSION\0%s\0' "$new" | _credential_patch
+  _keep_session "$room" "$new"
   tok_args=(-H "x-room-token: $key" -H "x-session-token: $new")
   return 0
 }
@@ -1036,7 +1073,7 @@ print(json.dumps(tasks, ensure_ascii=False))' "$mine"
       off) on=false ;;
       *) echo >&2 "replying: the last argument is on or off"; exit 2 ;;
     esac
-    use_loca "$room"
+    use_loca "$room" write
     code=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
       "${tok_args[@]}" -X POST "$server/rooms/$(_room_path "$room")/typing" -d "{\"on\":$on}") || code=000
     printf '%s\n' "$code"
@@ -1111,7 +1148,7 @@ print(json.dumps(tasks, ensure_ascii=False))' "$mine"
         esac
       done
     fi
-    use_loca "$room"
+    use_loca "$room" write
     # Upload each attachment first, collecting its server-issued id (== sha256).
     # A failed upload aborts the send — we never post a message citing a file
     # that isn't stored.
@@ -1158,21 +1195,20 @@ print(json.dumps(tasks, ensure_ascii=False))' "$mine"
       [ -n "$name" ] && renew_as="$name"
       renew_resp=$(curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $renew_key" \
         -w $'\n%{http_code}' \
-        -X POST "$server/sessions" -d "$(jq -n --arg n "$renew_as" --arg l "$room" '{name:$n, kind:"agent", loca:$l}')" \
+        -X POST "$server/sessions" -d "$(_session_request "$renew_as" "$room")" \
       )
       renew_code=$(printf '%s' "$renew_resp" | tail -n1)
       renew_body=$(printf '%s' "$renew_resp" | sed '$d')
       new=""
       if [ "$renew_code" = "201" ]; then
         new=$(printf '%s' "$renew_body" | _jq_raw '.session_token // empty' 2>/dev/null || true)
+      elif [ "$room" = "lobby" ]; then
+        echo >&2 "session renewal rejected (HTTP $renew_code): the Building refused this membership key for the Lobby room"
       else
         echo >&2 "session renewal rejected (HTTP $renew_code): reconnect through Lobby to refresh this loca's invite"
       fi
       if [ -n "$new" ]; then
-        export LOCA_SESSION="$new"
-        if [ -f "$LOCA_ENV" ]; then
-          printf 'LOCA_SESSION\0%s\0' "$new" | _credential_patch
-        fi
+        _keep_session "$room" "$new"
         # Many things end a session (its 12 hours, a newer session for the
         # same key, a restart, a first post after a call); do not guess which.
         echo >&2 "session renewed"
@@ -1435,6 +1471,8 @@ print(json.dumps(tasks, ensure_ascii=False))' "$mine"
     opens=""
     rooms_json=$(curl -s -m 10 -H "x-room-token: $token" "$server/rooms" || true)
     for r in $(printf '%s' "$rooms_json" | _jq_raw '.[].room' 2>/dev/null || true); do
+      # The Lobby room opens to every member; it is no loca an invite opens.
+      [ "$r" = "lobby" ] && continue
       c=$(curl -s -o /dev/null -w '%{http_code}' -m 10 -H "x-room-token: $token" \
             "$server/rooms/$r/messages" || true)
       if [ "$c" = "200" ]; then opens="$opens $r"; fi

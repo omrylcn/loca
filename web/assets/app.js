@@ -50,6 +50,7 @@ function clearBuildingData() {
   state.buildingTab = "people";
   state.evicted = null; renderEvicted();   // a seat taken from the last person
   for (const pane of ["peopleList", "groupsPane", "keyLedger", "dmOverview"]) $(pane).innerHTML = "";
+  if (typeof clearHome === "function") clearHome();   // home.js loads after this file
   syncBuildingTabs();
   renderLobby();
   renderDmList();
@@ -81,7 +82,41 @@ $("whoami").addEventListener("click", (event) => {
   if (event.target.closest("#leaveBtn")) $("leaveConfirm")?.classList.remove("hidden");
   else if (event.target.closest("#leaveNo")) $("leaveConfirm")?.classList.add("hidden");
   else if (event.target.closest("#leaveYes")) signOutHere();
+  else if (event.target.closest("#leaveBuildingBtn")) $("leaveBuildingConfirm")?.classList.remove("hidden");
+  else if (event.target.closest("#leaveBuildingNo")) $("leaveBuildingConfirm")?.classList.add("hidden");
+  else if (event.target.closest("#leaveBuildingYes")) leaveBuilding();
 });
+$("whoami").addEventListener("input", (event) => {
+  if (event.target.id !== "leaveBuildingWord") return;
+  $("leaveBuildingYes").disabled = event.target.value.trim().toLowerCase() !== "leave";
+});
+
+// Leave the Building (POST /membership/leave): the membership ends on the
+// server first; only then is this browser signed out, saying what happened.
+// A refusal (a loca invite cannot leave; the Master cannot) is shown where
+// the question was, and nothing changes.
+async function leaveBuilding() {
+  const error = $("leaveBuildingError");
+  error?.classList.add("hidden");
+  let response;
+  try {
+    response = await fetch(`${serverBase()}/membership/leave`, {
+      method: "POST",
+      headers: adminHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({ confirm: "leave" }),
+    });
+  } catch (e) { response = null; }
+  if (!response || !response.ok) {
+    const said = response ? await response.text().catch(() => "") : "";
+    if (error) {
+      error.textContent = said || "could not reach the server — you are still a member";
+      error.classList.remove("hidden");
+    }
+    return;
+  }
+  await signOutHere();
+  $("doorline").innerHTML = "you left the building.<br>to come back, the Master must admit you again.";
+}
 async function signOutHere() {
   $("leaveConfirm")?.classList.add("hidden");
   const master = state.profile?.building_role === "master";
@@ -123,10 +158,17 @@ $("adminToggle").onclick = () => {
   const open = $("adminbar").classList.toggle("open");
   $("adminToggle").classList.toggle("on", open);
   $("adminToggle").setAttribute("aria-expanded", String(open));
+  if (open) resetModeDraft();
 };
+// A dialog opened from the sheet (the extension manager, from Pages in this
+// loca) lies over it: working in it does not close the sheet.
+function extDialogOpen() {
+  return !!document.querySelector(".extoverlay:not(.hidden)");
+}
 document.addEventListener("pointerdown", (event) => {
   if (!$("adminbar").classList.contains("open")) return;
   if ($("adminbar").contains(event.target) || $("adminToggle").contains(event.target)) return;
+  if (event.target.closest?.(".extoverlay")) return;
   closeProperties();
 });
 document.querySelectorAll("#adminbar details.propertygroup").forEach(group => {
@@ -141,14 +183,19 @@ $("sideToggle").onclick = () => setMobileSidebar(
   !document.body.classList.contains("sidebar-open"),
 );
 $("sideBackdrop").onclick = () => setMobileSidebar(false);
+// Captured, so it runs before a dialog's own Escape closes it: Escape over a
+// dialog closes the dialog only, and the sheet under it stays.
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") { setMobileSidebar(false); closeProperties(); }
-});
+  if (event.key !== "Escape") return;
+  setMobileSidebar(false);
+  if (!extDialogOpen()) closeProperties();
+}, true);
 $("closeLocaBtn").onclick = () => archiveRoom(state.room, true);
 $("reopenLocaBtn").onclick = () => archiveRoom(state.room, false);
 $("sealLocaBtn").onclick = () => deleteRoom(state.room);
 $("applySettings").onclick = applySettings;
 $("liveToggle").onclick = toggleLive;
+$("liveSwitch").onclick = toggleLive;
 $("peopleList").onclick = async (e) => {
   const dm = e.target.closest("[data-dm]");
   if (dm) { openDm(dm.dataset.dm); return; }
@@ -407,11 +454,10 @@ $("taskList").addEventListener("click", (e) => {
   if (b) taskAct(b.dataset.tact, Number(b.dataset.tid));
 });
 $("feed").addEventListener("click", (e) => {
-  const picker = e.target.closest("[data-reactpick]");
+  // The hover "♡ react" and the "+" after the chips open the same picker.
+  const picker = e.target.closest("[data-reactpick], [data-reactadd]");
   if (picker) {
-    const panel = document.querySelector(`[data-picker="${picker.dataset.reactpick}"]`);
-    document.querySelectorAll(".reactionpicker").forEach(p => { if (p !== panel) p.classList.add("hidden"); });
-    panel?.classList.toggle("hidden");
+    toggleReactionPicker(picker.dataset.reactpick || picker.dataset.reactadd);
     return;
   }
   const reaction = e.target.closest("[data-react][data-emoji]");
@@ -531,6 +577,7 @@ $("replyCancel").onclick = clearReply;
 $("jumpBtn").onclick = () => { scrollFeed(true); clearJump(); };
 $("feed").addEventListener("scroll", () => { if (nearBottom()) clearJump(); });
 $("newRoomBtn").onclick = createRoom;
+$("lobbyRoomLink").onclick = () => joinRoom(LOBBY_ROOM);
 $("newRoomName").addEventListener("keydown", (e) => { if (e.key === "Enter") createRoom(); });
 $("feed").addEventListener("click", (e) => {
   const t = e.target.closest("[data-reply],[data-goto],[data-pin]");
@@ -691,7 +738,15 @@ async function bootstrapIdentity() {
     return;
   }
   document.body.classList.remove("auth-pending");
-  if (state.authStatus !== "authenticated") setConnOpen(true);
+  if (state.authStatus !== "authenticated") {
+    setConnOpen(true);
+    // Nobody is signed in: the door says how to sign in now, not only once
+    // the first loca read is refused (that answer can be set aside when the
+    // page moves on meanwhile, and the line then never changed).
+    if ($("doorline").innerHTML === INITIAL_DOORLINE && !window.__LOCA_SIGNIN_NOTICE__) {
+      $("doorline").innerHTML = signedOutDoorline(false);
+    }
+  }
   // A restored session knows its name, not yet its principal, and what is
   // personal (the hidden and pinned sidebar, one's own appearance) is kept by
   // principal. Learn it now: otherwise everything one has hidden is listed,

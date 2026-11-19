@@ -10,8 +10,6 @@
 // A loca saved before extensions existed has no `extensions` field and keeps
 // every one it already had. Frozen, like the server's LEGACY_EXTENSIONS.
 const LEGACY_EXTENSIONS = ["notes", "focus", "journal", "wiki", "live"];
-const EXT_CHECK_ICON = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>';
-const EXT_PLUS_ICON = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
 
 let extensionCatalogCache = null;
 let extensionRoomFetchSequence = 0;
@@ -34,7 +32,7 @@ async function extensionCatalog() {
 /// The enabled set of the current loca, or null while its settings load.
 function currentExtensions() {
   if (!state.room) return [];
-  if (isDm(state.room)) return [];
+  if (isDm(state.room) || isLobbyRoom(state.room)) return [];
   if (!isLocaContextReady("settings")) return null;
   const list = state.settings?.extensions;
   return Array.isArray(list) ? list : LEGACY_EXTENSIONS;
@@ -96,6 +94,39 @@ function applyLocaExtensions() {
   }
   extensionsAppliedFor = { room: state.room, enabled: list ? [...list] : null };
   refreshContinuityTab();
+  renderPropertyPages();
+  if (typeof renderIdentityPages === "function") renderIdentityPages();
+}
+
+/// The loca's pages: the tab of every extension that is on and has one, in
+/// the loca's order. Null while the set or the catalog is unknown.
+function locaPageNames() {
+  const list = currentExtensions();
+  if (!list || (list.length && !extensionCatalogList())) return null;
+  return list.map(id => extensionSpec(id)).filter(spec => spec && spec.tab).map(spec => spec.tab);
+}
+
+/// Properties › Pages in this loca: a chip per page; each chip, and the
+/// link after them, opens the extension manager (Manage, or View for whoever
+/// cannot change it).
+function renderPropertyPages() {
+  const section = $("pagesSection");
+  if (!section) return;
+  const show = !!state.room && !isDm(state.room);
+  section.classList.toggle("hidden", !show);
+  if (!show) { $("propPages").innerHTML = ""; return; }
+  const pages = locaPageNames();
+  const canOpen = !!state.locaExtensions;
+  const chip = (name) => canOpen
+    ? `<button type="button" class="pagechip" data-pages-manage>${esc(name)}</button>`
+    : `<span class="pagechip">${esc(name)}</span>`;
+  const chips = !pages ? `<span class="pagesnone">Loading…</span>`
+    : pages.length ? pages.map(chip).join("")
+    : `<span class="pagesnone">Chat only</span>`;
+  const link = canOpen
+    ? `<button type="button" class="extlink pagesmanage" data-pages-manage aria-haspopup="dialog">${state.locaExtensions.can_manage ? "Manage extensions" : "View extensions"}</button>`
+    : "";
+  $("propPages").innerHTML = chips + link;
 }
 
 /// The Journal, Notes and Focus data for a just-joined loca, once its
@@ -118,7 +149,7 @@ async function fetchLocaExtensions(attempt = 0) {
   clearTimeout(extensionCatalogRetry.timer);
   extensionCatalogRetry = { timer: null, exhausted: false };
   state.locaExtensions = null;
-  if (!room || isDm(room)) return;
+  if (!room || isDm(room) || isLobbyRoom(room)) return;
   try {
     const [catalog, response] = await Promise.all([
       extensionCatalog().catch(() => null),
@@ -154,7 +185,7 @@ async function fetchLocaExtensions(attempt = 0) {
 /// The EXTENSIONS block under This Loca: chips for what is on, and a link to
 /// the list (Manage for those who may change it, View for everyone else).
 function locaExtensionsBlock() {
-  if (!state.room || isDm(state.room)) return "";
+  if (!state.room || isDm(state.room) || isLobbyRoom(state.room)) return "";
   const list = currentExtensions();
   const unknown = !list || (list.length && !extensionCatalogList());
   const chips = unknown && list && extensionCatalogRetry.exhausted
@@ -172,16 +203,19 @@ function locaExtensionsBlock() {
 }
 
 /* ---- dialogs ---- */
-let extDialogReturnFocus = null;
+// Where focus goes back to, per dialog: one dialog may open over another
+// (Edit loca › Manage extensions), and each returns to its own opener.
+const extDialogReturnFocus = {};
 function openExtDialog(id, focusId) {
-  extDialogReturnFocus = document.activeElement;
+  extDialogReturnFocus[id] = document.activeElement;
   $(id).classList.remove("hidden");
   setTimeout(() => $(focusId)?.focus(), 0);
 }
 function closeExtDialog(id) {
   $(id).classList.add("hidden");
-  if (extDialogReturnFocus && document.contains(extDialogReturnFocus)) extDialogReturnFocus.focus();
-  extDialogReturnFocus = null;
+  const back = extDialogReturnFocus[id];
+  if (back && document.contains(back)) back.focus();
+  delete extDialogReturnFocus[id];
 }
 
 function extensionRow(spec, checked) {
@@ -346,12 +380,16 @@ function renderExtensionManage() {
   $("extManageNote").textContent = canManage
     ? "Removing an extension hides its tab and the server refuses it. Its records are kept and come back when it is added again."
     : "Only this loca's operator, the Master or a Smaster changes its extensions.";
+  // Each row is an On/Off switch (Extensions board). The switch is the
+  // add/remove button itself: the same data-ext-add / data-ext-remove, the
+  // same action; its words ("Added", "Add") stay for screen readers and the
+  // switch draws On or Off.
   const rows = catalog.map(spec => {
     const on = enabled.includes(spec.id);
     const action = canManage
       ? (on
-        ? `<button type="button" class="btn extadded" data-ext-remove="${esc(spec.id)}" aria-pressed="true" title="Remove ${esc(spec.name)}">${EXT_CHECK_ICON}<span>Added</span></button>`
-        : `<button type="button" class="btn primary" data-ext-add="${esc(spec.id)}" aria-pressed="false" title="Add ${esc(spec.name)}">${EXT_PLUS_ICON}<span>Add</span></button>`)
+        ? `<button type="button" class="extswitch extadded" role="switch" aria-checked="true" aria-label="${esc(spec.name)}" data-ext-remove="${esc(spec.id)}" title="Remove ${esc(spec.name)}"><span class="extswitchtrack" aria-hidden="true"></span><span class="extswitchword">Added</span></button>`
+        : `<button type="button" class="extswitch" role="switch" aria-checked="false" aria-label="${esc(spec.name)}" data-ext-add="${esc(spec.id)}" title="Add ${esc(spec.name)}"><span class="extswitchtrack" aria-hidden="true"></span><span class="extswitchword">Add</span></button>`)
       : `<span class="extstate${on ? " on" : ""}">${on ? "On" : "Off"}</span>`;
     return `<div class="extitem${on ? " on" : ""}" data-ext="${esc(spec.id)}"><span class="extrowtext"><b>${esc(spec.name)}</b>` +
       `<small>${esc(spec.summary)}</small></span>${action}</div>`;
@@ -404,6 +442,10 @@ $("extCreate").addEventListener("change", (e) => {
   if (e.target.id === "extCreateGroup") syncCreateGroupNote();
 });
 $("extManageClose").onclick = () => closeExtDialog("extManage");
+$("extManageX").onclick = () => closeExtDialog("extManage");
+$("propPages").addEventListener("click", (e) => {
+  if (e.target.closest("[data-pages-manage]")) openManageExtensions();
+});
 $("extManageBackdrop").onclick = () => closeExtDialog("extManage");
 $("extManageList").onclick = (e) => {
   const add = e.target.closest("[data-ext-add]");
@@ -417,6 +459,7 @@ $("locaSummary").addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  if (!$("extCreate").classList.contains("hidden")) closeExtDialog("extCreate");
-  else if (!$("extManage").classList.contains("hidden")) closeExtDialog("extManage");
+  // The manager may lie over Edit loca (its Manage extensions): it goes first.
+  if (!$("extManage").classList.contains("hidden")) closeExtDialog("extManage");
+  else if (!$("extCreate").classList.contains("hidden")) closeExtDialog("extCreate");
 });

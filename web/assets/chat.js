@@ -3,14 +3,33 @@ const reactionByMessage = new Map();
 const locaReactionSet = ["✓", "✦", "!", "♥"];
 
 function reactionKey(messageId, emoji) { return `${messageId}\u0000${emoji}`; }
+// The chips a message wears, a dashed "+" after them that opens the same
+// picker as the hover "♡ react" (on someone else's message only: one does not
+// react to one's own), and a quiet line naming who reacted with each mark.
 function reactionHtml(messageId) {
-  const marks = locaReactionSet.map(emoji => {
-    const actors = reactionByMessage.get(reactionKey(messageId, emoji)) || [];
-    if (!actors.length) return "";
+  const shown = locaReactionSet
+    .map(emoji => [emoji, reactionByMessage.get(reactionKey(messageId, emoji)) || []])
+    .filter(([, actors]) => actors.length);
+  const marks = shown.map(([emoji, actors]) => {
     const mine = actors.includes(state.name);
     return `<button type="button" class="reactionchip${mine ? " mine" : ""}" data-react="${messageId}" data-emoji="${emoji}" aria-pressed="${mine}" title="${esc(actors.join(", "))}">${emoji}<span>${actors.length}</span></button>`;
   }).join("");
-  return `<div class="reactions" data-reactions="${messageId}">${marks}</div>`;
+  const message = msgById.get(Number(messageId));
+  const mayReact = !!message && message.sender !== state.name;
+  const add = shown.length && mayReact
+    ? `<button type="button" class="reactadd" data-reactadd="${messageId}" aria-label="Add a reaction" title="Add a reaction">+</button>`
+    : "";
+  const who = shown.length
+    ? `<span class="reactwho">${shown.map(([emoji, actors]) => `${emoji} ${esc(actors.join(", "))}`).join(" · ")}</span>`
+    : "";
+  return `<div class="reactions" data-reactions="${messageId}">${marks}${add}${who}</div>`;
+}
+// Open (or close) a message's reaction picker, closing any other one. The
+// hover "♡ react" and the "+" chip both come here.
+function toggleReactionPicker(messageId) {
+  const panel = document.querySelector(`[data-picker="${Number(messageId)}"]`);
+  document.querySelectorAll(".reactionpicker").forEach(p => { if (p !== panel) p.classList.add("hidden"); });
+  panel?.classList.toggle("hidden");
 }
 function renderMessageReactions(messageId) {
   const host = document.querySelector(`[data-reactions="${messageId}"]`);
@@ -205,11 +224,9 @@ function renderChatMarkdown(text) {
     const parent = walker.currentNode.parentElement;
     if (!parent?.closest("code, pre, a")) textNodes.push(walker.currentNode);
   }
-  for (const node of textNodes) {
-    const parts = node.nodeValue.split(/(@[\w-]+)/g);
-    if (parts.length === 1) continue;
-    const fragment = document.createDocumentFragment();
-    for (const part of parts) {
+  const appendMentions = (fragment, text) => {
+    for (const part of text.split(/(@[\w-]+)/g)) {
+      if (!part) continue;
       if (/^@[\w-]+$/.test(part)) {
         const mention = document.createElement("span");
         mention.className = "mention" + (part.toLowerCase() === "@lead" ? " leadkeyword" : "");
@@ -219,9 +236,70 @@ function renderChatMarkdown(text) {
         fragment.appendChild(document.createTextNode(part));
       }
     }
+  };
+  for (const node of textNodes) {
+    const value = node.nodeValue;
+    if (!/@[\w-]|https:\/\/github\.com\//.test(value)) continue;
+    const fragment = document.createDocumentFragment();
+    // A bare GitHub pull request, issue or commit address becomes a link
+    // (its card is drawn under the message); everything else is as before.
+    for (const piece of value.split(/(https:\/\/github\.com\/[^\s<>"'`]+)/g)) {
+      const url = piece.replace(/[.,;:!?)\]]+$/, "");
+      if (piece.startsWith("https://github.com/") && githubRef(url)) {
+        const link = document.createElement("a");
+        link.href = url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = url;
+        fragment.appendChild(link);
+        appendMentions(fragment, piece.slice(url.length));
+      } else {
+        appendMentions(fragment, piece);
+      }
+    }
     node.replaceWith(fragment);
   }
   return template.innerHTML;
+}
+
+/* ---- GitHub link cards (client-side only: nothing is fetched) ---- */
+// https://github.com/<owner>/<repo>/(pull|issues)/<n> or /commit/<sha>, with
+// any path, query or fragment after it. The card's own link is rebuilt from
+// the parsed parts, so only those characters ever reach it.
+const GITHUB_REF = /^https:\/\/github\.com\/([A-Za-z0-9][A-Za-z0-9-]{0,38})\/([A-Za-z0-9._-]{1,100})\/(?:(pull|issues)\/(\d{1,10})|commit\/([0-9a-fA-F]{7,40}))(?:[/?#]\S*)?$/;
+function githubRef(url) {
+  const m = GITHUB_REF.exec(String(url || ""));
+  if (!m) return null;
+  const kind = m[3] === "pull" ? "pull" : m[3] === "issues" ? "issue" : "commit";
+  const sha = m[5] ? m[5].toLowerCase() : "";
+  const path = kind === "commit" ? `commit/${sha}` : `${m[3]}/${m[4]}`;
+  return { kind, owner: m[1], repo: m[2], number: m[4] || "", sha, href: `https://github.com/${m[1]}/${m[2]}/${path}` };
+}
+const GITHUB_CARD = {
+  pull: ["Pull request", '<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M6 8.5v7M18 15.5V10a3 3 0 0 0-3-3h-4"/>'],
+  issue: ["Issue", '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2"/>'],
+  commit: ["Commit", '<circle cx="12" cy="12" r="3.5"/><path d="M3 12h5.5M15.5 12H21"/>'],
+};
+// The cards for the GitHub links in a rendered message body (at most four,
+// each reference once), or "" when there are none.
+function githubCardsHtml(body) {
+  if (!body) return "";
+  const seen = new Set();
+  const cards = [];
+  for (const a of body.querySelectorAll("a[href]")) {
+    const ref = githubRef(a.getAttribute("href"));
+    if (!ref || seen.has(ref.href)) continue;
+    seen.add(ref.href);
+    const [label, icon] = GITHUB_CARD[ref.kind];
+    const which = ref.kind === "commit"
+      ? `<span class="lcsha">${esc(ref.sha.slice(0, 7))}</span>`
+      : `<b>#${esc(ref.number)}</b>`;
+    cards.push(`<a class="linkcard" data-linkkind="${ref.kind}" href="${esc(ref.href)}" target="_blank" rel="noopener noreferrer" title="${esc(ref.href)}">` +
+      `<svg class="lcicon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${icon}</svg>` +
+      `<span class="lckind">${label}</span><span class="lcrepo">${esc(ref.owner)}/${esc(ref.repo)}</span>${which}</a>`);
+    if (cards.length === 4) break;
+  }
+  return cards.length ? `<div class="linkcards">${cards.join("")}</div>` : "";
 }
 
 function regexEsc(text) {
@@ -307,9 +385,14 @@ function addMsg(m) {
   // glyphs: * agent · . human — the table shorthand
   const glyph = m.sender_type === "agent" ? "*" : ".";
   let quote = "";
-  if (m.reply_to && msgById.has(m.reply_to)) {
+  if (m.reply_to) {
+    // What it answers. On screen, the quote goes to it; further back than the
+    // loaded chat, the quote opens the thread, which reads it (threads.js).
     const q = msgById.get(m.reply_to);
-    quote = `<div class="quote" data-goto="${m.reply_to}">↩ ${esc(q.sender)}: ${esc(q.text.slice(0, 70))}</div>`;
+    const at = state.seen.has(m.reply_to) ? "data-goto" : "data-thread";
+    quote = q
+      ? `<div class="quote" ${at}="${Number(m.reply_to)}">↩ ${esc(q.sender)}: ${esc(q.text.slice(0, 70))}</div>`
+      : `<div class="quote earlier" data-thread="${Number(m.reply_to)}">↩ replying to an earlier message</div>`;
   }
   let source = m.text;
   // In a direct message every word is to the other side; saying so on each line is noise.
@@ -342,6 +425,11 @@ function addMsg(m) {
   // The target the client wrote in front of the words is the address, not
   // part of what was said: the redesign themes draw it as "→ @name".
   if (addressed) row.querySelector(".body .mention")?.classList.add("addr");
+  // A GitHub pull request, issue or commit the words link to: a compact card
+  // under them, built from the address alone (nothing is fetched).
+  const body = row.querySelector(".body");
+  const cards = githubCardsHtml(body);
+  if (cards) body.insertAdjacentHTML("afterend", cards);
   if (m.kind === "reminder") {
     const reminderAt = Number(m.ts || 0);
     const newer = Array.from($("feed").querySelectorAll(".row[data-ts]"))
@@ -360,6 +448,9 @@ function addMsg(m) {
   // A freshly-rendered row that IS the pinned message must show the pinned-source
   // highlight (and keep the pinned bar current).
   if (Number(state.pinned?.id) === Number(m.id)) renderPinned();
+
+  // A reply counts under the message it answers, and joins its open thread.
+  if (m.id && typeof threadsNoteMessage === "function") threadsNoteMessage(m);
 
   // @mention notification: flash the tab title if not focused.
   if (mentionsMe && !mine && document.hidden) flashTitle(m.sender);

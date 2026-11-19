@@ -1,0 +1,49 @@
+/* ── Building settings (BuildingSettings.dc.html) ─────────────────────────
+   The Building's Settings tab: four cards in a grid that folds to one column
+   on a phone. Loaded after page-people.css, whose .buildingpane, .bbhead and
+   .btn it reuses. Plain selectors (no nesting: the desktop's WebKitGTK may
+   not read it) and theme tokens only, so Loca, Calm and Console each draw it
+   in their own colours. */
+
+#buildingSettings .bsgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;
+  max-width: 1040px; }
+#buildingSettings .bscard { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 18px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg); }
+#buildingSettings .bscard h3 { margin: 0; color: var(--txt); font-size: 16px; font-weight: 600; }
+
+/* The one thing changed here: the name. */
+#buildingSettings .bsname { display: flex; flex-direction: column; gap: 6px; margin: 0; }
+#buildingSettings .bsname label { color: var(--txt); font-size: 14px; font-weight: 500; }
+#buildingSettings .bsnameline { display: flex; flex-wrap: wrap; gap: 8px; }
+#buildingSettings .bsnameline input { flex: 1 1 180px; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); color: var(--txt); font-family: inherit; font-size: 15px;
+  color-scheme: var(--scheme); }
+#buildingSettings .bsnameline input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#buildingSettings .bsnameline .btn { height: 40px; padding: 0 16px; font-size: 14px; }
+#buildingSettings .bsnote { color: var(--muted); font-size: 13px; line-height: 1.45; }
+#buildingSettings .bsnote:empty { display: none; }
+#buildingSettings .bsnote.bad { color: var(--bad); }
+
+/* What the environment sets: the value, then its variable. */
+#buildingSettings .bslist { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+#buildingSettings .bsrow { display: grid; grid-template-columns: minmax(110px, 40%) minmax(0, 1fr); gap: 4px 12px;
+  align-items: baseline; font-size: 14px; }
+#buildingSettings .bsrow dt { color: var(--muted); }
+#buildingSettings .bsrow dd { margin: 0; min-width: 0; color: var(--txt); overflow-wrap: anywhere; }
+#buildingSettings .bsvalue { color: var(--txt); }
+#buildingSettings .bsvar { display: inline-block; margin-left: 2px; padding: 0 6px; border-radius: 6px; background: var(--panel2);
+  color: var(--muted); font: 12px/18px var(--mono); }
+#buildingSettings .bsmono { font-family: var(--mono); font-size: 13px; }
+#buildingSettings .bsdim { color: var(--muted); }
+#buildingSettings .bswarn { color: var(--warn); font-weight: 600; }
+#buildingSettings .bsagent { white-space: nowrap; }
+#buildingSettings .bstext { margin: 0; color: var(--txt); font-size: 14px; line-height: 1.5; }
+#buildingSettings .bslink { color: var(--agent); font-size: 14px; }
+#buildingSettings .bslink:hover { color: var(--txt); }
+#buildingSettings .bslink:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  #buildingSettings .bsgrid { grid-template-columns: minmax(0, 1fr); }
+  #buildingSettings .bscard { padding: 14px; }
+  #buildingSettings .bsrow { grid-template-columns: minmax(0, 1fr); }
+}

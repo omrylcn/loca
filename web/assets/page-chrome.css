@@ -222,6 +222,28 @@ body:not(.locked) .side .whoami .profilechevron { font-size: 16px; }
 :root:not([data-layout="classic"]) .top .tabs { gap: 22px; margin-top: 2px; }
 :root:not([data-layout="classic"]) .top .tab { padding: 8px 0; color: var(--muted); font-size: 14px; }
 :root:not([data-layout="classic"]) .top .tab.active { color: var(--txt); }
+/* The goal, one line under the name (LocaHeader): "Goal: …", with the
+   operator's acts after it, small. */
+.top .goalbar { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 2px 0 0; padding: 0; border: 0; background: transparent; }
+.top .goalbar .goalmark { display: none; }
+.top .goalbar #goalCard { display: flex; flex: 1 1 auto; align-items: center; gap: 6px; min-width: 0; }
+.top .goalbar .goallabel { flex: 0 0 auto; color: var(--txt); font-size: 14px; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.top .goalbar .goaloutcome { flex: 0 1 auto; min-width: 0; color: var(--txt); font-size: 14px; line-height: 20px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top .goalbar .goalproof { color: var(--dim); font-size: 12px; }
+.top .goalbar .tacts { display: inline-flex; flex: 0 0 auto; gap: 4px; margin-left: 4px; }
+.top .goalbar button { height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent;
+  color: var(--muted); font-family: inherit; font-size: 12px; cursor: pointer; }
+.top .goalbar button:hover, .top .goalbar button:focus-visible { border-color: var(--muted); color: var(--txt); }
+/* Info: This Loca, beside the chat or behind the sidebar's second tab. */
+.top .infobtn { display: inline-flex; align-items: center; height: 36px; padding: 0 14px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); color: var(--txt); font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+.top .infobtn:hover, .top .infobtn:focus-visible { border-color: var(--muted); }
+.top .infobtn[aria-pressed="true"] { background: var(--panel2); }
+.main.global .top .infobtn, .main.dm .top .infobtn { display: none; }
+#locaInfo:focus { outline: none; }
+#locaInfo.infoflash { animation: flash .9s ease-out; }
+@media (prefers-reduced-motion: reduce) { #locaInfo.infoflash { animation: none; } }
 /* The phone's controls; the desktop has its own. */
 .mobileinfo, .mobilenav { display: none; }
 
@@ -310,6 +332,10 @@ body:not(.locked) .side .whoami .profilechevron { font-size: 16px; }
     background: transparent; color: var(--txt); cursor: pointer; }
   .mobileinfo:hover { background: color-mix(in srgb, var(--txt) 6%, transparent); }
   .main.global .mobileinfo, .main.dm .mobileinfo { display: none; }
+  /* The phone has its own info button; the goal stays one short line. */
+  .top .infobtn { display: none; }
+  .top .goalbar .goallabel, .top .goalbar .goaloutcome { font-size: 12px; line-height: 16px; }
+  .top .goalbar .goalproof { display: none; }
   :root:not([data-layout="classic"]) .top .tabs { gap: 18px; padding: 0 6px; overflow-x: auto; }
   :root:not([data-layout="classic"]) .top .tab { flex: 0 0 auto; padding: 10px 0; }
   /* The four places, at the thumb. */
@@ -331,3 +357,68 @@ body:not(.locked) .side .whoami .profilechevron { font-size: 16px; }
   .profilepanel .profilesignout { margin: 16px 14px 20px; }
   .profilepanel .themecard .tcpage { width: 72px; height: 40px; }
 }
+
+/* ── Appearance: the theme cards as the board draws them ── */
+/* Each theme's own sidebar, open-loca, agent and person tints for its card
+   (the board's values), beside the page/ink/accent tokens above. */
+[data-theme-sample="loca"] { --tc-side: #efe8da; --tc-sel: #fbf8f2; --tc-agent: #e3edf7; --tc-human: #e2efe7; --tc-field: #fffdf9; }
+[data-theme-sample="calm"] { --tc-side: #eef1ee; --tc-sel: #d8ebe7; --tc-agent: #e4dcfa; --tc-human: #f2c9a8; --tc-field: #ffffff; }
+[data-theme-sample="console"] { --tc-side: #12171b; --tc-sel: #17302d; --tc-agent: #2e2550; --tc-human: #115e59; --tc-field: #151b20; }
+.profilepanel .appearanceopts.themeopts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: 12px; }
+.profilepanel .themeopts .themeopt { display: flex; min-width: 0; }
+.profilepanel .themeopts .themeopt > span.themecard { flex: 1 1 auto; min-width: 0; align-items: stretch; gap: 8px; padding: 10px;
+  border-radius: 14px; text-align: left; }
+.profilepanel .themeopts .themecard .tcpage { display: flex; width: auto; height: 96px; border-radius: 10px; }
+.tcside { display: flex; flex-direction: column; gap: 5px; width: 30%; padding: 8px 6px; box-sizing: border-box;
+  background: var(--tc-side, var(--tc-bg)); }
+.tcside i, .tcmain i { display: block; border-radius: 4px; }
+.tcbrand { width: 60%; height: 6px; background: var(--tc-txt); }
+.tcsel { height: 11px; background: var(--tc-sel, var(--tc-bg)); box-shadow: inset 2px 0 0 var(--tc-acc); }
+.tcrow { width: 80%; height: 6px; background: var(--tc-line); }
+.tcrow.short { width: 65%; }
+.tcmain { flex: 1 1 auto; display: flex; flex-direction: column; gap: 7px; min-width: 0; padding: 8px; background: var(--tc-bg); }
+.tcmsg { display: flex; align-items: center; gap: 5px; }
+.tcmain .tcav { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 4px; background: var(--tc-agent, var(--tc-line)); }
+.tcmain .tcav.human { border-radius: 50%; background: var(--tc-human, var(--tc-line)); }
+.tcbar { width: 60%; height: 6px; background: var(--tc-line); }
+.tcbar.long { width: 78%; }
+.tccomposer { display: flex; justify-content: flex-end; margin-top: auto; height: 16px; padding: 3px; box-sizing: border-box;
+  border: 1px solid var(--tc-line); border-radius: 5px; background: var(--tc-field, var(--tc-bg)); }
+.tcmain .tcsend { width: 20px; height: auto; border-radius: 3px; background: var(--tc-acc); }
+.profilepanel .themecard .tchead { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.profilepanel .themecard .tchead .tcname { font-size: 15px; font-weight: 600; }
+.profilepanel .themecard .tcdefault { color: var(--human); font-size: 12px; font-weight: 400; }
+.profilepanel .themecard .tcdesc { color: var(--muted); font-size: 13px; font-weight: 400; line-height: 1.4; }
+/* Follow my system: a box under the cards, said to be this browser's. */
+.profilepanel .followsystem { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
+.profilepanel .followsystemlabel { display: flex; align-items: flex-start; gap: 8px; color: var(--txt); font-size: 14px; cursor: pointer; }
+.profilepanel .followsystemlabel input { flex: 0 0 auto; margin: 3px 0 0; accent-color: var(--accent); }
+/* Text size: the four sizes as a slider beside their chips. */
+.profilepanel .textsize { display: flex; align-items: center; gap: 10px; max-width: 420px; font-size: 14px; color: var(--txt); }
+.profilepanel .textsize input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: var(--accent); }
+.profilepanel .textsize output { flex: 0 0 auto; color: var(--muted); font: 13px var(--font-mono); white-space: nowrap; }
+@media (max-width: 760px) {
+  .profilepanel .themeopts .themecard .tcpage { width: auto; height: 80px; }
+}
+
+/* ── the sidebar's search and each floor's + (SideNav) ── */
+/* The search field heads the list and scrolls with it: a sticky field
+   covered the rows of a short sidebar. */
+body:not(.locked) .side .sidesearch { position: static; flex: 0 0 auto; margin: 0 -14px; padding: 0 14px 14px;
+  background: color-mix(in srgb, var(--panel2) 70%, var(--bg)); }
+body:not(.locked) .side .sidesearch input { box-sizing: border-box; width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); color: var(--txt); font-family: inherit; font-size: 14px; }
+body:not(.locked) .side .sidesearch input::placeholder { color: var(--dim); }
+body:not(.locked) .side .sidesearch input:focus { outline: none; border-color: var(--accent); }
+body:not(.locked) .side .sidesearchnone { padding: 2px 8px 6px; color: var(--dim); font-size: 13px; overflow-wrap: anywhere; }
+/* A floor's +: a new loca on that floor, at the heading's end. */
+body:not(.locked) .side .floor > summary.rgrouphead .floornew { order: 10; display: inline-grid; place-items: center; flex: 0 0 auto;
+  width: 24px; height: 24px; margin: -3px -4px -3px 0; padding: 0; border: 0; border-radius: 6px; background: transparent;
+  color: var(--dim); cursor: pointer; }
+body:not(.locked) .side .floor > summary.rgrouphead .floornew:hover,
+body:not(.locked) .side .floor > summary.rgrouphead .floornew:focus-visible { color: var(--txt); background: color-mix(in srgb, var(--txt) 6%, transparent); }
+/* With a Lobby room the waiting list lives in it (state.js): not at the
+   foot of Your Locas, and without the resize grip of the old dock. */
+body.lobby-in-room #sideBuildingView > #lobbyBox { display: none !important; }
+#sideLocaView > #lobbyBox { height: auto !important; margin: 16px 0 0; border-top: 1px solid var(--line); }
+#sideLocaView > #lobbyBox .lobbyresize { display: none; }

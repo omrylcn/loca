@@ -3,6 +3,10 @@
 const $ = (id) => document.getElementById(id);
 const state = { server: "", name: "operator", room: null, rooms: [], ws: null, members: [], lobby: [], tab: "chat", sidebarView: "building", locaOperator: null, locaContext: null, principalId: null, roomPreferences: { pinned: [], hidden: [], order: [], collapsed: [] }, notes: {}, editing: null, pairing: "", roomToken: "", session: null, authStatus: "unknown", adminSession: false, sessionExpires: null, profile: null, credentials: [], epoch: null, homeRoom: "iye", locaAgents: [], mode: { mode: "free" }, settings: { rate_limit: 10, rate_window_secs: 30 }, mod: { muted: [], banned: [] }, tasks: {}, goals: {}, attentions: {}, waits: {}, journal: [], lastId: 0, seen: new Set(), msgs: [], replyTo: null, reminderReceipts: new Set(), unread: {}, readCursors: {}, roomLatest: {}, unreadChecked: {}, readStorageKey: "", pendingAttachments: [], pinned: null, pinnedExpanded: false };
 Object.assign(state, { memory: null, memoryEntries: [], memoryStatus: "loading", memoryError: "" });
+// Of each loca's unread messages, how many name this person (@name or a
+// direct address). Counted from the same unread tail as the count itself;
+// Home (home.js) shows them.
+state.unreadMentions = {};
 // Building data belongs to whoever was signed in when it was asked for.
 // Sign-out moves this generation on (app.js); every Building fetch notes it
 // when it starts and writes nothing once it has moved, so an answer still in
@@ -447,17 +451,23 @@ function lockRefusedSession() {
     $("doorline").textContent = String(window.__LOCA_SIGNIN_NOTICE__);
     return;
   }
-  // With a key, the key itself was just refused; without one (a Master
-  // pairing, which is used once) the session ended and a new code is needed.
-  // Loca Host signs its Master in itself when it starts (main.rs); its person
-  // holds no pairing code, so the Host's door names the way that works.
+  $("doorline").innerHTML = signedOutDoorline(held);
+}
+// The door's line for someone not signed in. With a key, the key itself was
+// just refused; without one (a Master pairing, which is used once) the
+// session ended and a new code is needed. Loca Host signs its Master in
+// itself when it starts (main.rs); its person holds no pairing code, so the
+// Host's door names the way that works.
+function signedOutDoorline(held) {
   const host = isLocaHostPage();
-  $("doorline").innerHTML = state.roomToken
+  return state.roomToken
     ? 'that key does not open this table.'
     : held ? (host ? `your session ended.<br>${HOST_SIGN_IN}` : 'your session ended.<br>enter a fresh master pairing code or loca key.')
     : host ? `you are signed out.<br>${HOST_SIGN_IN}`
     : 'a private table for people and agents.<br>sign in with your key, a loca invite or a Master pairing code.';
 }
+// The line index.html starts with, before the page knows who is here.
+const INITIAL_DOORLINE = document.getElementById("doorline")?.innerHTML || "";
 const HOST_SIGN_IN = "close and reopen Loca Host to sign in again as Master, or sign in with a key.";
 
 // The page's current session is no longer accepted (it expired, or was
@@ -520,11 +530,16 @@ function retryOwedRenewal() {
 }
 
 let roomsRefreshing = false;   // false, or the generation whose refresh is under way
+// A refresh asked for while one is under way is not dropped: the one under
+// way may have started before the page knew who is here (its answer is then
+// set aside), so it runs once more when that one ends.
+let roomsRefreshAgain = false;
 async function refreshRooms() {
   const gen = state.buildingGen;
   const session = state.session;
-  if (roomsRefreshing === gen) return;
+  if (roomsRefreshing === gen) { roomsRefreshAgain = true; return; }
   roomsRefreshing = gen;
+  roomsRefreshAgain = false;
   try {
     const r = await fetch(serverBase() + "/rooms", { headers: adminHeaders({}) });
     // An answer to a request from before a sign-out or sign-in says nothing
@@ -546,8 +561,10 @@ async function refreshRooms() {
     ensureReadCursors();
     await updateUnreadCounts(rooms);
     if (buildingStale(gen)) return;
-    // Direct messages live under Messages, never in the loca list.
-    state.rooms = rooms.filter(rm => !isDm(rm.room));
+    // Direct messages live under Messages, never in the loca list; the
+    // Lobby room has its own place at the top of the sidebar.
+    state.lobbyRoom = rooms.find(rm => isLobbyRoom(rm.room)) || null;
+    state.rooms = rooms.filter(rm => !isDm(rm.room) && !isLobbyRoom(rm.room));
     await fetchDms();
     renderRooms();
     renderLocaSidebar();
@@ -564,6 +581,7 @@ async function refreshRooms() {
     if (state.authStatus === "unauthenticated" && session === state.session && state.adminOpen !== true) showServerUnreachable();
   } finally {
     if (roomsRefreshing === gen) roomsRefreshing = false;
+    if (roomsRefreshAgain && !buildingStale(gen)) { roomsRefreshAgain = false; refreshRooms(); }
   }
 }
 
@@ -593,7 +611,30 @@ function floorSaysFloor(floor) {
   return floor.key !== GROUND_FLOOR && !/floor\s*$/i.test(floor.name || "");
 }
 
+function renderLobbyRoomLink() {
+  document.querySelector("main.main")?.classList.toggle("lobbyroom", isLobbyRoom(state.room));
+  const link = $("lobbyRoomLink");
+  if (!link) return;
+  const lobby = state.lobbyRoom;
+  link.classList.toggle("hidden", !lobby);
+  if (!lobby) return;
+  const here = Number(lobby.humans || 0) + Number(lobby.agents || 0);
+  $("lobbyRoomCount").textContent = here ? `${here} here` : "";
+  const active = isLobbyRoom(state.room);
+  link.classList.toggle("active", active);
+  link.setAttribute("aria-current", active ? "page" : "false");
+  const unread = Number(state.unread[LOBBY_ROOM] || 0);
+  link.classList.toggle("has-unread", !!unread);
+  // Who waits in the Lobby (and the ranks' "call") is read in the Lobby room,
+  // beside its talk, not at the foot of the sidebar.
+  const box = $("lobbyBox");
+  const home = active ? $("sideLocaView") : $("sideBuildingView");
+  if (box && home && box.parentElement !== home) home.appendChild(box);
+  document.body.classList.add("lobby-in-room");
+}
+
 function renderRooms() {
+  renderLobbyRoomLink();
   const list = $("roomList");
   list.innerHTML = "";
   if (floorRevealFor) {
@@ -601,7 +642,10 @@ function renderRooms() {
     if (rm) { floorRevealFor = null; setFloorCollapsed(roomFloorKey(rm), false); }
   }
   const prefs = loadRoomPreferences();
-  const ordered = orderedSidebarRooms(state.rooms);
+  // The sidebar's search (sidebar.js) narrows the list to the locas whose
+  // name holds what is typed; a floor with none of them is left out.
+  const searching = sidebarFilterActive();
+  const ordered = orderedSidebarRooms(state.rooms).filter(rm => sidebarMatches(locaName(rm.room), rm.room));
   const floors = new Map([[GROUND_FLOOR, { key: GROUND_FLOOR, name: "Ground floor", rooms: [] }]]);
   for (const rm of ordered) {
     const key = roomFloorKey(rm);
@@ -662,7 +706,9 @@ function renderRooms() {
     if (home) ground.rooms = [home, ...ground.rooms.filter(rm => rm !== home)];
     for (const floor of [ground, ...named]) {
       if (!floor.rooms.length) continue;   // no loca of it listed here
-      const collapsed = prefs.collapsed.includes(floor.key);
+      // While searching, a floor with a match is drawn open; closing it
+      // then still counts for after the search.
+      const collapsed = prefs.collapsed.includes(floor.key) && !searching;
       const details = document.createElement("details");
       details.className = "floor";
       details.dataset.floor = floor.key;
@@ -678,6 +724,8 @@ function renderRooms() {
       head.innerHTML = `${typeof GROUP_ICON === "string" ? GROUP_ICON : ""}` +
         `<span class="rgroupname" title="${esc(floor.name)}">${esc(floor.name)}</span>${badge}` +
         `<span class="rgroupcount" aria-label="${floor.rooms.length} locas">${floor.rooms.length}</span>`;
+      // A + at the heading's end: a new loca on this floor (sidebar.js).
+      if (floorAcceptsNewLoca(floor.key)) head.append(floorNewLocaButton(floor));
       // A closed floor is closed: its heading, its count and its unread
       // badge, and no loca of it (the owner's rule: no row left standing).
       details.append(head, ...floor.rooms.map(roomItem));
@@ -698,8 +746,13 @@ function renderRooms() {
       list.appendChild(details);
     }
   }
+  if (searching && !list.children.length) {
+    list.innerHTML = `<div class="sidesearchnone">No loca matches “${esc(sidebarQueryText())}”.</div>`;
+  }
   renderHiddenRooms();
   renderDmList();
+  // Home shows the same summaries, counts and last lines (home.js).
+  if (typeof refreshHome === "function") refreshHome();
 }
 
 function ensureReadCursors() {
@@ -707,6 +760,7 @@ function ensureReadCursors() {
   if (state.readStorageKey === key) return;
   state.readStorageKey = key;
   state.unread = {};
+  state.unreadMentions = {};
   state.roomLatest = {};
   state.unreadChecked = {};
   try {
@@ -729,6 +783,7 @@ function markRoomRead(room, through) {
   state.roomLatest[room] = latest;
   state.unreadChecked[room] = latest;
   state.unread[room] = 0;
+  state.unreadMentions[room] = 0;
   saveReadCursors();
   renderRooms();
 }
@@ -793,6 +848,7 @@ async function updateUnreadCounts(rooms) {
       if (Number(state.readCursors[room] || 0) !== read) return;
       soundForTail(room, messages, state.unreadChecked[room]);
       state.unread[room] = messages.filter(m => m.sender !== state.name).length;
+      state.unreadMentions[room] = messages.filter(m => isMentionOfMe(m, state.name)).length;
       state.unreadChecked[room] = latest;
     } catch (e) {}
   }));

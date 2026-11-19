@@ -33,10 +33,45 @@ function renderMode() {
   refreshTip(pill);
   // gate the composer visually if this user can't talk right now
   $("composer").classList.toggle("gated", !canITalk());
-  // reflect current mode in the admin selector
-  if (isAdmin()) { $("modeSel").value = m.mode; }
+  // reflect current mode in the Properties sheet (select and radios), unless
+  // a change is being made there
+  if (!modeDraftDirty) syncModeControls();
   renderTopStatus();   // mode also shows in the header subtitle
 }
+
+// Properties › Who can talk. The radios are a face on #modeSel, which stays
+// the one value applyMode reads. A change made there is a draft until Save
+// properties (or applyMode) sends it.
+let modeDraftDirty = false;
+function syncModeControls() {
+  const m = state.mode || { mode: "free" };
+  $("modeSel").value = m.mode;
+  const names = m.mode === "restricted" ? m.allow || [] : m.mode === "roundrobin" ? m.order || [] : null;
+  if (names && document.activeElement !== $("modeArg")) $("modeArg").value = names.join(", ");
+  syncModeRadios();
+}
+function syncModeRadios() {
+  const value = $("modeSel").value;
+  for (const radio of document.querySelectorAll("#modeRadios input[name=modeRadio]")) {
+    radio.checked = radio.value === value;
+  }
+  $("modeNames").classList.toggle("hidden", value !== "restricted" && value !== "roundrobin");
+}
+/// Properties opened afresh: the radios show the loca's mode, not an
+/// unsaved draft from before.
+function resetModeDraft() {
+  modeDraftDirty = false;
+  syncModeControls();
+}
+$("modeRadios").addEventListener("change", (event) => {
+  const radio = event.target.closest("input[name=modeRadio]");
+  if (!radio) return;
+  $("modeSel").value = radio.value;
+  $("modeSel").dispatchEvent(new Event("change", { bubbles: true }));
+  modeDraftDirty = true;
+  syncModeRadios();
+});
+$("modeArg").addEventListener("input", () => { modeDraftDirty = true; });
 
 function canITalk() {
   if (isWatchingDoor()) return false;
@@ -61,6 +96,7 @@ async function applyMode() {
     method: "PUT", headers: adminHeaders({ "content-type": "application/json" }), body: JSON.stringify({ mode }),
   });
   if (r.status === 401) { alert("admin token rejected"); return; }
+  if (r.ok) modeDraftDirty = false;
   // live mode frame refreshes the banner.
 }
 
@@ -110,6 +146,7 @@ function renderSettings() {
       : "Turn on so every message reaches everyone, no @ needed.";
     refreshTip(lt);
   }
+  renderLiveSwitch();
   renderReminderSettings();
   renderLocaSidebar();
   // Live badge shows for EVERYONE (not just admin).
@@ -304,6 +341,9 @@ async function applySettings() {
   catch (error) { alert(error.message); return; }
   if (isAdmin()) body.operators = $("opsList").value.split(",").map(x => x.trim()).filter(Boolean);
   await putSettings(body);
+  // Who can talk is saved with the rest when it was changed (ManageLoca has
+  // one Save); applyMode is the same call the mode's own button makes.
+  if (modeDraftDirty) await applyMode();
 }
 async function applyReminderSettings() {
   const status = $("reminderSaveState");
@@ -355,6 +395,15 @@ async function putSettings(body) {
 }
 async function toggleLive() {
   await putSettings({ live: !state.settings.live });   // live frame refreshes UI
+}
+/// Properties › Live: a switch with the header's Live toggle behind it
+/// (toggleLive). Shown where the Live extension is on.
+function renderLiveSwitch() {
+  const on = !!state.settings?.live;
+  const sw = $("liveSwitch");
+  sw.setAttribute("aria-checked", String(on));
+  sw.classList.toggle("on", on);
+  $("liveSection").classList.toggle("hidden", !state.room || isDm(state.room) || !extensionOn("live"));
 }
 
 /* ---- tasks: declaration, not a queue ---- */

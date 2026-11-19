@@ -604,12 +604,16 @@ function renderPeople() {
       ? `<button type="button" class="btn" data-suspend-member="${esc(p.membership_id)}" data-suspended="${p.suspended ? "0" : "1"}" data-member-name="${esc(name)}">${p.suspended ? "Resume" : "Suspend"}</button>` +
         `<button type="button" class="btn danger" title="Revoke membership" data-revoke-member="${esc(p.membership_id)}" data-member-name="${esc(name)}">Revoke</button>` : "";
     const kit = kitVersionHtml(p, "building", "pkind");
+    // The row's less common actions sit behind its ⋯ (keys.js row menu).
+    // Message, Suspend and Revoke stay on the row, one click away.
+    const more = p && !p.suspended
+      ? `<span class="prowmenu"><button type="button" class="prowmore" data-row-menu="${esc(name)}" aria-haspopup="menu" aria-expanded="false" aria-label="More for ${esc(name)}" title="More">⋯</button></span>` : "";
     return `<div class="prow${p?.suspended ? " suspended" : ""}${p?.online ? "" : " poff"}">` +
       `<span class="pname">${kindMark(kind)}${personNameHtml(name, cardOf(p))}${stage}</span>` +
       `<span class="prank"><span class="pkind">Member${kind === "agent" ? " · agent" : ""}</span><span class="pgroups">${groupChipsHtml(name)}</span></span>` +
       `<span class="pwhere">${suspended}${peopleWhereHtml(!!p?.online, locas)}${banTxt}<span class="pstatuses">${residentStatusBadges(p)}</span></span>` +
       `<span class="pkit${kit ? "" : " pkitnone"}">${kit || `<span class="pnokit">—</span>`}</span>` +
-      `<span class="pacts">${name !== state.name ? `<button type="button" class="btn" data-dm="${esc(name)}" title="Write to ${esc(name)} privately">Message</button>` : ""}${unban}${manage}</span></div>`;
+      `<span class="pacts">${name !== state.name ? `<button type="button" class="btn" data-dm="${esc(name)}" title="Write to ${esc(name)} privately">Message</button>` : ""}${unban}${manage}${more}</span></div>`;
   });
   const empty = !names.size && !ranks.length
     ? "no members in the building yet"
@@ -628,6 +632,9 @@ function renderPeople() {
     again.focus();
     try { again.setSelectionRange(caret[0], caret[1]); } catch (e) { /* not a text field */ }
   }
+  // The Join requests tab's count, an open row menu and the Add people
+  // dialog follow the list just drawn (keys.js).
+  if (typeof peopleViewDrawn === "function") peopleViewDrawn();
 }
 
 // A name opens that person's card (who they are, and their groups). `card`

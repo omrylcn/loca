@@ -218,6 +218,8 @@ pub(crate) async fn post_message(
     } else {
         is_admin_req(&hub, &headers)
     };
+    // In the Lobby room only a rank calls everyone.
+    hub.settle_lobby_call(&id, &mut body, is_admin);
     // Who wrote it, as verified by the session; a rename follows this id.
     // Without a session the body's sender is unverified, so nobody is recorded.
     let sender_principal = session_identity

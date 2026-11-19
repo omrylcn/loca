@@ -420,6 +420,15 @@
     border: 0; border-left: 3px solid transparent; background: transparent;
     color: inherit; text-align: left; font: inherit; }
   .room:hover { background: var(--panel2); }
+  /* The Lobby room: above the floors, where everyone lands first. */
+  .lobbyroomlink { display: flex; align-items: center; gap: 8px; width: calc(100% - 20px);
+    margin: 10px 10px 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--txt); font: inherit; cursor: pointer; text-align: left; }
+  .lobbyroomlink:hover { background: var(--panel2); }
+  .lobbyroomlink.active { background: var(--panel2); box-shadow: inset 3px 0 0 var(--accent); }
+  .lobbyroomlink.has-unread .lobbyroomname { font-weight: 700; }
+  .lobbyroomlink .lobbyroomcount { margin-left: auto; font-size: 11px; color: var(--dim); }
+  .lobbyroomabout { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
   .roomitem { position: relative; display: flex; align-items: center; min-height: 48px;
     border-bottom: 1px solid rgba(255,255,255,.025); }
   .roomitem .room { flex: 1; min-width: 0; }
@@ -531,6 +540,7 @@
   .roomprops .detail b { color: var(--txt); }
   .top .rname { font-weight: 700; line-height: 1.25; font-size: 14px; white-space: nowrap; flex: 0 0 auto; }
   .top .rname::before { content: "# "; color: var(--dim); font-weight: 400; }
+  .main.lobbyroom .top .rname::before { content: ""; }
   .main.global .top .rname::before { content: ""; }
   .main.global .doorbar,
   .main.global .tabs, .main.global .roomprops, .main.global .roomactions,

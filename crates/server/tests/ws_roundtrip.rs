@@ -1724,6 +1724,10 @@ mod authority_matrix;
 mod board_off;
 #[path = "ws/building_key.rs"]
 mod building_key;
+#[path = "ws/building_search.rs"]
+mod building_search;
+#[path = "ws/building_settings.rs"]
+mod building_settings;
 #[path = "ws/claims.rs"]
 mod claims;
 #[path = "ws/content.rs"]
@@ -1748,8 +1752,12 @@ mod keys;
 mod kit_version;
 #[path = "ws/lead_tasks.rs"]
 mod lead_tasks;
+#[path = "ws/leave_building.rs"]
+mod leave_building;
 #[path = "ws/lobby_delivery.rs"]
 mod lobby_delivery;
+#[path = "ws/lobby_room.rs"]
+mod lobby_room;
 #[path = "ws/loca_board.rs"]
 mod loca_board;
 #[path = "ws/loca_board_name.rs"]

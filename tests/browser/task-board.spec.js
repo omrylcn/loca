@@ -57,8 +57,8 @@ test("four columns, a review step, and go / no-go for the Lead only", async ({ b
   await card(bob, "taken", "fix the session renewal").getByRole("button", { name: "Ask for review" }).click();
   for (const page of [lead, bob]) await expect(card(page, "review", "fix the session renewal")).toHaveCount(1);
   // The holder is not offered the review; the Lead is.
-  await expect(card(bob, "review", "fix the session renewal").getByRole("button", { name: /^(Go|No-go)$/ })).toHaveCount(0);
-  await expect(card(lead, "review", "fix the session renewal").getByRole("button", { name: "Go", exact: true })).toHaveCount(1);
+  await expect(card(bob, "review", "fix the session renewal").getByRole("button", { name: /^(Approve|Request changes)$/ })).toHaveCount(0);
+  await expect(card(lead, "review", "fix the session renewal").getByRole("button", { name: "Approve", exact: true })).toHaveCount(1);
   // The badge counts a task in review, with its state in the tooltip.
   const tasks = await (await request.get(`/rooms/${room}/tasks`, { headers: MASTER })).json();
   const task = tasks.find(t => t.title === "fix the session renewal");
@@ -67,11 +67,11 @@ test("four columns, a review step, and go / no-go for the Lead only", async ({ b
 
   // No-go with a reason sends it back to Doing, where bob reads why.
   lead.once("dialog", dialog => dialog.accept("the expiry path is untested"));
-  await card(lead, "review", "fix the session renewal").getByRole("button", { name: "No-go" }).click();
+  await card(lead, "review", "fix the session renewal").getByRole("button", { name: "Request changes" }).click();
   await expect(card(bob, "taken", "fix the session renewal")).toContainText("Not yet: the expiry path is untested");
   await card(bob, "taken", "fix the session renewal").getByRole("button", { name: "Ask for review" }).click();
   await expect(card(lead, "review", "fix the session renewal")).toHaveCount(1);
-  await card(lead, "review", "fix the session renewal").getByRole("button", { name: "Go", exact: true }).click();
+  await card(lead, "review", "fix the session renewal").getByRole("button", { name: "Approve", exact: true }).click();
   for (const page of [lead, bob]) await expect(card(page, "done", "fix the session renewal")).toHaveCount(1);
   for (const page of [lead, bob]) await page.close();
 });

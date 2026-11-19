@@ -152,12 +152,15 @@ function goalChatReceipt(previous, goal) {
 
 function joinRoom(room) {
   cancelLandingRetry();   // opening a loca replaces a landing still being decided (api.js)
+  if (typeof closeSearchView === "function") closeSearchView();   // search.js
   captureNoteDraft();
   if (room !== state.room) closeLocaIdentityOnRoomChange();
+  // A thread is one loca's: it closes when another loca opens (threads.js).
+  if (room !== state.room && typeof closeThread === "function") closeThread();
   state.editing = null;
   $("noteList").innerHTML = "";
   $("notesError").classList.add("hidden");
-  if (state.tab === "people") switchTab("chat");
+  if (isBuildingView()) switchTab("chat");
   state.room = room;
   if (!isDm(room)) { rememberLoca(room); rememberLastLoca(room); }
   joinedRoomNeedsBottom = true;
@@ -172,6 +175,7 @@ function joinRoom(room) {
   // Loca is chat-first. Keep the room switcher visible after joining so
   // moving between locas never requires a detour through a detail tab.
   setSidebarView("building");
+  renderLobbyRoomLink();
   // The loca one goes into is never behind a closed floor.
   revealRoomFloor(room);
   renderLocaSidebar();
@@ -467,6 +471,7 @@ function onFrame(f, from) {
       markRoomRead(state.room, mid);
     } else if (mid > Number(state.readCursors[state.room] || 0)) {
       state.unread[state.room] = Number(state.unread[state.room] || 0) + 1;
+      if (isMentionOfMe(f.message, state.name)) state.unreadMentions[state.room] = Number(state.unreadMentions[state.room] || 0) + 1;
       state.unreadChecked[state.room] = mid;
       renderRooms();
     }

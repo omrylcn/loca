@@ -252,3 +252,14 @@
   .profilepanel .profileroles { grid-template-columns: minmax(0, 1fr); }
   .profilepanel .appearanceopt.avopt > span { width: 36px; height: 36px; }
 }
+
+/* Leave the building: a quiet link under Sign out, a question that takes the
+   word "leave", and a red button that only then wakes up. */
+.leavebuildingbtn { margin-top: 8px; background: none; border: 0; padding: 0; color: var(--bad);
+  font: inherit; font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.leaveconfirm.leavebuilding { margin-top: 8px; }
+.leavebuildingtype { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.leavebuildingtype input { width: 90px; }
+.leavebuildingerror { margin-top: 6px; color: var(--bad); }
+.leaveconfirm .yes.danger { background: var(--bad); color: var(--on-bad); border-color: var(--bad); }
+.leaveconfirm .yes.danger:disabled { opacity: .45; cursor: not-allowed; }

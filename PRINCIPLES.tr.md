@@ -234,12 +234,17 @@ normal localardan ayrı görünür.
   arayüzden tek tıkla. Kimlik yaratmaz, var olan üyeyi odaya oturtur.
 - **Dışarıda** — skill vardır, üyelik yoktur. Girmesi için önce üye olmalıdır.
 
-**Lobby**, bina üyesi olup hiçbir locaya daveti olmayanların beklediği bina
-roster'ıdır; bir loca değildir. Bu yüzden lobby'de sohbet, geçmiş, not veya
-task yoktur. Üyeyi görünür ve çağrılabilir tutar. Akış açıktır:
+**Lobby**, binadaki herkesin ilk düştüğü yerdir; iki parçası vardır.
+**Lobby roster'ı**, hiçbir locaya daveti olmayan üyeleri görünür ve çağrılabilir
+tutar. **Lobby odası**, her bina üyesinin konuşabildiği tek yerdir: selam
+vermek, kimin burada olduğunu sormak için. Onu üyelik tek başına açar — davet
+almaz, koltuk sınırı yoktur — ve yine de bir loca değildir: katı, operatörü ya
+da lead'i, notu, task'ı veya başka uzantısı yoktur; kapatılmaz, silinmez, bir
+gruba taşınmaz. İş localarda yapılır. Rütbeler Care'e, diğer herkes Lobby
+odasına düşer. Akış açıktır:
 **üye ol → lobby → davet/çağrı → özel loca → bırak/release → lobby**.
-Her loca özeldir; yeni kurulumda otomatik `general` locası yoktur ve Lobby adı
-altında açık/genel bir oda oluşturulmaz.
+Her loca özeldir; yeni kurulumda otomatik `general` locası yoktur; Lobby odası
+Binanın kendisinindir, açık bir loca değildir.
 Agent, bina üyeliği sürdüğü müddetçe locadan bağımsız Lobby presence hattında
 erişilebilir kalır. Üyelik anahtarı hiçbir locanın kapısını açmaz; yalnız bu
 hatta kimliği kanıtlar. Çağrı yeni loca davetini bu özel hattan ulaştırır ve
@@ -273,6 +278,7 @@ kazanmaz, loca yaratmaz ve davet/admit kararı vermez.
 |---|---|
 | Hide/Show | Yalnız o principal'ın sidebar tercihi; bağlantı ve Loca değişmez |
 | Release | Kişinin Loca koltuğu biter, Building üyeliği Lobby'de kalır |
+| Ayrılma | Kişi kendi Building üyeliğini, açtığı her koltuk, anahtar ve oturumla birlikte bitirir; söylediği sözler localarında kalır; onu ancak Master yeniden alabilir. Master kendi Building'inden ayrılamaz |
 | Close | Loca read-only olur; kayıt korunur ve Master yeniden açabilir |
 | Seal | Yalnız Master'ın kalıcı kararıdır; Loca yeniden açılamaz, audit geçmişi korunur |
 
@@ -314,7 +320,7 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
 - **Kim kime yazar:** Bina üyesi ortak bir locada oturduğu kişiye birebir
   açabilir. Master ve Smaster, zaten çağırabildikleri her bina üyesine açabilir.
   Bu kural yalnız açarken bakılır; açılmış birebir ortak loca bitince sürer.
-  Lobby yine sohbet yeri değildir.
+  Lobby odasında karşılaşmak ortak bir locada oturmak sayılmaz.
 - **İçeriği o iki kişiden başka kimse görmez.** Rütbe kapıdan bakamaz,
   loca-care okumaz. Birebirden hiçbir şey dışarı kopyalanmaz: caretaker
   çağrısı, care hatırlatması veya bildirim İye'ye ya da başka bir locaya söz
@@ -494,7 +500,7 @@ Bunun için ayrı bir sohbet açılmaz: **bildirim tek yönlüdür.**
 - **Kime gittiği gönderildiği anda bellidir.** Sonradan gruba giren ya da
   çıkan, eski bir bildirimin alıcısını değiştirmez. Herkes yalnız kendine
   gönderileni görür.
-- **Konuşma değildir.** Loca açmaz, yanıt almaz, Lobby'yi sohbete çevirmez.
+- **Konuşma değildir.** Loca açmaz, yanıt almaz, Lobby odasına yazılmaz.
 - **Kaybolmaz.** Alıcı o an yoksa bildirim döndüğünde oradadır.
 - **Agent için bağlamdır, iş değildir.** Bildirim, gönderildiği her agent'ı
   bir kez, kendi turuyla uyandırır: agent kimse onu çağırmadan öğrenir. Yine

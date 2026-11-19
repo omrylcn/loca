@@ -14,7 +14,7 @@
 state.notif = {
   principal: null, loaded: false, items: [], unread: 0, more: false,
   newest: 0, catchup: null, inflight: false, open: false, view: "inbox",
-  audiences: null, sent: null, toastTimer: 0,
+  audiences: null, sent: null, toastTimer: 0, full: false,
 };
 
 const NOTIF_TITLE_MAX = 120;
@@ -119,6 +119,8 @@ function renderNotifBell() {
   // there is something to read without adding a button to the top bar.
   document.body.classList.toggle("notif-unread", unread > 0);
   if (window.refreshTip) window.refreshTip(bell);
+  // Home carries the same count and the newest announcement (home.js).
+  if (typeof refreshHome === "function") refreshHome();
 }
 
 function notifWhen(ts) {
@@ -152,9 +154,11 @@ function ensureNotifPanel() {
   return panel;
 }
 
-async function openNotifPanel() {
+async function openNotifPanel(full = false) {
   const n = state.notif;
   const panel = ensureNotifPanel();
+  n.full = !!full;
+  panel.classList.toggle("notiffull", n.full);
   // On a phone the panel is a sheet of its own: put the drawer away first.
   if (window.matchMedia("(max-width: 760px)").matches) setMobileSidebar(false);
   n.open = true;
@@ -173,7 +177,9 @@ async function openNotifPanel() {
 function closeNotifPanel() {
   const n = state.notif;
   n.open = false;
+  n.full = false;
   $("notifPanel")?.classList.add("hidden");
+  $("notifPanel")?.classList.remove("notiffull");
   $("notifBell")?.setAttribute("aria-expanded", "false");
 }
 
@@ -181,11 +187,31 @@ function toggleNotifPanel() {
   if (state.notif.open) closeNotifPanel(); else openNotifPanel();
 }
 
+/// "Open all": the same list, laid over the main area as a page of its own.
+function openNotifFull() {
+  const panel = ensureNotifPanel();
+  state.notif.full = true;
+  panel.classList.add("notiffull");
+  placeNotifPanel();
+  renderNotifPanel();
+  panel.querySelector(".notifhead h2")?.focus?.();
+}
+
 /// Beside the bell on a wide screen; a full-width sheet on a phone (CSS).
+/// The full view ("Open all") lies over the main area instead.
 function placeNotifPanel() {
   const panel = $("notifPanel");
   const bell = $("notifBell");
   if (!panel || !bell) return;
+  if (state.notif.full) {
+    const main = document.querySelector("main.main");
+    const m = main ? main.getBoundingClientRect() : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+    panel.style.setProperty("--notif-left", `${Math.round(m.left)}px`);
+    panel.style.setProperty("--notif-top", `${Math.round(m.top)}px`);
+    panel.style.setProperty("--notif-width", `${Math.round(m.width)}px`);
+    panel.style.setProperty("--notif-height", `${Math.round(m.height)}px`);
+    return;
+  }
   const r = bell.getBoundingClientRect();
   const width = Math.min(460, window.innerWidth - 16);   // page-people.css #notifPanel
   const left = Math.max(8, Math.min(r.left - 24, window.innerWidth - width - 8));
@@ -295,26 +321,39 @@ function renderNotifPanel() {
   } : null;
   const a = n.audiences;
   const canSend = !!(a && a.can_send);
-  const tabs = canSend
+  // The views that exist: Inbox, and Sent for a sender. The full view always
+  // shows its chip row (the board's filters), Inbox alone for a reader.
+  const tabs = canSend || n.full
     ? `<div class="notiftabs" role="group" aria-label="Notification views">` +
-        `<button type="button" class="chip${n.view === "inbox" ? " on" : ""}" data-notif-view="inbox" aria-pressed="${n.view === "inbox"}">Inbox</button>` +
-        `<button type="button" class="chip${n.view === "sent" ? " on" : ""}" data-notif-view="sent" aria-pressed="${n.view === "sent"}">Sent</button></div>`
+        `<button type="button" class="chip${n.view === "inbox" || !canSend ? " on" : ""}" data-notif-view="inbox" aria-pressed="${n.view === "inbox" || !canSend}">Inbox</button>` +
+        (canSend ? `<button type="button" class="chip${n.view === "sent" ? " on" : ""}" data-notif-view="sent" aria-pressed="${n.view === "sent"}">Sent</button>` : "") +
+      `</div>`
     : "";
+  // The full view sorts the list under Today and Earlier, as the board does.
+  const listHtml = (items, itemHtml) => {
+    if (!n.full) return `<ul class="notiflist">${items.map(itemHtml).join("")}</ul>`;
+    const today = new Date().toDateString();
+    const parts = [["Today", items.filter(x => new Date(x.created_at).toDateString() === today)],
+      ["Earlier", items.filter(x => new Date(x.created_at).toDateString() !== today)]];
+    return parts.filter(([, some]) => some.length).map(([title, some]) =>
+      `<h3 class="notifday">${title}</h3><ul class="notiflist">${some.map(itemHtml).join("")}</ul>`).join("");
+  };
   let list;
   if (n.view === "sent" && canSend) {
     const sent = n.sent || [];
     list = n.sent === null ? `<div class="notifempty">Loading…</div>`
-      : sent.length ? `<ul class="notiflist">${sent.map(notifSentHtml).join("")}</ul>`
+      : sent.length ? listHtml(sent, notifSentHtml)
       : `<div class="notifempty">You have not sent a notification yet.</div>`;
   } else {
     list = !n.loaded ? `<div class="notifempty">Loading…</div>`
-      : n.items.length ? `<ul class="notiflist">${n.items.map(notifItemHtml).join("")}</ul>` +
+      : n.items.length ? listHtml(n.items, notifItemHtml) +
           (n.more ? `<button type="button" class="btn notifolder" data-notif-older>Show older</button>` : "")
       : `<div class="notifempty">No notifications yet.</div>`;
   }
   panel.innerHTML =
     `<div class="notifhead"><h2 tabindex="-1">${NOTIF_BELL_SMALL}<span>Notifications</span>` +
       (n.unread ? `<span class="notifcount">${n.unread} unread</span>` : "") + `</h2>` +
+      (n.full ? "" : `<button type="button" class="btn notifopenall" data-notif-full>Open all</button>`) +
       `<button type="button" class="btn" data-notif-readall${n.unread ? "" : " disabled"}>Mark all read</button>` +
       `<button type="button" class="iconbtn notifclose" data-notif-close aria-label="Close notifications">${NOTIF_X_ICON}</button></div>` +
     (canSend ? notifComposerHtml(a) : "") + tabs +
@@ -446,6 +485,7 @@ function onNotifPanelClick(e) {
   if (!t) return;
   if (t.matches("summary")) { state.notif.composeOpen = !t.parentElement.open; return; }
   if (t.dataset.notifClose !== undefined) { closeNotifPanel(); $("notifBell").focus(); return; }
+  if (t.dataset.notifFull !== undefined) { openNotifFull(); return; }
   if (t.dataset.notifReadall !== undefined) { markAllNotifRead(); return; }
   if (t.dataset.notifRead) { markNotifRead(Number(t.dataset.notifRead)); return; }
   if (t.dataset.notifOlder !== undefined) { loadOlderNotifs(); return; }

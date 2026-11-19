@@ -26,6 +26,7 @@ class CredentialError(RuntimeError):
 _BOUND_KEYS = {
     "LOCA_NAME",
     "LOCA_SESSION",
+    "LOCA_LOBBY_SESSION",
     "LOCA_MEMBERSHIP",
     "ROOM_SERVER_URL",
     "ROOM_TOKEN",
@@ -199,8 +200,22 @@ def _main():
     return 0
 
 
+# The Lobby room (PRINCIPLES "Lobby"): the one room every Building member
+# enters by membership alone. It takes no invite, so no ``DAVET_lobby`` line
+# ever exists; its door is the member's own key.
+LOBBY_ROOM = "lobby"
+
+
 def token_for_room(room):
-    """Return this loca's invite, falling back to the legacy building key."""
+    """Return the credential that opens ``room``.
+
+    A loca's own invite (``DAVET_<loca>``), falling back to the legacy
+    building key. The Lobby room is opened by this identity's membership key
+    instead: it is never an invite and never a seat. The caller sends it only
+    to the server this identity belongs to (``validate_server_scope``).
+    """
+    if room == LOBBY_ROOM:
+        return os.environ.get("LOCA_MEMBERSHIP") or os.environ.get("ROOM_TOKEN", "")
     suffix = re.sub(r"[^A-Za-z0-9_]", "_", room)
     return os.environ.get("DAVET_" + suffix) or os.environ.get("ROOM_TOKEN", "")
 

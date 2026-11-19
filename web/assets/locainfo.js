@@ -9,7 +9,7 @@
 const LOCA_INFO_WIDE = window.matchMedia("(min-width: 1400px)");
 
 function locaInfoWanted() {
-  return LOCA_INFO_WIDE.matches && !!state.room && !isDm(state.room) && state.tab !== "people";
+  return LOCA_INFO_WIDE.matches && !!state.room && !isDm(state.room) && !isBuildingView();
 }
 
 function placeLocaInfo() {
@@ -25,6 +25,8 @@ function placeLocaInfo() {
   // The sidebar shows Your Locas while the panel is on the right; when it
   // goes back, the sidebar tab that is selected decides again.
   if (on !== was) setSidebarView(on ? "building" : state.sidebarView || "building");
+  // An open thread stands in This Loca's place, or over the chat (threads.js).
+  if (typeof placeThreadPanel === "function") placeThreadPanel();
 }
 
 LOCA_INFO_WIDE.addEventListener("change", placeLocaInfo);

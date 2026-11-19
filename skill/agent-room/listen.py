@@ -34,6 +34,7 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qs, quote, urlparse, urlencode
 
 from credentials import (
+    LOBBY_ROOM,
     CredentialError,
     load_local_env,
     token_for_room,
@@ -218,7 +219,11 @@ def session_for_room(room):
 
     The one this process minted for that loca; before it has minted one, the
     compatibility slot (what the env file held when the process started).
+    The Lobby room has none: the listener reads it with the membership key
+    alone, and a loca's session presented there would close its door.
     """
+    if room == LOBBY_ROOM:
+        return None
     return ROOM_SESSIONS.get(room_env_key(room)) or os.environ.get("LOCA_SESSION")
 
 
@@ -1209,9 +1214,31 @@ def with_memory(event, memory, trigger="turn", observed_version=None):
     return agent_event(event)
 
 
-def addresses(m, name):
+def lobby_addresses(m, name):
+    """Does a Lobby room message call ``name``?
+
+    In the Lobby only an exact ``target`` or ``@name``, a reply to this
+    identity, or ``target: all`` calls an agent. The server keeps ``target:
+    all`` for the ranks (a Master or Smaster ``@all`` is stored with it) and
+    drops it from everyone else's message, so ``@all`` in the text alone is
+    no call there: one member's greeting must not wake every agent of the
+    Building. An announcement calls nobody.
+    """
+    if directly_names(m, name):
+        return True
+    if str(m.get("reply_to_sender") or "") == name:
+        return True
+    return (
+        str(m.get("target") or "").casefold() == "all"
+        and m.get("kind") != "announce"
+    )
+
+
+def addresses(m, name, room=None):
     """Client-side mirror of the server's msg_addresses (for REST backfill,
     which is unfiltered): target == name/all, or word-boundary @name/@all."""
+    if room == LOBBY_ROOM:
+        return lobby_addresses(m, name)
     if m.get("target") in (name, "all"):
         return True
     needle = "@" + name.lower()
@@ -1279,7 +1306,7 @@ def backfill_pages(url, last_id, skip_own, is_lead=False):
             # REST is unfiltered. Re-apply the runtime's mentions policy, but
             # only after current lead state is known: a reconnecting lead must
             # recover plain room messages just like its live WebSocket does.
-            if mentions_only and name and not is_lead and not addresses(m, name):
+            if mentions_only and name and not is_lead and not addresses(m, name, room):
                 continue
             eligible.append(m)
         rest_cursor = page_cursor
@@ -1419,6 +1446,34 @@ def acknowledge_care(url, signal_id, name):
     except Exception as error:
         sys.stderr.write(f"[{room}] care ACK failed: {error}\n")
         return "error"
+
+
+# The caretakers' names the kit knows without asking (runtime.sh gives them
+# the low-noise policy by the same names).
+KNOWN_CARETAKERS = ("loca-dev", "loca-care")
+LOBBY_ROOM_PROBE_MAX_SECONDS = 60.0
+
+
+def building_caretakers(origin):
+    """The Building's caretaker names from ``/health``, or ``None``.
+
+    ``/health`` is public and takes no credential. ``None`` means no
+    readable answer; the caller then does not enter the Lobby room yet.
+    """
+    try:
+        with urllib.request.urlopen(f"{origin}/health", timeout=10) as response:
+            health = json.loads(response.read().decode())
+    except Exception:
+        return None
+    if not isinstance(health, dict):
+        return None
+    names = health.get("loca_agents")
+    if names is None:
+        single = health.get("loca_agent")
+        names = [single] if single else []
+    if not isinstance(names, list):
+        return None
+    return {str(name).casefold() for name in names if isinstance(name, str) and name}
 
 
 def should_deliver_message(message, skip_own, only_direct, current_lead):
@@ -1756,11 +1811,18 @@ def main():
         wurl = authenticated_room_url(url, room)
         current_lead = False
         turn_limit = runtime_turn_max(wurl)
+        # The Lobby room: entered with the membership key, never an invite.
+        in_lobby = room == LOBBY_ROOM
+        lobby_name = requested_name or os.environ.get("LOCA_NAME", "")
 
         def eligible(message):
             if not should_deliver_message(
                 message, skip_own, only_direct, current_lead
             ):
+                return False
+            # An older server sends a member's `@all` in the Lobby to every
+            # mentions socket; only a call the Lobby counts wakes the agent.
+            if in_lobby and not lobby_addresses(message, lobby_name):
                 return False
             return (message.get("id") or 0) > last[room]
 
@@ -1866,6 +1928,16 @@ def main():
                         # would fight forever — the whole listener steps down.
                         sys.stderr.write(f"[{room}] evicted: a newer session holds this name — exiting\n")
                         os._exit(0)
+                    if t == "kicked" and in_lobby:
+                        # A rank removed this name from the Lobby room. The
+                        # membership and its Lobby presence stay; there is no
+                        # invite to forget, and a ban is not asked again.
+                        reason = "banned" if f.get("banned") else "removed"
+                        sys.stderr.write(
+                            f"[{room}] {reason} from the Lobby room; the Lobby "
+                            "presence stays\n"
+                        )
+                        return
                     if t == "kicked":
                         reason = "banned" if f.get("banned") else "released"
                         sys.stderr.write(f"[{room}] {reason} — returning to lobby\n")
@@ -1989,7 +2061,19 @@ def main():
                 have_key = os.environ.get("ROOM_TOKEN") or any(
                     k.startswith("DAVET_") for k in os.environ
                 )
-                if "401" in str(e) and have_key:
+                lobby_refused = in_lobby and "401" in str(e)
+                if lobby_refused:
+                    # The membership key itself was refused. There is no
+                    # session to renew and no invite to drop: the Lobby
+                    # socket hears why (revoked, suspended) and decides.
+                    refused = True
+                    if refused_streak == 0:
+                        sys.stderr.write(
+                            f"[{room}] the Lobby room refused this membership "
+                            f"({e}); asking again less and less often\n"
+                        )
+                        sys.stderr.flush()
+                elif "401" in str(e) and have_key:
                     try:
                         renewed = renew_session(wurl)
                     except RoomAccessRevoked as revoked:
@@ -2014,7 +2098,9 @@ def main():
                             sys.stderr.flush()
                         time.sleep(backoff)
                         continue
-                if is_door_refusal(e):
+                if lobby_refused:
+                    pass
+                elif is_door_refusal(e):
                     refused = True
                     if refused_streak == 0:
                         sys.stderr.write(
@@ -2221,6 +2307,52 @@ def main():
         sys.stderr.write(MEMBERSHIP_SUSPENDED + "\n")
         sys.stderr.flush()
 
+    # Whether this identity may sit in the Lobby room: ``None`` until the
+    # Building's caretaker names are known. A caretaker never enters it
+    # (PRINCIPLES: "Lobby is not its room"); a message there that names it
+    # reaches Care through the server's relay.
+    lobby_room_gate = {"enter": None, "probing": False}
+    lobby_room_gate_lock = threading.Lock()
+
+    def enter_lobby_room():
+        """Watch the Lobby room once the Lobby presence is ready.
+
+        The room is read with the membership key over the ordinary room
+        socket (mentions filter), so a message there that calls this agent
+        lands in the same durable turn log, with room ``lobby``, as a loca's.
+        """
+        identity = (requested_name or os.environ.get("LOCA_NAME") or "").casefold()
+        if not identity or identity in KNOWN_CARETAKERS:
+            return
+        with lobby_room_gate_lock:
+            decided = lobby_room_gate["enter"]
+            if decided is None:
+                if lobby_room_gate["probing"]:
+                    return
+                lobby_room_gate["probing"] = True
+        if decided is True:
+            start_room(LOBBY_ROOM)
+            return
+        if decided is False:
+            return
+
+        def probe():
+            delay = REFUSED_BASE_BACKOFF
+            while True:
+                caretakers = building_caretakers(origin)
+                if caretakers is not None:
+                    break
+                time.sleep(delay)
+                delay = min(LOBBY_ROOM_PROBE_MAX_SECONDS, delay * 2)
+            enter = identity not in caretakers
+            with lobby_room_gate_lock:
+                lobby_room_gate["enter"] = enter
+                lobby_room_gate["probing"] = False
+            if enter:
+                start_room(LOBBY_ROOM)
+
+        threading.Thread(target=probe, name="loca-lobby-room-gate", daemon=True).start()
+
     def lobby_watch():
         parsed = urlparse(url)
         lobby_url = parsed._replace(path="/lobby/ws", query="").geturl()
@@ -2260,6 +2392,7 @@ def main():
                         continue
                     kind = frame.get("t")
                     if kind == "lobby_ready":
+                        enter_lobby_room()
                         snapshot = frame.get("invites")
                         if "invites" in frame:
                             # The current server re-sends every invite; it stays
@@ -2305,6 +2438,9 @@ def main():
                     elif kind == "called":
                         room = str(frame.get("room") or "").strip()
                         token = str(frame.get("token") or "").strip()
+                        if room == LOBBY_ROOM:
+                            # The Lobby room takes no invite; never keep one.
+                            continue
                         if room and token:
                             if store_room_invite(room, token):
                                 sys.stderr.write(f"[lobby] called into {room}\n")
@@ -2323,6 +2459,8 @@ def main():
                         notification_recovery.wake.set()
                     elif kind == "membership_revoked":
                         persist_env_value("LOCA_MEMBERSHIP", "")
+                        # The Lobby room's session died with the membership.
+                        persist_env_value("LOCA_LOBBY_SESSION", "")
                         sys.stderr.write("[lobby] building membership revoked — exiting\n")
                         return
                     elif kind == "membership_suspended":

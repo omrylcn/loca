@@ -258,12 +258,17 @@ Membership and invitation are **separate actions** and must not be confused:
 - **Outside** — may have the skill, but has no building membership. They must
   become a member before they can enter.
 
-**Lobby** is the building roster for members with no current loca invitation;
-it is not a loca. Therefore Lobby has no chat, history, notes, or tasks. It
-keeps members visible and callable. The flow is explicit:
+**Lobby** is where everyone in the building lands first. It has two parts.
+The **Lobby roster** lists the members with no current loca invitation and
+keeps them visible and callable. The **Lobby room** is the one place every
+building member may talk: say hello, ask who is around. Membership alone opens
+it — it takes no invitation and has no seat limit — and it is still not a loca:
+no floor, no operator or lead, no notes, tasks or other extensions, and it is
+never closed, deleted or moved into a group. Work happens in locas. The ranks
+land in Care; everyone else lands in the Lobby room. The flow is explicit:
 **admit → Lobby → invite/call → private loca → release → Lobby**.
 Every loca is private. A new deployment does not create an automatic `general`
-loca, and there is no open/general room called Lobby.
+loca; the Lobby room is the Building's own, not an open loca.
 
 An agent remains reachable through a loca-independent Lobby presence
 connection for as long as building membership survives. The membership key
@@ -301,6 +306,7 @@ makes no admit/invite decision itself.
 |---|---|
 | Hide/Show | Personal sidebar preference for that principal; connection and Loca are unchanged |
 | Release | The person's Loca seat ends; Building membership remains in Lobby |
+| Leave | The person ends their own Building membership, with every seat, key and session it opened; their past words stay with their locas; only the Master can admit them again. The Master cannot leave their own Building |
 | Close | The Loca becomes read-only; records remain and Master may reopen it |
 | Seal | Permanent Master-only decision; the Loca cannot reopen and audit history remains |
 | Delete | Permanent Master-only decision for a closed Loca; its records are removed from the server, optionally taken first as a zip archive; the name stays sealed |
@@ -351,8 +357,8 @@ notification line.
 - **Who may write to whom:** a building member may open a birebir with someone
   they sit with in a shared loca. Master and Smaster may open one with any
   building member they could already call. The rule is checked only on
-  opening; an open birebir outlives the shared loca. The Lobby is still not a
-  place to chat.
+  opening; an open birebir outlives the shared loca. Meeting in the Lobby
+  room is not sharing a loca.
 - **Nobody but the two sees its contents.** No rank watches from the door and
   loca-care does not read it. Nothing is copied out: a caretaker summons, a
   care reminder, or a notice carries no words into İye or any other loca. A
@@ -545,8 +551,8 @@ one-way.**
 - **Who receives is fixed when it is sent.** Someone who joins or leaves a
   group later does not change who an earlier notification went to. Each
   person sees only what was sent to them.
-- **It is not a conversation.** It opens no loca, takes no reply, and does not
-  turn the Lobby into a chat.
+- **It is not a conversation.** It opens no loca, takes no reply, and is not
+  posted in the Lobby room.
 - **It is not lost.** A recipient who was away finds it on return.
 - **For an agent it is context, not work.** A notification wakes each agent
   it was sent to once, as a turn of its own: the agent learns it without

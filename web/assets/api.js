@@ -136,18 +136,22 @@ let restoredSendOperation = null;
 function setSendInFlight(on) {
   sendInFlight = on;
   $("sendBtn").disabled = on;
+  // A thread's reply box sends the same way, one message at a time.
+  if ($("threadSend")) $("threadSend").disabled = on;
   $("sendBtn").textContent = on ? "sending…" : "send";
   $("composer").classList.toggle("sending", on);
 }
 // `newOperation`: the server refused this operation id for good (409), so the
 // same words sent again must go out as a new operation. The draft, its target
 // and its reply link come back as usual; only the operation id is not kept.
-function restoreSendDraft(room, payload, error, { newOperation = false } = {}) {
+// `box`: the words came from a thread's reply box (threads.js) and go back
+// there; its reply link is the thread's, so the composer's is left alone.
+function restoreSendDraft(room, payload, error, { newOperation = false, box = null } = {}) {
   if (state.room !== room) {
     alert(`${room}: ${error}`);
     return;
   }
-  const input = $("msg");
+  const input = box?.input || $("msg");
   const typedWhileSending = input.value.trim();
   if (typedWhileSending) {
     input.value = `${payload.text}\n${input.value}`;
@@ -156,8 +160,10 @@ function restoreSendDraft(room, payload, error, { newOperation = false } = {}) {
     restoredSendOperation = null;
   } else {
     input.value = payload.text;
-    $("target").value = payload.target || "";
-    if (payload.reply_to) startReply(payload.reply_to);
+    if (!box) {
+      $("target").value = payload.target || "";
+      if (payload.reply_to) startReply(payload.reply_to);
+    }
     restoredSendOperation = newOperation ? null : { room, payload: { ...payload } };
   }
   autoGrow();
@@ -312,9 +318,15 @@ function renderAttachStrip() {
   }
 }
 
-async function send() {
-  const input = $("msg"); const text = input.value.trim();
-  const hasAttachments = state.pendingAttachments.length > 0;
+// The composer's Send and Enter.
+async function send() { return sendFrom(null); }
+// One send path for every place words are written. `box` is null for the
+// composer; a thread's reply box (threads.js) passes { input, replyTo }: its
+// own words, answering the thread's first message, with no target and none
+// of the composer's staged files.
+async function sendFrom(box) {
+  const input = box?.input || $("msg"); const text = input.value.trim();
+  const hasAttachments = !box && state.pendingAttachments.length > 0;
   if ((!text && !hasAttachments) || !state.room || sendInFlight) return;
   if (isWatchingDoor()) {
     addSys("you are watching from the door — take a seat to speak");
@@ -377,8 +389,8 @@ async function send() {
     return;
   }
   const room = state.room;
-  const replyTo = state.replyTo;
-  const target = $("target").value || null;
+  const replyTo = box ? box.replyTo : state.replyTo;
+  const target = box ? null : ($("target").value || null);
   const opId = sameRestoredOperation(room, text, replyTo, target)
     ? restoredSendOperation.payload.op_id
     : (globalThis.crypto?.randomUUID?.()
@@ -396,16 +408,17 @@ async function send() {
   // one authorized retry idempotent at the server.
   input.value = "";
   autoGrow();
-  clearReply();
+  if (!box) clearReply();
   setSendInFlight(true);
   // This message is its writer's. Once that person has signed out, nothing
   // here goes on for whoever sits down next: it is not sent again under their
   // session, and it is not put back into their composer. Checked after every
   // wait, because the sign-out can fall inside any of them.
   const gen = state.buildingGen;
+  const restore = (error, options = {}) => restoreSendDraft(room, payload, error, { ...options, box });
   const refuse = async (label, response) => {
     const why = await response.text();
-    if (!buildingStale(gen)) restoreSendDraft(room, payload, label + why);
+    if (!buildingStale(gen)) restore(label + why);
   };
   // What a refused post means, whichever attempt it was (the first, or the
   // one retried under a renewed session). False when the response is not a
@@ -421,8 +434,7 @@ async function send() {
       // and a new operation.
       const why = await response.text();
       if (!buildingStale(gen)) {
-        restoreSendDraft(
-          room, payload,
+        restore(
           `not sent: ${why}. Check the conversation: it may already be there. `
             + "Send again to post it as a new message.",
           { newOperation: true },
@@ -460,7 +472,7 @@ async function send() {
       if (refused && refused === state.session
           && (await r.text().catch(() => "")).trim() === "davet required for this loca") {
         if (buildingStale(gen)) return;
-        restoreSendDraft(room, payload, "you are no longer in this loca — you are still signed in");
+        restore("you are no longer in this loca — you are still signed in");
         return;
       }
       if (sessionTaking) {
@@ -477,27 +489,23 @@ async function send() {
         if (again.ok) {
           await acceptPostedMessage(again, room, gen);
           // The attachments waiting now may be the next person's.
-          if (!buildingStale(gen)) clearPendingAttachments();
+          if (!box && !buildingStale(gen)) clearPendingAttachments();
           return;
         }
         // The retry was answered in its own right: say what it said, not
         // "unauthorized".
         if (await settleRefusal(again)) return;
       }
-      restoreSendDraft(room, payload, "unauthorized — check the loca key");
+      restore("unauthorized — check the loca key");
       return;
     }
     if (await settleRefusal(r)) return;
     await acceptPostedMessage(r, room, gen);
     if (buildingStale(gen)) return;
-    clearPendingAttachments();
+    if (!box) clearPendingAttachments();
   } catch (e) {
     if (buildingStale(gen)) return;
-    restoreSendDraft(
-      room,
-      payload,
-      "send uncertain — message restored; retry is safe and will not duplicate",
-    );
+    restore("send uncertain — message restored; retry is safe and will not duplicate");
   } finally {
     setSendInFlight(false);
   }
@@ -591,7 +599,10 @@ async function doConnect(room) {
   // the master takes the next code from the server terminal; the root key
   // remains in the building's .env throughout.
   try { localStorage.setItem("loca-seat", JSON.stringify({
-    name: state.name, roomToken: state.roomToken, room: state.room || landingPending,
+    // The Lobby room is not remembered (rememberLastLoca): a reload there
+    // lands like a first sign-in, in a seat once one is given.
+    name: state.name, roomToken: state.roomToken,
+    room: (isLobbyRoom(state.room) ? null : state.room) || landingPending,
   })); } catch (e) {}
   // The seat is taken and (if the browser allowed it) remembered. A join
   // request that handed this key over waits for exactly this before it
@@ -627,10 +638,13 @@ async function landingRoom(wanted) {
   const open = room => rooms.some(rm => rm.room === room && !rm.archived);
   if (open(wanted)) return wanted;
   if (open(state.homeRoom)) return state.homeRoom;
-  const locas = rooms.filter(rm => !isDm(rm.room));
+  const locas = rooms.filter(rm => !isDm(rm.room) && !isLobbyRoom(rm.room));
   const first = orderedSidebarRooms(locas.filter(rm => !rm.archived))[0]
     || orderedSidebarRooms(locas)[0] || locas[0];
-  return first ? first.room : null;
+  if (first) return first.room;
+  // No seat yet: the Lobby room, where everyone lands first (PRINCIPLES
+  // "Lobby"); without it (an older server) the Lobby wait.
+  return open(LOBBY_ROOM) ? LOBBY_ROOM : null;
 }
 
 // The loca a reload, a restart or the next sign-in goes back to is the last
@@ -644,7 +658,8 @@ async function landingRoom(wanted) {
 // direct message is a conversation, not a loca to land in: being in one leaves the
 // last loca remembered.
 function rememberLastLoca(room) {
-  if (!room || isDm(room)) return;
+  // The Lobby room is where one waits, not a loca to come back to.
+  if (!room || isDm(room) || isLobbyRoom(room)) return;
   try {
     const seat = JSON.parse(localStorage.getItem("loca-seat") || "null");
     if (!seat || typeof seat !== "object" || seat.room === room) return;
@@ -750,6 +765,8 @@ function showLobbyWait(
   cancelReconnect();
   if (state.ws) { state.ws.onclose = null; state.ws.close(); state.ws = null; }
   state.room = null;
+  // The wait is said in the chat, as a loca's landing is (joinRoom).
+  if (state.tab === "home") switchTab("chat");
   state.members = [];
   setSidebarView("building");
   renderLocaSidebar();

@@ -202,13 +202,20 @@ pub(crate) async fn list_rooms(State(hub): State<Hub>, headers: HeaderMap) -> im
     // You see the locas you may enter — no more. An invite opens one loca, so it
     // lists one; the master (or building key) reaches the building, so it lists
     // all. This uses the same door decision as every other room-scoped read.
+    Json(hub.room_summaries_for(caller_reach(&hub, &headers)))
+}
+/// The caller's door, decided per loca: whether the credentials on this
+/// request may enter `room`. The credentials are resolved once; each loca is
+/// then judged by `enter_decision`, the single door decision. `GET /rooms`
+/// lists with it and `GET /search` reads with it, so the two cannot differ.
+pub(crate) fn caller_reach<'a>(hub: &'a Hub, headers: &HeaderMap) -> impl Fn(&str) -> bool + 'a {
     let session = headers
         .get(SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
         .and_then(|t| hub.session_identity(Some(t)));
-    let admin = admin_token_of(&headers).map(str::to_string);
-    let member = member_token_of(&headers).map(str::to_string);
-    Json(hub.room_summaries_for(|room| {
+    let admin = admin_token_of(headers).map(str::to_string);
+    let member = member_token_of(headers).map(str::to_string);
+    move |room: &str| {
         hub.enter_decision(
             room,
             admin.as_deref(),
@@ -217,7 +224,7 @@ pub(crate) async fn list_rooms(State(hub): State<Hub>, headers: HeaderMap) -> im
             None,
         )
         .is_allowed()
-    }))
+    }
 }
 /// `GET /building/bans` — who is barred from which loca, for every loca the
 /// caller may enter, in one request (the Building view used to ask each loca
@@ -576,6 +583,11 @@ pub(crate) async fn create_invite(
         Err(hub::InviteError::NotInGroup) => (
             StatusCode::FORBIDDEN,
             "not a member of this loca's group — add them to the group first",
+        )
+            .into_response(),
+        Err(hub::InviteError::Lobby) => (
+            StatusCode::CONFLICT,
+            "every member is already in the Lobby — it takes no davet",
         )
             .into_response(),
         Err(hub::InviteError::PrivatePair) => (

@@ -8,6 +8,7 @@ mod actor;
 mod attachments;
 mod attention;
 mod board_off;
+mod building_settings;
 mod content;
 mod dm;
 mod downloads;
@@ -19,6 +20,7 @@ mod loca_removal;
 mod membership;
 mod notifications;
 mod rooms;
+mod search;
 mod vault;
 mod wiki;
 mod work;
@@ -41,6 +43,7 @@ pub(crate) use attention::{
     ack_care, claim_attention, create_attention, list_attentions, report_runtime_health,
     resolve_attention,
 };
+pub(crate) use building_settings::{get_building_settings, put_building_settings};
 pub(crate) use content::{
     append_long_memory, caretaker_memory, create_note, delete_note, get_journal, get_loca_memory,
     get_loca_memory_snapshot, get_note, get_notes, get_reactions, list_long_memory_entries,
@@ -70,9 +73,9 @@ pub(crate) use membership::{
     create_admission_stock_route, create_join_request_route, create_pairing_route,
     create_profile_credential_route, create_session_route, create_smaster, delete_session_route,
     deny_join_request_route, get_admission_stock_route, get_join_request_route,
-    get_profile_preferences, list_building_ranks, list_join_requests_route, list_members,
-    list_profile_credentials, list_profiles, list_residents, list_smasters, pairing_ttl_ms,
-    profile_view, put_profile_card, put_profile_preferences, rename_profile_route,
+    get_profile_preferences, leave_building_route, list_building_ranks, list_join_requests_route,
+    list_members, list_profile_credentials, list_profiles, list_residents, list_smasters,
+    pairing_ttl_ms, profile_view, put_profile_card, put_profile_preferences, rename_profile_route,
     revoke_member_route, revoke_profile_credential_route, revoke_smaster_route,
     set_member_suspension_route, whoami, NAME_WORN_RULE,
 };
@@ -81,11 +84,12 @@ pub(crate) use notifications::{
     read_notification_route, send_notification_route, sent_notifications_route,
 };
 pub(crate) use rooms::{
-    actor_of, appoint_loca_operator_route, create_invite, create_loca_route, delete_room,
-    get_loca_operator, get_members, get_messages, get_mod, get_mode, get_settings,
+    actor_of, appoint_loca_operator_route, caller_reach, create_invite, create_loca_route,
+    delete_room, get_loca_operator, get_members, get_messages, get_mod, get_mode, get_settings,
     implicit_loca_refusal, list_building_bans, list_invites, list_rooms, moderate, post_typing,
     revoke_invite, revoke_loca_operator_route, room_decision_of, set_lead, set_mode, set_settings,
 };
+pub(crate) use search::search_building;
 pub(crate) use vault::{get_vault, get_vault_history, put_vault};
 pub(crate) use work::{
     clear_wait, create_goal, create_task, get_task, list_goals, list_tasks, list_waits, set_wait,

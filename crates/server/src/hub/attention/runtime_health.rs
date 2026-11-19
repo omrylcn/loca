@@ -178,7 +178,9 @@ impl Hub {
         // watchers are the building's own, not residents.
         let rooms = self.rooms.lock_or_recover();
         for (room, r) in rooms.iter() {
-            let private = dms.contains_key(room);
+            // The Lobby room is where one waits, not a loca one sits in: a
+            // member there is online, and "where" stays empty (Lobby).
+            let private = dms.contains_key(room) || room == crate::hub::LOBBY_ROOM;
             for (name, _, _) in r.members.values() {
                 if let Some(e) = by_name.get_mut(name) {
                     e.online = true;
