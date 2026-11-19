@@ -76,7 +76,8 @@ function appearanceOptionHtml(key, value, prefs) {
 
 function appearanceRowHtml(key, title, hint, prefs) {
   const labelId = `appearanceLabel-${key}`;
-  const options = APPEARANCE_CHOICES[key].map(value => appearanceOptionHtml(key, value, prefs)).join("");
+  const values = key === "theme" ? PICKED_THEMES : APPEARANCE_CHOICES[key];
+  const options = values.map(value => appearanceOptionHtml(key, value, prefs)).join("");
   const custom = key === "accent" ? customAccentHtml(prefs) : "";
   return `<div class="appearancerow" role="radiogroup" aria-labelledby="${labelId}">` +
     `<span id="${labelId}">${title}</span><div class="appearanceopts">${options}${custom}</div>` +
@@ -277,8 +278,19 @@ function profileRedrawMustWait(box, now) {
 $("whoami").addEventListener("toggle", event => {
   if (!event.target.matches?.("details.profilemenu")) return;
   if (event.target.open) {
-    const bottom = event.target.querySelector("summary")?.getBoundingClientRect().bottom || 0;
-    event.target.style.setProperty("--profile-top", `${Math.round(bottom + 6)}px`);
+    // The name stands at the foot of the sidebar: the sheet ends above it.
+    // A name near the top keeps the sheet below it. A phone's sheet is the
+    // whole screen.
+    const sheet = event.target.style;
+    sheet.removeProperty("--profile-top");
+    sheet.removeProperty("--profile-bottom");
+    const box = event.target.querySelector("summary")?.getBoundingClientRect();
+    if (!box || window.matchMedia("(max-width: 760px)").matches) return;
+    if (box.top > window.innerHeight / 2) {
+      sheet.setProperty("--profile-bottom", `${Math.round(window.innerHeight - box.top + 6)}px`);
+    } else {
+      sheet.setProperty("--profile-top", `${Math.round(box.bottom + 6)}px`);
+    }
     return;
   }
   if (profileRedrawWaiting) renderProfile();
@@ -328,9 +340,13 @@ function profileSummaryHtml(principal) {
   const card = cardOf(principal);
   // The avatar stands in the glyph's place; the label beside it is the name.
   const label = card ? { ...card, icon: "", avatar_color: "" } : null;
-  return `<summary aria-label="Open your account menu">` +
+  // Under the name: the Building rank when there is one, in its colour.
+  const role = state.profile?.building_role;
+  const rank = role === "master" ? "Master" : role === "smaster" ? "Smaster" : "";
+  const sub = rank ? `<small class="profilerank">${rank}</small>` : `<small>You · ${profileKindLabel(principal.kind)}</small>`;
+  return `<summary aria-label="Open your account menu"${rank ? ` data-rank="${role}"` : ""}>` +
     `<span class="profileidentity"><span class="profileglyph">${avatarHtml(card, principal.display_name, "sm")}</span>` +
-      `<span><b>${personLabelHtml(principal.display_name, label)}</b><small>You · ${profileKindLabel(principal.kind)}</small></span></span>` +
+      `<span><b>${personLabelHtml(principal.display_name, label)}</b>${sub}</span></span>` +
     `<span class="profilechevron" aria-hidden="true">›</span></summary>`;
 }
 

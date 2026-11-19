@@ -83,7 +83,8 @@ test("each new font, text size and density changes what it should, previewed in 
   expect(start.sampleSize).toBe("13px");
   expect(start.feedPadTop).toBe("14px");
 
-  const fonts = { Sans: "system-ui", Serif: "ui-serif", Mono: "ui-monospace" };
+  // Sans in the three themes is a named face (themes.css), not system-ui.
+  const fonts = { Sans: "Segoe UI", Serif: "ui-serif", Mono: "ui-monospace" };
   for (const [label, face] of Object.entries(fonts)) {
     const write = saved(page);
     await appearance.getByRole("radio", { name: label, exact: true }).check();
@@ -201,22 +202,28 @@ test("an old cached look and an old stored row keep their meaning", async ({ bro
   const old = { theme: "light", accent: "violet", density: "compact", font_size: "large" };
   const put = await request.put("/profile/preferences", { headers: { "x-admin-token": "MASTER" }, data: old });
   expect(put.ok()).toBeTruthy();
-  expect(await put.json()).toEqual({ ...old, font_family: "mono", accent_custom: "", layout: "bubbles", time_format: "auto", measure: "normal", own_tint: "on", motion: "system", ...SOUND_DEFAULTS });
+  // The face is whatever this principal's row already held (a test before
+  // may have picked one); a row that never named one reads as sans (the
+  // store's own test checks that).
+  const saved = await put.json();
+  expect(saved).toEqual({ ...old, font_family: saved.font_family, accent_custom: "", layout: "bubbles", time_format: "auto", measure: "normal", own_tint: "on", motion: "system", ...SOUND_DEFAULTS });
 
   const { context, page } = await newPage(browser);
   await context.addInitScript(cached => {
     try { localStorage.setItem("loca-appearance", JSON.stringify(cached)); } catch (e) {}
   }, old);
   await page.goto("/");
-  await expect(html(page)).toHaveAttribute("data-theme", "light");
+  // Light is read as its successor in the three themes, Calm.
+  await expect(html(page)).toHaveAttribute("data-theme", "calm");
   await expect(html(page)).toHaveAttribute("data-density", "compact");
   await expect(html(page)).toHaveAttribute("data-font-size", "large");
-  await expect(html(page)).toHaveAttribute("data-font-family", "mono");
+  // A face it does not name is today's: sans.
+  await expect(html(page)).toHaveAttribute("data-font-family", "sans");
   await signInAsMaster(page, request);
   const now = await look(page);
   expect(now.composerSize).toBe("15px");
   expect(now.feedPadTop).toBe("8px");
-  expect(now.bodyFont).toContain("ui-monospace");
+  expect(now.bodyFont).toContain(saved.font_family === "mono" ? "ui-monospace" : "Segoe UI");
   await context.close();
 });
 

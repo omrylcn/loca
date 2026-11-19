@@ -161,6 +161,13 @@ function applyLocaIdentity() {
   }
   $("curRoom").title = state.room && !isDm(state.room) && state.tab !== "people"
     ? locaIdNote(state.room) : "";
+  // A titled loca shows its id beside the title, as people type it.
+  const id = $("roomId");
+  if (id) {
+    const titled = !!(state.room && !isDm(state.room) && state.tab !== "people" && locaTitle(state.room));
+    id.textContent = titled ? `#${state.room}` : "";
+    id.classList.toggle("hidden", !titled);
+  }
   const desc = $("roomDesc");
   desc.textContent = s.description || "";
   desc.title = s.description || "";

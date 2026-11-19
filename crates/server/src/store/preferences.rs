@@ -151,13 +151,13 @@ impl Preferences {
     /// Read a stored row leniently: a value retired from the allow-list falls
     /// back to its default instead of breaking the whole document.
     fn from_stored(json: &str) -> Preferences {
-        // A saved row keeps the meaning it had when it was saved: a field it
-        // does not name meant the default of that time, the dark theme and
-        // the monospace face. Only someone with no saved row gets today's
-        // defaults (Loca, sans).
+        // A saved row keeps the theme it had when it was saved: a row that
+        // names none meant the dark theme of that time (the page reads it as
+        // Console). A face it does not name is today's, sans: the redesign
+        // reads in sans, and monospace stays for whoever picked it.
         let mut prefs = Preferences {
             theme: "dark".into(),
-            font_family: "mono".into(),
+            font_family: "sans".into(),
             ..Preferences::default()
         };
         if let Ok(serde_json::Value::Object(fields)) = serde_json::from_str(json) {

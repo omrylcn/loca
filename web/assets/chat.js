@@ -8,7 +8,7 @@ function reactionHtml(messageId) {
     const actors = reactionByMessage.get(reactionKey(messageId, emoji)) || [];
     if (!actors.length) return "";
     const mine = actors.includes(state.name);
-    return `<button type="button" class="reactionchip${mine ? " mine" : ""}" data-react="${messageId}" data-emoji="${emoji}" title="${esc(actors.join(", "))}">${emoji}<span>${actors.length}</span></button>`;
+    return `<button type="button" class="reactionchip${mine ? " mine" : ""}" data-react="${messageId}" data-emoji="${emoji}" aria-pressed="${mine}" title="${esc(actors.join(", "))}">${emoji}<span>${actors.length}</span></button>`;
   }).join("");
   return `<div class="reactions" data-reactions="${messageId}">${marks}</div>`;
 }
@@ -299,6 +299,8 @@ function addMsg(m) {
     + (m.kind === "reminder" ? " locareminder" : "")
     + (Number(state.pinned?.id) === Number(m.id) ? " pinned-source" : "");
   if (m.id) row.dataset.id = m.id;
+  // Who wrote it, for the row's edge (chatsurface.css): an agent, a person.
+  row.dataset.kind = m.sender_type === "agent" ? "agent" : "person";
   row.dataset.ts = String(Number(m.ts || 0));
   row.dataset.text = (m.sender + " " + m.text).toLowerCase();
 
@@ -420,7 +422,10 @@ function attachmentChip(room, a) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "attachchip";
-  btn.innerHTML = `<span class="aglyph">📎</span><span class="aname">${esc(a.name || a.id.slice(0, 8))}</span><span class="asize">${fmtBytes(a.size)}</span><span>↓ Download</span>`;
+  // The file's kind on its tile (PDF, PNG…), as the redesign draws a file.
+  const ext = (/\.([a-z0-9]{1,4})$/i.exec(a.name || "")?.[1] || "file").toLowerCase();
+  btn.dataset.ext = ext;
+  btn.innerHTML = `<span class="aglyph" aria-hidden="true">${esc(ext.toUpperCase())}</span><span class="aname">${esc(a.name || a.id.slice(0, 8))}</span><span class="asize">${fmtBytes(a.size)}</span><span>↓ Download</span>`;
   btn.title = `${esc(a.mime || "")}`;
   btn.setAttribute("aria-label", `Download ${a.name || "attachment"}`);
   btn.addEventListener("click", async () => {

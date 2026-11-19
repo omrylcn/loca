@@ -1,0 +1,239 @@
+/* ── the way in: sign-in, Help and the loca states, as the design boards ──
+   Boards: SignInLoca / SignIn (the sign-in page), SignInFlows (Master
+   pairing and a join request that waits), Help ("How Loca works"), States
+   (watching from the door) and Brand (the mark). Every colour is a theme
+   token, so Loca, Calm and Console each draw it in their own colours.
+   Plain selectors, no nesting (the desktop's WebKitGTK). Monospace where
+   the boards are (the wordmark, keys, an @name) is --font-mono, which stays
+   monospace whichever face the page reads in. The ids in the
+   selectors give these rules the weight to win over styles.css whatever
+   order the sheets load in; every control keeps its id and behaviour. */
+
+/* ── the mark: the table (a square in the brand colour), an agent above it
+   (*) and a person below it (●) ── */
+.mark { border-color: var(--brand); }
+
+/* ── the sign-in page: two halves, what loca is and the form ── */
+html body.locked { gap: 0; padding: 0; min-height: 100vh; height: auto; grid-template-rows: auto 1fr; align-content: stretch;
+  place-items: stretch; background: var(--bg); }
+html body.locked #signInHero { display: flex; flex-direction: column; justify-content: center; gap: 20px;
+  width: auto; min-width: 0; box-sizing: border-box; padding: 40px 20px 28px; border-bottom: 1px solid var(--line);
+  color: var(--txt); font-family: inherit; }
+html body.auth-pending #signInHero { visibility: hidden; }
+#signInHero .herobrand { display: none; align-items: center; gap: 12px; font: 600 26px var(--font-mono, var(--mono)); letter-spacing: 0;
+  color: var(--txt); }
+#signInHero .herobrand .mark { width: 17px; height: 17px; border-width: 2.4px; border-radius: 4px; margin: 13px 9px 11px; }
+#signInHero .herobrand .mark::before { top: -16px; font-size: 15px; }
+#signInHero .herobrand .mark::after { width: 5px; height: 5px; bottom: -10px; }
+#signInHero .herotitle { margin: 0; max-width: 540px; font-family: inherit; font-size: clamp(28px, 3.3vw, 42px);
+  line-height: 1.15; font-weight: 600; letter-spacing: 0; color: var(--txt); text-wrap: balance; }
+#signInHero .herochat { display: none; flex-direction: column; gap: 14px; max-width: 480px; padding: 18px;
+  box-sizing: border-box; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+#signInHero .herorow { display: flex; gap: 10px; }
+#signInHero .herorow p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--txt); }
+#signInHero .heroav { flex: none; width: 30px; height: 30px; box-sizing: border-box; display: grid; place-items: center; }
+#signInHero .heroav.human { border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--human) 40%, transparent);
+  background: color-mix(in srgb, var(--human) 12%, var(--panel)); color: var(--human); font-size: 11px; font-weight: 600; }
+#signInHero .heroav.agent { border-radius: 8px; border: 1.5px solid color-mix(in srgb, var(--agent) 40%, transparent);
+  background: color-mix(in srgb, var(--agent) 12%, var(--panel)); color: var(--agent); font: 700 16px var(--font-mono, var(--mono)); }
+#signInHero .heroto { padding: 1px 6px; border-radius: 5px; background: color-mix(in srgb, var(--agent) 12%, var(--panel));
+  color: var(--agent); font: 600 13px var(--font-mono, var(--mono)); }
+#signInHero .heroagent { font-weight: 600; color: var(--agent); }
+#signInHero .heropoints { display: none; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none;
+  font-size: 15px; line-height: 1.5; color: var(--muted); }
+#signInHero .herodot { color: var(--human); }
+#signInHero .herostar { font-family: var(--font-mono, var(--mono)); font-weight: 700; color: var(--agent); }
+html body.locked #signInHero .herosource { margin: 0; font-size: 12px; color: var(--dim); }
+html body.locked #signInHero .herosource a { color: var(--agent); }
+
+/* The form's half: the sidebar, which is all that is shown while locked,
+   drawn as a column of at most 380px in the middle of its half. The two
+   empty ends centre it while it fits; taller than the window it scrolls. */
+html body.locked #sidebar { position: static; transform: none; width: auto; height: auto; max-height: none;
+  box-sizing: border-box; padding: 32px 20px 48px; border: 0; border-radius: 0; box-shadow: none;
+  background: var(--panel); overflow: visible; }
+html body.locked #sidebar::before, html body.locked #sidebar::after { content: ""; flex: 0 0 0; }
+html body.locked #sidebar > * { width: 100%; max-width: 380px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
+html body.locked #sidebar > h1 { height: auto; padding: 0 0 22px; border-bottom: 0; font-size: 15px; letter-spacing: 0; }
+html body.locked #sidebar > h1 .brandlink { font: 600 15px var(--font-mono, var(--mono)); }
+html body.locked #sidebar > h1 #helpBtn { margin-left: auto; width: 32px; height: 32px; border: 1px solid var(--line);
+  border-radius: 50%; background: transparent; color: var(--muted); font-family: inherit; font-size: 14px; font-weight: 600; }
+html body.locked #sidebar > h1 #helpBtn:hover { color: var(--txt); border-color: var(--muted); }
+html body.locked #doorline { padding: 0; margin-top: 0; margin-bottom: 16px; font-size: 14px; line-height: 1.5; color: var(--muted); }
+html body.locked #doorline button { margin-top: 8px; }
+html body.locked #hostProvisionError { margin-top: 14px; font-size: 13px; }
+
+@media (min-width: 980px) {
+  html body.locked { grid-template-columns: minmax(0, 13fr) minmax(420px, 10fr); grid-template-rows: none; column-gap: 0;
+    height: 100vh; justify-content: stretch; align-items: stretch; }
+  html body.locked #signInHero .herobrand { display: flex; }
+  html body.locked #sidebar::before, html body.locked #sidebar::after { flex: 1 1 0; }
+  html body.locked #signInHero { gap: 28px; padding: 64px max(32px, 7%); border-bottom: 0; border-right: 1px solid var(--line);
+    overflow-y: auto; }
+  html body.locked #signInHero .herochat, html body.locked #signInHero .heropoints { display: flex; }
+  html body.locked #sidebar { height: 100vh; padding: 48px 24px; overflow-y: auto; }
+}
+
+/* The form. */
+html body.locked #connBox { flex-direction: column; gap: 0; padding: 0; border: 0; overflow: visible; }
+html body.locked #connBox #signInTitle { margin: 0 0 18px; font-family: inherit; font-size: 26px; font-weight: 600;
+  line-height: 1.2; letter-spacing: 0; color: var(--txt); }
+html body.locked #connBox #memberEntry, html body.locked #connBox #masterEntry { display: flex; flex-direction: column; gap: 0; }
+html body.locked #connBox label { display: block; margin: 18px 0 6px; font-family: inherit; font-size: 14px; font-weight: 500;
+  letter-spacing: 0; text-transform: none; color: var(--txt); }
+html body.locked #connBox #memberEntry > label:first-child { margin-top: 0; }
+html body.locked #connBox input, html body.locked #connBox select { box-sizing: border-box; width: 100%; height: 46px;
+  min-height: 46px; margin: 0; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  color: var(--txt); font-family: inherit; font-size: 15px; }
+html body.locked #connBox select { cursor: pointer; }
+:root[data-scheme="light"] body.locked #connBox select { color-scheme: light; }
+html body.locked #connBox input::placeholder { color: var(--dim); }
+html body.locked #connBox input:focus-visible, html body.locked #connBox select:focus-visible { outline: none;
+  border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+html body.locked #connBox #roomToken { font-family: var(--font-mono, var(--mono)); }
+html body.locked #connBox .devnote { margin: 6px 0 0; text-align: left; font-size: 13px; line-height: 1.5; color: var(--dim); }
+
+/* Continue: the one ink button. Its words stay the page's own (app.js);
+   the board starts them with a capital. */
+html body.locked #connBox #connectBtn, html body.locked #connBox #connectBtn.off { width: 100%; height: 46px; min-height: 46px;
+  margin: 18px 0 0; padding: 0 16px; border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent);
+  font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer; transition: filter .15s, transform .05s; }
+html body.locked #connBox #connectBtn::first-letter { text-transform: uppercase; }
+html body.locked #connBox #connectBtn:hover { filter: brightness(1.1); }
+html body.locked #connBox #connectBtn:active { transform: translateY(1px); }
+
+/* The other ways in, as links under a line. */
+html body.locked #connBox .entrylinks { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; padding-top: 12px;
+  border-top: 1px solid var(--line); }
+html body.locked #connBox #masterEntryButton, html body.locked #connBox #joinRequestBtn { width: auto; min-height: 0;
+  margin: 0; padding: 2px 0; align-self: flex-start; border: 0; border-radius: 0; background: none; color: var(--agent);
+  font-family: inherit; font-size: 14px; font-weight: 400; text-align: left; cursor: pointer; }
+html body.locked #connBox #masterEntryButton:hover, html body.locked #connBox #joinRequestBtn:hover { text-decoration: underline;
+  color: var(--txt); }
+:root[data-theme="calm"] body.locked #connBox #masterEntryButton,
+:root[data-theme="calm"] body.locked #connBox #joinRequestBtn { color: var(--accent); }
+#connBox .entrygold { color: var(--gold); }
+html body.locked #connBox .joinreq { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; border: 0; }
+html body.locked #connBox .joinreq .devnote { margin-top: 0; }
+html body.locked #connBox #doorNote { margin-top: 14px; }
+
+/* Master: sign in with a pairing code (board SignInFlows). */
+#connBox .entrykicker { margin: 0; font-size: 13px; color: var(--muted); }
+#masterEntry .entrykicker { margin-top: -12px; margin-bottom: 10px; color: var(--gold); font-weight: 600; }
+#connBox .entrylead { margin: 0 0 4px; font-size: 15px; line-height: 1.55; color: var(--muted); }
+html body.locked #connBox #pairingCode { height: 48px; font-family: var(--font-mono, var(--mono)); font-size: 18px; letter-spacing: .06em; }
+html body.locked #connBox[data-entry="master"] #masterEntryButton { color: var(--muted); }
+
+/* A join request that waits (board SignInFlows, "Asked to join"). */
+#humanJoinRequest .jrwait, #humanJoinRequest .jrsteps { display: none; }
+html body.locked #connBox #humanJoinRequest[data-phase="waiting"],
+html body.locked #connBox #humanJoinRequest[data-phase="approved"] { gap: 14px; margin-top: 6px; padding: 20px;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+#humanJoinRequest[data-phase="waiting"] .jrwait, #humanJoinRequest[data-phase="approved"] .jrwait { display: flex;
+  flex-direction: column; gap: 8px; }
+#humanJoinRequest[data-phase="waiting"] .jrsteps, #humanJoinRequest[data-phase="approved"] .jrsteps { display: flex; }
+#humanJoinRequest[data-phase="waiting"] .jrnote, #humanJoinRequest[data-phase="approved"] .jrnote { display: none; }
+#humanJoinRequest .jrtitle { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.25; color: var(--txt); }
+#humanJoinRequest .jrlead { margin: 0; font-size: 15px; line-height: 1.55; color: var(--muted); }
+#humanJoinRequest .jrlead b { font-weight: 600; color: var(--txt); }
+html body.locked #connBox #humanJoinRequest[data-phase="waiting"] #joinRequestStatus,
+html body.locked #connBox #humanJoinRequest[data-phase="approved"] #joinRequestStatus { display: flex; align-items: center; gap: 12px;
+  margin: 0; padding: 14px; border-radius: 12px; background: var(--panel2); font-size: 14px; color: var(--txt); }
+#humanJoinRequest[data-phase="waiting"] #joinRequestStatus::before,
+#humanJoinRequest[data-phase="approved"] #joinRequestStatus::before { content: ""; flex: none; width: 12px; height: 12px;
+  box-sizing: border-box; border-radius: 50%; border: 2px solid var(--gold); border-top-color: transparent;
+  animation: entryspin 1s linear infinite; }
+@keyframes entryspin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  #humanJoinRequest #joinRequestStatus::before { animation: none; }
+}
+#humanJoinRequest .jrsteps { flex-direction: column; gap: 6px; margin: 0; padding-left: 20px; font-size: 14px; color: var(--muted); }
+#humanJoinRequest .jrsteps li.done { color: var(--dim); text-decoration: line-through; }
+#humanJoinRequest .jrsteps li.now { font-weight: 600; color: var(--txt); }
+#humanJoinRequest[data-phase="approved"] .jrsteps li.now { font-weight: 400; color: var(--dim); text-decoration: line-through; }
+#humanJoinRequest[data-phase="approved"] .jrsteps li:last-child { font-weight: 600; color: var(--txt); }
+
+/* Advanced: the server address, folded away until it is the thing to fix. */
+#connBox .signinadvanced { margin-top: 14px; font-size: 13px; color: var(--muted); }
+#connBox .signinadvanced summary { cursor: pointer; }
+#connBox .signinadvanced summary:hover { color: var(--txt); }
+html body.locked #connBox .signinadvanced label { margin: 10px 0 6px; font-size: 13px; }
+html body.locked #connBox .signinadvanced input { height: 40px; min-height: 40px; font-family: var(--font-mono, var(--mono)); font-size: 13px; }
+
+/* ── Help: "How Loca works" ── */
+:root[data-scheme="light"] #gsBackdrop { background: color-mix(in srgb, var(--txt) 34%, transparent); }
+#gsOverlay .gscard { box-sizing: border-box; width: min(900px, 100%); max-height: 90vh; padding: 0; border: 1px solid var(--line);
+  border-radius: 16px; background: var(--panel); color: var(--txt); font-family: inherit;
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--txt) 22%, transparent); }
+#gsOverlay .gshead { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px; padding: 18px 24px;
+  border-bottom: 1px solid var(--line); background: var(--panel); }
+#gsOverlay .gsheadtext { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#gsOverlay .gskicker { font-size: 12px; color: var(--dim); }
+#gsOverlay #gsTitle { margin: 0; font-family: inherit; font-size: 20px; font-weight: 600; letter-spacing: 0; color: var(--txt); }
+#gsOverlay #gsClose { position: static; flex: none; width: 36px; height: 36px; margin-left: auto; padding: 0; border: 0;
+  border-radius: 8px; background: none; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; }
+#gsOverlay #gsClose:hover { color: var(--txt); background: var(--panel2); }
+#gsOverlay .gsbody { padding: 22px 24px; font-size: 14px; }
+#gsOverlay .gslede { margin: 0 0 18px; font-size: 15px; line-height: 1.55; color: var(--muted); }
+#gsOverlay .gshow { margin-bottom: 22px; }
+#gsOverlay .gshowsteps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+#gsOverlay .gshowstep { display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--bg); }
+#gsOverlay .gshownum { font: 600 13px var(--font-mono, var(--mono)); color: var(--dim); }
+#gsOverlay .gshowstep h3 { margin: 0; font-size: 16px; font-weight: 600; color: var(--txt); }
+#gsOverlay .gshowstep p { margin: 0; font-size: 14px; line-height: 1.55; color: var(--muted); }
+#gsOverlay .gshowat { font: 600 13px var(--font-mono, var(--mono)); color: var(--agent); }
+#gsOverlay .gswords { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
+#gsOverlay .gswords h3 { margin: 0; font-size: 15px; font-weight: 600; color: var(--txt); }
+#gsOverlay .gswords dl { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px 16px; margin: 0;
+  font-size: 14px; line-height: 1.5; }
+#gsOverlay .gswords dt { font-weight: 600; color: var(--txt); }
+#gsOverlay .gswords dd { margin: 0; color: var(--muted); }
+#gsOverlay .gswords .gsstar { font-family: var(--font-mono, var(--mono)); color: var(--agent); }
+#gsOverlay .gswords .gscare { color: var(--iye); }
+#gsOverlay .gssteps li { font-size: 14px; line-height: 1.55; }
+#gsOverlay .gsmap figcaption, #gsOverlay .gsmore summary, #gsOverlay .gsmapwords li { font-size: 13px; }
+#gsOverlay .gsdoclink { font-size: 13px; }
+#gsOverlay .gsdoclink a { color: var(--agent); }
+#gsOverlay .gstabs { gap: 4px; margin: 0 0 18px; }
+#gsOverlay .gstab { padding: 8px 12px; font-family: inherit; font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
+#gsOverlay .gstab.on { color: var(--txt); border-bottom-color: var(--accent); }
+#gsOverlay .gsfoot { margin-top: 22px; padding-top: 16px; }
+#gsOverlay .gshint { font-size: 12px; }
+#gsOverlay .gshint b { color: var(--txt); }
+#gsOverlay #gsGot { height: 38px; padding: 0 18px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent);
+  font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+#gsOverlay #gsGot:hover { filter: brightness(1.1); }
+/* The client view: the map beside the steps, where there is room. */
+@media (min-width: 760px) {
+  #gsOverlay:not(.as-host) .gs-client { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 24px;
+    align-items: start; }
+  #gsOverlay:not(.as-host) .gs-client > * { grid-column: 1 / -1; }
+  #gsOverlay:not(.as-host) .gs-client > #gsMapClient { grid-column: 1; }
+  #gsOverlay:not(.as-host) .gs-client > .gssteps { grid-column: 2; }
+}
+@media (max-width: 720px) {
+  #gsOverlay .gshowsteps { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  #gsOverlay .gswords dl { grid-template-columns: 96px minmax(0, 1fr); gap: 8px 12px; }
+}
+@media (max-width: 520px) {
+  #gsOverlay .gshead { padding: 14px 16px; }
+  #gsOverlay .gsbody { padding: 16px; }
+}
+
+/* ── States: watching a loca from the door (board States, "Viewing, not
+   joined"), and a seat open somewhere else ── */
+#doorBar, #evictedBar { gap: 10px 12px; margin: 0 16px 10px; padding: 10px 12px 10px 16px; border: 0; border-radius: 12px;
+  font-size: 14px; line-height: 1.45; }
+#doorBar { background: color-mix(in srgb, var(--agent) 12%, var(--panel)); color: var(--txt); }
+#doorBar > span { position: relative; flex: 1 1 260px; padding-left: 24px; }
+#doorBar > span::before { content: ""; position: absolute; left: 0; top: .2em; width: 16px; height: 16px; background: var(--agent);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center / contain no-repeat; }
+#evictedBar { background: color-mix(in srgb, var(--warn) 10%, var(--panel)); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  color: var(--txt); }
+#evictedBar > span { flex: 1 1 260px; }
+#doorBar b, #evictedBar b { color: var(--txt); font-weight: 600; }
+#doorBar button, #evictedBar button { height: 36px; padding: 0 14px; border: 0; border-radius: 8px; background: var(--accent);
+  color: var(--on-accent); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+#doorBar button:hover, #evictedBar button:hover { filter: brightness(1.1); }

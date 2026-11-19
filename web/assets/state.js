@@ -569,6 +569,9 @@ async function refreshRooms() {
 
 function showServerUnreachable() {
   setLocked(true);
+  // The address is the thing to change: open the form's Advanced part.
+  const advanced = $("serverAdvanced");
+  if (advanced) advanced.open = true;
   $("doorline").textContent = `cannot reach ${serverBase()} — check the server address.`;
 }
 

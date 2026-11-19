@@ -125,6 +125,11 @@ const WEB_ADDRESSING: &str = include_str!("../../../web/assets/addressing.js");
 const WEB_LOCAINFO: &str = include_str!("../../../web/assets/locainfo.js");
 const WEB_ADDRESSING_STYLES: &str = include_str!("../../../web/assets/addressing.css");
 const WEB_CHATSURFACE_STYLES: &str = include_str!("../../../web/assets/chatsurface.css");
+const WEB_PAGE_CHROME_STYLES: &str = include_str!("../../../web/assets/page-chrome.css");
+const WEB_PAGE_ENTRY_STYLES: &str = include_str!("../../../web/assets/page-entry.css");
+const WEB_PAGE_PEOPLE_STYLES: &str = include_str!("../../../web/assets/page-people.css");
+const WEB_PAGE_MANAGE_STYLES: &str = include_str!("../../../web/assets/page-manage.css");
+const WEB_PAGE_CONTENT_STYLES: &str = include_str!("../../../web/assets/page-content.css");
 const WEB_NOTIFICATIONS: &str = include_str!("../../../web/assets/notifications.js");
 const WEB_SOUNDS: &str = include_str!("../../../web/assets/sounds.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.tr.md");
@@ -885,6 +890,11 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "locainfo.js" => Some(("text/javascript; charset=utf-8", WEB_LOCAINFO)),
         "addressing.css" => Some(("text/css; charset=utf-8", WEB_ADDRESSING_STYLES)),
         "chatsurface.css" => Some(("text/css; charset=utf-8", WEB_CHATSURFACE_STYLES)),
+        "page-chrome.css" => Some(("text/css; charset=utf-8", WEB_PAGE_CHROME_STYLES)),
+        "page-entry.css" => Some(("text/css; charset=utf-8", WEB_PAGE_ENTRY_STYLES)),
+        "page-people.css" => Some(("text/css; charset=utf-8", WEB_PAGE_PEOPLE_STYLES)),
+        "page-manage.css" => Some(("text/css; charset=utf-8", WEB_PAGE_MANAGE_STYLES)),
+        "page-content.css" => Some(("text/css; charset=utf-8", WEB_PAGE_CONTENT_STYLES)),
         "notifications.js" => Some(("text/javascript; charset=utf-8", WEB_NOTIFICATIONS)),
         "sounds.js" => Some(("text/javascript; charset=utf-8", WEB_SOUNDS)),
         _ => None,

@@ -147,7 +147,12 @@ function renderDmBar() {
   const bar = $("dmBar");
   if (!bar) return;
   const inside = isDm(state.room);
-  document.querySelector(".main").classList.toggle("dm", inside);
+  const main = document.querySelector(".main");
+  main.classList.toggle("dm", inside);
+  // Care (the Building's rank home) and a private conversation each wear
+  // their own header (page-manage.css); the other side's kind shapes its face.
+  main.classList.toggle("carehome", !inside && typeof isRankHome === "function" && isRankHome(state.room));
+  main.dataset.dmPeer = inside ? (dmOf(state.room)?.peer_kind || "") : "";
   bar.classList.toggle("hidden", !inside);
   if (!inside) return;
   if ($("target")) $("target").value = "";

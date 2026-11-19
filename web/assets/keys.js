@@ -84,8 +84,8 @@ function renderKeyLedger() {
       ? `<button type="button" class="btn danger" data-key-revoke="${esc(k.id)}" data-key-label="${esc(KEY_KIND_LABEL[k.kind])} ${esc(k.fingerprint)}">Revoke</button>`
       : "";
     return `<div class="keyrow">` +
-      `<span class="keykind"><b>${esc(KEY_KIND_LABEL[k.kind] || k.kind)}</b><code>${esc(k.fingerprint)}</code></span>` +
       `<span class="keywho">${whom}</span>` +
+      `<span class="keykind"><b>${esc(KEY_KIND_LABEL[k.kind] || k.kind)}</b><code>${esc(k.fingerprint)}</code></span>` +
       `<span class="keydates">issued ${esc(keyWhen(k.issued_at))}${k.issued_by ? ` by ${esc(k.issued_by)}` : ""}<br>${useBy}${useBy && used ? " · " : ""}<span class="keydim">${used}</span></span>` +
       `<span class="keystate state-${esc(k.state)}">${esc(KEY_STATE_LABEL[k.state] || k.state)}</span>` +
       `<span class="pacts">${act}</span></div>`;
@@ -94,7 +94,9 @@ function renderKeyLedger() {
     ? `<div class="bbempty keyledgererror" role="alert">The key ledger could not be loaded.${rows.length ? " What is shown may be out of date." : ""}</div>`
     : "";
   box.innerHTML =
-    `<div class="bbhead"><b>Key generator</b>` +
+    `<div class="bbhead"><h2 class="bbtitle">Keys</h2><span class="bbtag">Master only</span>` +
+    `<small>Every key that can open this building. Keys are never shown again; you can end one.</small></div>` +
+    `<div class="keygenhead"><b>Key generator</b>` +
     `<small>Generate a key, copy it once, and every key ever generated stays recorded below.</small></div>` +
     `<form class="keyform" id="keyForm" autocomplete="off">` +
       `<select id="keyKind" aria-label="Kind of key">` +
@@ -108,7 +110,9 @@ function renderKeyLedger() {
     `<div class="keylisthead">Generated keys <span>${state.keyLedger.length}</span> <small>for whom, when, until when, and what became of each — only the first characters are kept</small></div>` +
     `<div class="keyfilters" role="group" aria-label="Filter keys">` +
       filters.map(([v, l]) => `<button type="button" class="chip${state.keyFilter === v ? " on" : ""}" data-key-filter="${v}">${l}</button>`).join("") +
-    `</div>${unread}${body}`;
+    `</div>${unread}` +
+    (rows.length ? `<div class="keyhead" aria-hidden="true"><span>Belongs to</span><span>Kind</span><span>Issued · last used</span><span>State</span><span></span></div>` : "") +
+    body;
   syncKeyForm();
 }
 
@@ -153,9 +157,12 @@ async function issueKey(event) {
       ? `They choose Smaster at sign-in and type their own name. Use within 7 days (by ${esc(keyWhen(k.use_by))}); once used it works until revoked.`
       : `Use it once, by ${esc(keyWhen(k.use_by))}. The session it opens lasts ${k.session_hours} hours. Any earlier unused Master key stopped working.`;
     showIssued(
-      `<div><b>Key ${who}</b> — copy it now; it will not be shown again.</div>` +
-      `<div class="keysecret"><code id="keySecret">${esc(k.code)}</code><button type="button" class="btn" data-key-copy>Copy</button></div>` +
-      `<div class="keydim">${life} Send it to the person directly, never in a shared channel.</div>`);
+      `<span class="keyonce">Shown once — copy it now; it will not be shown again.</span>` +
+      `<b class="keyfor">Key ${who}</b>` +
+      `<div class="keydim">${life} Send it to the person directly, never in a shared channel.</div>` +
+      `<div class="keysecret"><code id="keySecret">${esc(k.code)}</code><button type="button" class="btn primary" data-key-copy>Copy</button></div>` +
+      `<div class="keywarn">This is the only time it is shown. Never paste it into a loca: everyone at the table would read it.</div>` +
+      `<div class="keydone"><button type="button" class="btn primary" data-key-done>I've sent it</button></div>`);
   }
   if (kind === "smaster") $("keyName").value = "";
   await fetchKeyLedger();
@@ -165,6 +172,12 @@ async function issueKey(event) {
 async function keyLedgerClick(event) {
   const filter = event.target.closest("[data-key-filter]");
   if (filter) { state.keyFilter = filter.dataset.keyFilter; renderKeyLedger(); return; }
+  if (event.target.closest("[data-key-done]")) {
+    const issued = $("keyIssued");
+    issued.innerHTML = "";
+    issued.classList.add("hidden");
+    return;
+  }
   if (event.target.closest("[data-key-copy]")) {
     const code = $("keySecret")?.textContent || "";
     const button = event.target.closest("[data-key-copy]");

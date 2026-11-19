@@ -10,9 +10,19 @@ async function fetchJournal() {
   } catch (e) { /* offline; the WS frame will fill it in */ }
 }
 
+// Live task and goal frames that arrive while a read of the lists is on its
+// way. The read's answer is older than they are, so they are laid over it
+// instead of being wiped by it.
+const liveDuringRead = new Set();
+function noteLiveFrame(kind, item) {
+  for (const live of liveDuringRead) live[kind][item.id] = item;
+}
+
 async function fetchTasks() {
   const room = state.room;
   if (!room) return;
+  const live = { tasks: {}, goals: {} };
+  liveDuringRead.add(live);
   try {
     // Goals are Focus's and tasks the Loca Board's; attentions and waits are
     // care and stay on in every loca.
@@ -34,13 +44,18 @@ async function fetchTasks() {
     if (state.room !== room) return;
     state.tasks = {};
     for (const t of list) state.tasks[t.id] = t;
+    Object.assign(state.tasks, live.tasks);
     state.goals = {};
     for (const goal of goals) state.goals[goal.id] = goal;
+    Object.assign(state.goals, live.goals);
     state.attentions = {};
     for (const attention of attentions) state.attentions[attention.id] = attention;
     state.waits = {};
     for (const wait of waits) state.waits[wait.waiter] = wait;
-  } catch (e) {}
+  } catch (e) {
+  } finally {
+    liveDuringRead.delete(live);
+  }
   if (state.room !== room) return;
   markLocaContextReady("goals", room);
   refreshTaskBadges();
@@ -128,6 +143,25 @@ function refreshTaskBadges() {
 /// Bans are per-loca, so without this the master had to walk into each room to
 /// remember who was barred where — and a ban nobody can find is a ban nobody
 /// can lift.
+// Whether a name seated in this loca (here or away) is an agent's. Only for
+// how a name is drawn: a star for an agent, a dot for a person.
+function nameIsAgent(name) {
+  if (!name) return false;
+  const members = [...(state.members || []), ...(state.seatedAway || [])];
+  return members.some(m => m.name === name && (m.type || m.kind) === "agent");
+}
+
+// A day in a running sentence: "today", "yesterday" or "3 March".
+function dayInLine(ts) {
+  const day = dayLabel(ts);
+  return day === "Today" || day === "Yesterday" ? day.toLowerCase() : day;
+}
+
+// "since 11:07" today, "since yesterday", or "since 3 March" further back.
+function sinceLabel(ts) {
+  return dayLabel(ts) === "Today" ? fmtTime(ts) : dayInLine(ts);
+}
+
 function renderJournal() {
   const box = $("journalList");
   if (!state.journal.length) {
@@ -135,18 +169,24 @@ function renderJournal() {
     return;
   }
   // Newest first: the last thing that happened is the thing you came to read.
+  // Each day is a heading and a list; each entry wears its writer's face.
   const rows = [...state.journal].sort((a, b) => b.id - a.id);
   let html = "", day = "";
   for (const e of rows) {
-    const d = new Date(e.at);
-    const label = d.toDateString();
-    if (label !== day) { day = label; html += `<div class="jday">${esc(dayLabel(e.at))}</div>`; }
-    const t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const glyph = e.by_type === "agent" ? "*" : ".";
-    html += `<div class="jrow"><span class="jwho">${glyph}${esc(e.by)}</span>` +
-            `<span class="jtxt">${esc(e.text)}</span><span class="jat">${t}</span></div>`;
+    const label = new Date(e.at).toDateString();
+    if (label !== day) {
+      if (day) html += `</ol>`;
+      day = label;
+      html += `<h2 class="jday">${esc(dayLabel(e.at))}</h2><ol class="jlist">`;
+    }
+    const agent = e.by_type === "agent";
+    html += `<li class="jrow ${agent ? "agent" : "person"}">` +
+            `<span class="jface">${faceHtml(e.by, agent ? "agent" : "user", null)}</span>` +
+            `<div class="jmain"><div class="jline"><b class="jwho">${agent ? "* " : ""}${esc(e.by)}</b>` +
+            `<span class="jat" title="${esc(fmtFull(e.at))}">${esc(fmtTime(e.at))}</span></div>` +
+            `<p class="jtxt">${esc(e.text)}</p></div></li>`;
   }
-  box.innerHTML = html;
+  box.innerHTML = html + `</ol>`;
 }
 
 function renderTasks() {
@@ -156,7 +196,8 @@ function renderTasks() {
   $("goalBar").classList.toggle("hidden", !activeGoal);
   if (!activeGoal) {
     $("goalCard").innerHTML = "";
-    $("goalPanelCard").innerHTML = `<span>No room goal yet.</span>${isLocaOperator() ? `<button data-goal-prefill>Set with @goal</button>` : ""}`;
+    $("goalPanelMeta").textContent = "";
+    $("goalPanelCard").innerHTML = `<span class="goalempty">No room goal yet.</span>${isLocaOperator() ? `<span class="goalacts"><button data-goal-prefill>Set with @goal</button></span>` : ""}`;
   } else {
     const acts = isLocaOperator()
       ? `<button data-gact="edit" data-gid="${activeGoal.id}">edit</button><button data-gact="achieve" data-gid="${activeGoal.id}">done</button><button data-gact="cancel" data-gid="${activeGoal.id}">remove</button>`
@@ -164,7 +205,10 @@ function renderTasks() {
     const proof = activeGoal.checkpoint
       ? `<span class="goalproof" title="Success proof: ${esc(activeGoal.checkpoint)}">✓ ${esc(activeGoal.checkpoint)}</span>` : "";
     $("goalCard").innerHTML = `<span class="goallabel">Room goal</span><span class="goaloutcome" title="${esc(activeGoal.outcome)}">${esc(activeGoal.outcome)}</span>${proof}<span class="tacts">${acts}</span>`;
-    $("goalPanelCard").innerHTML = `<span><b>${esc(activeGoal.outcome)}</b>${activeGoal.checkpoint ? `<small style="display:block;color:var(--dim);margin-top:3px">Proof: ${esc(activeGoal.checkpoint)}</small>` : ""}</span>${isLocaOperator() ? `<button data-goal-prefill>Edit with @goal</button>` : ""}`;
+    $("goalPanelMeta").textContent = [activeGoal.created_by ? `set by ${activeGoal.created_by}` : "",
+      activeGoal.created_at ? dayInLine(activeGoal.created_at) : ""].filter(Boolean).join(" · ");
+    $("goalPanelCard").innerHTML = `<span class="goalbody"><b class="goaltext">${esc(activeGoal.outcome)}</b>${activeGoal.checkpoint ? `<small class="goalproofline">Proof: ${esc(activeGoal.checkpoint)}</small>` : ""}</span>`
+      + (isLocaOperator() ? `<span class="goalacts"><button data-goal-prefill>Change goal</button><button data-goal-reach="${activeGoal.id}">Mark as reached</button></span>` : "");
   }
   // Everyone can see which reminders are active and who receives them; only
   // the master can change the rules.
@@ -175,7 +219,13 @@ function renderTasks() {
   const waits = Object.values(state.waits).sort((a, b) => a.waiter.localeCompare(b.waiter));
   $("waitSection").classList.toggle("hidden", waits.length === 0);
   $("waitList").innerHTML = waits.length
-    ? waits.map(w => `<div class="sysline">⏳ <b>${esc(w.waiter)}</b> is waiting for <b>${esc(w.waiting_for)}</b>${w.reason ? ` — ${esc(w.reason)}` : ""}${isLocaOperator() ? ` <button data-clearwait="${esc(w.waiter)}">Clear</button>` : ""}</div>`).join("")
+    ? waits.map(w => {
+      const mark = nameIsAgent(w.waiter)
+        ? `<span class="waitmark pagestar" aria-hidden="true">*</span>`
+        : `<span class="waitmark waitdot" aria-hidden="true"></span>`;
+      const since = w.since ? `<span class="waitsince" title="${esc(fmtFull(w.since))}">since ${esc(sinceLabel(w.since))}</span>` : "";
+      return `<div class="sysline waitrow">${mark}<span class="waittext"><span class="waitwho">${esc(w.waiter)}</span> is waiting for <b>${esc(w.waiting_for)}</b>${w.reason ? ` — ${esc(w.reason)}` : ""}</span>${since}${isLocaOperator() ? `<button data-clearwait="${esc(w.waiter)}">Clear</button>` : ""}</div>`;
+    }).join("")
     : "";
   // The tasks are the Loca Board's tab; Focus keeps one line about them.
   renderBoardTab();
@@ -298,6 +348,10 @@ function switchTab(tab) {
   $("feed").classList.toggle("hidden", !chat);
   $("composer").classList.toggle("hidden", !chat);
   $("hint").classList.toggle("hidden", !chat);
+  // Who a message reaches is a line of the composer: only where it is.
+  $("addressLine")?.classList.toggle("hidden", !chat);
+  // The Building view is not a loca's: This Loca steps aside (locainfo.js).
+  if (typeof placeLocaInfo === "function") placeLocaInfo();
   renderPinned(); // the pinned bar shows only on the chat tab
   $("notesPanel").classList.toggle("hidden", tab !== "notes");
   $("tasksPanel").classList.toggle("hidden", tab !== "tasks");
@@ -327,3 +381,10 @@ function switchTab(tab) {
 }
 
 /* ---- notes ---- */
+
+// "Mark as reached" on the Focus goal card: the same act as the goal line's
+// "done" (goalAct), offered where the goal is read in full.
+$("goalPanelCard").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-goal-reach]");
+  if (b) goalAct("achieve", Number(b.dataset.goalReach));
+});

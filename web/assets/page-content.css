@@ -1,0 +1,212 @@
+/* ── the content pages of the redesign: Notes, Journal, Loca Wiki, Vault
+   and Focus (the goal) ─────────────────────────────────────────────────
+   Read from the design boards. The page is var(--bg); a card is raised in
+   var(--panel) with a var(--line) border and 12px corners. Agents are
+   blue with a *, people green. Only the theme tokens are used, so Loca,
+   Calm and Console all read the same way. Each rule names its panel by id:
+   it outweighs the older .note/.jrow/.wiki* rules in styles.css whatever
+   order the files load in. Plain selectors only (no nesting): the desktop
+   webview may not read nested CSS. Keys and times stay monospace through
+   --font-mono, since --mono is the reading face when the sans face is
+   chosen. */
+
+/* ── shared ── */
+#notesPanel, #journalPanel, #tasksPanel, #vaultPanel { padding: 24px 28px 40px; font-size: 15px; }
+#journalPanel > *, #tasksPanel > * { max-width: 860px; }
+#tasksPanel > * { flex-shrink: 0; }
+#notesPanel .pageintro, #journalPanel .pageintro { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); max-width: 60ch; }
+#journalPanel .pageintro { margin-bottom: 18px; }
+#notesPanel .pageintrorow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+#notesPanel .pageintrorow .pageintro { flex: 1 1 320px; }
+#notesPanel .pageprimary { margin-left: auto; height: 38px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+#notesPanel .pageprimary:hover { filter: brightness(1.08); }
+#notesPanel .pagetitle, #tasksPanel .pagetitle, #vaultPanel .pagetitle { margin: 0; font-size: 16px; font-weight: 600; color: var(--txt); letter-spacing: 0; text-transform: none; }
+#tasksPanel .pagekicker { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0; text-transform: none; }
+#tasksPanel .pagemeta, #vaultPanel .pagemeta { font-size: 12px; color: var(--dim); }
+#tasksPanel .pagenote, #vaultPanel .pagenote { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+#tasksPanel .pagenote b, #vaultPanel .pagenote b { font-family: var(--font-mono, var(--mono)); font-weight: 600; font-size: 12px; color: var(--txt); }
+#vaultPanel .pagemuted, #tasksPanel .pagemuted { color: var(--muted); }
+.pagestar { font-family: var(--font-mono, var(--mono)); font-weight: 700; color: var(--agent); }
+#tasksPanel .pagecard, #vaultPanel .pagecard { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+#tasksPanel button, #vaultPanel .pagebutton { height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--txt); font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+#tasksPanel button:hover, #vaultPanel .pagebutton:hover { border-color: var(--muted); background: var(--panel2); }
+
+/* ── Notes: one line of explanation, the notes as a grid of cards, and the
+   "New note" card below them (always open, so it is filled straight away). */
+#notesPanel .notegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; align-items: start; }
+#notesPanel .notegrid > .notesempty { grid-column: 1 / -1; text-align: left; padding: 4px 0; font-size: 14px; color: var(--muted); }
+#notesPanel .note { margin: 0; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+#notesPanel .note.editing { grid-column: 1 / -1; }
+#notesPanel .note .nhead { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; margin: 0; min-width: 0; }
+#notesPanel .note .nkey { margin: 0; padding: 0; background: transparent; border-radius: 0; font: 600 14px var(--font-mono, var(--mono)); color: var(--accent2); overflow-wrap: anywhere; }
+#notesPanel .note .ntitle { font-size: 14px; font-weight: 600; color: var(--txt); overflow-wrap: anywhere; }
+#notesPanel .note .nbody { margin: 0; font-size: 16px; line-height: 1.5; color: var(--txt); overflow-wrap: anywhere; }
+#notesPanel .note .nmeta { margin: 0; font-size: 12px; color: var(--dim); }
+#notesPanel .note .nrev { color: var(--dim); }
+#notesPanel .note .nwrite { font-size: 12px; color: var(--dim); }
+#notesPanel .note .nwrite b { color: var(--human); font-weight: 600; }
+#notesPanel .note .nactions { margin-top: 2px; display: flex; flex-wrap: wrap; gap: 6px; }
+#notesPanel .note .nactions button { height: 30px; padding: 0 12px; background: transparent; border: 1px solid var(--line); color: var(--txt); border-radius: 7px; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+#notesPanel .note .nactions button:hover { border-color: var(--muted); background: var(--panel2); }
+#notesPanel .note .nactions button[data-del]:hover { color: var(--bad); border-color: var(--bad); }
+#notesPanel .note input.nedit, #notesPanel .note textarea { width: 100%; margin: 0; background: var(--bg); border: 1px solid var(--line); color: var(--txt); border-radius: 8px; padding: 9px 11px; font: 14px var(--font-mono, var(--mono)); }
+#notesPanel .note textarea { min-height: 160px; resize: vertical; }
+#notesPanel .nhist { margin-top: 4px; }
+
+#notesPanel .notecreate { margin: 18px 0 0; max-width: 860px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+#notesPanel .notecreate input, #notesPanel .notecreate textarea { width: 100%; margin: 0; background: var(--bg); border: 1px solid var(--line); color: var(--txt); border-radius: 8px; padding: 9px 11px; font-family: inherit; font-size: 14px; }
+#notesPanel .notecreate #nnKey, #notesPanel .notecreate textarea { font-family: var(--font-mono, var(--mono)); }
+#notesPanel .notecreate textarea { min-height: 110px; resize: vertical; }
+#notesPanel .notecreate input:focus, #notesPanel .notecreate textarea:focus, #notesPanel .note input.nedit:focus, #notesPanel .note textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 0; border-color: var(--accent); }
+#notesPanel .notecreate .markdownhint { margin: -4px 0 0; font-size: 12px; color: var(--dim); }
+#notesPanel .notecreatefoot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+#notesPanel .notecreatefoot .nwrite { font-size: 12px; color: var(--dim); }
+#notesPanel .notecreatefoot .nwrite b { color: var(--txt); font-weight: 600; }
+#notesPanel .notecreate button, #notesPanel .note .nactions button[data-save] { height: 38px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+#notesPanel .note .nactions button[data-save] { height: 30px; font-size: 13px; }
+
+/* ── Journal: a day heading, then the day's entries on a quiet line, each
+   with its writer's face, name, time and words. */
+#journalPanel .journallist { display: flex; flex-direction: column; gap: 18px; }
+#journalPanel .journallist > .sysline { text-align: left; padding: 0; font-size: 14px; color: var(--muted); }
+#journalPanel .jday { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+#journalPanel .jlist { position: relative; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 18px; }
+#journalPanel .jlist::before { content: ""; position: absolute; left: 17px; top: 18px; bottom: 18px; width: 2px; background: var(--line); }
+#journalPanel .jrow { position: relative; display: flex; align-items: flex-start; gap: 12px; padding: 0; border: 0; }
+#journalPanel .jface { position: relative; z-index: 1; flex: 0 0 36px; line-height: 0; }
+#journalPanel .jface .avatar { margin: 0; vertical-align: top; }
+#journalPanel .jmain { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding-top: 1px; }
+#journalPanel .jline { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+#journalPanel .jwho { flex: 0 1 auto; min-width: 0; font-size: 15px; font-weight: 600; color: var(--txt); overflow-wrap: anywhere; }
+#journalPanel .jrow.agent .jwho { color: var(--agent); }
+#journalPanel .jat { flex: 0 0 auto; font: 12px var(--font-mono, var(--mono)); color: var(--dim); }
+#journalPanel .jtxt { flex: none; margin: 0; font-size: 15px; line-height: 1.55; color: var(--txt); overflow-wrap: anywhere; }
+
+/* ── Focus: the goal card, who waits on whom, and the follow-up settings. */
+#tasksPanel { display: flex; flex-direction: column; gap: 20px; }
+#tasksPanel > .hidden { display: none !important; }
+#tasksPanel .goalsection { padding: 22px; display: flex; flex-direction: column; gap: 10px; }
+#tasksPanel .goalsectionhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+#tasksPanel .goalpanelcard { min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--txt); font-size: 15px; display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+#tasksPanel .goalpanelcard .goalbody { display: flex; flex-direction: column; gap: 4px; }
+#tasksPanel .goalpanelcard .goaltext { font-size: 22px; font-weight: 600; line-height: 1.35; color: var(--txt); overflow-wrap: anywhere; }
+#tasksPanel .goalpanelcard .goalproofline { font-size: 13px; color: var(--muted); }
+#tasksPanel .goalpanelcard .goalempty { font-size: 16px; color: var(--muted); }
+#tasksPanel .goalpanelcard .goalacts { display: flex; gap: 10px; flex-wrap: wrap; }
+#tasksPanel .goalpanelcard button { height: 38px; }
+#tasksPanel #focusBoardLine { min-height: 0; padding: 12px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--muted); font-size: 14px; }
+#tasksPanel #focusBoardLine button { height: 32px; font-size: 13px; }
+
+#tasksPanel .pagesection { display: flex; flex-direction: column; gap: 10px; }
+#tasksPanel .waitlist { display: flex; flex-direction: column; gap: 10px; }
+#tasksPanel .waitrow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; text-align: left; padding: 14px 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; color: var(--txt); font-size: 15px; }
+#tasksPanel .waitmark { flex: 0 0 auto; width: 12px; text-align: center; }
+#tasksPanel .waitmark.pagestar { font-size: 16px; line-height: 1; transform: translateY(3px); }
+#tasksPanel .waitdot { width: 9px; height: 9px; margin: 0 1.5px; border-radius: 50%; background: var(--human); }
+#tasksPanel .waittext { flex: 1 1 300px; min-width: 0; overflow-wrap: anywhere; }
+#tasksPanel .waittext b { font-weight: 600; }
+#tasksPanel .waitsince { font-size: 13px; color: var(--muted); }
+#tasksPanel .waitrow button { height: 32px; font-size: 13px; }
+
+#tasksPanel .remindersection { padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+#tasksPanel .remindersection .reminderview { box-shadow: none; background: var(--bg); border-radius: 10px; }
+#tasksPanel .reminderview button { height: auto; font-size: 13px; padding: 6px 12px; }
+#tasksPanel .reminderrecipientcontrol button { border: 0; }
+#tasksPanel .reminderrecipientcontrol button.selected { background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); }
+#tasksPanel .reminderview #saveReminders { height: 36px; padding: 0 16px; border: 0; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+#tasksPanel .reminderstatuscopy strong { font-size: 14px; }
+#tasksPanel .reminderstatus .remindersummary, #tasksPanel .reminderto, #tasksPanel .reminderrow .reminderafter, #tasksPanel .reminderlast, #tasksPanel .reminderadvanced, #tasksPanel .reminderhistory summary, #tasksPanel .remindersavestate { font-size: 13px; }
+#tasksPanel .reminderblockhead b { font-size: 12px; }
+#tasksPanel .reminderblockhead small, #tasksPanel .reminderstate { font-size: 11px; }
+#tasksPanel .reminderrow .remindercopy { font-size: 14px; }
+#tasksPanel .reminderrow .remindercopy small { font-size: 12px; }
+#tasksPanel .reminderrow { background: var(--panel); }
+
+/* ── Loca Wiki: the pages on the left, the page on the right. */
+#wikiPanel .wikilayout { display: flex; flex-wrap: wrap; align-items: stretch; min-height: 100%; }
+#wikiPanel .wikinav { flex: 1 1 220px; max-width: 240px; padding: 22px 16px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; }
+#wikiPanel .wikinav:has(.wikiindex:empty) { display: none; }
+#wikiPanel .wikinavlabel { padding: 0 8px 6px; font-size: 13px; color: var(--muted); }
+#wikiPanel .wikiindex { padding: 0; border: 0; display: flex; flex-direction: column; gap: 4px; }
+#wikiPanel .wikiindex button { padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--muted); font-family: inherit; font-size: 14px; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+#wikiPanel .wikiindex button:hover { color: var(--txt); background: var(--panel2); }
+#wikiPanel .wikiindex button.active { background: var(--panel); border-color: var(--line); color: var(--txt); font-weight: 600; }
+#wikiPanel .wikieditorname { margin-top: 14px; padding: 0 8px; font-size: 13px; color: var(--muted); }
+#wikiPanel .wikieditorname:empty { display: none; }
+#wikiPanel .wikimain { flex: 999 1 420px; min-width: 0; display: flex; flex-direction: column; }
+#wikiPanel .wikiheader { display: flex; justify-content: flex-end; padding: 18px 32px 0; border: 0; }
+#wikiPanel .wikiheader .wikiactions { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+#wikiPanel .wikiactions button { height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--txt); font-family: inherit; font-size: 14px; font-weight: 500; }
+#wikiPanel .wikiactions button:hover { border-color: var(--muted); background: var(--panel2); color: var(--txt); }
+#wikiPanel .wikieditorcontrol { font-size: 13px; color: var(--muted); }
+#wikiPanel .wikieditorcontrol .leadselect { height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--txt); font-family: inherit; font-size: 14px; }
+#wikiPanel .wikimeta { padding: 8px 32px 0; border: 0; font-size: 12px; color: var(--dim); }
+#wikiPanel .wikicompose { margin: 16px 32px 0; max-width: 760px; padding: 18px; border-radius: 12px; background: var(--panel); }
+#wikiPanel .wikicompose h3 { font-size: 16px; font-weight: 600; }
+#wikiPanel .wikicompose label { font-size: 13px; }
+#wikiPanel .wikicompose p, #wikiPanel #wikiShareStatus, #wikiPanel #wikiUpdateStatus { font-size: 13px; }
+#wikiPanel .wikiedit { margin: 16px 32px 0; padding: 0; max-width: 760px; }
+#wikiPanel .wikiedit input, #wikiPanel .wikiedit textarea { border-radius: 8px; font-size: 14px; }
+#wikiPanel .wikiedit p, #wikiPanel #wikiEditStatus { font-size: 13px; }
+#wikiPanel .wikipages { padding: 26px 32px 48px; }
+#wikiPanel .wikidocument { max-width: 760px; margin: 0; display: flex; flex-direction: column; gap: 14px; }
+#wikiPanel .wikidochead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+#wikiPanel .wikidocument h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: 0; line-height: 1.25; }
+#wikiPanel .wikidocmeta { font-size: 12px; color: var(--dim); }
+#wikiPanel .wikibody { font-family: inherit; font-size: 16px; line-height: 1.65; color: var(--txt); }
+#wikiPanel .wikibody h1, #wikiPanel .wikibody h2, #wikiPanel .wikibody h3 { margin: 22px 0 6px; font-size: 17px; font-weight: 600; color: var(--txt); }
+#wikiPanel .wikibody ul, #wikiPanel .wikibody ol { padding-left: 20px; }
+#wikiPanel .wikibody li { margin: 6px 0; font-size: 15px; line-height: 1.55; }
+#wikiPanel .wikibody a { color: var(--agent); }
+#wikiPanel .wikibody blockquote { margin: 8px 0; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--warn) 7%, var(--panel)); color: var(--txt); font-size: 15px; }
+#wikiPanel .wikisources { margin-top: 18px; font-size: 12px; }
+#wikiPanel .wikisources button { color: var(--agent); font: 12px var(--font-mono, var(--mono)); }
+#wikiPanel .wikiempty { margin: 40px auto; }
+#wikiPanel .wikiempty h3 { font-size: 19px; }
+#wikiPanel .wikiempty p { font-size: 14px; }
+#wikiPanel .wikiempty .wikiemptyglyph { color: var(--brand); }
+#wikiPanel .wikiprimary { height: 38px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-family: inherit; font-size: 14px; font-weight: 600; }
+
+/* ── Vault: the rules as a card under their title, and beside them who
+   may edit and the kept revisions. */
+#vaultPanel .vaultlayout { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+#vaultPanel .vaultmain { flex: 999 1 480px; min-width: 0; max-width: 760px; display: flex; flex-direction: column; gap: 12px; }
+#vaultPanel .vaulthead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+#vaultPanel .vaulttitle { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0; }
+#vaultPanel #vaultStatus { margin: 0; font-size: 13px; line-height: 1.4; color: var(--muted); }
+#vaultPanel .vaulthead .pagebutton { margin-left: auto; align-self: center; }
+#vaultPanel .vaultbody { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; font-size: 15px; line-height: 1.65; color: var(--txt); white-space: normal; }
+#vaultPanel .vaultbody:empty { display: none; }
+#vaultPanel .vaultbody h1, #vaultPanel .vaultbody h2, #vaultPanel .vaultbody h3 { margin: 14px 0 8px; font-size: 16px; font-weight: 600; color: var(--txt); }
+#vaultPanel .vaultbody ol, #vaultPanel .vaultbody ul { padding-left: 20px; }
+#vaultPanel .vaultbody > :first-child, #wikiPanel .wikibody > :first-child { margin-top: 0; }
+#vaultPanel .vaultbody li { margin: 6px 0; }
+#vaultPanel .vaultedit { margin: 6px 0 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+#vaultPanel .vaultedit textarea { width: 100%; min-height: 220px; margin: 0; resize: vertical; background: var(--bg); border: 1px solid var(--line); color: var(--txt); border-radius: 8px; padding: 10px 12px; font: 14px/1.55 var(--font-mono, var(--mono)); }
+#vaultPanel .vaultedit textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); border-color: var(--accent); }
+#vaultPanel .vaultedit .markdownhint { margin: -4px 0 0; font-size: 12px; color: var(--dim); }
+#vaultPanel .vaulteditfoot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+#vaultPanel .vaultedit #vaultSave { height: 38px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-family: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+#vaultPanel .vaultedit #vaultSave:disabled { opacity: .55; cursor: default; }
+#vaultPanel #vaultEditStatus { font-size: 13px; color: var(--muted); }
+#vaultPanel .vaultside { flex: 1 1 260px; max-width: 300px; display: flex; flex-direction: column; gap: 12px; }
+#vaultPanel .vaultcard { padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: var(--txt); }
+#vaultPanel .vaultcard .pagetitle { font-size: 15px; }
+#vaultPanel .vaulthistory { display: flex; flex-direction: column; gap: 8px; }
+
+/* ── narrow windows ── */
+@media (max-width: 760px) {
+  #notesPanel, #journalPanel, #tasksPanel, #vaultPanel { padding: 16px 16px 32px; }
+  #notesPanel .notegrid { grid-template-columns: 1fr; }
+  #notesPanel .pageprimary { margin-left: 0; }
+  #vaultPanel .vaultside { max-width: none; }
+  #wikiPanel .wikinav { flex-basis: 100%; max-width: none; padding: 12px 16px; border-right: 0; border-bottom: 1px solid var(--line); }
+  #wikiPanel .wikinavlabel { display: none; }
+  #wikiPanel .wikiindex { flex-direction: row; overflow-x: auto; }
+  #wikiPanel .wikiindex button { flex: 0 0 auto; }
+  #wikiPanel .wikieditorname { margin-top: 6px; }
+  #wikiPanel .wikiheader { padding: 14px 16px 0; }
+  #wikiPanel .wikimeta { padding: 8px 16px 0; }
+  #wikiPanel .wikicompose, #wikiPanel .wikiedit { margin: 14px 16px 0; }
+  #wikiPanel .wikipages { padding: 20px 16px 40px; }
+}

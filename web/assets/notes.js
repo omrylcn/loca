@@ -53,19 +53,18 @@ function renderNotes(flashKey) {
   captureNoteDraft();
   const box = $("noteList");
   const keys = Object.keys(state.notes).sort();
-  if (!keys.length) { box.innerHTML = `<div class="sysline">no notes yet — create one below</div>`; return; }
+  if (!keys.length) { box.innerHTML = `<div class="sysline notesempty">no notes yet — create one below</div>`; return; }
   box.innerHTML = "";
   for (const key of keys) {
     const n = state.notes[key];
     const editing = state.editing === key;
-    const el = document.createElement("div");
-    el.className = "note" + (key === flashKey ? " flash" : "");
-    const when = new Date(n.updated_at).toLocaleTimeString();
+    const el = document.createElement("article");
+    el.className = "note notecard" + (editing ? " editing" : "") + (key === flashKey ? " flash" : "");
     const cw = n.can_write && n.can_write.length ? `assigned: <b>${n.can_write.map(esc).join(", ")}</b>` : "anyone may write";
     if (editing) {
       const draft = noteDrafts.get(noteDraftKey(state.room, key));
       el.innerHTML = `
-        <div class="nhead"><span class="nkey">${esc(key)}</span></div>
+        <div class="nhead"><h3 class="nkey">${esc(key)}</h3></div>
         <input class="nedit" id="ed-title" value="${esc(draft?.title ?? n.title)}" />
         <textarea id="ed-body" data-room="${esc(state.room)}" data-key="${esc(key)}">${esc(draft?.body ?? n.body)}</textarea>
         ${isOperator() ? `<input class="nedit" id="ed-write" value="${esc(draft?.write ?? (n.can_write||[]).join(", "))}" placeholder="can_write (comma), blank = anyone" />` : ""}
@@ -74,13 +73,16 @@ function renderNotes(flashKey) {
           <button data-cancel="1">Cancel</button>
         </div>`;
     } else {
+      // The title is shown only when it says more than the key.
+      const title = n.title && n.title !== key ? `<span class="ntitle">${esc(n.title)}</span>` : "";
+      const star = nameIsAgent(n.updated_by) ? `<span class="pagestar" aria-hidden="true">*</span> ` : "";
       el.innerHTML = `
         <div class="nhead">
-          <span class="nkey">${esc(key)}</span>
-          <span class="ntitle">${esc(n.title)}</span>
-          <span class="nmeta">rev ${n.rev} · ${esc(n.updated_by)} · ${when}</span>
+          <h3 class="nkey">${esc(key)}</h3>
+          ${title}
         </div>
         <div class="nbody markdown">${renderMarkdown(n.body)}</div>
+        <div class="nmeta" title="${esc(`revision ${n.rev} · ${fmtFull(n.updated_at)}`)}">${star}${esc(n.updated_by)} · ${esc(relativeTime(n.updated_at))}<span class="nrev"> · rev ${n.rev}</span></div>
         <div class="nwrite">${cw}</div>
         <div class="nactions"><button data-edit="${esc(key)}">Edit</button><button data-hist="${esc(key)}">History</button><button data-del="${esc(key)}">Delete</button></div>
         <div class="nhist hidden" id="nhist-${esc(key)}"></div>`;
@@ -88,6 +90,14 @@ function renderNotes(flashKey) {
     box.appendChild(el);
   }
 }
+
+// "New note" beside the explanation: the form is always open below the
+// notes; the button only brings it into view.
+$("notesNewJump").addEventListener("click", () => {
+  const key = $("nnKey");
+  if (typeof key.scrollIntoView === "function") key.scrollIntoView({ block: "center", behavior: "smooth" });
+  key.focus();
+});
 
 async function createNote() {
   const key = $("nnKey").value.trim();

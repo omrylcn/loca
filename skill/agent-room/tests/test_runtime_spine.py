@@ -538,8 +538,13 @@ time.sleep(30)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         process = None
+        # The directory outlives the runtime: it is removed only after the
+        # runtime and its listener have stopped writing into it (a cleanup
+        # that ran first raced their last health write: "Directory not empty").
+        workdir = tempfile.TemporaryDirectory()
         try:
-            with tempfile.TemporaryDirectory() as tmp:
+            if True:
+                tmp = workdir.name
                 root = Path(tmp)
                 identity = root / "worker.env"
                 history = root / "messages.jsonl"
@@ -634,6 +639,7 @@ with path.open("a", encoding="utf-8") as out:
         finally:
             if process is not None and process.poll() is None:
                 stop_process(process)
+            workdir.cleanup()
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)

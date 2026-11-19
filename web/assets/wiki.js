@@ -89,7 +89,10 @@ function renderWikiEditor() {
   for (const name of names) recipient.add(new Option(name, name));
   if (names.includes(previous)) recipient.value = previous;
   $("wikiUpdateEditor").textContent = current || "the editor (not assigned)";
-  $("wikiEditorName").textContent = allowed ? "" : current ? `Editor · ${current}` : "";
+  // Everyone reads who keeps these pages; those who run the loca also pick
+  // the editor in the control above the page.
+  $("wikiEditorName").innerHTML = current
+    ? `Editor: <span class="pagestar" aria-hidden="true">*</span> ${esc(current)}` : "";
 }
 
 function renderWikiPages() {
@@ -121,9 +124,15 @@ function renderWikiPages() {
     link.onclick = () => { stashWikiPageDraft(); $("wikiPageEdit").classList.add("hidden"); toggleWikiCompose(null); wikiPageSlug = page.slug; renderWikiPages(); }; $("wikiIndex").append(link);
     if (page.slug !== wikiPageSlug || empty) continue;
     const section = document.createElement("article"); section.className = "wikidocument";
+    const head = document.createElement("div"); head.className = "wikidochead";
     const heading = document.createElement("h1"); heading.textContent = page.title;
+    const meta = document.createElement("span"); meta.className = "wikidocmeta";
+    const from = page.sources.length ? ` · from ${page.sources.length} message${page.sources.length === 1 ? "" : "s"}` : "";
+    meta.textContent = page.revision ? `revision ${page.revision}${from}` : from.slice(3);
+    head.append(heading);
+    if (meta.textContent) head.append(meta);
     const body = document.createElement("div"); body.className = "markdown wikibody";
-    body.innerHTML = renderMarkdown(page.body || "No content yet."); section.append(heading, body);
+    body.innerHTML = renderMarkdown(page.body || "No content yet."); section.append(head, body);
     if (page.sources.length) {
       const sources = document.createElement("footer"); sources.className = "wikisources"; sources.append("Source messages ");
       for (const id of page.sources) {

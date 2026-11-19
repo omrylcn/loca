@@ -285,3 +285,26 @@ $("sideLocaTab").onkeydown = sidebarTabKeydown;
 $("roomList").onclick = roomPreferenceClick;
 $("hiddenRoomList").onclick = roomPreferenceClick;
 setSidebarView("building");
+
+// The phone's own controls: the four places at the foot of the screen and
+// the header's info button. Each opens what is already there; nothing new
+// is drawn. The click stays here: a click reaching the document closes the
+// account menu (profile.js) as it opens.
+$("mobileNav")?.addEventListener("click", event => {
+  const where = event.target.closest("[data-mobile-nav]")?.dataset.mobileNav;
+  if (!where) return;
+  event.stopPropagation();
+  if (where === "notifications") { $("notifBell")?.click(); return; }
+  setMobileSidebar(true);
+  if (where === "me") {
+    const menu = $("whoami").querySelector("details.profilemenu");
+    if (menu) menu.open = true;
+    return;
+  }
+  setSidebarView("building");
+  if (where === "messages") $("dmSection")?.scrollIntoView({ block: "nearest" });
+});
+$("mobileInfoBtn")?.addEventListener("click", () => {
+  setMobileSidebar(true);
+  setSidebarView("loca", true);
+});

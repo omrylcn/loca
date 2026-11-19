@@ -123,7 +123,7 @@ function renderSettings() {
   $("deleteLocaBtn").classList.toggle("hidden", !arch);
   $("composer").classList.toggle("gated", arch || !canITalk());
   $("msg").disabled = arch;
-  $("msg").placeholder = arch ? "this loca is closed — read-only" : "say it to the table…  (Enter = send · Shift+Enter = new line)";
+  $("msg").placeholder = arch ? "this loca is closed — read-only" : "Message, @ to address someone";
   renderDoor();
   applyLocaExtensions();
   applyLocaIdentity();
@@ -155,7 +155,7 @@ function renderDoor() {
   $("msg").disabled = archived || watching;
   for (const id of ["sendBtn", "stopBtn", "attachBtn"]) $(id).disabled = watching;
   if (watching && !archived) $("msg").placeholder = "watching from the door — take a seat to speak";
-  else if (!archived) $("msg").placeholder = "say it to the table…  (Enter = send · Shift+Enter = new line)";
+  else if (!archived) $("msg").placeholder = "Message, @ to address someone";
   renderDmBar();
 }
 
@@ -367,6 +367,7 @@ function isLocaOperator() {
 function renderOperatorControls() {
   const allowed = !!state.room && isLocaOperator();
   $("adminbar").classList.toggle("on", allowed);
+  $("adminRoom").textContent = state.room ? `# ${state.room}` : "";
   $("adminToggle").classList.toggle("hidden", !allowed);
   $("liveToggle").classList.toggle("hidden", !allowed || !extensionOn("live"));
   $("opsList").closest(".propertyfield").classList.toggle("hidden", !isAdmin());
@@ -376,6 +377,9 @@ function renderOperatorControls() {
   if (!allowed) closeProperties();
   renderLeadControl();
 }
+// The properties sheet's own close button: the same as clicking outside it.
+$("adminClose").addEventListener("click", () => closeProperties());
+
 /// Who holds an invite for this loca but is not connected right now. They still
 /// occupy a seat, so the master must be able to see and release them.
 let seatedFetchSequence = 0;
