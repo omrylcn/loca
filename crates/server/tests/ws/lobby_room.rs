@@ -299,3 +299,119 @@ async fn in_the_lobby_room_an_agent_wakes_by_name_and_only_a_rank_calls_everyone
         .unwrap();
     assert_eq!(in_loca["target"], "all", "{in_loca}");
 }
+
+/// The Lobby door names a caller presenting their own key by that key's
+/// member, never by the `?name=` the caller chose: a banned member's key
+/// stays out, a caretaker's key stays out (the Lobby is not its room), and
+/// without a session nobody speaks there under a name of their choosing.
+/// Run in compat mode (no `REQUIRE_SESSIONS`), where the body names the
+/// sender elsewhere.
+#[tokio::test]
+async fn the_lobby_door_names_a_key_by_its_member() {
+    let (port, _guard) = spawn_server_env(
+        MASTER,
+        &[
+            ("REQUIRE_INVITE", "1".into()),
+            ("LOCA_CARETAKERS", "loca-care".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let deniz = admit_key(&base, "deniz", "agent").await;
+    let eve = admit_key(&base, "eve", "user").await;
+    let care = admit_key(&base, "loca-care", "agent").await;
+    let read = |key: &str| {
+        client
+            .get(format!("{base}/rooms/lobby/messages"))
+            .header("x-room-token", key.to_string())
+    };
+    assert_eq!(status(read(&deniz)).await, 200);
+    assert_eq!(status(read(&eve)).await, 200);
+
+    let banned = status(
+        client
+            .post(format!("{base}/rooms/lobby/moderate"))
+            .header("x-admin-token", MASTER)
+            .json(&serde_json::json!({ "action": "ban", "name": "deniz" })),
+    )
+    .await;
+    assert!((200..300).contains(&banned), "ban: {banned}");
+    let refused = |code: u16| matches!(code, 401 | 403 | 404);
+    let after_ban = status(read(&deniz)).await;
+    assert!(refused(after_ban), "a banned member's key: {after_ban}");
+    let with_hint = status(
+        client
+            .get(format!("{base}/rooms/lobby/messages?name=someone-else"))
+            .header("x-room-token", &deniz),
+    )
+    .await;
+    assert!(
+        refused(with_hint),
+        "a banned key with a name hint: {with_hint}"
+    );
+    let caretaker = status(read(&care)).await;
+    assert!(refused(caretaker), "a caretaker's key: {caretaker}");
+
+    let spoofed = status(
+        client
+            .post(format!("{base}/rooms/lobby/messages"))
+            .header("x-room-token", &eve)
+            .json(
+                &serde_json::json!({ "sender": "ayse", "sender_type": "user", "text": "it is me" }),
+            ),
+    )
+    .await;
+    assert_eq!(spoofed, 401, "a Lobby post without a session");
+    // A rank's own key is who it says: the Master may still post there.
+    let by_master = status(
+        client
+            .post(format!("{base}/rooms/lobby/messages"))
+            .header("x-admin-token", MASTER)
+            .json(&serde_json::json!({ "sender": "master", "sender_type": "user", "text": "welcome" })),
+    )
+    .await;
+    assert!(
+        (200..300).contains(&by_master),
+        "the Master's key: {by_master}"
+    );
+    let history = read(&eve).send().await.unwrap().text().await.unwrap();
+    assert!(!history.contains("it is me"), "{history}");
+}
+
+/// A search reads every loca the caller may enter: the query is bounded,
+/// and one caller cannot loop it.
+#[tokio::test]
+async fn building_search_is_bounded_and_rate_limited() {
+    let (port, _guard) = spawn_server_env(MASTER, &[("REQUIRE_INVITE", "1".into())]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let key = admit_key(&base, "searcher", "user").await;
+    let search = |q: String| {
+        client
+            .get(format!("{base}/search?q={}", q.replace(' ', "%20")))
+            .header("x-room-token", key.clone())
+    };
+    assert_eq!(status(search("x".repeat(201))).await, 400);
+    for n in 0..30 {
+        assert_eq!(
+            status(search(format!("needle {n}"))).await,
+            200,
+            "search {n}"
+        );
+    }
+    let limited = search("one more".into()).send().await.unwrap();
+    assert_eq!(limited.status().as_u16(), 429);
+    assert!(limited.headers().contains_key("retry-after"));
+    // Another caller has their own allowance.
+    let other = admit_key(&base, "another", "user").await;
+    assert_eq!(
+        status(
+            client
+                .get(format!("{base}/search?q=needle"))
+                .header("x-room-token", &other)
+        )
+        .await,
+        200
+    );
+}

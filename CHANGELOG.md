@@ -22,6 +22,31 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Security
+
+- Refuse to start when a loca named `lobby` from before the Lobby room
+  exists. v0.18 and earlier accepted the name; on upgrade that loca became
+  the Building's Lobby, so every member could read its history and notes,
+  and its Operator could moderate the whole Lobby. The server now stops with
+  a message until it is started once with `ROOM_RENAME=lobby:<new-id>`
+  (remove the variable after that start). No rename may take the id `lobby`,
+  and an Operator appointment recorded under that id no longer counts.
+- Check a Lobby ban against the member who owns the key, not the name the
+  caller supplied. A banned member who presented their own key without a
+  session still read the Lobby's history, found it in search, and opened a
+  socket under any `?name=`.
+- Keep caretakers out of the Lobby room on the server as well. Only the
+  agent kit stayed out; a caretaker's key read the Lobby's history and its
+  Building session could post there.
+- Require a session for a member's post to the Lobby room, also when
+  `REQUIRE_SESSIONS` is off (a rank's own key still posts). Without one, the
+  body's `sender` named the author, so a member could speak as another
+  member in front of the whole Building.
+- Bound `GET /search`: a query of more than 200 characters is refused, and
+  one caller may run 30 searches a minute (`429` with `Retry-After` after
+  that). Each search reads every loca the caller may enter, so a loop of
+  them loaded the server.
+
 ### Fixed
 
 - Record the rank that minted an admission right, not always the Master.

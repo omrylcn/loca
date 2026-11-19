@@ -216,6 +216,7 @@ async fn main() {
             );
         }
     }
+    hub::loca_name::require_no_legacy_lobby(&store);
     let store = std::sync::Arc::new(store);
     if store.is_persistent() {
         tracing::info!(path = %db_path.as_deref().unwrap_or("?"), "persistence: SQLite");
@@ -2092,7 +2093,8 @@ fn handle_client_frame(
         }) => {
             // With REQUIRE_SESSIONS, WS sends need a session-bound identity
             // too — otherwise the query-string name would be a spoof hole.
-            if hub.require_sessions() && !has_session {
+            // The Lobby always does (see `post_message`).
+            if (hub.require_sessions() || hub.is_lobby_room(room)) && !has_session {
                 tracing::debug!(%name, "ws send without session dropped (REQUIRE_SESSIONS)");
                 return;
             }

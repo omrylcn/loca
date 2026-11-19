@@ -1873,6 +1873,14 @@ impl Hub {
                     .and_then(|t| self.invite_by_token(t))
                     .map(|i| i.name)
             })
+            // A member's own key presented as the room credential names its
+            // member: without this the Lobby's ban was checked against the
+            // caller's ?name= hint, which the caller chooses.
+            .or_else(|| {
+                invite_tok
+                    .and_then(|t| self.member_for_credential(Some(t)))
+                    .map(|m| m.name)
+            })
             .or_else(|| credential_authority.display_name.clone())
             .or_else(|| name_hint.map(str::to_string))
     }
@@ -2874,6 +2882,11 @@ impl Hub {
         if let Some(name) = self.door_name(invite_tok, session, credential_authority, name_hint) {
             if self.is_banned(LOBBY_ROOM, &name) {
                 return EnterDecision::Banned;
+            }
+            // A caretaker tends loca itself and is not a member of the group:
+            // the Lobby is not its room (PRINCIPLES "Lobby").
+            if self.is_caretaker(&name) {
+                return EnterDecision::Denied;
             }
         }
         let building_session = session.is_some_and(|s| s.loca.is_none());
@@ -5913,6 +5926,12 @@ impl Hub {
         }
         if self.admin_token.is_empty() {
             return true; // dev-open, consistent with the other admin gates
+        }
+        // The Lobby has no Operator seat: only a rank moderates it. An
+        // appointment recorded under the id `lobby` by a loca of that name
+        // before the Lobby existed must not reach the whole Building.
+        if self.is_lobby_room(room) {
+            return false;
         }
         let scoped = self
             .session_identity(session_token)
