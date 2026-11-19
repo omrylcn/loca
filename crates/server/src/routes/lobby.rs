@@ -130,6 +130,11 @@ fn call_refused(error: hub::InviteError) -> axum::response::Response {
             "a birebir admits only its two people",
         )
             .into_response(),
+        hub::InviteError::Lobby => (
+            StatusCode::CONFLICT,
+            "every member is already in the Lobby — it takes no davet",
+        )
+            .into_response(),
     }
 }
 /// Leave one's own loca without being kicked or banned. Identity is derived

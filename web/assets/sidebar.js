@@ -56,6 +56,79 @@ function setFloorCollapsed(key, collapsed) {
   saveRoomPreferences();
 }
 
+// ---- the search at the head of the list --------------------------------
+// A name filter over the locas and Messages, kept for this page only and
+// applied each time the list is drawn (state.js renderRooms, dm.js
+// renderDmList). Typing narrows the list at once; Escape clears it and the
+// focus stays in the field.
+let sidebarQuery = "";
+let sidebarQueryShown = "";
+function sidebarFilterActive() { return !!sidebarQuery; }
+function sidebarQueryText() { return sidebarQueryShown; }
+function sidebarMatches(...names) {
+  if (!sidebarQuery) return true;
+  return names.some(name => String(name || "").toLowerCase().includes(sidebarQuery));
+}
+function setSidebarQuery(value) {
+  const shown = String(value || "").trim();
+  const query = shown.toLowerCase();
+  if (query === sidebarQuery && shown === sidebarQueryShown) return;
+  sidebarQuery = query;
+  sidebarQueryShown = shown;
+  renderRooms();
+}
+$("sideSearch").addEventListener("input", event => setSidebarQuery(event.target.value));
+$("sideSearch").addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !event.target.value) return;
+  // Clear here; the page's own Escape (the phone's drawer, open panels)
+  // waits for a second press.
+  event.preventDefault();
+  event.stopPropagation();
+  event.target.value = "";
+  setSidebarQuery("");
+});
+
+// ---- a floor's + ---------------------------------------------------------
+// Opens the create-loca panel (extensions.js openCreateLoca) with the floor
+// chosen. The Ground floor's is everyone's, like the new-loca bar; a named
+// floor's only where its group may take a new loca from this person (the
+// panel offers a floor only then).
+const FLOOR_NEW_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+
+function floorGroup(key) {
+  return (state.groups || []).find(g => g.id === key || g.name === key) || null;
+}
+
+function floorAcceptsNewLoca(key) {
+  if (key === GROUND_FLOOR) return true;
+  if (!isAdmin()) return false;
+  if (!state.groupsLoaded) return true;
+  return !!floorGroup(key)?.can_create_loca;
+}
+
+function floorNewLocaButton(floor) {
+  const plus = document.createElement("button");
+  plus.type = "button";
+  plus.className = "floornew";
+  plus.dataset.floorNew = floor.key;
+  plus.setAttribute("aria-label", `New loca on ${floor.name}`);
+  plus.dataset.tip = "New loca";
+  plus.dataset.tipDetail = `Open a loca on ${floor.name}.`;
+  plus.innerHTML = FLOOR_NEW_ICON;
+  // Inside the heading: the click opens the panel, not the floor.
+  plus.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    openFloorNewLoca(floor.key);
+  });
+  return plus;
+}
+
+function openFloorNewLoca(key) {
+  const group = key === GROUND_FLOOR ? "" : floorGroup(key)?.id || key;
+  openCreateLoca("", group);
+}
+
 function orderedSidebarRooms(rooms, includeHidden = false) {
   const prefs = loadRoomPreferences();
   const hidden = new Set(prefs.hidden);
@@ -196,6 +269,17 @@ function setSidebarView(view, focus = false) {
     button.classList.toggle("active", active);
   }
   if (focus) (building ? $("sideBuildingTab") : $("sideLocaTab")).focus();
+  syncLocaInfoButton();
+}
+
+/// The header's Info button: shown in a loca, pressed while This Loca is in
+/// view (always, beside the chat on a wide screen).
+function syncLocaInfoButton() {
+  const button = $("locaInfoBtn");
+  if (!button) return;
+  button.classList.toggle("hidden", !state.room || isDm(state.room));
+  const beside = document.body.classList.contains("locainfo-on");
+  button.setAttribute("aria-pressed", String(beside || state.sidebarView === "loca"));
 }
 
 function sidebarLifecycle() {
@@ -206,6 +290,9 @@ function sidebarLifecycle() {
 
 function renderLocaSidebar() {
   if (typeof placeLocaInfo === "function") placeLocaInfo();
+  syncLocaInfoButton();
+  // The Lobby room has no table: whoever is in it is here now.
+  $("onlineLabel").textContent = isLobbyRoom(state.room) ? "HERE NOW" : "AT THE TABLE";
   const tab = $("sideLocaTab");
   // A private conversation is not a loca: it has no operator, lead, roles or
   // extensions to show, and its id is nobody's business on screen.
@@ -213,6 +300,14 @@ function renderLocaSidebar() {
   if (!state.room || isDm(state.room)) {
     $("locaSummary").innerHTML = "";
     if (state.sidebarView === "loca") setSidebarView("building");
+    return;
+  }
+  // The Lobby room is no loca: nobody operates or leads it and it carries
+  // nothing but talk. Its panel says what it is, then who is here.
+  if (isLobbyRoom(state.room)) {
+    $("locaSummary").innerHTML =
+      `<div class="locasummaryhead"><span class="locaglyph">⌂</span><b>Lobby</b></div>` +
+      `<p class="lobbyroomabout">Everyone in the building lands here first. Say hello, ask who is around; work happens in locas.</p>`;
     return;
   }
   const assignment = isLocaContextReady("operator") ? state.locaOperator?.appointed : null;
@@ -254,6 +349,12 @@ async function fetchLocaSidebar() {
     return;
   }
   fetchLocaExtensions();
+  if (isLobbyRoom(room)) {
+    state.locaOperator = null;
+    markLocaContextReady("operator", room);
+    renderLocaSidebar();
+    return;
+  }
   try {
     const response = await fetch(
       `${serverBase()}/rooms/${encodeURIComponent(room)}/operators`,
@@ -306,5 +407,31 @@ $("mobileNav")?.addEventListener("click", event => {
 });
 $("mobileInfoBtn")?.addEventListener("click", () => {
   setMobileSidebar(true);
+  setSidebarView("loca", true);
+});
+// Info (LocaHeader board) toggles This Loca. On a wide screen it stands on
+// the right already (locainfo.js): Info brings it to the eye and to the
+// keyboard. Narrower, it is the sidebar's second tab: Info opens it, and
+// again goes back to Your Locas.
+$("locaInfoBtn")?.addEventListener("click", () => {
+  if (document.body.classList.contains("locainfo-on")) {
+    const panel = $("locaInfo");
+    panel.scrollTop = 0;
+    panel.scrollIntoView({ block: "nearest" });
+    panel.classList.remove("infoflash");
+    void panel.offsetWidth;
+    panel.classList.add("infoflash");
+    if (!panel.hasAttribute("tabindex")) panel.tabIndex = -1;
+    panel.focus({ preventScroll: true });
+    return;
+  }
+  const phone = window.matchMedia("(max-width: 760px)").matches;
+  const shown = state.sidebarView === "loca" && (!phone || document.body.classList.contains("sidebar-open"));
+  if (shown) {
+    setSidebarView("building");
+    if (phone) setMobileSidebar(false);
+    return;
+  }
+  if (phone) setMobileSidebar(true);
   setSidebarView("loca", true);
 });

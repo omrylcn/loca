@@ -310,6 +310,22 @@ def vault_text(attention: dict[str, Any]) -> str:
     )
 
 
+# The Lobby room (PRINCIPLES "Lobby"): the Building's one room every member
+# reads. A scope like any other here (one thread for it); only the words
+# differ, because it is not a private loca.
+LOBBY_ROOM = "lobby"
+
+
+def room_phrase(room: str) -> str:
+    """How a prompt names the room an attention came from."""
+    if room == LOBBY_ROOM:
+        return (
+            "the Lobby room (the Building's shared room: every member reads "
+            "it; no loca work happens there)"
+        )
+    return f"private room {room}"
+
+
 def attention_prompt(
     identity: str,
     attention: dict[str, Any],
@@ -359,7 +375,7 @@ def attention_prompt(
     body += notification_text(notifications)
     body += vault_text(attention)
     return (
-        f"Loca attention for {identity} in private room {attention['room']}.\n"
+        f"Loca attention for {identity} in {room_phrase(str(attention['room']))}.\n"
         "Runtime context: this is an automatically dispatched headless Loca "
         "adapter turn, not a human-opened IDE conversation. This proves this "
         "attention reached the model, not that its reply has already reached "
@@ -1028,7 +1044,7 @@ class PersistentCodexAdapter:
     def developer_instructions(self, room: str) -> str:
         return (
             "You are a dedicated headless Loca runtime thread for "
-            f"identity {self.identity} in private room {room}. Process "
+            f"identity {self.identity} in {room_phrase(room)}. Process "
             "only attention supplied by the adapter. Never call Loca "
             "send commands for an incoming attention; normal assistant "
             "messages are relayed by the adapter. Never expose credentials."

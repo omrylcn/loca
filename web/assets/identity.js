@@ -98,7 +98,7 @@ function locaTitle(room) {
 }
 
 /// What a person reads as a loca's name: its title, or its id.
-function locaName(room) { return locaTitle(room) || room; }
+function locaName(room) { return isLobbyRoom(room) ? "Lobby" : locaTitle(room) || room; }
 
 /// Where a title is shown the id stays reachable: a tooltip line naming it.
 function locaIdNote(room) { return locaTitle(room) ? `id: ${room}` : ""; }
@@ -156,15 +156,15 @@ function applyLocaIdentity() {
   $("curRoom").classList.toggle("marked", !!(icon || color));
   // The title in the header (the Building view keeps its own word), the id
   // in its tooltip.
-  if (state.room && !isDm(state.room) && state.tab !== "people") {
+  if (state.room && !isDm(state.room) && !isBuildingView()) {
     $("curRoom").textContent = roomLabel(state.room);
   }
-  $("curRoom").title = state.room && !isDm(state.room) && state.tab !== "people"
+  $("curRoom").title = state.room && !isDm(state.room) && !isBuildingView()
     ? locaIdNote(state.room) : "";
   // A titled loca shows its id beside the title, as people type it.
   const id = $("roomId");
   if (id) {
-    const titled = !!(state.room && !isDm(state.room) && state.tab !== "people" && locaTitle(state.room));
+    const titled = !!(state.room && !isDm(state.room) && !isBuildingView() && locaTitle(state.room));
     id.textContent = titled ? `#${state.room}` : "";
     id.classList.toggle("hidden", !titled);
   }
@@ -176,12 +176,22 @@ function applyLocaIdentity() {
 
 /* ---- the panel ---- */
 
+// Edit loca shows the first icons and a "+N" chip for the rest (EditLoca
+// board). The create panel shows them all.
+const LOCA_ICONS_SHOWN = 7;
+
 function renderIdentityPickers() {
+  const icons = Object.keys(LOCA_ICON_PATHS);
   const iconOpts = [`<label class="identopt" title="No icon"><input type="radio" name="locaIcon" value="">` +
       `<span class="identswatch none">#</span><span class="sr">No icon</span></label>`]
-    .concat(Object.keys(LOCA_ICON_PATHS).map(id =>
-      `<label class="identopt" title="${esc(id)}"><input type="radio" name="locaIcon" value="${esc(id)}">` +
+    .concat(icons.map((id, index) =>
+      `<label class="identopt${index >= LOCA_ICONS_SHOWN ? " identmore" : ""}" title="${esc(id)}"><input type="radio" name="locaIcon" value="${esc(id)}">` +
       `<span class="identswatch">${locaIconSvg(id, 16)}</span><span class="sr">${esc(id)}</span></label>`));
+  const more = icons.length - LOCA_ICONS_SHOWN;
+  if (more > 0) {
+    iconOpts.push(`<button type="button" class="identmorebtn" id="locaIconMore" aria-expanded="true" ` +
+      `aria-label="More icons (${more})">+${more}</button>`);
+  }
   $("locaIconOpts").innerHTML = iconOpts.join("");
   const colorOpts = [`<label class="identopt" title="No colour"><input type="radio" name="locaColor" value="">` +
       `<span class="identswatch none">—</span><span class="sr">No colour</span></label>`]
@@ -189,6 +199,16 @@ function renderIdentityPickers() {
       `<label class="identopt" title="${esc(name)}"><input type="radio" name="locaColor" value="${esc(id)}">` +
       `<span class="identswatch" data-loca-color="${esc(id)}"><span class="identdot"></span></span><span class="sr">${esc(name)}</span></label>`));
   $("locaColorOpts").innerHTML = colorOpts.join("");
+}
+
+/// Show only the first icons (and "+N"), or all of them. Never hides the
+/// icon that is chosen.
+function setIconPickerCollapsed(collapsed) {
+  const picked = pickedValue("locaIcon");
+  const pickedHidden = !!picked && Object.keys(LOCA_ICON_PATHS).indexOf(picked) >= LOCA_ICONS_SHOWN;
+  const on = collapsed && !pickedHidden;
+  $("locaIconPick").classList.toggle("collapsed", on);
+  $("locaIconMore")?.setAttribute("aria-expanded", String(!on));
 }
 
 function pickedValue(name) {
@@ -333,6 +353,21 @@ function setLocaPanelMode(mode, canManage = true) {
     : canManage ? "Changes are written to the Journal with your name."
     : "Only this loca's operator, the Master or a Smaster changes its identity.";
   note.classList.toggle("hidden", create);
+  if (create) setIconPickerCollapsed(false);
+  renderIdentityPages();
+}
+
+/// Edit loca › Pages: the loca's pages in one line, and the extension
+/// manager behind "Manage extensions" (View for whoever cannot change them).
+function renderIdentityPages() {
+  const strip = $("locaIdentityPages");
+  if (!strip) return;
+  const show = locaPanelMode === "identity" && !!state.room && !isDm(state.room) && !!state.locaExtensions;
+  strip.classList.toggle("hidden", !show);
+  if (!show) return;
+  const pages = typeof locaPageNames === "function" ? locaPageNames() : null;
+  $("locaIdentityPageList").textContent = !pages ? "Loading…" : pages.length ? pages.join(" · ") : "Chat only";
+  $("identityManageExt").textContent = state.locaExtensions.can_manage ? "Manage extensions" : "View extensions";
 }
 
 /// Called by openCreateLoca: fresh fields for a new loca.
@@ -387,6 +422,7 @@ async function openLocaIdentity() {
   $("extCreateSubmit").disabled = false;
   setLocaPanelMode("identity", canManage);
   fillIdentityFields(state.settings);
+  setIconPickerCollapsed(true);
   openExtDialog("extCreate", canManage ? "locaDesc" : "extCreateCancel");
 }
 
@@ -439,5 +475,17 @@ $("locaDesc").addEventListener("keydown", (e) => {
   }
 });
 $("locaSeats").addEventListener("input", () => { $("locaSeats").dataset.touched = "1"; });
+// "+N": the rest of the icons, and focus on the first of them.
+$("locaIconOpts").addEventListener("click", (e) => {
+  if (!e.target.closest("#locaIconMore")) return;
+  setIconPickerCollapsed(false);
+  $("locaIconOpts").querySelector(".identmore input")?.focus();
+});
+// An arrow key may walk the radio group onto an icon not shown yet.
+$("locaIconOpts").addEventListener("change", (e) => {
+  if (e.target.closest(".identmore")) setIconPickerCollapsed(false);
+});
+$("extCreateX").addEventListener("click", () => closeExtDialog("extCreate"));
+$("identityManageExt").addEventListener("click", () => openManageExtensions());
 $("locaPreset").addEventListener("change", applyCreatePreset);
 $("locaSummary").addEventListener("click", (e) => { if (e.target.closest("#identityOpen")) openLocaIdentity(); });

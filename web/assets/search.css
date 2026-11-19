@@ -1,0 +1,58 @@
+/* ── Building-wide search (search.js) ─────────────────────────────────
+   Read from the Search design board: a large field, a row of counts with
+   the scope said in words, then the hits, here grouped under their loca.
+   The view lies over the loca's page inside .main (position: relative)
+   until a hit or Close. Theme tokens only, so every theme reads the same;
+   plain selectors only (no nesting): the desktop webview may not read
+   nested CSS. */
+
+/* The sidebar's "Search all messages for “q”", under its filter field. */
+body:not(.locked) .side .sidesearch .sidesearchall { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; padding: 7px 10px;
+  border: 1px dashed var(--line); border-radius: 8px; background: transparent; color: var(--accent2); font-family: inherit; font-size: 13px;
+  text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+body:not(.locked) .side .sidesearch .sidesearchall:hover,
+body:not(.locked) .side .sidesearch .sidesearchall:focus-visible { border-color: var(--accent); background: var(--panel); outline: none; }
+
+#searchView { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
+  padding: 24px 28px 40px; background: var(--bg); color: var(--txt); font-size: 15px; }
+#searchView > * { width: 100%; max-width: 920px; flex-shrink: 0; }
+#searchView .searchhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#searchView .searchhead h2 { margin: 0; font-size: 16px; font-weight: 600; color: var(--txt); }
+#searchView .searchclose { width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  color: var(--muted); font: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
+#searchView .searchclose:hover, #searchView .searchclose:focus-visible { color: var(--txt); border-color: var(--accent); outline: none; }
+#searchView .searchform { margin: 0; }
+#searchView .searchlabel { position: absolute; left: -9999px; }
+#searchView #searchQuery { box-sizing: border-box; width: 100%; height: 48px; padding: 0 16px; border: 1.5px solid var(--line); border-radius: 12px;
+  background: var(--panel); color: var(--txt); font-family: inherit; font-size: 16px; }
+#searchView #searchQuery:focus { outline: none; border-color: var(--accent); }
+#searchView .searchfilters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+#searchView .searchchip { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--panel); color: var(--muted); font-size: 13px; font-weight: 500; }
+#searchView .searchchip.selected { border-color: var(--txt); background: var(--txt); color: var(--bg); }
+#searchView .searchscope { font-size: 13px; color: var(--muted); }
+#searchView .searchstatus { margin: 0; font-size: 13px; color: var(--muted); }
+#searchView .searchstatus:empty { display: none; }
+#searchView .searchstatus.error { color: var(--bad); }
+#searchView .searchresults { display: flex; flex-direction: column; gap: 18px; }
+#searchView .searchgroup { display: flex; flex-direction: column; gap: 6px; }
+#searchView .searchgroup h3 { margin: 0; font-family: var(--font-mono, var(--mono)); font-size: 13px; font-weight: 600; color: var(--muted); }
+#searchView .searchhits { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); overflow: hidden; }
+#searchView .searchhits li + li { border-top: 1px solid var(--line); }
+#searchView .searchhit { display: flex; flex-direction: column; gap: 4px; box-sizing: border-box; width: 100%; padding: 14px 18px; border: 0;
+  background: transparent; color: var(--txt); font: inherit; text-align: left; cursor: pointer; }
+#searchView .searchhit:hover, #searchView .searchhit:focus-visible { background: var(--panel2); outline: none; }
+#searchView .searchhit:focus-visible { box-shadow: inset 3px 0 0 var(--accent); }
+#searchView .searchmeta { font-size: 13px; color: var(--muted); }
+#searchView .searchmeta .searchagent { color: var(--agent); }
+#searchView .searchmeta .searchhuman { color: var(--human); }
+#searchView .searchtext { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+#searchView mark { padding: 0 2px; border-radius: 3px; background: color-mix(in srgb, var(--warn) 32%, transparent); color: inherit; }
+
+/* The message a hit opened, marked for a moment in the feed. */
+#feed .row.searchfound > .bubble, #feed .row.searchfound .bubble { box-shadow: inset 3px 0 0 var(--accent); }
+
+@media (max-width: 760px) {
+  #searchView { padding: 16px 16px 32px; }
+  #searchView .searchhit { padding: 12px 14px; }
+}

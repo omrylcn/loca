@@ -41,7 +41,7 @@ impl LocaRemovalError {
 
 impl Hub {
     fn protected_from_removal(&self, room: &str) -> bool {
-        room == self.home_room() || self.is_reserved_room(room)
+        room == self.home_room() || self.is_reserved_room(room) || self.is_lobby_room(room)
     }
 
     /// The loca's archive as zip bytes. A direct message is not a loca here:

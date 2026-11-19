@@ -49,6 +49,15 @@ const APPEARANCE_GROUPS = [
   ]],
 ];
 
+// The three themes as the Appearance board describes them, under each card.
+const THEME_DESCRIPTIONS = {
+  loca: "Warm paper, Loca's own colours: blue agents, green people, gold Master.",
+  calm: "Bright and quiet: white space, one teal accent.",
+  console: "Dark, for long evenings; agent state at a glance.",
+};
+// The reading size each text-size step sets (styles.css data-font-size).
+const FONT_SIZE_PX = { small: 12, normal: 13, large: 15, larger: 17 };
+
 function currentAppearance() {
   return state.appearance || cachedAppearance();
 }
@@ -57,7 +66,9 @@ function currentAppearance() {
 // accent as its colour, a font in its own face: the chip is its preview.
 function appearanceOptionHtml(key, value, prefs) {
   const name = APPEARANCE_LABELS[key][value];
-  const checked = prefs[key] === value ? " checked" : "";
+  // While the device picks the theme, no theme card is checked: any of
+  // them can then be clicked to choose it instead.
+  const checked = prefs[key] === value && !(key === "theme" && followsSystem()) ? " checked" : "";
   let face = `<span>${name}</span>`;
   let kind = "";
   if (key === "accent") {
@@ -65,8 +76,11 @@ function appearanceOptionHtml(key, value, prefs) {
     face = `<span class="swatch ${value}" title="${name}" aria-hidden="true"></span><span class="visuallyhidden">${name}</span>`;
   } else if (key === "theme") {
     kind = " themeopt";
-    face = `<span class="themecard" data-theme-sample="${value}"><span class="tcpage" aria-hidden="true">` +
-      `<i class="tcline"></i><i class="tcline short"></i><i class="tcdot"></i></span><span class="tcname">${name}</span></span>`;
+    face = themeCardHtml(value, name);
+    // The radio is named by the theme alone; its line under the card
+    // describes it.
+    return `<label class="appearanceopt${kind}"><input type="radio" name="appearance-${key}"` +
+      ` data-appearance="${key}" value="${value}" aria-label="${name}" aria-describedby="themeDesc-${value}"${checked} />${face}</label>`;
   } else if (key === "font_family") {
     face = `<span class="fontface ${value}">${name}</span>`;
   }
@@ -74,14 +88,81 @@ function appearanceOptionHtml(key, value, prefs) {
     ` data-appearance="${key}" value="${value}"${checked} />${face}</label>`;
 }
 
+// A theme as a small picture of the app in it: the sidebar with the open
+// loca, two messages (an agent's, a person's) and the composer.
+function themeCardHtml(value, name) {
+  const tag = value === APPEARANCE_DEFAULTS.theme ? `<span class="tcdefault">default</span>` : "";
+  return `<span class="themecard" data-theme-sample="${value}"><span class="tcpage" aria-hidden="true">` +
+      `<span class="tcside"><i class="tcbrand"></i><i class="tcsel"></i><i class="tcrow"></i><i class="tcrow short"></i></span>` +
+      `<span class="tcmain"><span class="tcmsg"><i class="tcav agent"></i><i class="tcbar"></i></span>` +
+      `<span class="tcmsg"><i class="tcav human"></i><i class="tcbar long"></i></span>` +
+      `<span class="tccomposer"><i class="tcsend"></i></span></span></span>` +
+    `<span class="tchead"><span class="tcname">${name}</span>${tag}</span>` +
+    `<span class="tcdesc" id="themeDesc-${value}">${esc(THEME_DESCRIPTIONS[value] || "")}</span></span>`;
+}
+
+// Under the themes: follow the device's light or dark scheme. A setting of
+// this browser (theme.js followsSystem), so it says so.
+function followSystemHtml() {
+  const on = followsSystem();
+  return `<div class="followsystem"><label class="followsystemlabel"><input type="checkbox" id="followSystem"${on ? " checked" : ""} />` +
+    `<span>Follow my system on this browser: Calm when the device is light, Console when it is dark</span></label>` +
+    `<small class="appearancehint" id="followSystemNote">${esc(followSystemNote())}</small></div>`;
+}
+
+function followSystemNote() {
+  if (!followsSystem()) return "Kept on this browser only, not in your profile; your saved theme stays as it is.";
+  const now = APPEARANCE_LABELS.theme[systemTheme()];
+  return `Kept on this browser only. Now ${now}, as your device is ${systemTheme() === "console" ? "dark" : "light"}; picking a theme above stops following.`;
+}
+
+// Beside the size chips: the same four sizes as a slider, kept in step.
+function textSizeSliderHtml(prefs) {
+  const sizes = APPEARANCE_CHOICES.font_size;
+  const index = Math.max(0, sizes.indexOf(prefs.font_size));
+  return `<div class="textsize"><label for="appearanceTextSize">Size</label>` +
+    `<input type="range" id="appearanceTextSize" min="0" max="${sizes.length - 1}" step="1" value="${index}"` +
+    ` aria-valuetext="${esc(textSizeLabel(sizes[index]))}" />` +
+    `<output id="appearanceTextSizeValue" for="appearanceTextSize">${esc(textSizeLabel(sizes[index]))}</output></div>`;
+}
+
+function textSizeLabel(size) {
+  return `${APPEARANCE_LABELS.font_size[size]} · ${FONT_SIZE_PX[size]} px`;
+}
+
+// The follow-system box and the size slider, after any change of look.
+function syncAppearanceExtras() {
+  const prefs = currentAppearance();
+  const following = followsSystem();
+  const follow = $("followSystem");
+  if (follow) follow.checked = following;
+  document.querySelectorAll('input[data-appearance="theme"]').forEach(radio => {
+    radio.checked = !following && radio.value === prefs.theme;
+  });
+  const note = $("followSystemNote");
+  if (note) note.textContent = followSystemNote();
+  const slider = $("appearanceTextSize");
+  if (slider) {
+    const index = Math.max(0, APPEARANCE_CHOICES.font_size.indexOf(prefs.font_size));
+    const label = textSizeLabel(APPEARANCE_CHOICES.font_size[index]);
+    if (Number(slider.value) !== index) slider.value = String(index);
+    slider.setAttribute("aria-valuetext", label);
+    const out = $("appearanceTextSizeValue");
+    if (out) out.textContent = label;
+  }
+}
+
 function appearanceRowHtml(key, title, hint, prefs) {
   const labelId = `appearanceLabel-${key}`;
   const values = key === "theme" ? PICKED_THEMES : APPEARANCE_CHOICES[key];
   const options = values.map(value => appearanceOptionHtml(key, value, prefs)).join("");
   const custom = key === "accent" ? customAccentHtml(prefs) : "";
-  return `<div class="appearancerow" role="radiogroup" aria-labelledby="${labelId}">` +
-    `<span id="${labelId}">${title}</span><div class="appearanceopts">${options}${custom}</div>` +
-    (hint ? `<small class="appearancehint">${hint}</small>` : "") + `</div>`;
+  // The follow-system box and the size slider sit in their row but outside
+  // its radio group.
+  const extra = key === "theme" ? followSystemHtml() : key === "font_size" ? textSizeSliderHtml(prefs) : "";
+  return `<div class="appearancerow appearancerow-${key}">` +
+    `<span id="${labelId}">${title}</span><div class="appearanceopts${key === "theme" ? " themeopts" : ""}" role="radiogroup" aria-labelledby="${labelId}">${options}${custom}</div>` +
+    (hint ? `<small class="appearancehint">${hint}</small>` : "") + extra + `</div>`;
 }
 
 // A colour of one's own. The browser keeps it readable on the theme
@@ -95,10 +176,11 @@ function customAccentHtml(prefs) {
 
 function customAccentNote(prefs) {
   if (prefs.accent !== "custom" || !prefs.accent_custom) return "";
-  const used = readableAccent(prefs.accent_custom, prefs.theme);
+  const theme = effectiveTheme(prefs);
+  const used = readableAccent(prefs.accent_custom, theme);
   return used.adjusted
-    ? `Your colour ${prefs.accent_custom} was ${LIGHT_THEMES.includes(prefs.theme) ? "darkened" : "lightened"} to ${used.accent} so text in it stays readable (4.5:1) on ${APPEARANCE_LABELS.theme[prefs.theme]}.`
-    : `${prefs.accent_custom} reads well on ${APPEARANCE_LABELS.theme[prefs.theme]}.`;
+    ? `Your colour ${prefs.accent_custom} was ${LIGHT_THEMES.includes(theme) ? "darkened" : "lightened"} to ${used.accent} so text in it stays readable (4.5:1) on ${APPEARANCE_LABELS.theme[theme]}.`
+    : `${prefs.accent_custom} reads well on ${APPEARANCE_LABELS.theme[theme]}.`;
 }
 
 // The sample: two lines drawn with the chat's own rules (layout, font, text
@@ -150,6 +232,7 @@ function refreshAppearanceSample() {
   if (sample) sample.innerHTML = appearanceSampleHtml();
   const note = $("accentNote");
   if (note) note.textContent = customAccentNote(currentAppearance());
+  syncAppearanceExtras();
   if (typeof refreshFeedTimes === "function") refreshFeedTimes();
 }
 
@@ -210,6 +293,7 @@ async function saveAppearancePatch(patch) {
 }
 
 function resetAppearance() {
+  setFollowSystem(false);
   saveAppearancePatch({ ...APPEARANCE_DEFAULTS });
   syncAppearanceInputs();
 }
@@ -229,7 +313,23 @@ function profileSignOutHtml() {
       `Sign out of this browser? Your loca sessions here close. Your membership and your key stay; ` +
       (master ? "a fresh pairing code signs you in again." : "your key signs you in again.") +
       `<div class="choices"><button type="button" class="no" id="leaveNo">Cancel</button>` +
-      `<button type="button" class="yes" id="leaveYes">Sign out</button></div></div></div>`;
+      `<button type="button" class="yes" id="leaveYes">Sign out</button></div></div>` +
+    (master ? "" : profileLeaveBuildingHtml()) + `</div>`;
+}
+
+// Leaving the Building is not signing out: the membership ends with every
+// seat and key it opened, and only the Master can admit this person again.
+// The words already said stay with their locas. Asked twice: the button opens
+// the question, and the question takes the word "leave" typed out.
+function profileLeaveBuildingHtml() {
+  return `<button type="button" class="leavebuildingbtn" id="leaveBuildingBtn">Leave the building…</button>` +
+    `<div class="leaveconfirm leavebuilding hidden" id="leaveBuildingConfirm" role="alertdialog" aria-label="Leave the building">` +
+      `<b>Leave the building?</b> This ends your membership and gives up every seat you hold. ` +
+      `Your past messages stay with their locas. To come back, the Master must admit you again.` +
+      `<label class="leavebuildingtype">To leave, type <b>leave</b> <input id="leaveBuildingWord" autocomplete="off" spellcheck="false" /></label>` +
+      `<div class="leavebuildingerror hidden" id="leaveBuildingError" role="alert"></div>` +
+      `<div class="choices"><button type="button" class="no" id="leaveBuildingNo">Stay</button>` +
+      `<button type="button" class="yes danger" id="leaveBuildingYes" disabled>Leave the building</button></div></div>`;
 }
 
 // The account menu is redrawn whenever the profile is read again (a loca
@@ -243,6 +343,9 @@ function accountMenuState(box) {
   return {
     open: !!menu?.open,
     confirming: !!menu?.open && !!box.querySelector("#leaveConfirm:not(.hidden)"),
+    // Leaving the building, asked and perhaps half typed, survives a redraw.
+    leaving: !!menu?.open && !!box.querySelector("#leaveBuildingConfirm:not(.hidden)"),
+    leaveWord: box.querySelector("#leaveBuildingWord")?.value || "",
   };
 }
 function restoreAccountMenu(box, kept) {
@@ -251,6 +354,11 @@ function restoreAccountMenu(box, kept) {
   const menu = box.querySelector("details.profilemenu");
   if (menu) menu.open = true;
   if (kept.confirming) $("leaveConfirm")?.classList.remove("hidden");
+  if (kept.leaving && $("leaveBuildingConfirm")) {
+    $("leaveBuildingConfirm").classList.remove("hidden");
+    $("leaveBuildingWord").value = kept.leaveWord;
+    $("leaveBuildingYes").disabled = kept.leaveWord.trim().toLowerCase() !== "leave";
+  }
 }
 
 // While the person has the account menu open it is theirs: a name half
@@ -965,8 +1073,19 @@ $("whoami").addEventListener("click", event => {
 });
 
 $("whoami").addEventListener("change", event => {
+  if (event.target.id === "followSystem") {
+    setFollowSystem(event.target.checked);
+    applyAppearance(currentAppearance());
+    refreshAppearanceSample();
+    return;
+  }
   const input = event.target.closest("input[data-appearance]");
   if (input?.checked) {
+    // Picking a theme is choosing it over the device's: following stops.
+    if (input.dataset.appearance === "theme" && followsSystem()) {
+      setFollowSystem(false);
+      applyAppearance(currentAppearance());
+    }
     // "Custom colour" with no colour picked yet takes the picker's colour.
     if (input.value === "custom" && !currentAppearance().accent_custom) {
       saveAppearancePatch({ accent: "custom", accent_custom: $("accentCustomInput")?.value || "#2ee6c8" });
@@ -983,6 +1102,16 @@ $("whoami").addEventListener("change", event => {
 
 // The picker previews while it is dragged; the change above saves.
 $("whoami").addEventListener("input", event => {
+  // The size slider steps through the four sizes; each step is the same
+  // choice as its chip, saved the same way (the chips follow it).
+  if (event.target.id === "appearanceTextSize") {
+    const size = APPEARANCE_CHOICES.font_size[Number(event.target.value)];
+    if (size && size !== currentAppearance().font_size) {
+      saveAppearance("font_size", size);
+      document.querySelectorAll('input[data-appearance="font_size"]').forEach(radio => { radio.checked = radio.value === size; });
+    }
+    return;
+  }
   if (event.target.id === "accentCustomInput") {
     applyAppearance({ ...currentAppearance(), accent: "custom", accent_custom: event.target.value.toLowerCase() });
   }

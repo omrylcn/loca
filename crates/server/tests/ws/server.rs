@@ -165,12 +165,19 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("boardlist.css", "text/css", ".boardviewswitch"),
         ("roster.css", "text/css", ".seatmenu"),
         ("addressing.css", "text/css", ".addressline"),
+        ("threads.css", "text/css", ".threadpanel"),
         ("chatsurface.css", "text/css", ".row > .face"),
         ("page-chrome.css", "text/css", ".side"),
         ("page-entry.css", "text/css", "#connBox"),
         ("page-people.css", "text/css", "#peoplePanel"),
+        (
+            "buildingsettings.css",
+            "text/css",
+            "#buildingSettings .bsgrid",
+        ),
         ("page-manage.css", "text/css", "#adminbar"),
         ("page-content.css", "text/css", "#notesPanel"),
+        ("page-home.css", "text/css", "#homePanel"),
         ("avatar.js", "text/javascript", "function avatarHtml("),
         ("theme.js", "text/javascript", "function applyAppearance("),
         ("state.js", "text/javascript", "const state ="),
@@ -242,6 +249,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "async function fetchGroups(",
         ),
         (
+            "buildingsettings.js",
+            "text/javascript",
+            "async function fetchBuildingSettings(",
+        ),
+        (
             "notifications.js",
             "text/javascript",
             "async function pollNotifications(",
@@ -259,6 +271,10 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "function renderAddressLine(",
         ),
         ("locainfo.js", "text/javascript", "function placeLocaInfo("),
+        ("search.js", "text/javascript", "function openSearchView("),
+        ("search.css", "text/css", "#searchView"),
+        ("threads.js", "text/javascript", "function openThread("),
+        ("home.js", "text/javascript", "function renderHome("),
     ];
     for (name, content_type, marker) in assets {
         assert!(

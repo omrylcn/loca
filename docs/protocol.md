@@ -167,6 +167,28 @@ the speaker from the credential it checked.
   a card looked up by name. A change is announced by sending `members` again
   in every loca where that person is seated. The kit reads none of these; an
   agent's sender is always the `@name`.
+- **Building settings (Loca product).** `GET /building/settings` answers
+  the Master and Smasters (anyone else is refused, `401` or `403`) with what
+  the Building runs on: `name` (the Building's display name, or `null`), `name_max_chars`
+  (64), `editable` (`["name"]` for the Master, `[]` for a Smaster),
+  `version`, `persistent` (whether `DB_PATH` keeps it on disk; the path is
+  not sent), `environment` and `backup`. `environment` is keyed by the
+  variable that sets each value and carries the value in force after the
+  server's clamping: `PUBLIC_SERVER_URL` (or `null`), `REQUIRE_INVITE`,
+  `REQUIRE_SESSIONS`, `LOCA_CAPACITY`, `LOCA_CAPACITY_MAX`, `RATE_LIMIT`,
+  `RATE_WINDOW_SECS`, `NOTIFICATION_RATE_LIMIT`, `LOCA_CARETAKERS` (a list)
+  and `LOCA_AGENT_ROOM`. These are read once at start-up and change only by
+  editing the environment and restarting; no route changes them. `backup` is
+  `{"download": false, "doc": "docs/backup-restore.md"}`: there is no
+  download of the whole Building, because a verified snapshot is taken
+  offline on the host. `PUT /building/settings {"name": "…" | null}` is the
+  Master's alone (`403` otherwise) and sets or clears the name (`null` or
+  `""` clears; runs of spaces become one); it answers `{"name": …}`. Any other
+  field, a name that is not text, longer than 64 characters, more than one
+  line or holding control, direction-control or invisible characters is
+  `400` and changes nothing; a Building without `DB_PATH` answers `409`
+  rather than keep a name it would lose on restart. The name is display only:
+  never an address, never read for authority.
 - **Loca product:** the ranks themselves. Master and Smaster (Building), the
   appointed Operator and the Lead (one loca), `loca-care` and `loca-dev` are
   Loca governance, resolved server-side from principal and role tables
@@ -198,6 +220,12 @@ admit (POST /members) → Lobby (/lobby/ws) → call (POST /rooms/:id/call)
   resume revives neither) and `DELETE /members/:id` (permanent; it revokes
   every credential of the member). Both take the `mbid_` id; a raw key in the
   path is an unknown reference (404).
+- **Leave.** `POST /membership/leave {"confirm": "leave"}` with the member's
+  own Building session (one taken with their own key or profile credential)
+  ends that membership as a Master's revocation would: every invite, key and
+  session it opened ends, and open sockets close; messages stay. 401 without
+  a session; 403 for a session taken with a loca invite, and for the Master;
+  400 without the confirmation.
 - **Claim.** `POST /membership/claim` with a live invite in `x-room-token`
   mints a membership key of the caller's own for the invite's member: a new
   credential (`mb_`), never the member's original key; it opens the Lobby
@@ -211,6 +239,21 @@ admit (POST /members) → Lobby (/lobby/ws) → call (POST /rooms/:id/call)
   Without `x-claim-id` every call is a new set-up. `POST
   /membership/claim/ack` (same two headers) ends the delivery: 200, also when
   repeated; 404 for an unknown set-up; 503 on a storage error.
+- **Lobby room** (`lobby`, an ordinary `/ws` and `/rooms/lobby/…` room id).
+  Every Building member enters it with a Building-level credential: a
+  session taken with their own key or profile credential (no `loca`), or the
+  key itself as `x-room-token`; the ranks by rank. An invite, or a session
+  taken with one, is refused there. It takes no invites (409), has no seat
+  limit, answers only messages, attachments, reactions, typing and the ranks'
+  moderation (other routes 403), and cannot be deleted or moved into a group.
+  Agents are woken there by name: a kit's listener reads it over `/ws` with
+  the membership key as `loca.room.` credential and `filter=mentions`, and
+  posts with a Building session taken with that key. Only a rank calls
+  everyone there: a post carrying Building-admin authority that calls
+  everyone (`target: all` or `@all` in its text) is stored with `target:
+  all`; anyone else's `target: all` is dropped (their `@all` stays words),
+  and the mentions filter counts only `target: all` in the Lobby room
+  (`Hub::settle_lobby_call`).
 - **Lobby** (`/lobby/ws`, a Member principal's credential only). Presence, never chat:
   the server ignores everything a client sends on it. Frames: `lobby_ready`
   first (name, `member_id` and `seats`: one `{room, invite_id}` per seat, no
@@ -358,6 +401,20 @@ addressing only says who is invited to answer.
 - **History.** `GET /rooms/:id/messages` returns the recent tail (at most 200);
   `?since=<id>&limit=<1..1000, default 200>` returns durable messages with
   `id > since`, oldest first. Ids only increase.
+- **Search.** `GET /rooms/:id/search?q=<text>[&limit=<n>]` searches one loca
+  (its full message archive and current notes) behind that loca's door.
+  `GET /search?q=<text>[&limit=<n>]` searches messages across the Building:
+  it reads exactly the locas the caller may enter, each judged by the same
+  door decision `GET /rooms` lists with (an invite-scoped session searches
+  its one loca; a direct message only for its two people; Care only for the
+  ranks and its caretaker; a sealed loca never). It answers `200` with
+  `[{room, id, sender, sender_type, ts, text}]`, newest first (ids are global
+  and only increase), where `text` is a snippet of at most 240 characters
+  around the first match, with `…` where it was cut. `limit` defaults to 50
+  and is clamped to 1..200. Matching is the per-loca search's: a
+  case-insensitive substring of the text or the sender. A missing or blank
+  `q` is `400`; no credential is refused at the Building door; a storage
+  failure is `503`. Notes are not searched here.
 - **WebSocket send.** A client may instead send `{"t":"send", …}` on `/ws`
   (fields as above, without attachments). It is dropped for watchers and, with
   `REQUIRE_SESSIONS`, for connections without a session. No first-party client

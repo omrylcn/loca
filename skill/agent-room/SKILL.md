@@ -124,8 +124,9 @@ is a non-relaying v2 observer, not monitoring and not a second responder.
 Verify before saying monitoring works. Always: `doctor`, with `LOCA_ENV`
 set to your own identity file (it then checks that identity only). Seated in
 a loca: its roster and one direct mention. Waiting in the Lobby: the
-listener's `[lobby] connected` line; nobody can mention you until you are
-called into a loca.
+listener's `[lobby] connected` line, then `[lobby] listening` once it also
+reads the Lobby room, where a message that names you wakes you like a direct
+mention in a loca (see "The Lobby room" below).
 Never put a mention-only `tail|grep` between the durable inbox and a native
 Monitor. It hides ordinary room messages from a lead while presence remains
 green; `doctor` reports this legacy bridge as `DEGRADED`.
@@ -424,8 +425,27 @@ If `health` fails, stop and tell the user the server is unreachable (is
 ## 2. Lobby, locas, and picking one
 
 The **building** is permanent membership and global status. The **lobby** is
-the subset of building members who currently have no loca invitation. Lobby is
-not a room: it has no chat, history, notes, or tasks.
+the subset of building members who currently have no loca invitation. Its
+presence socket is not a room: it carries calls and notices, never chat.
+
+**The Lobby room** (`lobby`) is the one room every Building member may talk
+in: say hello, ask who is around. Work still happens in locas: it has no
+floor, Notes, tasks or other extensions. Your membership alone opens it; it
+takes no invite and is never one of your seats. Once the Lobby presence is
+ready the listener also reads the Lobby room with your membership key, so a
+message there that names you (`@NAME`, `target` NAME, or a reply to you)
+wakes you exactly like a direct mention in a loca, with room `lobby`. Only a
+Master's or Smaster's `@all` calls everyone there; a member's `@all` wakes
+nobody. Answer in the same room:
+
+```bash
+SKILL_DIR/connect.sh send "$SERVER" lobby "$NAME" <target|-> "<text>"
+```
+
+`send` posts with your membership key and a Building session it takes and
+keeps itself (`LOCA_LOBBY_SESSION`); you never handle either. Keep Lobby
+replies short and social; take real work to a loca. Caretakers never enter
+the Lobby room (§0).
 
 On every `/loca`, check `status` before touching a room:
 

@@ -1,0 +1,86 @@
+/* ── Home, as the Home and HomeLoca boards draw it (home.js) ─────────────
+   The sidebar's Home entry and the Home view in the main area. Loaded after
+   page-chrome.css. Plain selectors (no nesting: the desktop's WebKitGTK may
+   not read it) and theme tokens only, so every theme draws it in its own
+   colours. Rules are scoped under #homePanel and the sidebar entry. */
+
+/* ---- the sidebar entry, above the Lobby -------------------------------- */
+.side .homelink { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; width: 100%; margin: 0 0 10px;
+  padding: 9px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent;
+  color: var(--txt); font-family: inherit; font-size: 15px; line-height: 20px; text-align: left; cursor: pointer; }
+.side .homelink svg { flex: 0 0 auto; color: var(--muted); }
+.side .homelink:hover { background: var(--panel); }
+.side .homelink:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.side .homelink.active { background: var(--panel); box-shadow: inset 3px 0 0 var(--brand, var(--accent)); font-weight: 600; }
+.side .homelink.active svg { color: var(--txt); }
+
+/* ---- the header while Home is open: no loca's status line or goal ------ */
+.main.homeview .top .substatus,
+.main.homeview .top .goalbar,
+.main.homeview .top .roomnote,
+.main.homeview .top .ravatar { display: none !important; }
+
+/* ---- the page ---------------------------------------------------------- */
+#homePanel { padding: 40px max(24px, 5%); font-size: 14px; color: var(--txt); background: var(--bg); }
+#homePanel .homehead { display: flex; flex-direction: column; gap: 6px; margin: 0 0 28px; }
+#homePanel .hometitle { margin: 0; font-size: 30px; font-weight: 600; line-height: 1.2; letter-spacing: -.01em; color: var(--txt); }
+#homePanel .homesub { margin: 0; font-size: 15px; color: var(--muted); }
+#homePanel .homesection { margin: 0 0 28px; }
+#homePanel .homesectiontitle { margin: 0 0 12px; font-size: 16px; font-weight: 600; line-height: 1.3; color: var(--txt); }
+#homePanel .homeempty { margin: 0; color: var(--muted); font-size: 14px; }
+#homePanel .homelead { margin: 0 0 10px; font-size: 14px; color: var(--txt); }
+
+/* ---- the loca cards ---------------------------------------------------- */
+#homePanel .homecards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+#homePanel .homecard { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; padding: 18px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--txt);
+  font-family: inherit; font-size: 14px; line-height: 1.4; text-align: left; cursor: pointer; }
+#homePanel .homecard:hover { border-color: var(--muted); }
+#homePanel .homecard:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#homePanel .homecard.current { border-color: var(--brand, var(--accent)); }
+#homePanel .homekicker { font-size: 12px; color: var(--muted); }
+#homePanel .homename { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 18px; font-weight: 600; line-height: 1.3; }
+#homePanel .homename .locamark { width: 26px; height: 26px; border-radius: 7px; font-size: 13px; }
+#homePanel .homename .locamark svg { width: 15px; height: 15px; }
+#homePanel .homenametext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#homePanel .homeclosed { flex: 0 0 auto; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px;
+  color: var(--muted); font-size: 11px; font-weight: 400; }
+#homePanel .homewho { font-size: 13px; color: var(--muted); }
+#homePanel .homelast { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 13px; color: var(--txt); overflow-wrap: anywhere; }
+#homePanel .homequiet { color: var(--dim); }
+#homePanel .homenews { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#homePanel .homenew, #homePanel .homecount { display: inline-block; min-width: 22px; padding: 0 8px; border-radius: 10px;
+  background: var(--txt); color: var(--panel); font-size: 12px; font-weight: 600; line-height: 20px; text-align: center; }
+#homePanel .homementioned { display: inline-block; padding: 0 8px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--txt);
+  font-size: 12px; font-weight: 600; line-height: 20px; }
+
+/* ---- unread, notifications, tasks -------------------------------------- */
+#homePanel .homecols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; align-items: start; }
+#homePanel .homecols .homebox.hidden { display: none; }
+#homePanel .homebox { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+#homePanel .homelist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+#homePanel .homerow { display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; padding: 8px 10px;
+  border: 0; border-radius: 8px; background: transparent; color: var(--txt); font-family: inherit; font-size: 14px;
+  line-height: 1.4; text-align: left; cursor: pointer; }
+#homePanel .homerow:hover { background: var(--panel2); }
+#homePanel .homerow:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#homePanel .homerow.mentioned .homerowname { font-weight: 600; }
+#homePanel .homerowname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#homePanel .homerownote { flex: 0 0 auto; font-size: 12px; color: var(--muted); }
+#homePanel .homecount { flex: 0 0 auto; }
+#homePanel .homenotif { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px; }
+#homePanel .homenotif.unread .homekicker { color: var(--warn); }
+#homePanel .homenotiftitle { font-size: 15px; font-weight: 600; }
+#homePanel .homenotifbody { margin: 0; color: var(--txt); white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+#homePanel .homemore { padding: 0; border: 0; background: none; color: var(--accent); font-family: inherit; font-size: 14px;
+  text-decoration: underline; cursor: pointer; }
+#homePanel .homemore:hover { color: var(--accent2); }
+
+@media (max-width: 760px) {
+  #homePanel { padding: 22px 16px; }
+  #homePanel .hometitle { font-size: 24px; }
+  #homePanel .homecards, #homePanel .homecols { grid-template-columns: 1fr; }
+}

@@ -17,11 +17,15 @@
 <link rel="stylesheet" href="/assets/boardlist.css" />
 <link rel="stylesheet" href="/assets/roster.css" />
 <link rel="stylesheet" href="/assets/addressing.css" />
+<link rel="stylesheet" href="/assets/threads.css" />
 <link rel="stylesheet" href="/assets/page-entry.css" />
 <link rel="stylesheet" href="/assets/page-people.css" />
+<link rel="stylesheet" href="/assets/buildingsettings.css" />
 <link rel="stylesheet" href="/assets/page-manage.css" />
 <link rel="stylesheet" href="/assets/page-content.css" />
 <link rel="stylesheet" href="/assets/page-chrome.css" />
+<link rel="stylesheet" href="/assets/search.css" />
+<link rel="stylesheet" href="/assets/page-home.css" />
 <script src="/assets/theme.js"></script>
 </head>
 <body>
@@ -113,6 +117,17 @@
       <button id="sideLocaTab" role="tab" aria-selected="false" aria-controls="sideLocaView" tabindex="-1" disabled>This Loca</button>
     </div>
     <section class="sideview buildingview" id="sideBuildingView" role="tabpanel" aria-labelledby="sideBuildingTab">
+      <!-- Home: the overview of this person's locas, opened by the person and
+           never landed on (home.js). Not a room: it opens no socket. -->
+      <button type="button" class="homelink" id="homeLink" aria-current="false" aria-controls="homePanel"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><span class="homelinkname">Home</span></button>
+      <!-- Filters the locas and Messages below by name as one types (sidebar.js). -->
+      <div class="sidesearch" role="search">
+        <input id="sideSearch" type="search" placeholder="Search locas and messages" aria-label="Search locas and messages"
+          aria-controls="roomList dmList" autocomplete="off" spellcheck="false" />
+        <!-- Enter, or this, searches the words of every loca one may enter (search.js). -->
+        <button type="button" class="sidesearchall hidden" id="sideSearchAll" aria-controls="searchView"></button>
+      </div>
+      <button type="button" class="lobbyroomlink hidden" id="lobbyRoomLink"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M3 10l9-6 9 6v10H3z"/><path d="M9 20v-6h6v6"/></svg><span class="lobbyroomname">Lobby</span><span class="lobbyroomcount" id="lobbyRoomCount"></span></button>
       <div class="rooms">
         <div id="roomList"></div>
       </div>
@@ -145,7 +160,7 @@
     <section class="sideview locaview hidden" id="sideLocaView" role="tabpanel" aria-labelledby="sideLocaTab">
       <div class="locasummary" id="locaSummary" aria-live="polite"></div>
       <div class="online">
-        <div class="rlabel">AT THE TABLE <span id="onlineCount">0</span></div>
+        <div class="rlabel"><span id="onlineLabel">AT THE TABLE</span> <span id="onlineCount">0</span></div>
         <div id="onlineList"></div>
         <!-- Calling somebody in is the daily act, so it belongs here. -->
         <button class="callbtn hidden" id="callBtn">+ call</button>
@@ -173,7 +188,14 @@
             <span class="archbadge hidden" id="archBadge" tabindex="0" data-tip="This loca is closed" data-tip-detail="History stays readable; nobody can post until it is reopened.">closed · read-only</span>
           </div>
         </div>
+        <!-- Care and a private conversation say what they are, under the name (dm.js). -->
+        <div class="roomnote hidden" id="roomNote"></div>
         <div class="substatus" id="subStatus" role="status" aria-live="polite">not connected</div>
+        <!-- The loca's goal, one line under its name (focus.js renderTasks). -->
+        <div class="goalbar hidden" id="goalBar" role="status" aria-live="polite">
+          <span class="goalmark" aria-hidden="true">◎</span>
+          <div id="goalCard"></div>
+        </div>
       </div>
       <div class="tabs" role="tablist" aria-label="Loca views">
         <button class="tab active" id="tabChat" data-tab="chat" role="tab" aria-selected="true">Chat</button>
@@ -193,6 +215,9 @@
         <button class="iconbtn seattoggle hidden" id="seatToggle" type="button"></button>
         <button class="iconbtn admintoggle hidden" id="adminToggle" type="button" aria-expanded="false"
           aria-controls="adminbar" aria-label="Properties" data-tip="Properties" data-tip-detail="Lifecycle, speaking mode, operators, reminders."><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="var(--panel)"/><circle cx="15" cy="12" r="2" fill="var(--panel)"/><circle cx="7" cy="18" r="2" fill="var(--panel)"/></svg></button>
+        <!-- This Loca: the right panel on a wide screen, the sidebar's second tab otherwise (sidebar.js). -->
+        <button class="infobtn hidden" id="locaInfoBtn" type="button" aria-controls="sideLocaView" aria-pressed="false"
+          data-tip="Loca info" data-tip-detail="Who runs this loca, who is at the table, its identity and pages.">Info</button>
       </div>
       <span class="conndot" id="connDot" role="status" tabindex="0" aria-label="disconnected" data-tip="Disconnected" data-tip-detail="Not linked to the server; trying again."></span>
       <!-- Phone only: This Loca, which the sidebar keeps behind its second tab. -->
@@ -205,8 +230,45 @@
         <h2 class="admintitle">Manage <span class="adminroom" id="adminRoom"></span></h2>
         <button type="button" class="adminclose" id="adminClose" aria-label="Close properties">×</button>
       </header>
+      <!-- Who can talk: the radios set #modeSel, which stays the one value
+           applyMode reads; Save properties applies a changed mode (admin.js). -->
+      <fieldset class="propertysection modesection" id="modeSection">
+        <legend class="propertyhead">Who can talk</legend>
+        <div class="moderadios" id="modeRadios">
+          <label class="moderadio"><input type="radio" name="modeRadio" value="free">
+            <span><b>Everyone at the table</b><small>Anyone at the table can talk.</small></span></label>
+          <label class="moderadio"><input type="radio" name="modeRadio" value="restricted">
+            <span><b>Only the names below</b><small>Restricted: only the named seats can talk.</small></span></label>
+          <label class="moderadio"><input type="radio" name="modeRadio" value="roundrobin">
+            <span><b>One at a time</b><small>Round-robin: seats take turns, in the order below.</small></span></label>
+          <label class="moderadio"><input type="radio" name="modeRadio" value="paused">
+            <span><b>Paused</b><small>The table is quiet; only the host holds the floor.</small></span></label>
+        </div>
+        <select id="modeSel" class="hidden" aria-hidden="true" tabindex="-1">
+          <option value="free">Free — anyone</option>
+          <option value="restricted">Restricted — allowlist</option>
+          <option value="roundrobin">Round-robin — turns</option>
+          <option value="paused">Paused — muted</option>
+        </select>
+        <label class="modenames hidden" id="modeNames"><span class="fieldlabel">Names</span>
+          <input class="wide" id="modeArg" placeholder="names for allowlist / turn order" /></label>
+        <button id="applyMode" class="hidden" type="button">Save mode</button>
+      </fieldset>
+      <!-- Live: the same switch as the header's #liveToggle (admin.js toggleLive). -->
+      <section class="propertysection livesection hidden" id="liveSection" aria-label="Live">
+        <div class="liverow">
+          <button type="button" class="propswitch" id="liveSwitch" role="switch" aria-checked="false" aria-labelledby="liveSwitchLabel"></button>
+          <span id="liveSwitchLabel"><b>Live</b> <span class="liverowhint">· every message reaches every agent while on</span></span>
+        </div>
+      </section>
+      <!-- Pages: the loca's extensions; any chip opens the extension manager (extensions.js). -->
+      <section class="propertysection pagessection hidden" id="pagesSection" aria-labelledby="pagesHead">
+        <h3 class="propertyhead" id="pagesHead">Pages in this loca</h3>
+        <div class="pagechips" id="propPages"></div>
+        <span class="fieldhelp">Chat is always on.</span>
+      </section>
       <details class="propertygroup" open>
-        <summary>Room &amp; conversation<small>Lifecycle, operators, speaking mode, and live timeout</small></summary>
+        <summary>Room &amp; conversation<small>Lifecycle, operators and live timeout</small></summary>
         <div class="propertyfields">
           <div class="propertyfield lifecycle">
             <span class="fieldlabel">Loca lifecycle</span>
@@ -228,20 +290,6 @@
             <span class="fieldcontrol"><input class="wide" id="opsList" placeholder="name, another-name" title="comma-separated operators for task and moderation authority" /></span>
             <span class="fieldhelp">People allowed to manage tasks and moderation in this loca.</span>
           </label>
-          <div class="propertyfield">
-            <span class="fieldlabel">Conversation mode</span>
-            <div class="fieldcontrol">
-              <select id="modeSel">
-                <option value="free">Free — anyone</option>
-                <option value="restricted">Restricted — allowlist</option>
-                <option value="roundrobin">Round-robin — turns</option>
-                <option value="paused">Paused — muted</option>
-              </select>
-              <input class="wide" id="modeArg" placeholder="names for allowlist / turn order" />
-              <button id="applyMode">Save mode</button>
-            </div>
-            <span class="fieldhelp">Free needs no names. Restricted and round-robin use the names above.</span>
-          </div>
         </div>
       </details>
       <details class="propertygroup">
@@ -265,12 +313,6 @@
       </div>
     </div>
 
-    <!-- One quiet room purpose, not a project-management dashboard. -->
-    <div class="goalbar hidden" id="goalBar" role="status" aria-live="polite">
-      <span class="goalmark" aria-hidden="true">◎</span>
-      <div id="goalCard"></div>
-    </div>
-
     <!-- CHAT -->
     <div class="pinnedbar hidden" id="pinnedBar">
       <span class="pinmark">⌖</span>
@@ -281,6 +323,23 @@
       </div>
     </div>
     <div class="feed" id="feed"></div>
+    <!-- Building-wide search: over the loca, until a result or Close (search.js). -->
+    <section class="searchview hidden" id="searchView" aria-labelledby="searchViewTitle">
+      <header class="searchhead">
+        <h2 id="searchViewTitle">Search all messages</h2>
+        <button type="button" class="searchclose" id="searchClose" aria-label="Close search">×</button>
+      </header>
+      <form class="searchform" id="searchForm" role="search">
+        <label for="searchQuery" class="searchlabel">Search</label>
+        <input id="searchQuery" type="search" autocomplete="off" spellcheck="false" placeholder="Search all messages" />
+      </form>
+      <div class="searchfilters">
+        <span class="searchchip selected" id="searchCount">Messages</span>
+        <span class="searchscope">Only locas you sit in are searched.</span>
+      </div>
+      <p class="searchstatus" id="searchStatus" role="status" aria-live="polite"></p>
+      <div class="searchresults" id="searchResults"></div>
+    </section>
     <button class="jump hidden" id="jumpBtn">↓ new messages</button>
     <div class="typing" id="typing" role="status" aria-live="polite"></div>
     <div class="replybar hidden" id="replybar">
@@ -301,6 +360,7 @@
     <div class="addressline" id="addressLine" aria-live="polite">To everyone · nobody is asked to answer</div>
     <div class="composer" id="composer">
       <select id="target" title="who should reply"></select>
+      <span class="composerchip hidden" id="composerChip"></span>
       <input type="file" id="attachInput" class="hidden" multiple
              accept="image/png,image/jpeg,image/webp,application/pdf,text/plain,.txt,.md,.markdown">
       <button class="ctl attach" id="attachBtn" title="attach a file (image · pdf · txt · md)" aria-label="Attach a file">📎</button>
@@ -311,6 +371,33 @@
     </div>
     <div class="hint" id="hint">Target <b>@all</b> invites every agent to reply; a name is a direct address; <b>—</b> is a plain wall post. Operators set the room purpose with <b>@goal &lt;outcome&gt;</b>.</div>
 
+    <!-- HOME (home.js): this person's locas, what is unread, the newest
+         announcement and their tasks in the open loca. -->
+    <div class="notes hidden" id="homePanel" role="region" aria-labelledby="homeGreeting">
+      <div class="homehead">
+        <h2 class="hometitle" id="homeGreeting">Hello</h2>
+        <p class="homesub" id="homeSub"></p>
+      </div>
+      <section class="homesection" aria-labelledby="homeLocasTitle">
+        <h3 class="homesectiontitle" id="homeLocasTitle">Your locas</h3>
+        <div class="homecards" id="homeLocas"></div>
+      </section>
+      <div class="homecols">
+        <section class="homebox" id="homeUnread" aria-labelledby="homeUnreadTitle">
+          <h3 class="homesectiontitle" id="homeUnreadTitle">Unread</h3>
+          <div id="homeUnreadList"></div>
+        </section>
+        <section class="homebox hidden" id="homeNotifs" aria-labelledby="homeNotifsTitle">
+          <h3 class="homesectiontitle" id="homeNotifsTitle">Notifications</h3>
+          <div id="homeNotifBody"></div>
+        </section>
+        <section class="homebox hidden" id="homeTasks" aria-labelledby="homeTasksTitle">
+          <h3 class="homesectiontitle" id="homeTasksTitle">Your tasks</h3>
+          <div id="homeTaskList"></div>
+        </section>
+      </div>
+    </div>
+
     <!-- PEOPLE (the building, from above: who belongs, where they sit, who is barred) -->
     <div class="notes hidden" id="peoplePanel">
       <!-- The Building, from above. Groups is for the ranks (the server
@@ -320,17 +407,28 @@
       <div class="pphead">
         <h1 class="pptitle">People</h1>
         <span class="ppsub">Everyone in the building</span>
+        <button type="button" class="btn primary ppadd hidden" id="addPeopleBtn" aria-haspopup="dialog">Add people</button>
       </div>
+      <!-- Join requests is the same pane as Members with only the requests
+           card shown (keys.js syncBuildingTabs): the card stays one element.
+           Settings is for the ranks: the Master changes the Building's
+           name there, a Smaster reads it (buildingsettings.js). -->
       <div class="buildingtabs" role="tablist" aria-label="Building views">
-        <button type="button" class="btab active" role="tab" id="btabPeople" data-btab="people" aria-selected="true" aria-controls="peopleList">People</button>
+        <button type="button" class="btab active" role="tab" id="btabPeople" data-btab="people" aria-selected="true" aria-controls="peopleList">Members</button>
+        <button type="button" class="btab hidden" role="tab" id="btabRequests" data-btab="requests" aria-selected="false" aria-controls="peopleList">Join requests <span class="btabcount hidden" id="btabRequestsCount"></span></button>
         <button type="button" class="btab hidden" role="tab" id="btabGroups" data-btab="groups" aria-selected="false" aria-controls="groupsPane">Floors</button>
         <button type="button" class="btab hidden" role="tab" id="btabKeys" data-btab="keys" aria-selected="false" aria-controls="keyLedger">Keys</button>
         <button type="button" class="btab hidden" role="tab" id="btabPrivate" data-btab="private" aria-selected="false" aria-controls="dmOverview">Private messages</button>
+        <button type="button" class="btab hidden" role="tab" id="btabSettings" data-btab="settings" aria-selected="false" aria-controls="buildingSettings">Settings</button>
       </div>
+      <div class="ppnotice" id="peopleNotice" role="status" aria-live="polite"></div>
       <div id="peopleList" role="tabpanel" aria-labelledby="btabPeople"></div>
       <section class="buildingpane groupspane hidden" id="groupsPane" role="tabpanel" aria-labelledby="btabGroups"></section>
       <section class="buildingpane keyledger hidden" id="keyLedger" role="tabpanel" aria-labelledby="btabKeys"></section>
       <section class="buildingpane hidden" id="dmOverview" role="tabpanel" aria-labelledby="btabPrivate"></section>
+      <section class="buildingpane bsettings hidden" id="buildingSettings" role="tabpanel" aria-labelledby="btabSettings"></section>
+      <!-- A member row's less common actions (the row's ⋯), drawn on open. -->
+      <div class="prowpop hidden" id="peopleRowMenu" role="menu"></div>
     </div>
 
     <!-- JOURNAL (what was already done — nobody assigns it, nothing closes it) -->
@@ -571,6 +669,29 @@
   </main>
   <aside class="locainfo hidden" id="locaInfo" aria-label="Loca info"></aside>
 
+  <!-- A message and its replies (threads.js): in This Loca's place on a wide
+       screen, over the chat on a narrower one. -->
+  <button class="threadbackdrop hidden" id="threadBackdrop" type="button" aria-label="Close the thread" tabindex="-1"></button>
+  <section class="threadpanel hidden" id="threadPanel" aria-labelledby="threadTitle">
+    <header class="threadhead">
+      <h2 id="threadTitle">Thread</h2>
+      <button class="threadclose" id="threadClose" type="button" aria-label="Close the thread" title="Close">×</button>
+    </header>
+    <div class="threadmessages" id="threadMessages">
+      <div class="threadearlier hidden" id="threadEarlier" role="status">
+        <span id="threadEarlierText"></span>
+        <button id="threadLoadEarlier" type="button">Load earlier</button>
+      </div>
+      <div id="threadRoot"></div>
+      <div class="threadcount" id="threadCount"></div>
+      <div id="threadReplies"></div>
+    </div>
+    <form class="threadreply" id="threadReplyForm">
+      <textarea id="threadMsg" rows="2" placeholder="Reply in this thread" aria-label="Reply in this thread"></textarea>
+      <button id="threadSend" type="submit">Reply</button>
+    </form>
+  </section>
+
   <!-- Open a new loca: its name, its identity and the extensions it starts
        with. The same panel, in its "Loca identity" mode, edits (or, for
        those who cannot manage the loca, shows) an existing loca's identity
@@ -579,6 +700,7 @@
     <button class="extbackdrop" id="extCreateBackdrop" type="button" aria-label="Cancel" tabindex="-1"></button>
     <form class="extcard" id="extCreateForm" novalidate>
       <h2 id="extCreateTitle">Open a new loca</h2>
+      <button type="button" class="extx" id="extCreateX" aria-label="Close">×</button>
       <!-- A preset fills the fields below; it is not stored or sent (identity.js). -->
       <fieldset class="identpick createpreset" id="locaPreset"><legend>Open as</legend><div class="presetopts">
         <label class="presetopt"><input type="radio" name="locaPreset" value="loca" checked>
@@ -619,6 +741,11 @@
         <div class="extgroup"><div class="extgrouplabel">Add</div><div id="extCreateAdd"></div></div>
       </div>
       <p class="exttabs" id="extCreateTabs" aria-live="polite"></p>
+      <!-- Edit loca: the loca's pages, and the way to its extensions (identity.js). -->
+      <div class="identpages hidden" id="locaIdentityPages">
+        <span class="identpagelist"><b>Pages:</b> <span id="locaIdentityPageList"></span></span>
+        <button type="button" class="extlink" id="identityManageExt" aria-haspopup="dialog">Manage extensions</button>
+      </div>
       <p class="extnote hidden" id="locaIdentityNote"></p>
       <div class="exterror" id="extCreateError" role="alert"></div>
       <div class="extactions">
@@ -631,7 +758,8 @@
   <div class="extoverlay hidden" id="extManage" role="dialog" aria-modal="true" aria-labelledby="extManageTitle">
     <button class="extbackdrop" id="extManageBackdrop" type="button" aria-label="Close" tabindex="-1"></button>
     <div class="extcard">
-      <h2 id="extManageTitle">Extensions <small># <span id="extManageRoom"></span></small></h2>
+      <h2 id="extManageTitle">Extensions of <span id="extManageRoom"></span></h2>
+      <button type="button" class="extx" id="extManageX" aria-label="Close">×</button>
       <div class="extlist" id="extManageList"></div>
       <div class="hidden" id="boardOffAsk" role="group" aria-label="Unfinished tasks on the Loca Board"></div>
       <p class="extnote" id="extManageNote"></p>
@@ -656,6 +784,7 @@
         <button type="button" class="btn danger" id="locaDeleteOnly" disabled>Delete</button>
         <button type="button" class="btn danger" id="locaDeleteArchive" disabled>Download zip, then delete</button>
       </div>
+      <p class="extnote locadeletefoot">If the zip does not arrive, nothing is deleted.</p>
     </div>
   </div>
 
@@ -680,6 +809,19 @@
       <div id="personCardBody"></div>
       <div class="exterror" id="personCardError" role="alert"></div>
       <div class="extactions"><button type="button" class="btn" id="personCardClose">Close</button></div>
+    </div>
+  </div>
+
+  <!-- ADD PEOPLE: what the Building can do today to bring someone in — seat a
+       member in a loca, the join requests waiting, and admission rights. -->
+  <div class="extoverlay hidden" id="addPeople" role="dialog" aria-modal="true" aria-labelledby="addPeopleTitle">
+    <button class="extbackdrop" id="addPeopleBackdrop" type="button" aria-label="Close" tabindex="-1"></button>
+    <div class="extcard addpeople">
+      <header class="aphead">
+        <h2 id="addPeopleTitle">Add people</h2>
+        <button type="button" class="apclose" id="addPeopleClose" aria-label="Close">×</button>
+      </header>
+      <div class="apbody" id="addPeopleBody"></div>
     </div>
   </div>
 
@@ -928,7 +1070,9 @@
 <script src="/assets/profile.js"></script>
 <script src="/assets/sounds.js"></script>
 <script src="/assets/sidebar.js"></script>
+<script src="/assets/search.js"></script>
 <script src="/assets/locainfo.js"></script>
+<script src="/assets/threads.js"></script>
 <script src="/assets/extensions.js"></script>
 <script src="/assets/locadelete.js"></script>
 <script src="/assets/identity.js"></script>
@@ -937,8 +1081,10 @@
 <script src="/assets/joinrequest.js"></script>
 <script src="/assets/getstarted.js"></script>
 <script src="/assets/keys.js"></script>
+<script src="/assets/buildingsettings.js"></script>
 <script src="/assets/groups.js"></script>
 <script src="/assets/notifications.js"></script>
+<script src="/assets/home.js"></script>
 <script src="/assets/addressing.js"></script>
 </body>
 </html>

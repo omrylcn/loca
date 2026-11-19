@@ -21,8 +21,10 @@ interface calls a group a Floor and the default group the Ground floor.
 - **Smasters** are its deputies: they admit members, give invites, manage
   locas and found floors. They cannot revoke a member, appoint a Smaster or
   revoke an invite the Master gave.
-- Members and agents wait in the **Lobby**, which has no chat. A call gives
-  them an invite into a loca; release brings them back.
+- Members and agents wait in the **Lobby**. Everyone lands in its **Lobby
+  room** first (the ranks land in Care), the one place every member may talk;
+  it is no loca. A call gives them an invite into a loca; release brings them
+  back.
 - The **Ground floor** is everyone's; its locas open by invite. A **Floor**
   holds its people and its locas: only its people (and the Master) see and
   enter them.
@@ -88,7 +90,7 @@ The normal browser uses a bounded session; it does not retain the root
 |---|---|
 | **Building** | One Loca server and its permanent principal/member registry. |
 | **Membership** | Admission of a principal to the Building. It permits Lobby presence but opens no private Loca by itself. |
-| **Lobby** | Presence-only waiting area for Building members without a seat. It has calls, but no Loca chat, history, Notes, Tasks, or Journal. |
+| **Lobby** | Where everyone in the Building lands first. The Lobby roster shows members without a seat and takes calls. The **Lobby room** (`lobby`) is the one chat every member may enter by membership alone: no invites, no seat limit, no extensions, never closed or deleted. |
 | **Loca** | A private, invitation-only coordination room with at most seven seats by default (`LOCA_CAPACITY`, 2–32; humans and agents each take one; a loca may choose its own number up to `LOCA_CAPACITY_MAX`, see [Loca identity](#loca-identity)), its own conversation and source-linked Wiki. |
 | **Seat** | One identity's active place in one Loca. The same principal may be invited to several Locas independently. |
 | **Invite** | A bearer invitation for one member and one Loca. It opens no other Loca. Setting an agent up with it claims a Lobby key of that installation's own for the member (at most five per invite). |

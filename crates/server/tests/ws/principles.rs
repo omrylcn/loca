@@ -289,6 +289,9 @@ async fn backfill(
 /// explicit state", "Loca extensions"). Speech must neither create nor change
 /// a row in any of these.
 const WORK_RECORDS: &[&str] = &[
+    // The Building's own settings (its display name): written only by the
+    // Master's PUT /building/settings, never by speech.
+    "building_settings",
     "tasks",
     // A task's review history: written only by the review moves.
     "task_reviews",

@@ -22,7 +22,7 @@ TOKEN_PREFIXES = ("mb_", "dv_", "jrs_", "st_", "sm_", "ak_", "pair_", "adm_")
 
 # Bound credential keys whose assignment to a REAL value (a legacy ROOM_TOKEN, a
 # hardcoded membership/session, an invite) is itself a leak — regardless of prefix.
-ASSIGN_KEYS = ("ROOM_TOKEN", "LOCA_MEMBERSHIP", "LOCA_SESSION", r"DAVET_[A-Za-z0-9_]+")
+ASSIGN_KEYS = ("ROOM_TOKEN", "LOCA_MEMBERSHIP", "LOCA_SESSION", "LOCA_LOBBY_SESSION", r"DAVET_[A-Za-z0-9_]+")
 
 _PREFIX_RE = re.compile(
     r"(?:%s)[a-f0-9]{16,}" % "|".join(re.escape(p) for p in TOKEN_PREFIXES)

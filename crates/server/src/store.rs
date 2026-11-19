@@ -15,6 +15,7 @@
 mod attachment_index;
 mod attachments;
 mod attention;
+mod building_settings;
 mod dm;
 pub(crate) use attachment_index::{AttachError, BlobServe};
 use claims::PAST_CLAIM_DELIVERY_DEADLINE;
@@ -709,6 +710,8 @@ impl Store {
         conn.execute_batch(vault::SCHEMA)?;
         // A task's review history (the Loca Board): a new table only.
         conn.execute_batch(task_reviews::SCHEMA)?;
+        // The Building's own settings (its name): a new table only.
+        conn.execute_batch(building_settings::SCHEMA)?;
         // The Smaster registry. A database written by v0.13.0 or earlier
         // already has an older `smasters` table holding the codes in clear
         // text; this is then a no-op and `migrate_smaster_codes` below

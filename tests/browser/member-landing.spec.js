@@ -4,8 +4,8 @@ const { provisionRooms } = require("./support/building");
 // Where a page load lands. Care is the ranks' and caretakers' own loca
 // (PRINCIPLES "İye"): a plain member cannot enter it, so it must never be
 // sent there to sit at "connecting…" forever. A member lands in its last
-// loca if it may still enter it, else its first seat, else the Lobby, which
-// says it is waiting to be called.
+// loca if it may still enter it, else its first seat, else the Lobby room,
+// where everyone in the Building lands first (PRINCIPLES "Lobby").
 
 const MASTER = { "x-admin-token": "MASTER" };
 
@@ -80,22 +80,22 @@ test("a member lands in its last loca while it may enter it, else its first seat
   await expectSeatedIn(page, "landing-first");
 });
 
-test("a member with no seat waits in the Lobby instead of connecting to Care", async ({ page, request }) => {
+test("a member with no seat lands in the Lobby room instead of connecting to Care", async ({ page, request }) => {
   await provisionRooms(request, ["landing-called"]);
   const key = await admit(request, "landing-lobby");
+  const sockets = [];
+  page.on("websocket", ws => sockets.push(new URL(ws.url()).searchParams.get("room")));
 
   for (const load of ["sign-in", "reload"]) {
     if (load === "sign-in") await signIn(page, "human", "landing-lobby", key);
     else await page.reload();
+    await expectSeatedIn(page, "lobby");
     await expect(page.locator("#curRoom")).toHaveText("Lobby");
-    await expect(page.locator("#feed")).toContainText("waiting to be called");
-    await expect(page.locator("#subStatus")).toHaveText("waiting to be called");
-    // Nothing is knocking at a door: no socket, no reconnect, no "connecting…".
-    await page.waitForTimeout(2000);
-    expect(await page.evaluate(() => ({ room: state.room, ws: state.ws }))).toEqual({ room: null, ws: null });
-    await expect(page.locator("#connDot")).not.toHaveAttribute("aria-label", /connecting|connection lost/);
+    await expect(page.locator("#lobbyRoomLink")).toHaveClass(/active/);
+    // The Lobby room is not a loca in the list.
     expect(await sidebarRooms(page)).toEqual([]);
   }
+  expect(sockets).not.toContain("iye");
 
   // Called in: the loca appears in the list, and the next load lands there.
   await invite(request, "landing-called", "landing-lobby");
@@ -296,18 +296,16 @@ test("a member whose loca is sealed moves to its other loca, is told so, and kee
   expect(sockets).not.toContain("iye");
 });
 
-test("a member whose only loca is sealed is told it goes to the Lobby, and waits there", async ({ page, request }) => {
+test("a member whose only loca is sealed is told it goes to the Lobby, and lands in the Lobby room", async ({ page, request }) => {
   await provisionRooms(request, ["leave-only"]);
   const sockets = socketRooms(page);
   await memberIn(page, request, "leave-one", ["leave-only"]);
   await expectSeatedIn(page, "leave-only");
 
   await seal(request, "leave-only");
-  await expect(page.locator("#feed")).toContainText("this loca was closed — moving you to the Lobby");
+  // Told, then moved: the Lobby room's own feed replaces the notice.
+  await expectSeatedIn(page, "lobby");
   await expect(page.locator("#curRoom")).toHaveText("Lobby");
-  await expect(page.locator("#feed")).toContainText("waiting to be called");
-  await page.waitForTimeout(2000);
-  expect(await page.evaluate(() => ({ room: state.room, ws: state.ws }))).toEqual({ room: null, ws: null });
   expect(sockets).not.toContain("iye");
 });
 

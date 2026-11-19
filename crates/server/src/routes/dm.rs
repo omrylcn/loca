@@ -274,7 +274,8 @@ pub(crate) async fn dm_fence(
         .nth(3)
         .unwrap_or("")
         .trim_end_matches('/');
-    if !hub.is_dm(&room) {
+    let lobby = hub.is_lobby_room(&room);
+    if !hub.is_dm(&room) && !lobby {
         return next.run(req).await;
     }
     if !matches!(
@@ -302,7 +303,9 @@ pub(crate) async fn dm_fence(
     ) || protocol::extension_of_segment(first).is_some();
     // `typing` is the ephemeral "replying…" signal an agent's adapter sends;
     // a direct message hears it as it hears a browser's keystrokes.
-    let conversation = matches!(first, "messages" | "attachments" | "typing");
+    let conversation = matches!(first, "messages" | "attachments" | "typing")
+        // The Lobby keeps the ranks' moderation: a mute or a ban holds there.
+        || (lobby && first == "moderate");
     let allowed = if method == axum::http::Method::GET || method == axum::http::Method::HEAD {
         readable
     } else {
@@ -311,7 +314,11 @@ pub(crate) async fn dm_fence(
     if !allowed {
         return (
             StatusCode::FORBIDDEN,
-            "a private conversation has only messages, attachments and reactions",
+            if lobby {
+                "the Lobby has only messages, attachments and reactions"
+            } else {
+                "a private conversation has only messages, attachments and reactions"
+            },
         )
             .into_response();
     }

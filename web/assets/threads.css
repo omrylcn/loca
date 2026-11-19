@@ -1,0 +1,68 @@
+/* ── Reply threads (threads.js) ──────────────────────────────────────────
+   Under a message others answered: "N replies · last at HH:MM". The thread
+   opens in This Loca's place on a wide screen, over the chat otherwise. */
+
+#feed .threadlink { display: inline-flex; align-items: center; gap: 6px; margin: 4px 0 2px; padding: 3px 10px 3px 8px;
+  border: 0; border-left: 3px solid var(--agent); border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--agent) 8%, transparent); color: var(--agent);
+  font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.4; cursor: pointer; }
+#feed .threadlink::before { content: "↩"; font-weight: 400; }
+#feed .threadlink:hover { background: color-mix(in srgb, var(--agent) 14%, transparent); }
+#feed .threadlink:focus-visible { outline: 2px solid var(--agent); outline-offset: 2px; }
+#feed .quote[data-thread] { cursor: pointer; }
+#feed .quote.earlier { font-style: italic; }
+
+/* The panel itself. */
+.threadpanel { display: flex; flex-direction: column; gap: 10px; min-height: 0; color: var(--txt); }
+.threadhead { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.threadhead h2 { flex: 1 1 auto; min-width: 0; margin: 0; font-size: 16px; font-weight: 600; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.threadclose { flex: 0 0 auto; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; }
+.threadclose:hover { background: var(--panel2); color: var(--txt); }
+.threadmessages { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.threadearlier { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px;
+  background: var(--panel2); color: var(--muted); font-size: 13px; }
+.threadearlier button { padding: 4px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel);
+  color: var(--txt); font: inherit; cursor: pointer; }
+.threadearlier button:disabled { color: var(--muted); cursor: wait; }
+.threadcount { padding-bottom: 6px; border-bottom: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+.threadcount:empty { display: none; }
+#threadReplies { display: flex; flex-direction: column; gap: 12px; }
+
+.threadmsg { display: flex; gap: 10px; min-width: 0; }
+.threadface { flex: 0 0 28px; }
+.threadface .avatar { width: 28px; height: 28px; margin: 0; font-size: 12px; }
+.threadmain { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.threadline { display: flex; align-items: baseline; gap: 8px; }
+.threadline .sender { font-weight: 600; color: var(--txt); }
+.threadline .sender.agent { color: var(--agent); }
+.threadline .time { font: 12px var(--mono); color: var(--dim); }
+.threadquote { padding: 2px 8px; border-left: 3px solid var(--line); color: var(--muted); font-size: 12px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.threadmain .body { overflow-wrap: anywhere; line-height: 1.5; }
+
+.threadreply { display: flex; align-items: flex-end; gap: 8px; flex: 0 0 auto; padding: 8px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line); }
+.threadreply textarea { flex: 1 1 auto; min-width: 0; min-height: 40px; max-height: 30vh; padding: 6px 4px; border: 0;
+  background: transparent; color: var(--txt); font: inherit; resize: vertical; }
+.threadreply textarea:focus { outline: none; }
+.threadreply button { flex: 0 0 auto; height: 36px; padding: 0 14px; border: 0; border-radius: 8px;
+  background: var(--accent); color: var(--on-accent, var(--bg)); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.threadreply button:hover { background: var(--accent2); }
+.threadreply button:disabled { background: var(--line); color: var(--muted); cursor: wait; }
+
+/* Beside the chat: the column This Loca stands in, This Loca set aside. */
+body.thread-beside #locaInfo { overflow: hidden; }
+body.thread-beside #locaInfo > #sideLocaView { display: none; }
+body.thread-beside #locaInfo > .threadpanel { height: 100%; }
+
+/* Over the chat: a sheet from the right, the chat dimmed behind it. */
+.threadbackdrop { position: fixed; inset: 0; z-index: 84; padding: 0; border: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent); }
+.threadpanel.overlay { position: fixed; top: 0; right: 0; bottom: 0; z-index: 85; width: min(420px, 100vw);
+  padding: 16px; box-sizing: border-box; background: var(--bg); border-left: 1px solid var(--line);
+  box-shadow: -12px 0 30px color-mix(in srgb, var(--txt) 14%, transparent); }
+@media (max-width: 760px) {
+  .threadpanel.overlay { width: 100vw; border-left: 0; }
+}

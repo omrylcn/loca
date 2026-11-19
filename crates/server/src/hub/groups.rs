@@ -905,6 +905,7 @@ impl Hub {
             || room.starts_with(Self::DM_PREFIX)
             || self.is_reserved_room(room)
             || room == self.home_room()
+            || self.is_lobby_room(room)
         {
             return Err(GroupError::Excluded);
         }
@@ -1074,6 +1075,7 @@ impl Hub {
             || room.starts_with(Self::DM_PREFIX)
             || self.is_reserved_room(room)
             || room == self.home_room()
+            || self.is_lobby_room(room)
         {
             return Err(GroupError::Excluded);
         }
@@ -1197,7 +1199,7 @@ impl Hub {
     }
 
     /// The membership (its id) behind a principal, when it is a member.
-    fn member_id_of_principal(&self, principal: &str) -> Option<String> {
+    pub(crate) fn member_id_of_principal(&self, principal: &str) -> Option<String> {
         self.members
             .lock_or_recover()
             .values()

@@ -8,6 +8,13 @@ const DM_PREFIX = "bb-";
 state.dms = [];
 state.dmOverview = [];
 
+// The Lobby room: where everyone in the Building lands first and may talk
+// (PRINCIPLES "Lobby"). It is no loca: no floor, no extensions, no invites.
+const LOBBY_ROOM = "lobby";
+function isLobbyRoom(room) {
+  return room === LOBBY_ROOM;
+}
+
 function isDm(room) {
   return typeof room === "string" && room.startsWith(DM_PREFIX);
 }
@@ -28,6 +35,7 @@ function dmPeerCard(b) {
 // person, a loca by its title when it has one (identity.js), else its id.
 function roomLabel(room) {
   if (!room) return "—";
+  if (isLobbyRoom(room)) return "Lobby";
   const b = dmOf(room);
   if (b) return b.peer;
   return isDm(room) ? "private" : locaTitle(room) || room;
@@ -72,13 +80,17 @@ function renderDmList() {
     saveRoomPreferences();
   }
   const hidden = new Set(prefs.hidden);
-  const rows = state.dms
-    .filter(b => !hidden.has(b.room))
+  const shown = state.dms.filter(b => !hidden.has(b.room));
+  // The sidebar's search (sidebar.js) narrows the list by name.
+  const rows = shown
+    .filter(b => sidebarMatches(b.peer, b.peer_full_name))
     .sort((a, b) => Number(state.roomLatest[b.room] || 0) - Number(state.roomLatest[a.room] || 0)
       // Nothing said in either (or the same last word): by name, not by chance.
       || a.peer.localeCompare(b.peer));
   $("dmSection").classList.toggle("empty", !rows.length);
-  list.innerHTML = rows.length ? "" : `<div class="dmhint">Press + to write to someone privately.</div>`;
+  list.innerHTML = rows.length ? ""
+    : shown.length ? `<div class="dmhint">No conversation matches “${esc(sidebarQueryText())}”.</div>`
+    : `<div class="dmhint">Press + to write to someone privately.</div>`;
   for (const b of rows) {
     const unread = Number(state.unread[b.room] || 0);
     const el = document.createElement("button");
@@ -141,6 +153,32 @@ async function openDm(name) {
   if (dm?.room) joinRoom(dm.room);
 }
 
+// The line under the name and the chip in the composer: Care says whose loca
+// it is and that the caretaker answers there; a private conversation says
+// who reads it and that no @ is needed. Words only: nothing here changes
+// where a message goes.
+function renderRoomNote(inside, care) {
+  const note = $("roomNote");
+  const chip = $("composerChip");
+  if (!note || !chip) return;
+  const caretaker = (state.locaAgents || [])[0] || "";
+  let text = "";
+  let chipText = "";
+  if (inside) {
+    const peer = dmOf(state.room)?.peer;
+    text = peer ? `Private · only you and ${peer} read this` : "Private · only the two of you read this";
+    chipText = "no @ needed";
+  } else if (care) {
+    text = caretaker ? `The ranks' own loca; ${caretaker} answers here.` : "The ranks' own loca.";
+    chipText = caretaker ? `→ *${caretaker}` : "";
+  }
+  note.textContent = text;
+  note.classList.toggle("hidden", !text);
+  chip.textContent = chipText;
+  chip.classList.toggle("hidden", !chipText);
+  chip.dataset.chip = inside ? "dm" : care ? "care" : "";
+}
+
 // The bar above the composer in a direct message: who can read it, honestly, and
 // the one way a third person ever does — the Master, called in by a side.
 function renderDmBar() {
@@ -153,6 +191,7 @@ function renderDmBar() {
   // their own header (page-manage.css); the other side's kind shapes its face.
   main.classList.toggle("carehome", !inside && typeof isRankHome === "function" && isRankHome(state.room));
   main.dataset.dmPeer = inside ? (dmOf(state.room)?.peer_kind || "") : "";
+  renderRoomNote(inside, main.classList.contains("carehome"));
   bar.classList.toggle("hidden", !inside);
   if (!inside) return;
   if ($("target")) $("target").value = "";

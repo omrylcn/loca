@@ -102,10 +102,42 @@ function readableAccent(hex, theme) {
   return { accent, strong, ink, adjusted: steps > 0 };
 }
 
+// "Follow my system": Calm while the device is in its light scheme, Console
+// in its dark one, switching live. The server keeps theme names only
+// (store/preferences.rs), so this is a setting of this browser, kept beside
+// the cached look; the saved theme is left as it is and returns when it is
+// turned off.
+const FOLLOW_SYSTEM_KEY = "loca-follow-system";
+const SYSTEM_DARK = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+
+function followsSystem() {
+  try { return localStorage.getItem(FOLLOW_SYSTEM_KEY) === "on"; } catch (error) { return false; }
+}
+
+function setFollowSystem(on) {
+  try {
+    if (on) localStorage.setItem(FOLLOW_SYSTEM_KEY, "on");
+    else localStorage.removeItem(FOLLOW_SYSTEM_KEY);
+  } catch (error) {}
+}
+
+function systemTheme() {
+  return SYSTEM_DARK && SYSTEM_DARK.matches ? "console" : "calm";
+}
+
+// The theme on screen: the device's while following it, else the saved one.
+function effectiveTheme(prefs) {
+  return followsSystem() ? systemTheme() : prefs.theme;
+}
+
+let lastAppliedAppearance = null;
+
 function applyAppearance(value) {
   const prefs = normalizeAppearance(value);
+  lastAppliedAppearance = prefs;
+  const theme = effectiveTheme(prefs);
   const root = document.documentElement;
-  root.dataset.theme = prefs.theme;
+  root.dataset.theme = theme;
   root.dataset.accent = prefs.accent;
   root.dataset.density = prefs.density;
   root.dataset.fontSize = prefs.font_size;
@@ -115,11 +147,11 @@ function applyAppearance(value) {
   root.dataset.measure = prefs.measure;
   root.dataset.ownTint = prefs.own_tint;
   root.dataset.motion = prefs.motion;
-  root.dataset.scheme = LIGHT_THEMES.includes(prefs.theme) ? "light" : "dark";
+  root.dataset.scheme = LIGHT_THEMES.includes(theme) ? "light" : "dark";
   // A custom accent is set on <html> itself; any other accent clears it, so
   // the theme's own accent rules apply again. Custom with no colour saved
   // reads as teal.
-  const custom = prefs.accent === "custom" && prefs.accent_custom ? readableAccent(prefs.accent_custom, prefs.theme) : null;
+  const custom = prefs.accent === "custom" && prefs.accent_custom ? readableAccent(prefs.accent_custom, theme) : null;
   if (prefs.accent === "custom" && !custom) root.dataset.accent = "teal";
   for (const [name, value] of [["--accent", custom?.accent], ["--accent2", custom?.strong], ["--on-accent", custom?.ink]]) {
     if (value) root.style.setProperty(name, value);
@@ -144,3 +176,18 @@ function cachedAppearance() {
 }
 
 applyAppearance(cachedAppearance());
+
+// The device changing scheme, or another tab turning following on or off,
+// redraws the look already applied (profile.js's sample and inputs too).
+function reapplyFollowedTheme() {
+  applyAppearance(lastAppliedAppearance || cachedAppearance());
+  if (typeof syncAppearanceInputs === "function") syncAppearanceInputs();
+}
+if (SYSTEM_DARK) {
+  const onSchemeChange = () => { if (followsSystem()) reapplyFollowedTheme(); };
+  if (typeof SYSTEM_DARK.addEventListener === "function") SYSTEM_DARK.addEventListener("change", onSchemeChange);
+  else if (typeof SYSTEM_DARK.addListener === "function") SYSTEM_DARK.addListener(onSchemeChange);
+}
+window.addEventListener("storage", event => {
+  if (event.key === FOLLOW_SYSTEM_KEY) reapplyFollowedTheme();
+});

@@ -116,6 +116,7 @@ const WEB_TOOLTIP: &str = include_str!("../../../web/assets/tooltip.js");
 const WEB_CLIPBOARD: &str = include_str!("../../../web/assets/clipboard.js");
 const WEB_DM: &str = include_str!("../../../web/assets/dm.js");
 const WEB_KEYS: &str = include_str!("../../../web/assets/keys.js");
+const WEB_BUILDING_SETTINGS: &str = include_str!("../../../web/assets/buildingsettings.js");
 const WEB_EXTENSIONS: &str = include_str!("../../../web/assets/extensions.js");
 const WEB_IDENTITY: &str = include_str!("../../../web/assets/identity.js");
 const WEB_GROUPS: &str = include_str!("../../../web/assets/groups.js");
@@ -123,15 +124,22 @@ const WEB_KIT_VERSION: &str = include_str!("../../../web/assets/kitversion.js");
 const WEB_ROSTER: &str = include_str!("../../../web/assets/roster.js");
 const WEB_ADDRESSING: &str = include_str!("../../../web/assets/addressing.js");
 const WEB_LOCAINFO: &str = include_str!("../../../web/assets/locainfo.js");
+const WEB_THREADS: &str = include_str!("../../../web/assets/threads.js");
+const WEB_THREADS_STYLES: &str = include_str!("../../../web/assets/threads.css");
+const WEB_HOME: &str = include_str!("../../../web/assets/home.js");
 const WEB_ADDRESSING_STYLES: &str = include_str!("../../../web/assets/addressing.css");
 const WEB_CHATSURFACE_STYLES: &str = include_str!("../../../web/assets/chatsurface.css");
 const WEB_PAGE_CHROME_STYLES: &str = include_str!("../../../web/assets/page-chrome.css");
 const WEB_PAGE_ENTRY_STYLES: &str = include_str!("../../../web/assets/page-entry.css");
 const WEB_PAGE_PEOPLE_STYLES: &str = include_str!("../../../web/assets/page-people.css");
+const WEB_BUILDING_SETTINGS_STYLES: &str = include_str!("../../../web/assets/buildingsettings.css");
 const WEB_PAGE_MANAGE_STYLES: &str = include_str!("../../../web/assets/page-manage.css");
 const WEB_PAGE_CONTENT_STYLES: &str = include_str!("../../../web/assets/page-content.css");
+const WEB_PAGE_HOME_STYLES: &str = include_str!("../../../web/assets/page-home.css");
 const WEB_NOTIFICATIONS: &str = include_str!("../../../web/assets/notifications.js");
 const WEB_SOUNDS: &str = include_str!("../../../web/assets/sounds.js");
+const WEB_SEARCH: &str = include_str!("../../../web/assets/search.js");
+const WEB_SEARCH_STYLES: &str = include_str!("../../../web/assets/search.css");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.tr.md");
 const PRINCIPLES_EN: &str = include_str!("../../../PRINCIPLES.md");
 const GETTING_STARTED_DOC: &str = include_str!("../../../docs/getting-started.md");
@@ -477,6 +485,10 @@ async fn main() {
         .route("/profile", get(profile_view).put(rename_profile_route))
         .route("/building/ranks", get(list_building_ranks))
         .route("/building/bans", get(list_building_bans))
+        .route(
+            "/building/settings",
+            get(get_building_settings).put(put_building_settings),
+        )
         .route("/groups", get(list_groups).post(create_group_route))
         .route(
             "/groups/{id}",
@@ -526,6 +538,10 @@ async fn main() {
         )
         .route("/membership/claim", axum::routing::post(claim_membership))
         .route(
+            "/membership/leave",
+            axum::routing::post(leave_building_route),
+        )
+        .route(
             "/membership/claim/ack",
             axum::routing::post(ack_membership_claim_route),
         )
@@ -560,6 +576,8 @@ async fn main() {
         .route("/keys", get(list_keys).post(issue_key))
         .route("/keys/{id}", axum::routing::delete(revoke_key_route))
         .route("/rooms", get(list_rooms).post(create_loca_route))
+        // Building-wide search: only the locas the caller may enter are read.
+        .route("/search", get(search_building))
         .route("/rooms/{id}/messages", get(get_messages).post(post_message))
         .route(
             "/rooms/{id}/attachments",
@@ -881,6 +899,7 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "clipboard.js" => Some(("text/javascript; charset=utf-8", WEB_CLIPBOARD)),
         "dm.js" => Some(("text/javascript; charset=utf-8", WEB_DM)),
         "keys.js" => Some(("text/javascript; charset=utf-8", WEB_KEYS)),
+        "buildingsettings.js" => Some(("text/javascript; charset=utf-8", WEB_BUILDING_SETTINGS)),
         "extensions.js" => Some(("text/javascript; charset=utf-8", WEB_EXTENSIONS)),
         "identity.js" => Some(("text/javascript; charset=utf-8", WEB_IDENTITY)),
         "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
@@ -888,15 +907,22 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "roster.js" => Some(("text/javascript; charset=utf-8", WEB_ROSTER)),
         "addressing.js" => Some(("text/javascript; charset=utf-8", WEB_ADDRESSING)),
         "locainfo.js" => Some(("text/javascript; charset=utf-8", WEB_LOCAINFO)),
+        "threads.js" => Some(("text/javascript; charset=utf-8", WEB_THREADS)),
+        "threads.css" => Some(("text/css; charset=utf-8", WEB_THREADS_STYLES)),
+        "home.js" => Some(("text/javascript; charset=utf-8", WEB_HOME)),
         "addressing.css" => Some(("text/css; charset=utf-8", WEB_ADDRESSING_STYLES)),
         "chatsurface.css" => Some(("text/css; charset=utf-8", WEB_CHATSURFACE_STYLES)),
         "page-chrome.css" => Some(("text/css; charset=utf-8", WEB_PAGE_CHROME_STYLES)),
         "page-entry.css" => Some(("text/css; charset=utf-8", WEB_PAGE_ENTRY_STYLES)),
         "page-people.css" => Some(("text/css; charset=utf-8", WEB_PAGE_PEOPLE_STYLES)),
+        "buildingsettings.css" => Some(("text/css; charset=utf-8", WEB_BUILDING_SETTINGS_STYLES)),
         "page-manage.css" => Some(("text/css; charset=utf-8", WEB_PAGE_MANAGE_STYLES)),
         "page-content.css" => Some(("text/css; charset=utf-8", WEB_PAGE_CONTENT_STYLES)),
+        "page-home.css" => Some(("text/css; charset=utf-8", WEB_PAGE_HOME_STYLES)),
         "notifications.js" => Some(("text/javascript; charset=utf-8", WEB_NOTIFICATIONS)),
         "sounds.js" => Some(("text/javascript; charset=utf-8", WEB_SOUNDS)),
+        "search.js" => Some(("text/javascript; charset=utf-8", WEB_SEARCH)),
+        "search.css" => Some(("text/css; charset=utf-8", WEB_SEARCH_STYLES)),
         _ => None,
     };
     match asset {
@@ -1070,6 +1096,11 @@ async fn admin_console_invite(
         Err(hub::InviteError::NotInGroup) => (
             StatusCode::FORBIDDEN,
             "not a member of this loca's group — add them to the group first",
+        )
+            .into_response(),
+        Err(hub::InviteError::Lobby) => (
+            StatusCode::CONFLICT,
+            "every member is already in the Lobby — it takes no davet",
         )
             .into_response(),
         Err(hub::InviteError::PrivatePair) => (
@@ -1494,7 +1525,10 @@ enum WsFilter {
 /// An explicit `@all` or `target=all` addresses every identity seated in this
 /// loca, including its caretakers. System announcements remain passive context:
 /// they must not manufacture a model turn merely because their target is all.
-fn msg_addresses(m: &protocol::Message, name: &str, accepts_all: bool) -> bool {
+/// `all_in_text` is false in the Lobby room, where only `target=all` calls
+/// everyone: the server keeps it on a rank's call alone
+/// (`Hub::settle_lobby_call`).
+fn msg_addresses(m: &protocol::Message, name: &str, accepts_all: bool, all_in_text: bool) -> bool {
     let all_is_a_call = accepts_all && m.kind != protocol::MessageKind::Announce;
     if m.target.as_deref() == Some(name) {
         return true;
@@ -1514,7 +1548,7 @@ fn msg_addresses(m: &protocol::Message, name: &str, accepts_all: bool) -> bool {
         if tok == needle_name {
             return true;
         }
-        if all_is_a_call && tok == "@all" {
+        if all_is_a_call && all_in_text && tok == "@all" {
             return true;
         }
     }
@@ -1601,6 +1635,9 @@ async fn ws_session(
     // only at its private home table; a cross-loca watch must never turn a
     // room-wide call into access to that room's discussion.
     let accepts_all = !is_caretaker || room == hub.home_room();
+    // In the Lobby room `@all` in the words calls nobody; `target=all` does,
+    // and only a rank's message keeps it (`Hub::settle_lobby_call`).
+    let in_lobby = hub.is_lobby_room(&room);
     let (mut sink, mut stream) = socket.split();
     let (mut rx, history) = hub.subscribe(&room);
     let mut replayed_care_ids = std::collections::HashSet::new();
@@ -1726,7 +1763,7 @@ async fn ws_session(
                     // turn queue already understand.
                     let frame = match frame {
                         ServerFrame::Caretaker { message } => {
-                            if !is_caretaker || !msg_addresses(&message, &name, false) {
+                            if !is_caretaker || !msg_addresses(&message, &name, false, false) {
                                 continue;
                             }
                             ServerFrame::Msg { message }
@@ -1855,7 +1892,7 @@ async fn ws_session(
                         }
                         if let ServerFrame::Msg { message } = &frame {
                             if message.sender != name
-                                && !msg_addresses(message, &name, accepts_all)
+                                && !msg_addresses(message, &name, accepts_all, !in_lobby)
                                 && !hub.is_live(&room)
                                 && !hub.is_lead(&room, &name)
                             {
@@ -2061,24 +2098,21 @@ fn handle_client_frame(
             if !text.trim().is_empty() && op_id.as_ref().is_none_or(|id| id.len() <= 128) {
                 // WS sends are subject to mode gating (no admin bypass here;
                 // admins post via REST with the token to bypass).
-                let _ = hub.post(
-                    room,
-                    PostMessage {
-                        sender: name.to_string(),
-                        sender_type: kind,
-                        target,
-                        text,
-                        reply_to,
-                        op_id,
-                        kind: protocol::MessageKind::Say,
-                        // WS text sends carry no attachments (uploads use the
-                        // REST endpoint, then a REST/WS send cites their ids).
-                        attachments: Vec::new(),
-                    },
-                    false,
-                    operation_scope,
-                    sender_principal,
-                );
+                let mut body = PostMessage {
+                    sender: name.to_string(),
+                    sender_type: kind,
+                    target,
+                    text,
+                    reply_to,
+                    op_id,
+                    kind: protocol::MessageKind::Say,
+                    // WS text sends carry no attachments (uploads use the
+                    // REST endpoint, then a REST/WS send cites their ids).
+                    attachments: Vec::new(),
+                };
+                // In the Lobby room only a rank calls everyone.
+                hub.settle_lobby_call(room, &mut body, is_admin);
+                let _ = hub.post(room, body, false, operation_scope, sender_principal);
             }
         }
         // Control broadcasts (e.g. `/stop`) steer every agent in the room, so

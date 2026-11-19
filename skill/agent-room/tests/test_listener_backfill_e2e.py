@@ -46,7 +46,7 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
             timeout=180,
         )
 
-    def start_server(self, port, database, log):
+    def start_server(self, port, database, log, extra_env=None):
         env = dict(os.environ)
         env.update(
             {
@@ -64,6 +64,7 @@ class DurableBackfillEndToEndTests(unittest.TestCase):
                 "RUST_LOG": "warn",
             }
         )
+        env.update(extra_env or {})
         handle = log.open("ab")
         process = subprocess.Popen(
             [str(SERVER_BIN)],

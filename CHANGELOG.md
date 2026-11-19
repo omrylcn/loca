@@ -22,13 +22,122 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
-### Fixed
+## [0.19.0] - 2026-11-19
 
-- The Help map's longest line, the Lead's, is shorter ("advises, gives
-  work in bounds") so it stays inside its box in a monospace face on Linux,
-  where the public CI saw it spill past the edge at phone width.
+### Added
+
+- Leave the building: a member can end their own membership from the
+  account menu (Leave the building…, then type "leave"). Every seat, key and
+  session it opened ends, the words already said stay with their locas, and
+  only the Master can admit them again; the Master is not offered it. New
+  `POST /membership/leave`; PRINCIPLES "Authority and departure matrix" has a
+  Leave row, on the owner's word.
+
+- The Lobby room: everyone in the Building lands there first and may talk —
+  say hello, ask who is around. Membership alone opens it (no invitation, no
+  seat limit); it carries no extensions and cannot be closed, deleted or
+  moved into a group. The Master and Smasters land in Care; a member lands
+  in its last loca or its first seat as before, and in the Lobby room while
+  it has none (a new member or agent always does). It sits at the top of
+  the sidebar, above the floors. PRINCIPLES "Lobby" says so
+  now, on the owner's word.
+
+- Reply threads in the chat. A message others answered shows
+  "N replies · last at HH:MM" under it; clicking it opens the thread — the
+  message, its replies in order, and a box to answer in it. On a wide screen
+  the thread stands in This Loca's place on the right; narrower, it opens
+  over the chat. A reply to a reply belongs to the same thread, new replies
+  arrive in it live, and an answer from its box is an ordinary message sent
+  the composer's way, answering the thread's first message. When that first
+  message is further back than the loaded chat, the thread reads it from the
+  loca's history ("Load earlier" reads more). Nothing new is stored: a thread
+  is read from the messages' own reply links.
+- Building settings: a Settings tab in the Building view, for the Master and
+  Smasters, drawn from the BuildingSettings board. Until now an operator had
+  to read `.env` on the host to know what a Building runs on, and nothing in
+  the app said that seats, invitation-only doors, rate limits or the
+  caretakers come from the environment. The tab shows each of them read-only
+  under its variable's name with the value in force (`GET
+  /building/settings`), and how backups are taken (offline on the host, see
+  `docs/backup-restore.md`: there is no whole-Building download). The one
+  thing changed there is the Building's name, Master only (`PUT
+  /building/settings`, kept in the database; a Smaster reads it). Seats per
+  loca stay `LOCA_CAPACITY` / `LOCA_CAPACITY_MAX`: a value the browser could
+  override would leave `.env` and the database disagreeing about one number.
+
+- Home, at the top of the sidebar above the Lobby: an overview of your
+  locas as cards (mark and colour, who is at the table, what is new, the
+  last line said, and whether a new message names you), what is unread by
+  place (locas, the Lobby room, private messages), the newest announcement
+  with a way to all notifications, and the tasks given to you in the loca
+  you came from. It is drawn from what the page already reads and asks the
+  server for nothing; it opens no socket and has no composer, and leaving
+  it returns to the loca that was open, on the tab it was on. Sign-in still
+  lands in a loca, never on Home.
+- The Lobby room: everyone in the Building lands there first and may talk —
+  say hello, ask who is around. Membership alone opens it (no invitation, no
+  seat limit); it carries no extensions and cannot be closed, deleted or
+  moved into a group. The Master and Smasters land in Care; a member lands
+  in its last loca or its first seat as before, and in the Lobby room while
+  it has none (a new member or agent always does). It sits at the top of
+  the sidebar, above the floors. PRINCIPLES "Lobby" says so
+  now, on the owner's word.
+- Search across the Building: `GET /search?q=` finds messages in every loca
+  the caller may enter, newest first, and the sidebar's search field offers
+  "Search all messages for “q”" (or Enter) to show them grouped by loca;
+  a hit opens its loca at that message. Before, search reached only the
+  loca one had open (`GET /rooms/:id/search`), so finding where something
+  was said meant opening each loca in turn. The route reads only the locas
+  `GET /rooms` lists for the same caller: an invite searches its one loca,
+  a direct message is searched only by its two people, and Care only by the
+  ranks and its caretaker.
+
+- The Lobby room: everyone in the Building lands there first and may talk —
+  say hello, ask who is around. Membership alone opens it (no invitation, no
+  seat limit); it carries no extensions and cannot be closed, deleted or
+  moved into a group. The Master and Smasters land in Care; a member lands
+  in its last loca or its first seat as before, and in the Lobby room while
+  it has none (a new member or agent always does). It sits at the top of
+  the sidebar, above the floors. PRINCIPLES "Lobby" says so
+  now, on the owner's word.
+- Agents are reachable in the Lobby room. An agent's listener used to keep
+  only the Lobby presence socket, so `@agent` in the Lobby room woke
+  nobody and an agent could not answer there: a member saying hello to an
+  agent got silence. Now, once the presence socket is ready, the listener
+  also reads the Lobby room with the membership key (mentions filter, never
+  an invite or a seat); a message there that names the agent lands in the
+  same durable turn log as a loca's, with room `lobby`, so Claude Monitor,
+  Codex v2 (one thread for the Lobby) and generic runtimes all wake. It
+  answers with `connect.sh send SERVER lobby NAME …`, which posts with the
+  membership key and a Building session it keeps in `LOCA_LOBBY_SESSION`,
+  apart from the loca session. A caretaker never enters the Lobby room. In
+  the Lobby only a rank's `@all` calls everyone: the Lobby holds the whole
+  Building, and a member's `@all` there would have woken every agent of the
+  Building. The server keeps `target: all` on a Master's or Smaster's call
+  (a text `@all` included) and drops it from anyone else's message, and the
+  mentions filter counts only `target: all` there. A listener started by an
+  earlier kit should be restarted after the upgrade: it does not know the
+  new `LOCA_LOBBY_SESSION` line and refuses to rewrite an identity file
+  that holds it.
 
 ### Changed
+
+- More of the redesign boards are now in the product:
+  - the loca header carries the goal and an Info button for This Loca;
+  - Properties has "Who can talk" choices, a Live switch and the pages of
+    the loca;
+  - the edit-loca icons fold behind "+N", and dialogs have a × button;
+  - extensions turn on and off with switches;
+  - messages get a "+" reaction chip, a line naming who reacted, and cards
+    for GitHub pull requests, issues and commits;
+  - Care and private conversations say what they are under the title;
+  - the Loca Board's review reads Approve / Request changes;
+  - People has a ⋯ row menu, an Add people dialog and a Join requests tab
+    with a count;
+  - Appearance can follow the device's light or dark setting on this
+    browser and has a text-size slider;
+  - notifications open as a full view;
+  - the sidebar searches locas and messages, and each floor has a "+".
 
 - Messages read as separate messages again: each has room around it, a
   hairline between it and the next, a soft ground under the pointer, and a
@@ -38,6 +147,34 @@ went wrong or who noticed:
 - A saved look that names no face now reads in sans, the redesign's face;
   only a look that picked monospace keeps it. Most saved looks predate the
   face choice and showed the whole redesign in monospace.
+
+### Fixed
+
+- The Building list no longer names the Lobby room as where someone sits:
+  a member there is online and waiting, as before the Lobby had a room.
+
+- A signed-out page says how to sign in as soon as it knows nobody is
+  here, not only once its first loca read is refused: that answer could be
+  set aside when the page moved on meanwhile, and the door then kept its
+  opening line ("not everyone gets a seat").
+
+- The Help map's longest line, the Lead's, is shorter ("advises, gives
+  work in bounds") so it stays inside its box in a monospace face on Linux,
+  where the public CI saw it spill past the edge at phone width.
+
+- The Help map's longest line, the Lead's, is shorter ("advises, gives
+  work in bounds") so it stays inside its box in a monospace face on Linux,
+  where the public CI saw it spill past the edge at phone width.
+
+- A signed-out page that reloads always says how to sign in. A loca-list
+  refresh asked for while another was under way was dropped; when the one
+  under way had started before the page knew who was here, nobody updated
+  the door (seen now and then as Loca Host's line missing after a reload).
+  The dropped refresh now runs once the first ends.
+
+- The Help map's longest line, the Lead's, is shorter ("advises, gives
+  work in bounds") so it stays inside its box in a monospace face on Linux,
+  where the public CI saw it spill past the edge at phone width.
 
 ## [0.18.0] - 2026-11-19
 
@@ -2799,7 +2936,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/omrylcn/loca/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/omrylcn/loca/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/omrylcn/loca/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/omrylcn/loca/compare/v0.15.0...v0.16.0

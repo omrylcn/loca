@@ -1427,3 +1427,64 @@ mod tests {
         );
     }
 }
+
+#[derive(serde::Deserialize)]
+pub(crate) struct LeaveBuilding {
+    #[serde(default)]
+    confirm: String,
+}
+
+/// `POST /membership/leave` — a member leaves the Building of their own
+/// accord (PRINCIPLES "Authority and departure matrix": Leave). It is the
+/// Master's revocation done by the member: the membership ends with every
+/// seat, key and session it authorized; the words already said stay with
+/// their locas. Only the member's own Building sign-in can do it (a loca
+/// invite cannot), the Master cannot leave their own Building, and the body
+/// must say `{"confirm": "leave"}`.
+pub(crate) async fn leave_building_route(
+    State(hub): State<Hub>,
+    headers: HeaderMap,
+    Json(body): Json<LeaveBuilding>,
+) -> impl IntoResponse {
+    let Some(identity) = session_of(&headers).and_then(|token| hub.session_identity(Some(token)))
+    else {
+        return (StatusCode::UNAUTHORIZED, "sign in to leave the Building").into_response();
+    };
+    if identity.loca.is_some() {
+        return (
+            StatusCode::FORBIDDEN,
+            "a loca invite cannot leave the Building; sign in with your own key",
+        )
+            .into_response();
+    }
+    if matches!(identity.building_role, crate::store::BuildingRole::Master) {
+        return (
+            StatusCode::FORBIDDEN,
+            "the Master cannot leave their own Building",
+        )
+            .into_response();
+    }
+    if body.confirm != "leave" {
+        return (
+            StatusCode::BAD_REQUEST,
+            "to leave, send {\"confirm\": \"leave\"}",
+        )
+            .into_response();
+    }
+    let Some(member_id) = identity
+        .principal_id
+        .as_deref()
+        .and_then(|principal| hub.member_id_of_principal(principal))
+    else {
+        return (StatusCode::NOT_FOUND, "no Building membership to leave").into_response();
+    };
+    match hub.revoke_member(&member_id) {
+        Ok(true) => (StatusCode::OK, Json(serde_json::json!({ "left": true }))).into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, "no Building membership to leave").into_response(),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "could not save leaving — try again",
+        )
+            .into_response(),
+    }
+}

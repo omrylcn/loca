@@ -20,7 +20,8 @@ function mayDeclareTasks() {
 
 // ---- the Loca Board (the `board` extension) ----
 // Four columns over the same task list. The holder's "done" is a request for
-// review; the Lead (never on its own task) or the Operator says go or no-go.
+// review; the Lead (never on its own task) or the Operator approves it or
+// requests changes (the server's go and no-go).
 // The server enforces every rule; these buttons only follow them.
 
 const BOARD_COLUMNS = [["open", "To do"], ["taken", "Doing"], ["review", "Review"], ["done", "Done"]];
@@ -39,8 +40,8 @@ function boardActions(task) {
   if (task.status === "open" && (mine || !task.assigned_to)) acts += `<button data-tact="take" data-tid="${task.id}">Start</button>`;
   if (task.status === "taken" && mine) acts += `<button data-tact="done" data-tid="${task.id}">Ask for review</button>`;
   if (task.status === "review" && reviewer) {
-    acts += `<button data-tact="go" data-tid="${task.id}">Go</button>`;
-    acts += `<button data-tact="nogo" data-tid="${task.id}">No-go</button>`;
+    acts += `<button data-tact="go" data-tid="${task.id}">Approve</button>`;
+    acts += `<button data-tact="nogo" data-tid="${task.id}">Request changes</button>`;
   }
   if (isLocaOperator()) {
     if (["open", "taken", "review"].includes(task.status)) acts += `<button data-tact="cancel" data-tid="${task.id}">Remove</button>`;
@@ -98,11 +99,12 @@ function renderBoard(box, tasks = Object.values(state.tasks), onlyStage = null) 
   box.appendChild(board);
 }
 
-// Go (review -> done) or no-go with a reason (review -> taken).
+// Approve (go: review -> done) or request changes with a reason (no-go:
+// review -> taken).
 async function boardReview(act, id) {
   const body = { by: state.name, status: act === "go" ? "done" : "taken" };
   if (act === "nogo") {
-    const reason = (window.prompt(`Why is task #${id} not done yet? The holder reads this.`) || "").trim();
+    const reason = (window.prompt(`What should change in task #${id}? The holder reads this.`) || "").trim();
     if (!reason) return;
     body.reason = reason;
   }

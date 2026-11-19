@@ -204,7 +204,7 @@ function renderTasks() {
       : "";
     const proof = activeGoal.checkpoint
       ? `<span class="goalproof" title="Success proof: ${esc(activeGoal.checkpoint)}">✓ ${esc(activeGoal.checkpoint)}</span>` : "";
-    $("goalCard").innerHTML = `<span class="goallabel">Room goal</span><span class="goaloutcome" title="${esc(activeGoal.outcome)}">${esc(activeGoal.outcome)}</span>${proof}<span class="tacts">${acts}</span>`;
+    $("goalCard").innerHTML = `<span class="goallabel">Goal:</span><span class="goaloutcome" title="${esc(activeGoal.outcome)}">${esc(activeGoal.outcome)}</span>${proof}<span class="tacts">${acts}</span>`;
     $("goalPanelMeta").textContent = [activeGoal.created_by ? `set by ${activeGoal.created_by}` : "",
       activeGoal.created_at ? dayInLine(activeGoal.created_at) : ""].filter(Boolean).join(" · ");
     $("goalPanelCard").innerHTML = `<span class="goalbody"><b class="goaltext">${esc(activeGoal.outcome)}</b>${activeGoal.checkpoint ? `<small class="goalproofline">Proof: ${esc(activeGoal.checkpoint)}</small>` : ""}</span>`
@@ -230,6 +230,7 @@ function renderTasks() {
   // The tasks are the Loca Board's tab; Focus keeps one line about them.
   renderBoardTab();
   renderFocusBoardLine();
+  if (typeof refreshHome === "function") refreshHome();   // Home lists the open loca's tasks given to this person
 }
 
 async function taskAct(act, id) {
@@ -319,11 +320,18 @@ async function clearWait(name) {
 }
 
 /* ---- tabs ---- */
+// The views that are not a loca's: the Building (People) and Home (home.js).
+// The loca that was open stays connected behind them.
+function isBuildingView(tab = state.tab) { return tab === "people" || tab === "home"; }
 function switchTab(tab) {
   state.tab = tab;
-  const global = tab === "people";
-  document.querySelector(".main").classList.toggle("global", global);
-  if (global) {
+  const global = isBuildingView(tab);
+  const main = document.querySelector(".main");
+  main.classList.toggle("global", global);
+  main.classList.toggle("homeview", tab === "home");
+  if (tab === "home") {
+    $("curRoom").textContent = "Home";
+  } else if (global) {
     $("curRoom").textContent = "Building";
     renderBuildingSummary();
   } else {
@@ -361,16 +369,21 @@ function switchTab(tab) {
   $("wikiPanel").classList.toggle("hidden", tab !== "wiki");
   $("vaultPanel").classList.toggle("hidden", tab !== "vault");
   $("peoplePanel").classList.toggle("hidden", tab !== "people");
+  $("homePanel").classList.toggle("hidden", tab !== "home");
+  $("homeLink")?.classList.toggle("active", tab === "home");
+  $("homeLink")?.setAttribute("aria-current", tab === "home" ? "page" : "false");
   if (tab === "tasks") { $("tasksDot").classList.remove("on"); renderTasks(); }
   if (tab === "board") { $("boardDot").classList.remove("on"); renderTasks(); }
   if (tab === "journal") { $("journalDot").classList.remove("on"); fetchJournal(); }
   if (tab === "people") fetchPeople();
+  if (tab === "home") renderHome();
   if (tab === "memory") fetchMemory();
   if (tab === "wiki") fetchWiki();
   if (tab === "vault") fetchVault();
   $("typing").classList.toggle("hidden", !chat);
   if (tab === "notes") { $("notesDot").classList.remove("on"); renderNotes(); }
-  else {
+  // Home is not the chat: the unread boundary waits for the chat to be seen.
+  else if (tab !== "home") {
     // Coming back to chat: if the feed was cleared (e.g. a reconnect happened
     // while we were on Notes), repaint it from the kept transcript.
     if (!$("feed").children.length && state.msgs.length) repaintFeed();

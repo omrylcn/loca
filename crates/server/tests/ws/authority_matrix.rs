@@ -565,6 +565,21 @@ const ROWS: &[Row] = &[
     // specifically named loca" — it is not a Building profile.
     row("GET /whoami", Rule::Holder, &[]),
     row("GET /profile", Rule::Profile, &[]),
+    // PRINCIPLES "Authority and departure matrix": Leave — a member ends
+    // their own membership with their own Building sign-in. The matrix sends
+    // no confirmation, so an allowed caller is turned down on its merits
+    // (400) and nobody actually leaves here.
+    row(
+        "POST /membership/leave",
+        Rule::Profile,
+        &[cur(
+            Who::Master,
+            None,
+            Refuse,
+            "the Master cannot leave their own Building",
+        )],
+    )
+    .merits(),
     // current behaviour, not stated in PRINCIPLES: the ranks rename
     // themselves here; members are refused.
     row("PUT /profile", Rule::Only(&[Sm2, Sm, Ms]), &[])
@@ -595,6 +610,12 @@ const ROWS: &[Row] = &[
     // "Building-admin view".
     row("GET /building/ranks", Rule::Ranks, &[]),
     row("GET /building/bans", Rule::Ranks, &[]),
+    // Building settings: the ranks read what the Building runs on; only the
+    // Master changes it (PRINCIPLES "Building layer": the master "has the
+    // final word"; a Smaster's delegated administration does not reach the
+    // Building itself).
+    row("GET /building/settings", Rule::Ranks, &[]),
+    row("PUT /building/settings", Rule::MasterOnly, &[]),
     row("GET /members", Rule::Ranks, &[]),
     row("POST /members", Rule::Ranks, &[]),
     row("GET /profiles", Rule::Ranks, &[]),
@@ -703,6 +724,11 @@ const ROWS: &[Row] = &[
     // DESIGN "Sidebar": "Your Locas — erişilebilen Localar"; the list is
     // filtered by the same door.
     row("GET /rooms", Rule::Holder, &[]),
+    // PRINCIPLES "Groups": "The rule is the same at every door (sidebar,
+    // REST, WS, search)". The Building search reads only the locas the
+    // caller may enter, with the list's own door, so any session may ask and
+    // gets the words of its own locas (see ws/building_search.rs).
+    row("GET /search", Rule::Holder, &[]),
     // PRINCIPLES "Loca layer": "Human Master/Smaster founders receive the
     // appointment atomically when explicitly creating a loca. Joining,
     // messaging or issuing an invitation cannot create a missing loca".
@@ -2040,7 +2066,7 @@ fn concrete_path(w: &World, route: &str, kind: Option<Kind>, ghost: bool) -> Str
         out.push(value);
     }
     let mut out = out.join("/");
-    if route == "GET /rooms/:id/search" {
+    if route == "GET /rooms/:id/search" || route == "GET /search" {
         out.push_str("?q=seed");
     }
     out
@@ -2069,6 +2095,7 @@ fn body_for(route: &str, w: &World, who: Who, kind: Option<Kind>) -> Body {
         })),
         "PUT /profile/preferences" => j(serde_json::json!({"theme": "dark"})),
         "PUT /profile/card" => j(serde_json::json!({"icon": "leaf"})),
+        "PUT /building/settings" => j(serde_json::json!({"name": format!("Building {t}")})),
         "POST /profile/credentials" => j(serde_json::json!({"label": format!("probe-{t}")})),
         "POST /members" => j(serde_json::json!({"name": format!("enrollee-{t}"), "kind": "agent"})),
         "POST /runtime/health" => j(serde_json::json!({"wake": "IDLE", "ack": "IDLE"})),
@@ -2154,6 +2181,7 @@ fn body_for(route: &str, w: &World, who: Who, kind: Option<Kind>) -> Body {
         | "POST /rooms/:id/care/:signal_id/ack"
         | "DELETE /rooms/:id/waits/:name" => j(serde_json::json!({"by": "x"})),
         "POST /rooms/:id/typing" => j(serde_json::json!({"on": true})),
+        "POST /membership/leave" => j(serde_json::json!({})),
         "POST /rooms/:id/waits" => j(serde_json::json!({
             "waiting_for": "opal", "reason": "probe", "by": "x"
         })),

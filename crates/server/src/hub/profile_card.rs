@@ -75,11 +75,11 @@ fn name_punctuation(c: char) -> bool {
 
 /// Characters that change direction or are not seen: they could make one
 /// string look like another, or move the text around it.
-fn bidi_control(c: char) -> bool {
+pub(super) fn bidi_control(c: char) -> bool {
     matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
-fn invisible(c: char) -> bool {
+pub(super) fn invisible(c: char) -> bool {
     matches!(
         c,
         '\u{00AD}'
