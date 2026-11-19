@@ -58,10 +58,14 @@
 :root[data-scheme="light"] .omem .glyph.lead { text-shadow: none; }
 :root[data-scheme="light"] body.locked .side { box-shadow: 0 16px 48px rgba(43, 38, 32, .14); }
 
-/* Reading: the three themes read in the device's sans face at a size you
-   can read, with code, keys and times kept monospace. */
+/* Reading: the three themes read in a sans face already on the device, at
+   a size you can read, with code, keys and times kept monospace. The face is
+   named, not left to system-ui: system-ui is whatever a Linux machine says
+   (DejaVu Sans on one, a CJK face on another), and its widths decided
+   whether a row of buttons fits. Segoe UI on Windows, the Apple face on a
+   Mac, and Liberation Sans or Arial (one set of widths) elsewhere. */
 :root[data-theme="loca"], :root[data-theme="calm"], :root[data-theme="console"] {
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Liberation Sans", Arial, sans-serif;
 }
 :root[data-theme="loca"] body, :root[data-theme="calm"] body, :root[data-theme="console"] body { font-size: 15px; }
 

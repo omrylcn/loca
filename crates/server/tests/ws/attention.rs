@@ -2041,25 +2041,19 @@ async fn everyone_reminder_revoked_member_gets_zero_on_reconnect() {
 /// reloaded roster now holds two same-named principals and the sessions persist.
 #[tokio::test]
 async fn everyone_reminder_separates_two_same_named_principals_over_websockets() {
-    // Fixed port + temp DB so we can rename between two boots of the same server.
-    let port = {
-        let l = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-        let p = l.local_addr().unwrap().port();
-        drop(l);
-        p
-    };
-    let db = std::env::temp_dir().join(format!("everyone-samename-{port}.db"));
-    let _ = std::fs::remove_file(&db);
+    // The same temp DB across two boots, so the rename lands between them.
+    // Each boot binds a port of its own (PORT=0): a port reserved here could
+    // be taken by another test's server before this one bound it.
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("everyone-samename.db");
     let db_str = db.to_string_lossy().to_string();
-    let boot_env = |port: u16| {
+    let boot_env = || {
         vec![
-            ("PORT", port.to_string()),
             ("DB_PATH", db_str.clone()),
             ("CARE_SILENCE_SECS", "1".to_string()),
             ("CARE_COOLDOWN_SECS", "60".to_string()),
         ]
     };
-    let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 
     // Boot 1: two distinct members (distinct principals), each invited into proj.
@@ -2067,9 +2061,12 @@ async fn everyone_reminder_separates_two_same_named_principals_over_websockets()
     // sessions are ephemeral, so we re-mint them on boot 2.
     let dv_a;
     let dv_b;
+    let first_port;
     {
-        let (_p, _guard) = spawn_server_env("MASTER", &boot_env(port)).await;
-        create_test_room(_p, "MASTER", "proj").await;
+        let (port, _guard) = spawn_server_env("MASTER", &boot_env()).await;
+        first_port = port;
+        let base = format!("http://127.0.0.1:{port}");
+        create_test_room(port, "MASTER", "proj").await;
         dv_a = invite_for(&base, "MASTER", "proj", "sam").await;
         dv_b = invite_for(&base, "MASTER", "proj", "sam-two").await;
         client
@@ -2083,7 +2080,7 @@ async fn everyone_reminder_separates_two_same_named_principals_over_websockets()
             .unwrap();
         // _guard drops here -> server killed.
     }
-    wait_for_server_shutdown(port).await;
+    wait_for_server_shutdown(first_port).await;
 
     // Rename the second identity to the SAME display name while the server is
     // down — in members (the fan-out roster name) AND principals (the session's
@@ -2103,8 +2100,9 @@ async fn everyone_reminder_separates_two_same_named_principals_over_websockets()
         .unwrap();
     }
 
-    // Boot 2: same DB + port. The roster now has two same-named principals.
-    let (_p2, _guard2) = spawn_server_env("MASTER", &boot_env(port)).await;
+    // Boot 2: same DB. The roster now has two same-named principals.
+    let (port, _guard2) = spawn_server_env("MASTER", &boot_env()).await;
+    let base = format!("http://127.0.0.1:{port}");
 
     // Re-mint each session from its durable invite: a session speaks as its invite's
     // member, so both now resolve to the display name "sam" with DISTINCT principals.

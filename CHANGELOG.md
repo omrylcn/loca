@@ -24,6 +24,11 @@ went wrong or who noticed:
 
 ### Fixed
 
+- The Loca, Calm and Console themes name their sans face (Segoe UI, the
+  Apple face, then Liberation Sans or Arial) instead of system-ui, which on
+  Linux is whatever the machine says: DejaVu Sans is wide enough to wrap
+  the seats at the table and People's actions onto a second line.
+
 - People: a member's three actions (Message, Suspend, Revoke) stay on one
   line at 1280px in the sans face too. Their column was 216px, just enough
   for the monospace face; with Loca's sans default a wider system face

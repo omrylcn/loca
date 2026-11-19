@@ -316,24 +316,12 @@ async fn filter_mentions_only_delivers_addressed_messages() {
 async fn reply_wakes_owner_even_when_older_than_the_tail() {
     // A real DB is required: past the in-memory tail the author can only come
     // from Store::message_owner, which is a no-op in memory-only mode.
-    let port = {
-        let l = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-            .await
-            .unwrap();
-        let p = l.local_addr().unwrap().port();
-        drop(l);
-        p
-    };
-    let db = std::env::temp_dir().join(format!("agent-room-reply-tail-{port}.db"));
-    let _ = std::fs::remove_file(&db);
-    let (_port, _guard) = spawn_server_env(
-        "",
-        &[
-            ("PORT", port.to_string()),
-            ("DB_PATH", db.to_string_lossy().to_string()),
-        ],
-    )
-    .await;
+    // The server binds its own port (PORT=0): a port reserved here could be
+    // taken by another test's server before this one bound it.
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("reply-tail.db");
+    let (port, _guard) =
+        spawn_server_env("", &[("DB_PATH", db.to_string_lossy().to_string())]).await;
     let base = format!("http://127.0.0.1:{port}");
     let client = reqwest::Client::new();
 

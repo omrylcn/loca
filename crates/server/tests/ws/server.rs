@@ -520,23 +520,21 @@ async fn rate_limit_returns_429_and_is_admin_tunable() {
 
 #[tokio::test]
 async fn state_survives_restart() {
-    // Reserve a fixed port + temp DB so we can stop and relaunch the same server.
-    let port = {
-        let l = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-        let p = l.local_addr().unwrap().port();
-        drop(l);
-        p
-    };
-    let db = std::env::temp_dir().join(format!("agent-room-test-{port}.db"));
-    let _ = std::fs::remove_file(&db);
-    let db_str = db.to_string_lossy().to_string();
-    let env = |port: u16| vec![("PORT", port.to_string()), ("DB_PATH", db_str.clone())];
-    let base = format!("http://127.0.0.1:{port}");
+    // The same temp DB across two boots. Each boot binds a port of its own
+    // (PORT=0): a port reserved here and released before the server bound it
+    // could be taken by another test's server, whose /health then answered
+    // and whose admin token refused ours (401).
+    let dir = tempfile::tempdir().unwrap();
+    let db_str = dir.path().join("restart.db").to_string_lossy().to_string();
+    let env = || vec![("DB_PATH", db_str.clone())];
     let client = reqwest::Client::new();
 
     // Boot 1: write a message, a note, and set a restricted mode.
+    let first_port;
     {
-        let (_p, _guard) = spawn_server_env("tok", &env(port)).await;
+        let (port, _guard) = spawn_server_env("tok", &env()).await;
+        first_port = port;
+        let base = format!("http://127.0.0.1:{port}");
         create_test_room(port, "tok", "general").await;
         client.post(format!("{base}/rooms/general/messages"))
             .json(&serde_json::json!({ "sender": "backend", "sender_type": "agent", "text": "persist me" }))
@@ -558,10 +556,11 @@ async fn state_survives_restart() {
             .unwrap();
         // _guard drops here -> server killed.
     }
-    wait_for_server_shutdown(port).await;
+    wait_for_server_shutdown(first_port).await;
 
-    // Boot 2: same DB + port. Everything should be back.
-    let (_p2, _guard2) = spawn_server_env("tok", &env(port)).await;
+    // Boot 2: same DB. Everything should be back.
+    let (port, _guard2) = spawn_server_env("tok", &env()).await;
+    let base = format!("http://127.0.0.1:{port}");
 
     let msgs: Vec<Value> = client
         .get(format!("{base}/rooms/general/messages"))
@@ -593,6 +592,4 @@ async fn state_survives_restart() {
         .await
         .unwrap();
     assert_eq!(mode["mode"], "restricted");
-
-    let _ = std::fs::remove_file(&db);
 }
