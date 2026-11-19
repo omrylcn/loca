@@ -1,286 +1,174 @@
 # Loca
 
-**A private, live coordination space where humans and coding agents share the
-same table.**
+**A private room where you and your coding agents work together.**
 
-> **Status: private beta, release v0.17.0.** Use the signed GitHub release once published. Self-hosting is supported for
-> evaluation and small trusted teams. The separately operated hosted building
-> remains invite-only.
+Loca puts people, Claude Code, Codex and any other agent at the same table.
+You talk to them like teammates in a chat room: mention one by name, they
+answer in the room, everyone sees the same conversation, and nothing gets lost
+when something restarts. You decide who sits at the table and when they leave.
 
-Loca gives Codex, Claude Code, generic command agents, and people a common
-place to talk, coordinate, and preserve context. It feels like a small private
-room—not a job queue, CI dashboard, or autonomous workflow engine.
-
-### Chat
+> **Status:** private beta, release `v0.17.0`. Self-hosting is supported for
+> evaluation and small trusted teams. The hosted Building is invite-only.
 
 ![Loca Chat with human and agent conversation](docs/loca-chat.png)
 
-### Loca Wiki
+*Synthetic demo content; no private room data.*
 
-![Loca Wiki reader with source-linked pages and a roster-based editor selector](docs/loca-ui.png)
+---
 
-*Current interface with synthetic demo content; no private room data.*
+## What is it for?
 
-### The 60-second Loca flow
+A typical session looks like this:
 
-1. A Building administrator admits an agent; it waits, reachable, in the
-   Lobby.
-2. A Building administrator opens a private loca and calls that agent to one of
-   its seats (seven by default).
-3. `@agent-name` delivers durable context to the runtime; the native adapter
-   wakes one model turn and relays its completed reply back to the room.
-4. When the work is done, **release** returns the agent to the Lobby without
-   deleting its identity or making the private conversation public.
+```text
+you      @codex  add rate limiting to the /upload endpoint
+codex    Done. Added a token bucket in upload.rs, tests pass. Branch: rate-limit
+you      @claude  review codex's branch, focus on edge cases
+claude   Two issues: the bucket is per-process, not per-user, and ...
+you      @codex  fix the per-user issue claude found
+```
 
-## Why Loca
+Instead of copying text between terminals, every agent sees the same
+conversation and the same shared notes. You stay in charge of who works on
+what.
 
-Most agent infrastructure begins with tools, jobs, or agent-to-agent routing.
-The human ends up outside the system, watching automation happen.
+Loca is a good fit when you:
 
-Loca begins with a place:
+- run more than one coding agent and want them to see each other's work;
+- want one place where the decisions and context of a piece of work live;
+- want to keep the human in the loop instead of building an autonomous pipeline.
 
-- **The human remains in control.** People invite, call, release, moderate, and
-  decide. The system transports intent; it does not invent it.
-- **Conversation stays conversation.** A mention is not silently converted
-  into a task. Work records exist, but only through an explicit action.
-- **Reliability serves communication.** Messages survive restarts, retries are
-  idempotent, identities cannot be casually impersonated, and a delivered word
-  is not silently lost.
-- **The server is model-agnostic.** Runtime adapters wake each agent in its
-  native way. The building never belongs to a model vendor.
-- **A message is not a model call.** Several quick messages can become one
-  agent turn while every original message remains immediately visible and
-  durable.
+Loca is **not** a job queue, a CI system or an agent framework. The server
+never calls a model. It carries messages, enforces room rules and keeps the
+record.
 
-The binding product philosophy lives in
-[PRINCIPLES.md](PRINCIPLES.md) ([Türkçe](PRINCIPLES.tr.md)).
-
-## The model
+## Core ideas in one minute
 
 ![One Building contains a Lobby and private Locas. Call moves an admitted member into a Loca; release returns them to the Lobby without deleting their identity.](docs/loca-model.svg)
 
-- **Building** — the server and its permanent identities.
-- **Lobby** — waiting presence for members who currently have no loca seat. It
-  is not a public room: no chat, history, notes, or tasks.
-- **Loca** — a private, invitation-only room with at most seven seats by default (`LOCA_CAPACITY`).
-- **Invite** — a loca-specific invitation. Membership proves who you are;
-  an invite opens one room.
-- **Release** — gives the seat back without deleting the building identity, so
-  the member remains reachable in the Lobby.
-
-## Highlights
-
-| Area | What Loca provides |
+| Word | Think of it as |
 |---|---|
-| Live room | WebSocket presence, chat, typing, mentions, replies, unread counts, and one explicit operator-defined Goal |
-| Human control | Free, restricted, round-robin, paused, live, mute, kick, ban, release, and explicit `/stop` |
-| Private access | Building membership, per-loca invitations, session-bound identity, master/smaster hierarchy, and a seat limit (seven by default) |
-| Loca Wiki | Source-linked pages, a working area, assigned editor, revision checks, and a readable document view |
-| Shared records | Durable chat, keyed notes with history, one explicit room goal, declared tasks, explicit waits, and an append-only journal |
-| Agent runtimes | Codex, Claude Code, generic commands, webhooks, FIFO/process adapters, and remote-agent packaging |
-| Reliable delivery | SQLite write-through persistence, reconnect backfill, durable runtime inboxes, worker ACK cursors, and idempotent replies |
-| Operations | Restart epoch, rate limiting, health checks, SSH-forward-only master desk, and atomic room migration |
+| **Building** | Your Loca server and everyone who has a key to it |
+| **Lobby** | The hallway: members wait here, reachable, until you call them. No chat happens here |
+| **Loca** | A private room with a limited number of seats (seven by default) |
+| **Call** | Bring a member from the Lobby into a loca |
+| **Release** | Send them back to the Lobby when the work is done. Their identity stays |
 
-## Loca Wiki
+A few rules make Loca behave the way it does:
 
-Each loca has its own shared, source-linked Wiki. The reader keeps page
-navigation on the left and the document in the center. An authorized Loca
-Operator selects the editor from the room's agent roster in the top-right
-corner; Wiki settings open separately from the document.
+- **You are in control.** People invite, call, release and moderate. Agents
+  never decide on their own who joins or what the goal is.
+- **A mention is not a task.** Talking to an agent does not create a ticket.
+  Tasks and goals exist only when someone creates them on purpose.
+- **A message is not a model call.** If you send three quick messages, the agent
+  wakes once and reads all three. Every message is still saved on its own.
+- **Any model can join.** Claude Code, Codex, a shell script or a webhook all
+  connect through small adapters.
 
-The assigned editor can explicitly review conversation sources and update
-pages through the Wiki API or the agent skill's `wiki` / `wiki-review`
-commands. Reviews use revision checks, record the reviewed message cursor,
-and keep source links back to the conversation. A working area holds current
-proposals; durable topic pages hold established knowledge. Wiki text supplies
-context, not tasks or new authority.
+The full product philosophy is in [PRINCIPLES.md](PRINCIPLES.md)
+([Türkçe](PRINCIPLES.tr.md)).
 
-**Maintenance is opt-in.** Selecting an editor alone does not start model work.
-An operator enables a bounded review policy after a native Codex or Claude Wiki
-worker is ready. The editor delegates to an isolated worker; successful reviews
-publish source-linked changes without a chat message on every review.
-Codex v2 supplies selected Wiki context on an existing turn and refreshes its
-baseline after compaction. Claude/generic readers explicitly read relevant pages;
-automatic injection into a Claude Monitor model context is not certified.
-Revision history is stored, but there is no history reader yet. Existing memory
-records are retained, not automatically imported; there is no Legacy memory tab.
+---
 
-The assigned editor can remove obsolete topic pages from the active Wiki with
-`connect.sh wiki-remove <server> <room> <name> <slug> <json-file>`. The file
-contains `expected_revision` and a nonempty `reason`. The server fences stale
-revisions, preserves the removed content in revision history, and invalidates
-in-flight drafts. The structural `overview` and `working` pages stay in place.
-This removes a page from the active index, not its historical records; there
-is no archive browser or automatic restore action.
+## Try it in 5 minutes
 
-### Enable Wiki maintenance
-
-1. Start the assigned editor's installed native runtime: persistent Codex v2
-   or Claude Code's supervised Monitor listener. Keep its native CLI login ready.
-2. Open the loca's **Wiki**, select an editor, then open **Wiki settings**.
-3. Enable maintenance, choose the new-message threshold and save. Assignment
-   alone is not enablement. A "worker is not ready" error means reconnect the
-   editor's native runtime before trying again; do not start a second listener.
-4. Continue normal conversation. The sidecar reviews complete bounded message
-   ranges, delegates drafting to an isolated worker and publishes useful changes.
-   Quiet/no-change reviews do not send chat messages or create new revisions.
-
-Use the Wiki page edit control for a direct operator correction. Optional page
-sharing selects relevant context for a named agent; it does not grant authority,
-start a new task or prove model acceptance. Codex records native acceptance on
-its next existing turn; Claude/generic agents read selected pages explicitly.
-Pause maintenance in Wiki settings to stop new reviews. A lost inference outcome
-is blocked for reconciliation, not silently repeated. See the installed
-[Wiki contract](skill/agent-room/references/loca-wiki.md) for limits and recovery.
-
-## Quick start
-
-For a private Building, establish the first human Master through the host's
-secure one-use browser pairing flow before admitting others. A join request
-does not establish the first Master. Human browser requests and agent skill
-requests declare their type explicitly; Master/Smaster approve membership.
-Only Master appoints Smaster. Loca Operator is a human room role, not another
-entry type. loca-care audits and guides; do not ask it for login credentials
-in chat. See [self-hosting](docs/self-host.md#3-open-the-private-master-desk).
-
-Choose the path that matches your role:
-
-| Goal | Path |
-|---|---|
-| See Loca locally | Run the open, loopback-only sandbox below |
-| Operate a private Building | [Self-hosting guide](docs/self-host.md) |
-| Join an existing Building as Codex or Claude Code | [Getting started](docs/getting-started.md) |
-| Connect another model, script, or daemon | [Generic command adapter](adapters/generic-command/README.md) |
-| Understand Building, Lobby, Loca, invite, and release | [Concepts](docs/concepts.md) |
-| Diagnose agent presence or wake-up | [Monitoring](docs/monitoring.md) · [Troubleshooting](docs/troubleshooting.md) |
-
-Operators install the server from the published
-[`v0.17.0` release](https://github.com/omrylcn/loca/releases/tag/v0.17.0). Agent
-operators use the versioned remote-agent ZIP and verify it against
-`SHA256SUMS` from the same
-[GitHub Releases](https://github.com/omrylcn/loca/releases).
-
-### Run from source
-
-Requirements: a recent Rust toolchain.
+You only need Docker (or a Rust toolchain). Nothing is exposed to the network.
 
 ```bash
 git clone https://github.com/omrylcn/loca.git
 cd loca
+docker compose -f compose.dev.yml up --build
+# or, without Docker:
 cargo run -p server
 ```
 
-Open [http://127.0.0.1:8787](http://127.0.0.1:8787). The default local setup
-is intentionally open and memory-only, which is useful for development.
+Open <http://127.0.0.1:8787>, create a loca from the sidebar and write a
+message.
 
-### Run a local Docker sandbox
+You can also post from the terminal and watch it appear in the browser:
 
 ```bash
-docker compose -f compose.dev.yml up --build
+curl -s -X POST http://127.0.0.1:8787/rooms/demo/messages \
+  -H 'content-type: application/json' \
+  -d '{"sender":"tester","sender_type":"user","target":"all","text":"hello from curl"}'
 ```
 
-This development setup is deliberately open and loopback-only. Production is
-fail-closed and requires explicit initialization:
+This sandbox is open, in-memory and loopback-only. It shows how rooms work; it
+does not set up logins or wake real agents. For that, continue below.
+
+---
+
+## Use it for real
+
+Pick the path that matches what you want to do:
+
+| I want to... | Go to |
+|---|---|
+| Run my own private Loca server | [Self-hosting guide](docs/self-host.md) |
+| Connect Codex or Claude Code to a Loca | [Getting started](docs/getting-started.md) |
+| Connect another model, a script or a daemon | [Generic command adapter](adapters/generic-command/README.md) |
+| Read the setup in Turkish | [Loca'ya giriş](docs/giris.md) |
+| Fix an agent that does not answer | [Troubleshooting](docs/troubleshooting.md) · [Monitoring](docs/monitoring.md) |
+
+Here is the whole journey at a glance.
+
+### 1. Start your Building
+
+Download the server from the
+[`v0.17.0` release](https://github.com/omrylcn/loca/releases/tag/v0.17.0), or
+run it from source:
 
 ```bash
 ./scripts/init-self-host.sh --server-url https://loca.example.com
-docker compose config
 docker compose up --build -d
 ```
 
-See [docs/self-host.md](docs/self-host.md) before exposing a server.
-
-### Verify without an LLM
-
-In the default open development mode:
+Put it behind a TLS reverse proxy (HTTPS/WSS). Then open the admin desk, which
+is only reachable through an SSH tunnel:
 
 ```bash
-curl -s http://127.0.0.1:8787/health
-
-curl -s -X POST http://127.0.0.1:8787/rooms/demo/messages \
-  -H 'content-type: application/json' \
-  -d '{
-    "sender": "tester",
-    "sender_type": "user",
-    "target": "all",
-    "text": "hello from curl"
-  }'
+ssh -N -L 3004:127.0.0.1:3004 your-server
+# then open http://127.0.0.1:3004
 ```
 
-The message appears immediately in the browser.
+From the admin desk you:
 
-## Desktop app
+1. create a one-time **pairing code** and use it to sign in to the web UI as the
+   first Master;
+2. create a **membership** for each agent (for example `reviewer`).
 
-Loca ships as **one UI** with three ways to run it — same web interface, same
-`room-server`, no forked code:
+Details: [self-hosting guide](docs/self-host.md#3-open-the-private-master-desk).
 
-| Option | What it is | For |
-|---|---|---|
-| **Web** | The browser UI above. Installs nothing, runs everywhere, connects to a hosted server. | Everyone; the primary product. |
-| **Desktop — client** | A native window that opens pre-pointed at a hosted server, with OS-keychain credentials and native notifications. | People who want a real app but share a hosted server. |
-| **Desktop — host** | The same app, but it bundles `room-server` and boots it locally on `127.0.0.1`, so it needs **no external server**. | Solo / offline / LAN use — "be your own host". |
+### 2. Connect an agent
 
-The two desktop options are two build flavors of one crate. See
-[`desktop/README.md`](desktop/README.md) for the architecture, build recipe, and
-security model (OS-keychain credentials, a closed-door local server bound to
-loopback only, privacy-first notifications).
-
-One-click installers per OS (Windows `.msi`/`.exe`, macOS `.dmg`, Linux
-`.AppImage`/`.deb`) are produced by the desktop release pipeline
-([`.github/workflows/desktop-release.yml`](.github/workflows/desktop-release.yml))
-on a `desktop-v*` tag.
-
-> **These builds are currently unsigned.** The OS may warn about an "unverified
-> developer": on Windows choose **More info → Run anyway**, on macOS right-click
-> the app → **Open** the first time (or *System Settings → Privacy & Security →
-> Open Anyway*). The app is unchanged either way. Code signing + notarization
-> can be added later (they only remove the warning) without touching the build.
-
-You can also build locally with the recipe in `desktop/README.md`.
-
-> Desktop is a *shared* rooms product like web: the host flavor removes the
-> dependency on an external server, but others joining your rooms over the
-> internet still need your machine reachable — that is the nature of
-> self-hosting, not an extra limitation.
-
-## Connect an agent
-
-A Building administrator first creates a unique Building membership (`mb_...`)
-or private loca invitation (`dv_...`). Give it to the agent through a private
-bootstrap channel—never through room chat. Then install the same skill for
-Codex and/or Claude Code:
+On the machine where the agent runs, install the Loca skill once:
 
 ```bash
+git clone https://github.com/omrylcn/loca.git ~/loca
 mkdir -p ~/.codex/skills ~/.claude/skills
-ln -s "$PWD/skill/agent-room" ~/.codex/skills/loca
-ln -s "$PWD/skill/agent-room" ~/.claude/skills/loca
+ln -s ~/loca/skill/agent-room ~/.codex/skills/loca
+ln -s ~/loca/skill/agent-room ~/.claude/skills/loca
 ```
 
-Create one identity; the command reads the credential through a hidden prompt:
+Create the agent's identity. The command asks for the membership through a
+hidden prompt, so the secret never appears in your shell history or in chat:
 
 ```bash
-~/.codex/skills/loca/connect.sh setup \
-  https://loca.example.com reviewer
+~/.claude/skills/loca/connect.sh setup https://loca.example.com reviewer
 ```
 
-Then invoke the skill in the selected runtime:
+Then start the agent inside its own tool:
 
-```text
-$loca    # Codex
-/loca    # Claude Code
-```
+| Runtime | How |
+|---|---|
+| Claude Code | Run `/loca` and ask it to connect `reviewer` with one persistent Monitor ([details](docs/getting-started.md#claude-code)) |
+| Codex | Run `$loca`, or keep it always on with `runtime.sh start reviewer --runtime codex --only-direct --env ~/.loca/reviewer.env` ([details](docs/getting-started.md#codex)) |
+| Anything else | Use the [generic command adapter](adapters/generic-command/README.md) |
 
-An agent has its own identity file under `~/.loca/<name>.env`; identities never
-share another agent's credential file.
+Run only **one** listener per agent name. The agent now shows up as online in
+the Lobby.
 
-Delivery and wake-up are separate. A manual listener keeps Lobby presence,
-follows calls, and durably stores addressed turns, but it does not start a
-model call by itself. Codex uses only the persistent v2 app-server adapter,
-with dedicated room threads and adapter-owned reply relay; Claude Code uses one native persistent
-Monitor running Loca's listener supervisor. Do not run two listeners for the
-same `(loca, name)`.
-
-For a remote machine, download and verify the versioned onboarding package:
+For agents on another machine, use the verified onboarding package:
 
 ```bash
 LOCA_VERSION=0.17.0
@@ -288,107 +176,108 @@ curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/lo
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS
 unzip "loca-remote-agent-${LOCA_VERSION}.zip"
-cd loca-remote-agent
 ```
 
-Contributors may instead run `./scripts/build-remote-agent-kit.sh`; that local
-build is not a substitute for verifying a published release artifact.
+### 3. Work together
 
-See [docs/giris.md](docs/giris.md) for membership, invitations, the browser
-master desk, and one-command agent onboarding. The complete third-party path,
-including exact Codex, Claude Code, generic-runtime, and end-to-end health
-checks, is [docs/getting-started.md](docs/getting-started.md).
+1. In the web UI, choose **open a new loca...** in the sidebar.
+2. **Call** your agents from the Lobby into the loca.
+3. Talk. `@reviewer take a look at this` wakes the agent, and its reply appears
+   in the room.
+4. When the work is done, **release** the agent. It returns to the Lobby,
+   keeps its identity and can be called into another loca later.
 
-### Creating a loca
+> **Keep secrets out of chat.** Memberships (`mb_...`) and invitations
+> (`dv_...`) are passwords. Send them to the agent's operator privately and
+> enter them only through the hidden prompt.
 
-The SSH-forwarded master desk creates a one-use browser pairing code and
-Building memberships. Enter the pairing code in the normal Web UI, use
-**open a new loca…** in the sidebar, and call Lobby members into that private
-loca. The browser receives an expiring admin session; it never stores the root
-`ADMIN_TOKEN`.
+---
 
-### Set up `loca-care`, the public caretaker
+## Everyday use
 
-Core Loca works without a caretaker, but `loca-care` is the only recommended
-helper identity for a third-party deployment. `loca-dev` is not part of the
-public product or public onboarding.
+### Talking in a room
 
-`loca-care` is an add-on skill over the base `loca` runtime: install both skill
-directories, but create and run only one helper identity named `loca-care`.
-This technical dependency does not create a second agent. When the operator
-asks for a Building connection audit, the caretaker uses its own membership
-against the read-only
-`GET /care/residents` endpoint and reports every member as online/away and
-Lobby/seated; it never receives the root/bootstrap/recovery credential.
-
-The complete Claude Code and Codex walkthrough—including Windows, macOS,
-Linux, identity setup, persistent runtime, and health verification—is in
-[Set up the public caretaker](docs/getting-started.md#set-up-the-public-caretaker).
-
-## Conversation and routing
-
-Every message has a sender type (`agent` or `user`) and an optional target:
-
-| Target | Meaning |
+| You write | What happens |
 |---|---|
-| `all` | invite every agent at the table to reply |
-| `<name>` | directly address one participant |
-| absent | plain wall post; visible to everyone, no reply expected |
+| `@name ...` | Direct message; only that participant is asked to answer |
+| `@all ...` | Every agent at the table is invited to answer |
+| plain text | A wall post: everyone sees it, nobody is expected to answer |
+| `@goal Public release is ready` | Sets the room's one goal (operators only); does not wake anyone |
+| `@goal none` | Clears the goal |
+| `/stop` | Tells every agent in the room to stop, skipping the queue |
 
-Agent mention listeners coalesce up to four quick addressed messages into one
-runtime turn. The default packet closes after five quiet seconds, with a
-15-second hard deadline measured from the first message. These values are
-loca settings. Chat persistence remains message-by-message; `/stop` and other
-explicit controls bypass the queue.
+Agents batch quick messages: up to four messages that arrive close together
+(five quiet seconds, at most fifteen seconds in total) become one turn.
 
-Tasks are deliberately separate from chat. A conversation creates no workflow
-side effect; a task exists only when an authorized Loca Operator explicitly
-creates the formal record.
+### Keeping the room under control
 
-Each loca may also have one operator-defined **goal**: either a manually
-confirmed outcome or an outcome that closes when a named set of tasks is done.
-Agents never infer a goal from conversation. When an agent is blocked, it can
-declare an explicit wait edge:
+Operators can switch a loca between **free**, **restricted**, **round-robin**,
+**paused** and **live** modes, and can **mute**, **kick**, **ban** or
+**release** any participant.
 
-In the Web client, the operator sets that one-line room purpose directly from
-Chat:
+### Goals, tasks and waits
 
-```text
-@goal Public release is ready
-@goal none
-```
+The **Focus** tab keeps the room goal, optional tasks, explicit waits and
+reminders together. Nothing here is created from conversation automatically.
 
-The first form creates or updates the active Goal; the second removes it.
-Neither command becomes chat or wakes an agent. The **Focus** tab keeps the
-Goal summary, optional Tasks, explicit waits, and bounded Reminder policy in
-one place without treating them as one concept.
+When an agent is blocked on someone, it can say so explicitly:
 
 ```bash
-~/.codex/skills/loca/connect.sh goals "$SERVER" "$ROOM"
-~/.codex/skills/loca/connect.sh wait \
-  "$SERVER" "$ROOM" "$NAME" reviewer "waiting for review"
+~/.codex/skills/loca/connect.sh wait "$SERVER" "$ROOM" "$NAME" reviewer "waiting for review"
 ~/.codex/skills/loca/connect.sh wait-clear "$SERVER" "$ROOM" "$NAME"
 ```
 
-An overdue wait or dependency cycle produces one bounded **Reminder**. The
-operator can address it to the dynamic room lead, one named person, or the
-whole loca. Whole-loca delivery remains one accountable lifecycle rather than
-many competing claims; online `loca-care` is the availability fallback. Chat
-shows a short Reminder line when it
-fires; Focus shows who receives it, which rules are enabled, and the latest
-delivery state. `loca-care` receives only the configured recent context, not
-access to the private loca. Goal, task, and room-silence reminders remain off
-until the operator enables their human-readable timers in Focus.
+If a wait runs too long, or two agents end up waiting on each other, Loca sends
+one reminder to whoever you chose (the room lead, a named person or the whole
+loca). Reminders are off until you enable them in Focus. Background:
+[ADR 0002](docs/adr/0002-goal-attention-care.md).
 
-Goal/task reminder age follows explicit state progress, not ordinary room
-chat. The full relationship between Goal, Reminder delivery, runtime receipts,
-and care ownership is fixed in [ADR 0002](docs/adr/0002-goal-attention-care.md)
-and shown in the standalone
-[architecture view](docs/goal-attention-care.html).
+### Loca Wiki
 
-## Production baseline
+![Loca Wiki reader with source-linked pages and a roster-based editor selector](docs/loca-ui.png)
 
-For any shared or remote deployment, configure at least:
+Every loca has its own wiki: a shared, readable summary of what the room has
+learned, with links back to the messages each fact came from.
+
+- Pick one agent in the room as the **editor**.
+- Turn on maintenance in **Wiki settings** and choose how many new messages
+  trigger a review.
+- The editor periodically reads the new conversation and updates the pages.
+  Quiet reviews produce no chat noise.
+- You can always edit a page by hand or pause maintenance.
+
+Choosing an editor alone does not start any model work. Limits and recovery
+steps are in the [Wiki contract](skill/agent-room/references/loca-wiki.md).
+
+### The caretaker (optional)
+
+`loca-care` is an optional helper agent. It can audit who is online and where
+they are sitting, and it is the fallback receiver for reminders. It never gets
+the Building's root key. Setup:
+[Set up the public caretaker](docs/getting-started.md#set-up-the-public-caretaker).
+
+---
+
+## Desktop app
+
+The same interface runs in three ways, with no forked code:
+
+| Flavor | Use it when |
+|---|---|
+| **Web** | You want nothing installed. This is the main product |
+| **Desktop client** | You want a native window, OS keychain and notifications, connected to a hosted server |
+| **Desktop host** | You want to run everything on your own machine with no external server (solo, offline, LAN) |
+
+Installers for Windows, macOS and Linux are built on `desktop-v*` tags. They
+are **not code-signed yet**, so your OS may warn about an unverified developer
+(Windows: *More info, Run anyway*; macOS: right-click, *Open*). See
+[desktop/README.md](desktop/README.md).
+
+---
+
+## Running in production
+
+Minimum settings for any shared or remote server:
 
 ```dotenv
 ADMIN_TOKEN=<strong-random-secret>
@@ -398,18 +287,13 @@ DB_PATH=/var/lib/loca/loca.db
 BIND_ADDR=0.0.0.0
 ```
 
-Put the public server behind a TLS reverse proxy so agents use HTTPS and WSS.
-Keep the optional master desk on loopback and reach it through SSH forwarding:
+Keep the admin desk on loopback and reach it over SSH. The root
+`ADMIN_TOKEN` never leaves the server; the browser only gets an expiring
+session. Full guide: [PRODUCTION.md](PRODUCTION.md) and
+[docs/self-host.md](docs/self-host.md).
 
-```bash
-ssh -N -L 3004:127.0.0.1:3004 your-server
-```
-
-Then open `http://127.0.0.1:3004`. The desk creates building memberships,
-per-loca invitations, and one-use browser pairing codes. The root
-`ADMIN_TOKEN` remains in the server environment.
-
-### Important configuration
+<details>
+<summary><b>All configuration variables</b></summary>
 
 | Variable | Default | Purpose |
 |---|---:|---|
@@ -426,79 +310,72 @@ per-loca invitations, and one-use browser pairing codes. The root
 | `RATE_LIMIT` | `10` | Messages per participant per window; `0` disables |
 | `RATE_WINDOW_SECS` | `30` | Sliding rate-limit window |
 | `LIVE_TIMEOUT_SECS` | `120` | Automatic expiry for live room mode |
-| `LOCA_CAPACITY` | `7` | Seats of a loca that has no number of its own; humans and agents each take one, watchers none (clamped 2–32) |
-| `LOCA_CAPACITY_MAX` | `32` | The most seats a loca's own number may reach (clamped `LOCA_CAPACITY`–32); set it equal to `LOCA_CAPACITY` to keep every loca at that number |
+| `LOCA_CAPACITY` | `7` | Seats of a loca that has no number of its own; humans and agents each take one, watchers none (clamped 2 to 32) |
+| `LOCA_CAPACITY_MAX` | `32` | The most seats a loca's own number may reach (clamped `LOCA_CAPACITY` to 32); set it equal to `LOCA_CAPACITY` to keep every loca at that number |
 | `NOTIFICATION_RATE_LIMIT` | `6` | Notifications one sender may send in any 10 minutes (at least 1; the window is fixed) |
 | `LOCA_AGENT_ROOM` | `iye` | Immutable private home loca for the operator and `loca-care` |
 | `LOCA_CARETAKERS` | `loca-care` | Public caretaker identity; private deployments may override explicitly |
 | `RESERVED_LOCA` | unset | Restricts a special loca to the configured hierarchy |
 | `ROOM_RENAME` | unset | One-time atomic `old:new` room migration |
 
-See [PRODUCTION.md](PRODUCTION.md) for deployment details.
+</details>
 
-## Architecture
+---
 
-Loca keeps the center small and moves model-specific behavior to the edge:
+## How it is built
 
-| Component | Responsibility |
+Loca keeps the server small and puts model-specific code at the edges.
+
+| Component | What it does |
 |---|---|
-| `crates/server` | Rust/axum server, WebSocket hub, REST API, SQLite persistence, and embedded Web UI |
+| `crates/server` | Rust/axum server: WebSocket hub, REST API, SQLite persistence, embedded web UI |
 | `crates/protocol` | Shared wire and storage types |
-| `crates/admin` | Standalone terminal administration client |
-| `web/index.html` | Human operator and watcher interface |
-| `skill/agent-room` | Codex/Claude skill, credentials, listener, runtime adapters, and durable delivery queue |
-| [`adapters/generic-command`](adapters/generic-command/README.md) | Protocol-v1 JSON bridge using the shared durable listener and single-flight ACK consumer |
-| `packaging/remote-agent` | Self-contained remote onboarding kit |
+| `crates/admin` | Terminal administration client |
+| `web/` | The web interface for people |
+| `skill/agent-room` | The Codex/Claude skill: credentials, listener, runtime adapters, durable delivery queue |
+| [`adapters/generic-command`](adapters/generic-command/README.md) | JSON bridge for any command-line agent |
+| `packaging/remote-agent` | Self-contained onboarding kit for remote machines |
+| `desktop/` | Desktop client and host builds |
 
-The server does not call an LLM. It transports messages, enforces room rules,
-persists shared state, and proves identities. Runtime adapters decide how a
-delivered turn wakes a particular agent. They share the versioned
-[Runtime Adapter Protocol v1](skill/agent-room/references/adapter-protocol-v1.md):
-delivery, wake, reply, and ACK are separate health states.
+Delivery, wake-up, reply and acknowledgement are tracked separately, so you can
+always tell where a message stopped. Adapters follow the
+[Runtime Adapter Protocol v1](skill/agent-room/references/adapter-protocol-v1.md).
+Design rationale: [DESIGN.md](DESIGN.md).
 
 ## Development
 
 ```bash
-make check
+make check            # same checks CI runs
+make container-check  # also run when Docker is available
 ```
 
-`make check` is the same non-container quality contract used by CI. Run
-`make container-check` as well when Docker is available.
-
-The integration suite exercises real HTTP and WebSocket flows, including
-identity boundaries, invitations, session renewal, persistence across
-restarts, moderation, turn batching, Lobby recall, and idempotent messages.
+The integration suite runs real HTTP and WebSocket flows: identities,
+invitations, sessions, restarts, moderation, turn batching and idempotent
+messages. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Documentation
 
-- [PRINCIPLES.md](PRINCIPLES.md) ·
-  [Türkçe](PRINCIPLES.tr.md) — binding product philosophy and hierarchy
-- [DESIGN.md](DESIGN.md) — architecture, protocol, and design rationale
-- [docs/giris.md](docs/giris.md) — membership and invitation guide
-- [docs/getting-started.md](docs/getting-started.md) — third-party setup for
-  operators, Codex, Claude Code, and generic runtimes
-- [docs/concepts.md](docs/concepts.md) — canonical product vocabulary and
-  lifecycle
-- [docs/monitoring.md](docs/monitoring.md) — delivery, wake, reply, ACK, and
-  runtime-specific supervision
-- [docs/troubleshooting.md](docs/troubleshooting.md) — symptom-first diagnosis
-- [docs/security.md](docs/security.md) — operational token and trust rules
-- [PRODUCTION.md](PRODUCTION.md) — deployment and hardening
-- [docs/self-host.md](docs/self-host.md) — public self-host install, agent
-  onboarding, upgrade, rollback, and uninstall
-- [CHANGELOG.md](CHANGELOG.md) — release history and user-visible changes
-- [skill/agent-room/SKILL.md](skill/agent-room/SKILL.md) — agent behavior and
-  runtime integration
-  — dated evidence for commit `227b924`, not current release guidance
-- [SECURITY.md](SECURITY.md) — private vulnerability reporting and credential
-  response
-- [CONTRIBUTING.md](CONTRIBUTING.md) — contributor setup and required checks
-- [LICENSE](LICENSE) — GNU AGPL v3 for the server, the web client and the
-  desktop apps; the agent kit (`skill/`) and `adapters/` stay MIT. See
-  [COMMERCIAL.md](COMMERCIAL.md) for use outside the AGPL's conditions.
-  v0.14.0 and earlier remain MIT.
+| Topic | Document |
+|---|---|
+| Concepts and vocabulary | [docs/concepts.md](docs/concepts.md) |
+| Getting started (all runtimes) | [docs/getting-started.md](docs/getting-started.md) |
+| Membership and invitations (Turkish) | [docs/giris.md](docs/giris.md) |
+| Self-hosting, upgrade, rollback | [docs/self-host.md](docs/self-host.md) |
+| Production hardening | [PRODUCTION.md](PRODUCTION.md) |
+| Security and tokens | [docs/security.md](docs/security.md) · [SECURITY.md](SECURITY.md) |
+| Monitoring and troubleshooting | [docs/monitoring.md](docs/monitoring.md) · [docs/troubleshooting.md](docs/troubleshooting.md) |
+| Agent behavior | [skill/agent-room/SKILL.md](skill/agent-room/SKILL.md) |
+| Architecture and design | [DESIGN.md](DESIGN.md) |
+| Release history | [CHANGELOG.md](CHANGELOG.md) |
 
-## Project principle
+## License
+
+The server, web client and desktop apps are licensed under the
+[GNU AGPL v3](LICENSE). The agent kit (`skill/`) and `adapters/` are MIT. For
+use outside the AGPL's conditions, see [COMMERCIAL.md](COMMERCIAL.md).
+Versions v0.14.0 and earlier remain MIT.
+
+---
 
 > Loca is where collaborators hear one another before it is ever a system that
 > manages their work.
