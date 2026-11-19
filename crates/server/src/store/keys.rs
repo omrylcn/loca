@@ -349,8 +349,14 @@ impl Store {
             });
         }
 
+        // Who minted a right: a Smaster's reads as the Smaster ("smaster:<its
+        // current name>", as a Smaster's invites read); anything else — the
+        // Master's principal, or "master" from a Building with none — reads
+        // as the Master.
         let mut st = c.prepare(
-            "SELECT id, created_at, expires_at, consumed_at, consumed_by_name FROM admission_stock",
+            "SELECT a.id, a.created_at, a.expires_at, a.consumed_at, a.consumed_by_name,
+                    CASE WHEN p.building_role = 'smaster' THEN 'smaster:' || p.display_name END
+             FROM admission_stock a LEFT JOIN principals p ON p.id = a.minted_by",
         )?;
         for r in st.query_map([], |r| {
             Ok((
@@ -359,9 +365,10 @@ impl Store {
                 r.get::<_, i64>(2)? as u64,
                 opt(r.get(3)?),
                 r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<String>>(5)?,
             ))
         })? {
-            let (id, issued, expires, consumed, by_name) = r?;
+            let (id, issued, expires, consumed, by_name, minter) = r?;
             let state = if consumed.is_some() {
                 "used"
             } else if now >= expires {
@@ -375,7 +382,7 @@ impl Store {
                 fingerprint: fingerprint(&id),
                 for_name: by_name,
                 loca: None,
-                issued_by: Some("Master".into()),
+                issued_by: Some(minter.unwrap_or_else(|| "Master".into())),
                 issued_at: issued,
                 use_by: Some(expires),
                 used_at: consumed,

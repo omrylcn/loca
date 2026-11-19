@@ -422,3 +422,6 @@ body:not(.locked) .side .floor > summary.rgrouphead .floornew:focus-visible { co
 body.lobby-in-room #sideBuildingView > #lobbyBox { display: none !important; }
 #sideLocaView > #lobbyBox { height: auto !important; margin: 16px 0 0; border-top: 1px solid var(--line); }
 #sideLocaView > #lobbyBox .lobbyresize { display: none; }
+
+/* Home and People belong to no loca: no "This Loca" tab there (focus.js). */
+body.buildingview-on .side .sideviewtabs { display: none; }

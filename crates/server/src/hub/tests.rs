@@ -3751,7 +3751,7 @@ fn approve_issued_membership_authenticates_on_a_persistent_store() {
     TEST_NOW.store(1_000, Ordering::Relaxed);
 
     // Master mints one right; an outside agent requests to join.
-    hub.mint_admission_stock(1, 3_600_000);
+    hub.mint_admission_stock(1, 3_600_000, None);
     let ip: std::net::IpAddr = "10.0.0.5".parse().unwrap();
     let JoinRequestCreate::Created {
         request_id,

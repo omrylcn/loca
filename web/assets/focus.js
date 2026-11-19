@@ -329,6 +329,10 @@ function switchTab(tab) {
   const main = document.querySelector(".main");
   main.classList.toggle("global", global);
   main.classList.toggle("homeview", tab === "home");
+  // Home and People belong to no loca: This Loca has nothing to show there,
+  // so the sidebar keeps Your Locas and its two tabs step aside.
+  document.body.classList.toggle("buildingview-on", global);
+  if (global && state.sidebarView === "loca") setSidebarView("building");
   if (tab === "home") {
     $("curRoom").textContent = "Home";
   } else if (global) {

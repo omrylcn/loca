@@ -121,7 +121,11 @@ pub(crate) async fn issue_key(
                     .into_response();
             }
             let ttl_ms = ttl_hours.unwrap_or(24).clamp(1, 24 * 30) * 3_600_000;
-            let (minted, total, available) = hub.mint_admission_stock(count as u32, ttl_ms);
+            let minter = hub
+                .resolve_authority(admin_token_of(&headers), session_of(&headers))
+                .principal_id;
+            let (minted, total, available) =
+                hub.mint_admission_stock(count as u32, ttl_ms, minter.as_deref());
             (
                 StatusCode::CREATED,
                 Json(serde_json::json!({

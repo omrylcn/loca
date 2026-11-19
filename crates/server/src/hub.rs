@@ -3424,20 +3424,27 @@ impl Hub {
         Some(session_ttl_ms)
     }
 
-    /// A Master pre-mints `count` single-use, time-limited Lobby-admission
-    /// rights. Returns `(total_ever, available_now)`. Master authority is
-    /// enforced at the route (`is_master_req`); `minted_by` is the Master
-    /// principal. The right ids are server-generated CSPRNG tokens and are NOT
-    /// returned — a right is delivered only when the join-request approve step
-    /// consumes it.
-    pub fn mint_admission_stock(&self, count: u32, ttl_ms: u64) -> (u64, u64, u64) {
+    /// A rank pre-mints `count` single-use, time-limited Lobby-admission
+    /// rights. Returns `(minted, total_ever, available_now)`. Rank is enforced
+    /// at the route; `minted_by` is the principal that minted them, or the
+    /// Master principal when the caller has none (the Master desk, the root
+    /// credential). The right ids are server-generated CSPRNG tokens and are
+    /// NOT returned — a right is delivered only when the join-request approve
+    /// step consumes it.
+    pub fn mint_admission_stock(
+        &self,
+        count: u32,
+        ttl_ms: u64,
+        minted_by: Option<&str>,
+    ) -> (u64, u64, u64) {
         let now = (self.now_ms)();
         let expires_at = now.saturating_add(ttl_ms);
-        let minted_by = self
-            .store
-            .active_master_principal()
-            .map(|principal| principal.id)
-            .unwrap_or_else(|| "master".to_string());
+        let minted_by = minted_by.map(str::to_string).unwrap_or_else(|| {
+            self.store
+                .active_master_principal()
+                .map(|principal| principal.id)
+                .unwrap_or_else(|| "master".to_string())
+        });
         let ids: Vec<String> = (0..count).map(|_| Self::secure_token("adm_", 24)).collect();
         let minted = self
             .store
