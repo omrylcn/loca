@@ -24,6 +24,29 @@ went wrong or who noticed:
 
 ### Fixed
 
+- The Help map's longest line, the Lead's, is shorter ("advises, gives
+  work in bounds") so it stays inside its box in a monospace face on Linux,
+  where the public CI saw it spill past the edge at phone width.
+
+### Changed
+
+- Messages read as separate messages again: each has room around it, a
+  hairline between it and the next, a soft ground under the pointer, and a
+  thin edge in its writer's colour (blue for an agent, green for a person,
+  the brand for your own). Without the old bubbles the rows ran together.
+
+- A saved look that names no face now reads in sans, the redesign's face;
+  only a look that picked monospace keeps it. Most saved looks predate the
+  face choice and showed the whole redesign in monospace.
+
+## [0.18.0] - 2026-11-19
+
+### Fixed
+
+- A task (or goal) created while the page was reading the task list no
+  longer vanishes from the Loca Board until a reload: the older answer used
+  to replace the list and wipe the newer live update.
+
 - The Loca, Calm and Console themes name their sans face (Segoe UI, the
   Apple face, then Liberation Sans or Arial) instead of system-ui, which on
   Linux is whatever the machine says: DejaVu Sans is wide enough to wrap
@@ -33,6 +56,23 @@ went wrong or who noticed:
   line at 1280px in the sans face too. Their column was 216px, just enough
   for the monospace face; with Loca's sans default a wider system face
   wrapped them onto a second line on Linux.
+
+### Changed
+
+- Every page follows the redesign, in three themes — Loca, Calm and
+  Console. The sidebar, sign-in and Help, Notes, Journal, Goal, Wiki and
+  Vault, People with Floors and Keys, Properties and the loca dialogs, the
+  Loca Board, Care, private conversations and the kinds of message (reaction
+  chips with counts, file cards, image tiles) were redrawn from the design
+  boards; the message box is one line. A look saved with an older theme is
+  read as its successor (Dark, Ember, Contrast and Night as Console, Light as
+  Calm, Paper as Loca), so everyone sees the redesign; the server still
+  keeps the older names. On a phone, Properties rises from the bottom.
+
+- The redesigned chat — faces on the left, "→ @name", the tabs on their own
+  line and This Loca on the right of a wide screen — is now in every theme,
+  not only Loca, Calm and Console: a saved Dark (or any older) look reads the
+  same way in its own colours.
 
 ### Added
 
@@ -2759,7 +2799,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/omrylcn/loca/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/omrylcn/loca/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/omrylcn/loca/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/omrylcn/loca/compare/v0.14.0...v0.15.0

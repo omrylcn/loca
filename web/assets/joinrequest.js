@@ -31,9 +31,14 @@
     var el = $("server");
     return (el && el.value.trim()) || "";
   }
-  function setStatus(msg) {
+  // `phase` ("waiting" while a Master has the request, "approved" while the
+  // key is collected) draws the waiting card around the line
+  // (#humanJoinRequest[data-phase], page-entry.css); any other line ends it.
+  function setStatus(msg, phase) {
     var el = $("joinRequestStatus");
     if (el) el.textContent = msg || "";
+    var box = $("humanJoinRequest");
+    if (box) box.setAttribute("data-phase", phase || "");
   }
 
   var EXPIRED =
@@ -155,7 +160,9 @@
       setStatus("enter the server address first");
       return;
     }
-    setStatus("sending your request…");
+    var who = $("joinRequestName");
+    if (who) who.textContent = name;
+    setStatus("sending your request…", "waiting");
     var gen = state.buildingGen;
     try {
       var r = await fetch(server + "/join-requests", {
@@ -179,7 +186,7 @@
       try {
         sessionStorage.setItem("loca-join-" + data.request_id, data.request_secret);
       } catch (e) {}
-      setStatus("waiting for a Master to approve you…");
+      setStatus("waiting for a Master to approve you…", "waiting");
       pollUntilDecided(server, data.request_id, data.request_secret, name);
     } catch (e) {
       // Cancelled because someone else took the tab: not their failure.
@@ -238,7 +245,7 @@
 
   async function bootstrapAndSeat(server, id, secret, name, gen) {
     if (buildingStale(gen)) return;
-    setStatus("approved — collecting your key…");
+    setStatus("approved — collecting your key…", "approved");
     try {
       var r = await fetch(
         server + "/join-requests/" + encodeURIComponent(id) + "/bootstrap",
@@ -252,7 +259,7 @@
       if (r.status === 503) {
         // The server could not read the request just now; the key is still
         // there for this request. Keep watching and collect it then.
-        setStatus("the server could not hand over your key just now — trying again…");
+        setStatus("the server could not hand over your key just now — trying again…", "approved");
         pollUntilDecided(server, id, secret, name);
         return;
       }
@@ -272,7 +279,7 @@
       if ($("name")) $("name").value = name;
       if ($("roomToken")) $("roomToken").value = data.davet;
       if ($("pairingCode")) $("pairingCode").value = "";
-      setStatus("joined — taking your seat in the Lobby…");
+      setStatus("joined — taking your seat in the Lobby…", "approved");
       if ($("connectBtn")) $("connectBtn").click();
     } catch (e) {
       if (!buildingStale(gen)) setStatus("could not reach the server");

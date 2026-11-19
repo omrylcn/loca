@@ -2,7 +2,7 @@ const { test, expect } = require("@playwright/test");
 const { provisionRooms } = require("./support/building");
 
 const ROOM = "appearance-room";
-const DEFAULTS = { theme: "dark", accent: "teal", density: "comfortable", font_size: "normal" };
+const DEFAULTS = { theme: "dark", accent: "teal", density: "comfortable", font_size: "normal", font_family: "mono" };
 
 async function resetMasterAppearance(request) {
   const reset = await request.put("/profile/preferences", {
@@ -47,7 +47,7 @@ test.afterEach(async ({ request }) => {
 test("appearance applies instantly, survives reload and follows the principal to another browser", async ({ browser, request }) => {
   const first = await newPage(browser);
   await signInAsMaster(first.page, request);
-  await expect(html(first.page)).toHaveAttribute("data-theme", "dark");
+  await expect(html(first.page)).toHaveAttribute("data-theme", "console");
   await expect(html(first.page)).toHaveAttribute("data-accent", "teal");
 
   await first.page.locator("#whoami .profilemenu > summary").click();
@@ -57,8 +57,8 @@ test("appearance applies instantly, survives reload and follows the principal to
   const darkBackground = await background();
 
   let write = saved(first.page);
-  await appearance.getByRole("radio", { name: "Light" }).check();
-  await expect(html(first.page)).toHaveAttribute("data-theme", "light");
+  await appearance.getByRole("radio", { name: "Calm" }).check();
+  await expect(html(first.page)).toHaveAttribute("data-theme", "calm");
   expect(await background()).not.toBe(darkBackground);
   await write;
   write = saved(first.page);
@@ -71,7 +71,7 @@ test("appearance applies instantly, survives reload and follows the principal to
   await write;
 
   const stored = await request.get("/profile/preferences", { headers: { "x-admin-token": "MASTER" } });
-  expect(await stored.json()).toEqual({ theme: "light", accent: "violet", density: "compact", font_size: "normal", font_family: "mono",
+  expect(await stored.json()).toEqual({ theme: "calm", accent: "violet", density: "compact", font_size: "normal", font_family: "mono",
     accent_custom: "", layout: "bubbles", time_format: "auto", measure: "normal", own_tint: "on", motion: "system",
     // Sounds (Profile → Sounds) share the document, at their defaults.
     sound: "on", sound_message: "off", sound_mention: "on", sound_dm: "on", sound_notice: "on",
@@ -85,7 +85,7 @@ test("appearance applies instantly, survives reload and follows the principal to
     await route.continue();
   });
   await first.page.reload();
-  await expect(html(first.page)).toHaveAttribute("data-theme", "light");
+  await expect(html(first.page)).toHaveAttribute("data-theme", "calm");
   await expect(html(first.page)).toHaveAttribute("data-accent", "violet");
   const profileResponse = first.page.waitForResponse(response =>
     response.url().endsWith("/profile/preferences") && response.request().method() === "GET");
@@ -93,7 +93,7 @@ test("appearance applies instantly, survives reload and follows the principal to
   await profileResponse;
   await first.page.unroute("**/profile/preferences");
   await expect(first.page.locator("#whoami")).toContainText("MASTER");
-  await expect(html(first.page)).toHaveAttribute("data-theme", "light");
+  await expect(html(first.page)).toHaveAttribute("data-theme", "calm");
   await first.page.locator("#whoami .profilemenu > summary").click();
   await expect(first.page.locator("#profileAppearance").getByRole("radio", { name: "Violet" })).toBeChecked();
 
@@ -103,11 +103,11 @@ test("appearance applies instantly, survives reload and follows the principal to
   await second.page.goto("/");
   await expect(html(second.page)).toHaveAttribute("data-theme", "loca");
   await signInAsMaster(second.page, request);
-  await expect(html(second.page)).toHaveAttribute("data-theme", "light");
+  await expect(html(second.page)).toHaveAttribute("data-theme", "calm");
   await expect(html(second.page)).toHaveAttribute("data-accent", "violet");
   await expect(html(second.page)).toHaveAttribute("data-density", "compact");
   await second.page.locator("#whoami .profilemenu > summary").click();
-  await expect(second.page.locator("#profileAppearance").getByRole("radio", { name: "Light" })).toBeChecked();
+  await expect(second.page.locator("#profileAppearance").getByRole("radio", { name: "Calm" })).toBeChecked();
 
   await first.context.close();
   await second.context.close();

@@ -36,15 +36,15 @@ test("door credentials are masked", async ({ page }) => {
 
 test("lead picker options keep readable dark-theme contrast", async ({ page }) => {
   await page.goto("/");
-  // The default look is light now; this is about the dark theme.
-  await page.evaluate(() => applyAppearance({ theme: "dark" }));
+  // The default look is light now; this is about the dark theme, Console.
+  await page.evaluate(() => applyAppearance({ theme: "console" }));
   const colors = await page.locator("#leadSelect option").first().evaluate((option) => {
     const style = getComputedStyle(option);
     return { background: style.backgroundColor, foreground: style.color };
   });
   expect(colors).toEqual({
-    background: "rgb(22, 27, 35)",
-    foreground: "rgb(215, 221, 230)",
+    background: "rgb(27, 34, 40)",
+    foreground: "rgb(228, 234, 231)",
   });
 });
 
@@ -651,8 +651,8 @@ test("goal command, focus, optional tasks, and reminders share one human surface
   page,
   request,
 }) => {
-  // The colours checked below are the dark theme's; the default is light now.
-  await request.put("/profile/preferences", { headers: { "x-admin-token": "MASTER" }, data: { theme: "dark" } });
+  // The colours checked below are the dark theme's, Console; the default is light now.
+  await request.put("/profile/preferences", { headers: { "x-admin-token": "MASTER" }, data: { theme: "console" } });
   const paired = await request.post("/pairings?ttl_hours=1", {
     headers: { "x-admin-token": "MASTER" },
   });
@@ -792,7 +792,7 @@ test("goal command, focus, optional tasks, and reminders share one human surface
     "@operator, Goal: public release is independently verified · waiting 15 min",
   );
   await expect(firstReminder.locator(".mention")).toHaveText("@operator");
-  await expect(firstReminder.locator(".sender")).toHaveCSS("color", "rgb(255, 176, 102)");
+  await expect(firstReminder.locator(".sender")).toHaveCSS("color", "rgb(251, 191, 36)");
   await expect(page.locator("#feed .row.locareminder")).toHaveCount(1);
   await expect(page.locator("#feed .sysline")).toHaveCount(chatReceiptCount);
   await expect(page.locator("#reminderHistoryList .reminderhistoryrow").first()).toContainText(

@@ -165,6 +165,10 @@
     var map = $("gsMap");
     var slot = $(host ? "gsMapHost" : "gsMapClient");
     if (map && slot && map.parentNode !== slot) slot.appendChild(map);
+    // So does the one "How Loca works" (#gsHow), above the map.
+    var how = $("gsHow");
+    var howSlot = $(host ? "gsHowHost" : "gsHowClient");
+    if (how && howSlot && how.parentNode !== howSlot) howSlot.appendChild(how);
     o.classList.remove("hidden");
     // Point the install commands at the current Host origin every time it opens.
     fillInstallCommands();

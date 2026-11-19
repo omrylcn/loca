@@ -122,6 +122,8 @@ test(`a sign-in answered after the tab moved to another server is ended there (c
   const { seen, gates } = await serveA(page, origin, a);
 
   // Sign in to A; A grants a session, and its answer is held.
+  // The server field lives under the sign-in form's Advanced section.
+  await page.locator("#serverAdvanced > summary").click();
   await page.locator("#server").fill(a);
   await signInWithKey(page, keyA);
   await gates.post.arrived;

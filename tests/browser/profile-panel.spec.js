@@ -196,10 +196,10 @@ test("a theme, an accent and every reading choice apply at once and survive a re
     await look.getByRole("radio", { name: label, exact: true }).check();
     await write;
   };
-  await pick("Paper");
-  await expect(html(page)).toHaveAttribute("data-theme", "paper");
+  await pick("Calm");
+  await expect(html(page)).toHaveAttribute("data-theme", "calm");
   await expect(html(page)).toHaveAttribute("data-scheme", "light");
-  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(246, 241, 231)");
+  expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgb(247, 248, 246)");
   await pick("Indigo");
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim())).toBe("#3d4bc4");
 
@@ -221,10 +221,10 @@ test("a theme, an accent and every reading choice apply at once and survive a re
   expect(await page.evaluate(() => getComputedStyle(document.querySelector(".profilechevron")).transitionDuration)).toBe("0s");
 
   const stored = await (await request.get("/profile/preferences", { headers: MASTER })).json();
-  expect(stored).toMatchObject({ theme: "paper", accent: "indigo", layout: "flat", time_format: "relative",
+  expect(stored).toMatchObject({ theme: "calm", accent: "indigo", layout: "flat", time_format: "relative",
     measure: "narrow", own_tint: "off", motion: "reduced" });
   await page.reload();
-  for (const [attr, value] of [["data-theme", "paper"], ["data-accent", "indigo"], ["data-layout", "flat"],
+  for (const [attr, value] of [["data-theme", "calm"], ["data-accent", "indigo"], ["data-layout", "flat"],
     ["data-time-format", "relative"], ["data-measure", "narrow"], ["data-own-tint", "off"], ["data-motion", "reduced"]]) {
     await expect(html(page), attr).toHaveAttribute(attr, value);
   }
@@ -249,8 +249,8 @@ test("a theme, an accent and every reading choice apply at once and survive a re
 });
 
 test("a custom accent too dark for a dark theme is lightened, said so, and kept after a reload", async ({ browser, request }) => {
-  // The default theme is light now: this is about a dark one.
-  await request.put("/profile/preferences", { headers: MASTER, data: { theme: "dark" } });
+  // The default theme is light now: this is about the dark one, Console.
+  await request.put("/profile/preferences", { headers: MASTER, data: { theme: "console" } });
   const { context, page } = await newPage(browser);
   await signInAsMaster(page, request);
   await openPanel(page);

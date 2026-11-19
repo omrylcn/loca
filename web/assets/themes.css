@@ -67,5 +67,4 @@
 :root[data-theme="loca"], :root[data-theme="calm"], :root[data-theme="console"] {
   --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Liberation Sans", Arial, sans-serif;
 }
-:root[data-theme="loca"] body, :root[data-theme="calm"] body, :root[data-theme="console"] body { font-size: 15px; }
 

@@ -20,6 +20,8 @@ state.notif = {
 const NOTIF_TITLE_MAX = 120;
 const NOTIF_BODY_MAX = 2000;
 const NOTIF_X_ICON = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+// An announcement's mark in the list: a megaphone on a small tile.
+const NOTIF_ANNOUNCE_ICON = '<span class="notificon" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l14-6v14L3 13z"/><path d="M7 13v5a2 2 0 0 0 4 0v-4"/></svg></span>';
 const NOTIF_BELL_SMALL = '<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
 
 /// Who the panel belongs to: the credential this page signs requests with.
@@ -185,7 +187,7 @@ function placeNotifPanel() {
   const bell = $("notifBell");
   if (!panel || !bell) return;
   const r = bell.getBoundingClientRect();
-  const width = Math.min(400, window.innerWidth - 16);
+  const width = Math.min(460, window.innerWidth - 16);   // page-people.css #notifPanel
   const left = Math.max(8, Math.min(r.left - 24, window.innerWidth - width - 8));
   panel.style.setProperty("--notif-left", `${Math.round(left)}px`);
   panel.style.setProperty("--notif-top", `${Math.round(r.bottom + 6)}px`);
@@ -215,15 +217,15 @@ async function fetchNotifSent() {
 
 function notifItemHtml(x) {
   const unread = !x.read;
-  return `<li class="notifitem${unread ? " unread" : ""}" data-notif="${x.id}">` +
-    `<div class="notifitemhead"><b class="notiftitle">${esc(x.title)}</b>` +
+  return `<li class="notifitem${unread ? " unread" : ""}" data-notif="${x.id}">` + NOTIF_ANNOUNCE_ICON +
+    `<div class="notifmain"><div class="notifitemhead"><b class="notiftitle">${esc(x.title)}</b>` +
       (unread ? `<button type="button" class="btn notifmark" data-notif-read="${x.id}" aria-label="Mark ${esc(x.title)} read">Mark read</button>` : "") +
     `</div>` +
-    `<div class="notifmeta"><span>${esc(x.from)}</span><span aria-hidden="true">·</span>` +
-      `<span>to ${esc(notifAudienceLabel(x.audience))}</span><span aria-hidden="true">·</span>` +
-      `<time datetime="${new Date(x.created_at).toISOString()}" title="${esc(fmtFull(x.created_at))}">${esc(notifWhen(x.created_at))}</time></div>` +
     (x.body ? `<p class="notifbody">${esc(x.body)}</p>` : "") +
-    `</li>`;
+    `<div class="notifmeta"><span class="notiffrom">${esc(x.from)}</span>` +
+      `<span class="notiffrom">to ${esc(notifAudienceLabel(x.audience))}</span><span aria-hidden="true">·</span>` +
+      `<time datetime="${new Date(x.created_at).toISOString()}" title="${esc(fmtFull(x.created_at))}">${esc(notifWhen(x.created_at))}</time></div>` +
+    `</div></li>`;
 }
 
 // Who a sent notification went to, as the sender reads it. People and agents
@@ -252,13 +254,13 @@ function notifCountsText(x) {
 }
 
 function notifSentHtml(x) {
-  return `<li class="notifitem sent" data-notif-sent="${x.id}">` +
-    `<div class="notifitemhead"><b class="notiftitle">${esc(x.title)}</b></div>` +
-    `<div class="notifmeta"><span>to ${esc(notifAudienceLabel(x.audience))}</span><span aria-hidden="true">·</span>` +
-      `<time datetime="${new Date(x.created_at).toISOString()}" title="${esc(fmtFull(x.created_at))}">${esc(notifWhen(x.created_at))}</time></div>` +
+  return `<li class="notifitem sent" data-notif-sent="${x.id}">` + NOTIF_ANNOUNCE_ICON +
+    `<div class="notifmain"><div class="notifitemhead"><b class="notiftitle">${esc(x.title)}</b></div>` +
     (x.body ? `<p class="notifbody">${esc(x.body)}</p>` : "") +
+    `<div class="notifmeta"><span class="notiffrom">to ${esc(notifAudienceLabel(x.audience))}</span><span aria-hidden="true">·</span>` +
+      `<time datetime="${new Date(x.created_at).toISOString()}" title="${esc(fmtFull(x.created_at))}">${esc(notifWhen(x.created_at))}</time></div>` +
     `<div class="notifcounts">${esc(notifCountsText(x))}</div>` +
-    `</li>`;
+    `</div></li>`;
 }
 
 function notifComposerHtml(a) {

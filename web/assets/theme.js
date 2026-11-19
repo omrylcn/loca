@@ -30,13 +30,22 @@ const THEME_SURFACES = {
   dark: ["#0b0e12", "#161b23"], ember: ["#16110e", "#231b16"], contrast: ["#000000", "#121212"],
   night: ["#121522", "#1b2032"], light: ["#f5f7fa", "#e9edf2"], paper: ["#f6f1e7", "#ebe3d3"],
 };
+// Loca has three themes: Loca, Calm and Console. A look saved with one of
+// the older themes reads as its successor — a dark one as Console, Light as
+// Calm, Paper as Loca — so everyone sees the redesign. The server still
+// accepts and keeps the older names; only the page draws the three.
+const THEME_SUCCESSOR = {
+  dark: "console", ember: "console", contrast: "console", night: "console",
+  light: "calm", paper: "loca",
+};
+const PICKED_THEMES = ["loca", "calm", "console"];
 const CUSTOM_ACCENT = /^#[0-9a-f]{6}$/;
 const APPEARANCE_CACHE_KEY = "loca-appearance";
 
-// A look cached by an older page keeps the meaning it had: a key it does not
-// name meant the default of that time, the dark theme and the monospace face
-// (as the server reads a saved row). Only no cached look takes today's.
-const SAVED_LOOK_BASELINE = { ...APPEARANCE_DEFAULTS, theme: "dark", font_family: "mono" };
+// A look cached by an older page keeps the theme it had: one that names none
+// meant the dark theme of that time (read as Console), as the server reads a
+// saved row. A face it does not name is today's, sans.
+const SAVED_LOOK_BASELINE = { ...APPEARANCE_DEFAULTS, theme: "dark" };
 
 function normalizeAppearance(value, base = APPEARANCE_DEFAULTS) {
   const next = { ...base };
@@ -47,6 +56,7 @@ function normalizeAppearance(value, base = APPEARANCE_DEFAULTS) {
     const custom = String(value.accent_custom || "").toLowerCase();
     if (CUSTOM_ACCENT.test(custom)) next.accent_custom = custom;
   }
+  if (THEME_SUCCESSOR[next.theme]) next.theme = THEME_SUCCESSOR[next.theme];
   return next;
 }
 

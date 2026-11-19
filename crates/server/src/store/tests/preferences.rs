@@ -211,7 +211,7 @@ fn a_row_saved_in_the_old_four_key_shape_loads_unchanged() {
         loaded,
         json!({
             "theme": "light", "accent": "violet", "density": "compact",
-            "font_size": "large", "font_family": "mono",
+            "font_size": "large", "font_family": "sans",
             "accent_custom": "", "layout": "bubbles", "time_format": "auto", "measure": "normal", "own_tint": "on", "motion": "system",
             "sound": "on", "sound_message": "off", "sound_mention": "on", "sound_dm": "on",
             "sound_notice": "on", "sound_volume": "medium", "sound_background": "on"

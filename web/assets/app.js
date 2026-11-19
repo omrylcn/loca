@@ -6,7 +6,12 @@ function setEntryPath(path) {
   $("masterEntry").classList.toggle("hidden", !master);
   $("memberEntry").classList.toggle("hidden", master);
   $("humanJoinRequest").classList.toggle("hidden", path !== "human");
-  $("masterEntryButton").textContent = master ? "Back to Human / Smaster sign-in" : "Master sign-in";
+  // The form says which way in it is drawn for (page-entry.css).
+  $("connBox").dataset.entry = path;
+  // Static words only; the gold "Master?" is the board's (Sign in, Loca).
+  $("masterEntryButton").innerHTML = master
+    ? "Back to sign-in with an invite or key"
+    : '<span class="entrygold">Master?</span> Sign in with a pairing code';
   $("masterEntryButton").setAttribute("aria-expanded", String(master));
   $("connectBtn").textContent = master ? "sign in as Master" : path === "smaster" ? "sign in as Smaster" : "sign in as Human";
   $("name").placeholder = path === "smaster" ? "your display name — leave empty to keep it" : "name for a new human membership";

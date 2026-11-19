@@ -108,11 +108,13 @@ async function openCallList() {
       box.innerHTML = `<div class="callnone">${inGroup ? "nobody else on this floor to call — add them to the floor first" : "nobody in the building to call"}</div>`;
       return;
     }
-    box.innerHTML = free.map(p => {
-      const where = (p.locas || []).length ? (p.locas || []).join(", ") : "lobby";
-      const glyph = p.kind === "agent" ? "*" : ".";
+    box.innerHTML = `<div class="callhead">Someone already in the building</div>` + free.map(p => {
+      const locas = p.locas || [];
+      const where = (locas.length ? `in ${locas.map(l => "#" + locaName(l)).join(", ")}` : "waiting for a loca") +
+        (p.online ? " · online" : " · away");
       return `<button type="button" class="callrow" data-call="${esc(p.name)}">` +
-             `<span>${glyph}${esc(p.name)}</span><span class="where">${esc(where)}</span></button>`;
+             `<span class="callwho">${kindMark(p.kind === "agent" ? "agent" : "human")}<b>${esc(p.name)}</b></span>` +
+             `<span class="where">${esc(where)}</span><span class="callinvite" aria-hidden="true">Invite</span></button>`;
     }).join("");
   } catch (e) {
     if (!buildingStale(gen)) box.innerHTML = `<div class="callnone">could not reach the server</div>`;
@@ -471,7 +473,7 @@ function joinRequestsHtml() {
   }
   const waiting = jr.length ? " waiting" : "";
   return `<section class="jrsection${waiting}">` +
-    `<div class="jrhead"><span class="bsection">Join requests${jr.length ? ` <span class="bcount">${jr.length}</span>` : ""}</span>` +
+    `<div class="jrhead"><h2 class="bsection jrtitle">${jr.length ? `${jr.length} ${jr.length === 1 ? "person" : "people"} asked to join` : "Join requests"}</h2>` +
     `<span class="jrstock">${esc(gauge)}<button class="btn" data-jr-mint="5" title="add five admission rights">Mint 5</button></span></div>` +
     rows +
     `<div class="jrnotice" id="jrNotice"></div></section>`;
@@ -497,8 +499,44 @@ function whereHtml(locas, fallback) {
   return `<span class="pnowhere">${esc(fallback)}</span>`;
 }
 
+// Who the People table shows: a name search and People · Agents, beside the
+// floor filter. Display only; the server's list is unchanged.
+state.peopleQuery = "";
+state.peopleKind = "all";
+function personInPeopleFilter(name, kind, card) {
+  if (state.peopleKind !== "all" && state.peopleKind !== kind) return false;
+  const q = state.peopleQuery.trim().toLowerCase();
+  if (!q) return true;
+  return name.toLowerCase().includes(q) || String(card?.full_name || "").toLowerCase().includes(q);
+}
+function peopleToolsHtml() {
+  const kinds = [["all", "All", ""], ["human", "People", kindMark("human")], ["agent", "Agents", kindMark("agent")]];
+  return `<div class="pptools">` +
+    `<label class="pplabel" for="peopleSearch">Search people</label>` +
+    `<input id="peopleSearch" type="search" placeholder="Search people" autocomplete="off" spellcheck="false" value="${esc(state.peopleQuery)}" />` +
+    `<div class="ppkinds" role="group" aria-label="Show people or agents">` +
+      kinds.map(([v, l, mark]) => `<button type="button" class="chip${state.peopleKind === v ? " on" : ""}" data-people-kind="${v}" aria-pressed="${state.peopleKind === v}">${mark}${l}</button>`).join("") +
+    `</div>${groupFilterHtml()}</div>`;
+}
+
+// Where someone is, in words, then the locas as chips.
+function peopleWhereHtml(online, locas) {
+  if (online) return locas.length
+    ? `<span class="pwhereword">Online in</span>${whereHtml(locas, "")}`
+    : `<span class="pnowhere">Waiting for a loca</span>`;
+  return locas.length
+    ? `<span class="pwhereword">Offline · seated in</span>${whereHtml(locas, "")}`
+    : `<span class="pnowhere">Offline</span>`;
+}
+
 function renderPeople() {
   const box = $("peopleList");
+  // A search typed before a sign-out is not the next person's.
+  if (state.peopleFilterGen !== state.buildingGen) {
+    state.peopleFilterGen = state.buildingGen;
+    state.peopleQuery = "";
+    state.peopleKind = "all";
+  }
   const people = state.people || [];
   const bans = state.bans || {};
   const names = new Set(people.map(p => p.name));
@@ -509,43 +547,40 @@ function renderPeople() {
   const jrHtml = joinRequestsHtml();
   // Ranks hold no Lobby membership, so the resident directory never lists
   // them. They are still part of the Building: show them first, by name.
-  const ranksHtml = ranks.length
-    ? `<section class="bblock"><div class="bsection">Ranks <span class="bcount">${ranks.length}</span></div>` +
-      `<div class="peoplehead"><span>name</span><span>seat</span><span>floors</span><span>location</span><span></span></div>` +
-      ranks.filter(r => r.role === "master" || personInGroupFilter(r.name)).map(r => {
-        const seated = (r.locas || []).length;
-        // Location already says where; the status only marks a live seat.
-        // An issued but never-used Smaster code is a code, not a person.
-        const status = r.unused
-          ? `<span class="pstatus warn" title="This Smaster code was issued but nobody has signed in with it">unused code</span>`
-          : seated
-            ? `<span class="pstatus connection ok" title="seated in a loca right now">seated</span>`
-            : "";
-        const where = r.unused
-          ? `<span class="pnowhere">nobody has signed in with it yet</span>`
-          : whereHtml(r.locas, "not in a loca");
-        // A Smaster names themselves at sign-in; the Master only removes,
-        // after a yes in words under the row (keys.js removeSmaster).
-        const manage = state.profile?.building_role === "master" && r.role === "smaster";
-        const remove = manage
-          ? `<button type="button" class="btn danger" data-remove-smaster="${esc(r.name)}" title="Remove this Smaster from the Building">Remove</button>`
-          : "";
-        const ask = manage && state.removingSmaster?.name === r.name && state.removingSmaster.gen === state.buildingGen
-          ? removeSmasterAskHtml(r) : "";
-        const groups = r.role === "master"
-          ? `<span class="pnowhere">sees every floor</span>` : groupChipsHtml(r.name);
-        return `<div class="prow rankrow${r.unused ? " unusedcode" : ""}"><span class="pname">${kindMark("human")}${personNameHtml(r.name, cardOf(r))}${rankBadge(r.role)}</span>` +
-          `<span class="pstatuses">${status}</span><span class="pgroups">${groups}</span><span class="pwhere">${where}</span><span class="pacts">${remove}</span></div>` + ask;
-      }).join("") + `</section>`
-    : "";
-  if (!names.size) {
-    box.innerHTML = jrHtml + groupFilterHtml() + ranksHtml +
-      `<section class="bblock"><div class="bsection">Members</div><div class="callnone">no members in the building yet</div></section>`;
-    return;
-  }
+  const rankRows = ranks.filter(r => (r.role === "master" || personInGroupFilter(r.name))
+    && personInPeopleFilter(r.name, "human", cardOf(r))).map(r => {
+    const seated = (r.locas || []).length;
+    // Location already says where; the status only marks a live seat.
+    // An issued but never-used Smaster code is a code, not a person.
+    const status = r.unused
+      ? `<span class="pstatus warn" title="This Smaster code was issued but nobody has signed in with it">unused code</span>`
+      : seated
+        ? `<span class="pstatus connection ok" title="seated in a loca right now">seated</span>`
+        : "";
+    const where = r.unused
+      ? `<span class="pnowhere">nobody has signed in with it yet</span>`
+      : seated ? `<span class="pwhereword">In</span>${whereHtml(r.locas, "")}` : `<span class="pnowhere">not in a loca</span>`;
+    // A Smaster names themselves at sign-in; the Master only removes,
+    // after a yes in words under the row (keys.js removeSmaster).
+    const manage = state.profile?.building_role === "master" && r.role === "smaster";
+    const remove = manage
+      ? `<button type="button" class="btn danger" data-remove-smaster="${esc(r.name)}" title="Remove this Smaster from the Building">Remove</button>`
+      : "";
+    const ask = manage && state.removingSmaster?.name === r.name && state.removingSmaster.gen === state.buildingGen
+      ? removeSmasterAskHtml(r) : "";
+    const groups = r.role === "master"
+      ? `<span class="pnowhere">sees every floor</span>` : groupChipsHtml(r.name);
+    return `<div class="prow rankrow${r.unused ? " unusedcode" : ""}"><span class="pname">${kindMark("human")}${personNameHtml(r.name, cardOf(r))}</span>` +
+      `<span class="prank">${rankBadge(r.role)}<span class="pgroups">${groups}</span></span>` +
+      `<span class="pwhere">${where}<span class="pstatuses">${status}</span></span>` +
+      `<span class="pkit pkitnone"><span class="pnokit">—</span></span><span class="pacts">${remove}</span></div>` + ask;
+  });
   const isMaster = state.profile?.building_role === "master";
-  const shown = [...names].filter(personInGroupFilter);
-  const membersHtml = shown.sort((a, b) => a.localeCompare(b)).map(name => {
+  const shown = [...names].filter(personInGroupFilter).filter(name => {
+    const p = people.find(x => x.name === name);
+    return personInPeopleFilter(name, p?.kind === "agent" ? "agent" : "human", cardOf(p));
+  });
+  const memberRows = shown.sort((a, b) => a.localeCompare(b)).map(name => {
     const p = people.find(x => x.name === name);
     const kind = p?.kind === "agent" ? "agent" : "human";
     const locas = p?.locas || [];
@@ -560,7 +595,6 @@ function renderPeople() {
       else if (rt.accepted) stage = `<span class="pstage accepted" title="runtime accepted this attention · ${esc(shortId)}">accepted</span>`;
       else if (rt.stored) stage = `<span class="pstage" title="attention stored durably · ${esc(shortId)}">queued</span>`;
     }
-    const fallback = p?.online ? "lobby" : "offline";
     const suspended = p?.suspended ? `<span class="pflag warn">Suspended</span>` : "";
     const banTxt = barred.length
       ? `<span class="pflag bad" title="banned from ${esc(barred.join(", "))}">banned: ${esc(barred.join(", "))}</span>` : "";
@@ -569,17 +603,31 @@ function renderPeople() {
     const manage = isMaster && p?.membership_id
       ? `<button type="button" class="btn" data-suspend-member="${esc(p.membership_id)}" data-suspended="${p.suspended ? "0" : "1"}" data-member-name="${esc(name)}">${p.suspended ? "Resume" : "Suspend"}</button>` +
         `<button type="button" class="btn danger" title="Revoke membership" data-revoke-member="${esc(p.membership_id)}" data-member-name="${esc(name)}">Revoke</button>` : "";
-    return `<div class="prow${p?.suspended ? " suspended" : ""}">` +
-      `<span class="pname">${kindMark(kind)}${personNameHtml(name, cardOf(p))}<span class="pkind">${kind}</span>${kitVersionHtml(p, "building", "pkind")}${stage}</span>` +
-      `<span class="pstatuses">${residentStatusBadges(p)}</span>` +
-      `<span class="pgroups">${groupChipsHtml(name)}</span>` +
-      `<span class="pwhere">${suspended}${whereHtml(locas, fallback)}${banTxt}</span>` +
+    const kit = kitVersionHtml(p, "building", "pkind");
+    return `<div class="prow${p?.suspended ? " suspended" : ""}${p?.online ? "" : " poff"}">` +
+      `<span class="pname">${kindMark(kind)}${personNameHtml(name, cardOf(p))}${stage}</span>` +
+      `<span class="prank"><span class="pkind">Member${kind === "agent" ? " · agent" : ""}</span><span class="pgroups">${groupChipsHtml(name)}</span></span>` +
+      `<span class="pwhere">${suspended}${peopleWhereHtml(!!p?.online, locas)}${banTxt}<span class="pstatuses">${residentStatusBadges(p)}</span></span>` +
+      `<span class="pkit${kit ? "" : " pkitnone"}">${kit || `<span class="pnokit">—</span>`}</span>` +
       `<span class="pacts">${name !== state.name ? `<button type="button" class="btn" data-dm="${esc(name)}" title="Write to ${esc(name)} privately">Message</button>` : ""}${unban}${manage}</span></div>`;
-  }).join("");
-  box.innerHTML = jrHtml + groupFilterHtml() + ranksHtml +
-    `<section class="bblock"><div class="bsection">Members <span class="bcount">${shown.length}</span></div>` +
-    `<div class="peoplehead"><span>name</span><span>connection · wake</span><span>floors</span><span>location</span><span></span></div>` +
-    (membersHtml || `<div class="callnone">nobody on this floor</div>`) + `</section>`;
+  });
+  const empty = !names.size && !ranks.length
+    ? "no members in the building yet"
+    : state.peopleQuery.trim() || state.peopleKind !== "all" ? "nobody matches" : "nobody on this floor";
+  const rows = rankRows.join("") + memberRows.join("");
+  // Typing in the search keeps its place while the list is drawn again (the
+  // tab polls, and every keystroke redraws).
+  const search = document.activeElement?.id === "peopleSearch" ? document.activeElement : null;
+  const caret = search ? [search.selectionStart, search.selectionEnd] : null;
+  box.innerHTML = peopleToolsHtml() +
+    `<section class="bblock ptable" aria-label="Members">` +
+    `<div class="peoplehead"><span>Name</span><span>Rank</span><span>Where</span><span>Kit</span><span class="pplabel">Actions</span></div>` +
+    (rows || `<div class="callnone">${empty}</div>`) + `</section>` + jrHtml;
+  if (caret) {
+    const again = $("peopleSearch");
+    again.focus();
+    try { again.setSelectionRange(caret[0], caret[1]); } catch (e) { /* not a text field */ }
+  }
 }
 
 // A name opens that person's card (who they are, and their groups). `card`
@@ -699,3 +747,16 @@ async function refreshPeopleRuntime() {
     renderPeople();
   } catch (e) { /* the normal health indicator owns transport errors */ }
 }
+
+// The People table's search and People · Agents chips (renderPeople).
+$("peopleList").addEventListener("input", (event) => {
+  if (event.target.id !== "peopleSearch") return;
+  state.peopleQuery = event.target.value;
+  renderPeople();
+});
+$("peopleList").addEventListener("click", (event) => {
+  const kind = event.target.closest("[data-people-kind]");
+  if (!kind) return;
+  state.peopleKind = kind.dataset.peopleKind;
+  renderPeople();
+});

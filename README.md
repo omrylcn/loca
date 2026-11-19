@@ -7,7 +7,7 @@ You talk to them like teammates in a chat room: mention one by name, they
 answer in the room, everyone sees the same conversation, and nothing gets lost
 when something restarts. You decide who sits at the table and when they leave.
 
-> **Status:** private beta, release `v0.17.0`. Self-hosting is supported for
+> **Status:** private beta, release `v0.18.0`. Self-hosting is supported for
 > evaluation and small trusted teams. The hosted Building is invite-only.
 
 ![Loca Chat with human and agent conversation](docs/loca-chat.png)
@@ -115,7 +115,7 @@ Here is the whole journey at a glance.
 ### 1. Start your Building
 
 Download the server from the
-[`v0.17.0` release](https://github.com/omrylcn/loca/releases/tag/v0.17.0), or
+[`v0.18.0` release](https://github.com/omrylcn/loca/releases/tag/v0.18.0), or
 run it from source:
 
 ```bash
@@ -171,7 +171,7 @@ the Lobby.
 For agents on another machine, use the verified onboarding package:
 
 ```bash
-LOCA_VERSION=0.17.0
+LOCA_VERSION=0.18.0
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS

@@ -17,39 +17,41 @@
 <link rel="stylesheet" href="/assets/boardlist.css" />
 <link rel="stylesheet" href="/assets/roster.css" />
 <link rel="stylesheet" href="/assets/addressing.css" />
+<link rel="stylesheet" href="/assets/page-entry.css" />
+<link rel="stylesheet" href="/assets/page-people.css" />
+<link rel="stylesheet" href="/assets/page-manage.css" />
+<link rel="stylesheet" href="/assets/page-content.css" />
+<link rel="stylesheet" href="/assets/page-chrome.css" />
 <script src="/assets/theme.js"></script>
 </head>
 <body>
   <!-- The sign-in page's other half (body.locked only): what loca is, for
        someone who has not been inside yet. Words and a picture; nothing here
-       asks for or shows anything of a Building. -->
+       asks for or shows anything of a Building. Looks: page-entry.css. -->
   <section class="signinhero" id="signInHero" aria-label="About loca">
     <div class="herobrand"><span class="mark"></span><span>loca</span></div>
-    <h2 class="herotitle">A room where people and agents hear one another.</h2>
-    <p class="herolead">Conversation first, under human direction. Talking to an agent should feel like talking to a colleague.</p>
-    <div class="herobuilding" aria-hidden="true">
-      <div class="hbtag">Building</div>
-      <div class="hbfloor">
-        <div class="hbtag">Ground floor</div>
-        <div class="hblocas"><span class="hbloca"><i>#</i> standup <b>.3 *2</b></span><span class="hbloca"><i>#</i> launch</span></div>
+    <h2 class="herotitle">People and AI agents, at one private table.</h2>
+    <div class="herochat" aria-hidden="true">
+      <div class="herorow">
+        <span class="heroav human">AY</span>
+        <p><span class="heroto">&rarr; *mobile-dev</span> Is the login fix done?</p>
       </div>
-      <div class="hbfloor">
-        <div class="hbtag">Product floor</div>
-        <div class="hblocas"><span class="hbloca here"><i>#</i> design-review <b>.2 *1</b></span><span class="hbloca"><i>#</i> release</span></div>
+      <div class="herorow">
+        <span class="heroav agent">*</span>
+        <p><b class="heroagent">mobile-dev</b><br>Yes. PR #42 is open and the tests are green.</p>
       </div>
-      <div class="hblobby"><span class="hbtag">Lobby</span><span class="hbwait">waiting to be called in</span></div>
     </div>
     <ul class="heropoints">
-      <li><b>By invitation.</b> Nobody walks in: a Master admits you, a call seats you.</li>
-      <li><b>Building, Floor, Loca.</b> One Building, a floor for each team, a loca for each piece of work.</li>
-      <li><b>A mention is a sentence, not a task.</b> Work is recorded only when someone says so.</li>
+      <li><span class="herodot" aria-hidden="true">&#9679;</span> people and <span class="herostar">*</span> agents sit at the same table</li>
+      <li>@name asks someone; everyone else just listens</li>
+      <li>Every loca is by invitation</li>
     </ul>
     <p class="herosource">Free software under the GNU AGPL v3 · <a href="https://github.com/omrylcn/loca" target="_blank" rel="noopener noreferrer">source code</a></p>
   </section>
   <aside class="side" id="sidebar" aria-label="Loca navigation">
     <h1><a class="brandlink" href="https://github.com/omrylcn/loca" target="_blank" rel="noopener noreferrer"
         title="Open the Loca GitHub repository" aria-label="Loca — GitHub repository"><span class="mark"></span>loca</a>
-      <button class="hidden" id="tabPeople" title="all building members and global status">BUILDING</button>
+      <button class="hidden" id="tabPeople" title="all building members and global status">People</button>
       <button class="notifbell hidden" id="notifBell" type="button" aria-label="Notifications" aria-haspopup="dialog" aria-expanded="false" data-tip="Notifications" data-tip-detail="Announcements from the Master and your floors' Smasters."><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span class="notifbadge hidden" id="notifBadge" aria-hidden="true"></span></button>
       <button id="helpBtn" title="Getting Started guide" aria-label="Open the Getting Started guide">?</button>
     </h1>
@@ -59,32 +61,51 @@
          signed in it is gone; who you are, the server and Sign out live in the
          account menu (#whoami, profile.js). Another identity or server means
          signing out first. -->
-    <div class="conn" id="connBox" role="form" aria-labelledby="signInTitle">
+    <div class="conn" id="connBox" role="form" aria-labelledby="signInTitle" data-entry="human">
       <h2 class="signintitle" id="signInTitle">Sign in</h2>
-      <label for="server">server</label>
-      <input id="server" value="" placeholder="http://127.0.0.1:8787" />
       <div id="masterEntry" class="hidden">
+        <p class="entrykicker">Master</p>
+        <p class="entrylead">Sign in with a pairing code. Make a one-use code at your private Master desk on the server, then paste it here.</p>
         <label for="pairingCode">Master pairing code</label>
-        <input id="pairingCode" type="password" placeholder="one-use code from your private Master desk" autocomplete="off" />
+        <input id="pairingCode" type="password" placeholder="one-use pairing code" autocomplete="off" />
         <div class="devnote">Your Master identity is verified by the server. No name or type selection is needed. The root key stays on the host.</div>
       </div>
       <div id="memberEntry">
+      <label id="locaKeyLabel" for="roomToken">Your invite or key</label>
+      <input id="roomToken" type="password" placeholder="Paste it here" autocomplete="off" />
+      <div class="devnote entrykeyhint">The person who runs this Loca gave it to you.</div>
       <label for="entryKind">Sign in as</label>
       <select id="entryKind" aria-describedby="entryHint"><option value="human">Human</option><option value="smaster">Smaster</option></select>
-      <label for="name">your name</label>
+      <label for="name">Your name</label>
       <input id="name" value="" placeholder="name for a new human membership" />
-      <label id="locaKeyLabel" for="roomToken">Personal access key</label>
-      <input id="roomToken" type="password" placeholder="your personal credential or loca invite" autocomplete="off" />
       <div class="devnote" id="entryHint">Existing credentials verify your recorded identity; a typed name cannot replace it.</div>
       </div>
       <button id="connectBtn" class="off">take your seat</button>
-      <button id="masterEntryButton" class="entryswitch" type="button" aria-controls="masterEntry memberEntry">Master sign-in</button>
-      <div class="devnote" id="doorNote">Agents join through their agent skill, not this human form.</div>
-      <div class="joinreq" id="humanJoinRequest">
-        <button id="joinRequestBtn" class="off" type="button">request to join as a human (no key)</button>
-        <div class="devnote">Human membership requires Master/Smaster approval. Agents request through their skill. This does not request Master/Smaster authority.</div>
-        <div class="devnote" id="joinRequestStatus" role="status" aria-live="polite"></div>
+      <div class="entrylinks">
+        <button id="masterEntryButton" class="entryswitch" type="button" aria-controls="masterEntry memberEntry">Master sign-in</button>
+        <div class="joinreq" id="humanJoinRequest">
+          <button id="joinRequestBtn" class="off" type="button">No invite yet? Ask to join</button>
+          <div class="devnote jrnote">Human membership requires Master/Smaster approval. Agents request through their skill. This does not request Master/Smaster authority.</div>
+          <!-- While a request waits (joinrequest.js sets data-phase). -->
+          <div class="jrwait">
+            <p class="entrykicker">Asked to join</p>
+            <p class="jrtitle">Your request is with a Master</p>
+            <p class="jrlead">You asked to join as <b id="joinRequestName"></b>. Keep this page open: you'll be let in the moment it's approved.</p>
+          </div>
+          <div class="devnote" id="joinRequestStatus" role="status" aria-live="polite"></div>
+          <ol class="jrsteps">
+            <li class="done">Ask to join</li>
+            <li class="now">A Master approves</li>
+            <li>You land in the Lobby</li>
+          </ol>
+        </div>
       </div>
+      <div class="devnote" id="doorNote">Agents join through their agent skill, not this human form.</div>
+      <details class="signinadvanced" id="serverAdvanced">
+        <summary>Advanced</summary>
+        <label for="server">Server</label>
+        <input id="server" value="" placeholder="http://127.0.0.1:8787" />
+      </details>
     </div>
     <div class="devnote jrerr hidden" id="hostProvisionError" role="alert"></div>
     <div class="sideviewtabs" role="tablist" aria-label="Sidebar views">
@@ -96,7 +117,7 @@
         <div id="roomList"></div>
       </div>
       <div class="rooms dmsection" id="dmSection">
-        <div class="rlabel dmhead"><span>MESSAGES</span><button type="button" class="dmnew" id="dmNew" aria-expanded="false" aria-controls="dmPicker" aria-label="New private message" data-tip="New message" data-tip-detail="Write to one person privately."><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
+        <div class="rlabel dmhead"><span>Messages</span><button type="button" class="dmnew" id="dmNew" aria-expanded="false" aria-controls="dmPicker" aria-label="New private message" data-tip="New message" data-tip-detail="Write to one person privately."><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
         <div class="dmpicker hidden" id="dmPicker">
           <input id="dmSearch" type="search" placeholder="who?" aria-label="Find a person" autocomplete="off" />
           <div id="dmCandidates" role="listbox" aria-label="People you can write to"></div>
@@ -137,12 +158,13 @@
   <main class="main">
     <div class="top">
       <button class="mobiletoggle" id="sideToggle" aria-controls="sidebar"
-        aria-expanded="false" aria-label="Open navigation">☰</button>
+        aria-expanded="false" aria-label="Open navigation"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
       <div class="ravatar" id="roomAvatar">#</div>
       <div class="tophead">
         <div class="roomline">
           <span class="locamark hidden" id="roomMark" aria-hidden="true"></span>
           <div class="rname" id="curRoom">—</div>
+          <span class="roomid hidden" id="roomId"></span>
           <div class="roomprops">
             <span class="pill free" id="modePill" tabindex="0" data-tip="Speaking mode: free" data-tip-detail="Anyone at the table can talk.">free</span>
             <span class="detail" id="modeDetail">anyone can talk</span>
@@ -173,10 +195,16 @@
           aria-controls="adminbar" aria-label="Properties" data-tip="Properties" data-tip-detail="Lifecycle, speaking mode, operators, reminders."><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="var(--panel)"/><circle cx="15" cy="12" r="2" fill="var(--panel)"/><circle cx="7" cy="18" r="2" fill="var(--panel)"/></svg></button>
       </div>
       <span class="conndot" id="connDot" role="status" tabindex="0" aria-label="disconnected" data-tip="Disconnected" data-tip-detail="Not linked to the server; trying again."></span>
+      <!-- Phone only: This Loca, which the sidebar keeps behind its second tab. -->
+      <button class="mobileinfo" id="mobileInfoBtn" type="button" aria-label="Loca info"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg></button>
     </div>
 
     <!-- admin control bar (only with a valid admin token) -->
     <div class="adminbar" id="adminbar" aria-label="Loca properties">
+      <header class="adminhead">
+        <h2 class="admintitle">Manage <span class="adminroom" id="adminRoom"></span></h2>
+        <button type="button" class="adminclose" id="adminClose" aria-label="Close properties">×</button>
+      </header>
       <details class="propertygroup" open>
         <summary>Room &amp; conversation<small>Lifecycle, operators, speaking mode, and live timeout</small></summary>
         <div class="propertyfields">
@@ -276,7 +304,7 @@
       <input type="file" id="attachInput" class="hidden" multiple
              accept="image/png,image/jpeg,image/webp,application/pdf,text/plain,.txt,.md,.markdown">
       <button class="ctl attach" id="attachBtn" title="attach a file (image · pdf · txt · md)" aria-label="Attach a file">📎</button>
-      <textarea id="msg" rows="1" placeholder="say it to the table…  (Enter = send · Shift+Enter = new line)"></textarea>
+      <textarea id="msg" rows="1" placeholder="Message, @ to address someone"></textarea>
       <button class="send" id="sendBtn">send</button>
       <button class="ctl stop" id="stopBtn" title="broadcast /stop to agents">/stop</button>
       <button class="ctl" id="clearBtn" title="clear this view">clear</button>
@@ -289,6 +317,10 @@
            shows each only the groups it may see); Keys and Private messages
            are the Master's alone: the server refuses everyone else, and the
            tabs are not drawn for them. -->
+      <div class="pphead">
+        <h1 class="pptitle">People</h1>
+        <span class="ppsub">Everyone in the building</span>
+      </div>
       <div class="buildingtabs" role="tablist" aria-label="Building views">
         <button type="button" class="btab active" role="tab" id="btabPeople" data-btab="people" aria-selected="true" aria-controls="peopleList">People</button>
         <button type="button" class="btab hidden" role="tab" id="btabGroups" data-btab="groups" aria-selected="false" aria-controls="groupsPane">Floors</button>
@@ -302,29 +334,31 @@
     </div>
 
     <!-- JOURNAL (what was already done — nobody assigns it, nothing closes it) -->
-    <div class="notes hidden" id="journalPanel">
-      <div id="journalList"></div>
+    <div class="notes pagecontent hidden" id="journalPanel">
+      <p class="pageintro">The journal records work that actually landed. Entries are added on purpose and never edited.</p>
+      <div id="journalList" class="journallist"></div>
     </div>
 
     <!-- FOCUS: one quiet home for purpose and reminders. Waiting on and
          Reminders are core: they show where Focus is off (continuity.js);
          the goal is Focus's. The tasks are the Loca Board's (board.js):
          here one line points to it. -->
-    <div class="notes hidden" id="tasksPanel">
-      <div id="focusGoalSection">
-      <div class="sectionlabel">Room goal</div>
-      <div class="sectionhelp">The room’s one shared outcome. Set or change it in Chat with <b>@goal &lt;outcome&gt;</b>; remove it with <b>@goal none</b>.</div>
-      <div id="goalPanelCard" class="focuspanelrow"></div>
-      </div>
+    <div class="notes pagecontent focuspage hidden" id="tasksPanel">
+      <section id="focusGoalSection" class="pagecard goalsection">
+        <div class="goalsectionhead"><h2 class="pagekicker">The goal of this loca</h2><span id="goalPanelMeta" class="pagemeta"></span></div>
+        <div id="goalPanelCard" class="focuspanelrow goalpanelcard"></div>
+        <p class="pagenote">Shown under the loca’s name as its one quiet Room goal line. Only the operator sets it: in Chat, <b>@goal &lt;outcome&gt;</b>; <b>@goal none</b> removes it.</p>
+      </section>
       <div id="focusBoardLine" class="focuspanelrow hidden" role="status"></div>
 
-      <div id="waitSection">
-        <div class="sectionlabel">Blocked / waiting on</div>
-        <div id="waitList"></div>
-      </div>
+      <section id="waitSection" class="pagesection">
+        <h2 class="pagetitle">Waiting on someone</h2>
+        <div id="waitList" class="waitlist"></div>
+      </section>
 
-      <div class="sectionlabel">Reminders</div>
-      <div class="sectionhelp">Loca quietly follows up when declared work stalls. Choose one coordinator and only the signals that matter.</div>
+      <section class="pagecard remindersection">
+        <h2 class="pagetitle">Follow-up settings</h2>
+        <p class="pagenote">Reminders: Loca quietly follows up when declared work stalls. Choose one coordinator and only the signals that matter.</p>
       <div class="reminderview" id="reminderSettings">
         <div class="reminderstatus" id="reminderStatus">
           <span class="reminderstatuscopy"><strong id="reminderMode">Reminders off</strong><span class="remindersummary" id="reminderActiveSummary">No signals selected.</span></span>
@@ -381,6 +415,7 @@
         </details>
         <div class="reminderactions"><span class="remindersavestate" id="reminderSaveState"></span><button id="saveReminders">Save reminders</button></div>
       </div>
+      </section>
     </div>
 
     <!-- LOCA BOARD: the loca's declared tasks on four columns (board.js). -->
@@ -400,60 +435,71 @@
     </div>
 
     <!-- NOTES (living project state) -->
-    <div class="notes hidden" id="notesPanel">
+    <div class="notes pagecontent hidden" id="notesPanel">
+      <div class="pageintrorow">
+        <p class="pageintro">Notes hold what is true right now: decisions, links, settings. Anyone at the table can edit unless a note names its writers; the last change wins and is signed.</p>
+        <button type="button" id="notesNewJump" class="pageprimary">New note</button>
+      </div>
       <div id="notesError" class="sysline memorywarn hidden" role="alert"></div>
-      <div id="noteList"></div>
-      <div class="newnote">
+      <div id="noteList" class="notegrid"></div>
+      <div class="newnote notecreate" role="group" aria-labelledby="nnHeading">
+        <h2 id="nnHeading" class="pagetitle">New note</h2>
         <input id="nnKey" placeholder="key (e.g. deploy-status)" autocomplete="off" />
         <input id="nnTitle" placeholder="title" autocomplete="off" />
         <textarea id="nnBody" placeholder="# Current state&#10;&#10;Write Markdown here…"></textarea>
         <span class="markdownhint">Markdown is the default: headings, lists, links, quotes, emphasis, and code are rendered in the note.</span>
         <input id="nnWrite" placeholder="can_write (comma names, blank = anyone)" autocomplete="off" />
-        <button id="nnCreate">Create note</button>
-        <span class="nwrite" style="margin-left:10px">you post as <b id="nnYou">operator</b> · operator may (re)assign can_write</span>
+        <div class="notecreatefoot">
+          <button id="nnCreate">Create note</button>
+          <span class="nwrite">you post as <b id="nnYou">operator</b> · operator may (re)assign can_write</span>
+        </div>
       </div>
     </div>
 
     <div class="notes wikiview hidden" id="wikiPanel">
-      <header class="wikiheader">
-        <div><span class="wikikicker">THE LOCA'S SHARED CONTEXT</span><h2>Loca Wiki</h2></div>
-        <div class="wikiactions">
-          <label id="wikiEditorControl" class="wikieditorcontrol hidden">Wiki editor
-            <select id="wikiEditor" class="leadselect" aria-label="Wiki editor"><option value="">Not assigned</option></select>
-          </label>
-          <span id="wikiEditorName" class="wikieditorname"></span>
-          <button id="wikiEditPage" class="hidden" type="button">Edit page</button>
-          <button id="wikiSendPage" class="hidden" type="button" aria-expanded="false" aria-controls="wikiShare">Send page</button>
-          <button id="wikiRequestUpdate" class="hidden" type="button" aria-expanded="false" aria-controls="wikiUpdate">Request update</button>
-          <button id="wikiRefresh" title="Refresh wiki" aria-label="Refresh wiki">↻</button>
-          <button id="wikiSettingsToggle" class="hidden" aria-label="Wiki settings" aria-expanded="false" aria-controls="wikiConfig">⚙</button>
-        </div>
-      </header>
-      <div id="wikiStatus" class="wikimeta" role="status"></div>
-      <form id="wikiShare" class="wikicompose hidden">
-        <h3>Send the published page</h3>
-        <label>To<select id="wikiShareTarget" required aria-label="Page recipient"></select></label>
-        <p>Selects this page for the agent's next turn. A receipt appears in Chat; it does not prove the model has read it.</p>
-        <div class="wikiactions"><button type="submit" id="wikiShareSend">Send page</button><button type="button" id="wikiShareClose">Close</button></div>
-        <div id="wikiShareStatus" role="status" aria-live="polite"></div>
-      </form>
-      <form id="wikiUpdate" class="wikicompose hidden">
-        <h3>Request an update from <span id="wikiUpdateEditor"></span></h3>
-        <label>What should be reviewed?<textarea id="wikiUpdateText" rows="3" maxlength="4000" required placeholder="What changed or needs correcting on this page?"></textarea></label>
-        <p>Sent to the assigned editor in this loca's Chat. Everyone in the loca can see it; this is not a private DM. The editor delegates drafting to its isolated Wiki worker.</p>
-        <div class="wikiactions"><button type="submit" id="wikiUpdateSend">Send to editor</button><button type="button" id="wikiUpdateClose">Close</button></div>
-        <div id="wikiUpdateStatus" role="status" aria-live="polite"></div>
-      </form>
-      <form id="wikiPageEdit" class="wikiedit hidden">
-        <label>Page title<input id="wikiPageTitle" maxlength="256" required></label>
-        <label>Markdown<textarea id="wikiPageBody" rows="14"></textarea></label>
-        <p>Saved as a human edit, not a review of new messages. Earlier citations remain in the revision history.</p>
-        <div class="wikiactions"><button id="wikiPageSave" type="submit">Save page</button><button id="wikiPageCancel" type="button">Discard draft</button></div>
-        <div id="wikiEditStatus" role="status" aria-live="polite"></div>
-      </form>
       <div class="wikilayout">
-        <nav id="wikiIndex" class="wikiindex" aria-label="Wiki pages"></nav>
-        <main id="wikiPages" class="wikipages"></main>
+        <div class="wikinav">
+          <span class="wikinavlabel">Pages</span>
+          <nav id="wikiIndex" class="wikiindex" aria-label="Wiki pages"></nav>
+          <span id="wikiEditorName" class="wikieditorname"></span>
+        </div>
+        <div class="wikimain">
+          <header class="wikiheader">
+            <div class="wikiactions">
+              <label id="wikiEditorControl" class="wikieditorcontrol hidden">Wiki editor
+                <select id="wikiEditor" class="leadselect" aria-label="Wiki editor"><option value="">Not assigned</option></select>
+              </label>
+              <button id="wikiEditPage" class="hidden" type="button">Edit page</button>
+              <button id="wikiSendPage" class="hidden" type="button" aria-expanded="false" aria-controls="wikiShare">Send page</button>
+              <button id="wikiRequestUpdate" class="hidden" type="button" aria-expanded="false" aria-controls="wikiUpdate">Suggest a change</button>
+              <button id="wikiRefresh" title="Refresh wiki" aria-label="Refresh wiki">↻</button>
+              <button id="wikiSettingsToggle" class="hidden" aria-label="Wiki settings" aria-expanded="false" aria-controls="wikiConfig">⚙</button>
+            </div>
+          </header>
+          <div id="wikiStatus" class="wikimeta" role="status"></div>
+          <form id="wikiShare" class="wikicompose hidden">
+            <h3>Send the published page</h3>
+            <label>To<select id="wikiShareTarget" required aria-label="Page recipient"></select></label>
+            <p>Selects this page for the agent's next turn. A receipt appears in Chat; it does not prove the model has read it.</p>
+            <div class="wikiactions"><button type="submit" id="wikiShareSend">Send page</button><button type="button" id="wikiShareClose">Close</button></div>
+            <div id="wikiShareStatus" role="status" aria-live="polite"></div>
+          </form>
+          <form id="wikiUpdate" class="wikicompose hidden">
+            <h3>Request an update from <span id="wikiUpdateEditor"></span></h3>
+            <label>What should be reviewed?<textarea id="wikiUpdateText" rows="3" maxlength="4000" required placeholder="What changed or needs correcting on this page?"></textarea></label>
+            <p>Sent to the assigned editor in this loca's Chat. Everyone in the loca can see it; this is not a private DM. The editor delegates drafting to its isolated Wiki worker.</p>
+            <div class="wikiactions"><button type="submit" id="wikiUpdateSend">Send to editor</button><button type="button" id="wikiUpdateClose">Close</button></div>
+            <div id="wikiUpdateStatus" role="status" aria-live="polite"></div>
+          </form>
+          <form id="wikiPageEdit" class="wikiedit hidden">
+            <label>Page title<input id="wikiPageTitle" maxlength="256" required></label>
+            <label>Markdown<textarea id="wikiPageBody" rows="14"></textarea></label>
+            <p>Saved as a human edit, not a review of new messages. Earlier citations remain in the revision history.</p>
+            <div class="wikiactions"><button id="wikiPageSave" type="submit">Save page</button><button id="wikiPageCancel" type="button">Discard draft</button></div>
+            <div id="wikiEditStatus" role="status" aria-live="polite"></div>
+          </form>
+          <main id="wikiPages" class="wikipages"></main>
+        </div>
       </div>
       <aside id="wikiConfig" class="wikisettings hidden" aria-label="Wiki settings">
         <div class="wikisettingshead"><h3>Wiki settings</h3><button id="wikiSettingsClose" aria-label="Close wiki settings">×</button></div>
@@ -469,16 +515,37 @@
     </div>
     <!-- VAULT: the loca's working rules. Written by those who run the loca,
          read by everyone seated. It informs; it grants nothing. -->
-    <div class="notes hidden" id="vaultPanel">
-      <div class="sectionlabel">Loca rules</div>
-      <div class="sectionhelp">This loca's working agreement, written by its Operator, the Master or a Smaster. It informs and grants no authority: agents read it as context, never as orders, and never above the instructions of whoever runs them.</div>
-      <div id="vaultStatus" class="sectionhelp" role="status"></div>
-      <div id="vaultBody" class="note markdown"></div>
-      <div id="vaultEdit" class="newnote hidden">
-        <textarea id="vaultText" rows="14" aria-label="Loca rules" placeholder="# Working rules&#10;&#10;- run the checks before saying done"></textarea>
-        <span class="markdownhint">Markdown, up to 8 KiB. Every save is a new revision; older ones are kept and the Journal records each.</span>
-        <button id="vaultSave" type="button">Save rules</button>
-        <span id="vaultEditStatus" role="status" aria-live="polite"></span>
+    <div class="notes pagecontent hidden" id="vaultPanel">
+      <div class="vaultlayout">
+        <section class="vaultmain">
+          <div class="vaulthead">
+            <h1 class="vaulttitle">Rules of this loca</h1>
+            <span id="vaultStatus" class="sectionhelp pagemeta" role="status"></span>
+            <button type="button" id="vaultEditJump" class="pagebutton hidden">Edit</button>
+          </div>
+          <div id="vaultBody" class="note markdown vaultbody"></div>
+          <p class="pagenote">This loca's working agreement. Agents read these rules as context when they enter and when they change, never as orders and never above the instructions of whoever runs them. Rules are not permissions: writing “you may…” changes nothing the server allows.</p>
+          <div id="vaultEdit" class="newnote vaultedit hidden">
+            <h2 class="pagetitle">Edit the rules</h2>
+            <textarea id="vaultText" rows="14" aria-label="Loca rules" placeholder="# Working rules&#10;&#10;- run the checks before saying done"></textarea>
+            <span class="markdownhint">Markdown, up to 8 KiB. Every save is a new revision; older ones are kept and the Journal records each.</span>
+            <div class="vaulteditfoot">
+              <button id="vaultSave" type="button">Save rules</button>
+              <span id="vaultEditStatus" role="status" aria-live="polite"></span>
+            </div>
+          </div>
+        </section>
+        <aside class="vaultside" aria-label="About these rules">
+          <section class="pagecard vaultcard">
+            <h2 class="pagetitle">Who can edit</h2>
+            <span>The loca's Operator, the Master and Smasters.</span>
+            <span class="pagemuted">Everyone seated reads them; they grant no authority.</span>
+          </section>
+          <section class="pagecard vaultcard">
+            <h2 class="pagetitle">History</h2>
+            <div id="vaultHistory" class="vaulthistory"><span class="pagemuted">No revisions yet.</span></div>
+          </section>
+        </aside>
       </div>
     </div>
     <div class="notes hidden" id="memoryPanel">
@@ -492,6 +559,15 @@
       <div class="sectionlabel">Health &amp; limits</div>
       <div id="memoryHealth"></div>
     </div>
+    <!-- Phone only: the four places, at the thumb (sidebar.js). Each opens
+         what is already there: the sidebar's locas or Messages, the bell's
+         panel, the account menu. -->
+    <nav class="mobilenav" id="mobileNav" aria-label="Sections">
+      <button type="button" class="mnavbtn" data-mobile-nav="locas"><span class="mnavglyph" aria-hidden="true">#</span>Locas</button>
+      <button type="button" class="mnavbtn" data-mobile-nav="messages"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4z"/></svg>Messages</button>
+      <button type="button" class="mnavbtn" data-mobile-nav="notifications"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>Notifications</button>
+      <button type="button" class="mnavbtn" data-mobile-nav="me"><span class="mnavme" aria-hidden="true"></span>Me</button>
+    </nav>
   </main>
   <aside class="locainfo hidden" id="locaInfo" aria-label="Loca info"></aside>
 
@@ -611,9 +687,14 @@
   <div class="gsoverlay hidden" id="gsOverlay" role="dialog" aria-modal="true" aria-labelledby="gsTitle">
     <button class="gsbackdrop" id="gsBackdrop" aria-label="Close guide" tabindex="-1"></button>
     <div class="gscard" role="document">
-      <button class="gsclose" id="gsClose" aria-label="Close">✕</button>
-      <div class="gsmark" aria-hidden="true"><span class="mark"></span></div>
-      <h2 id="gsTitle">Welcome to loca</h2>
+      <header class="gshead">
+        <div class="gsheadtext">
+          <span class="gskicker">Welcome to loca</span>
+          <h2 id="gsTitle">How Loca works</h2>
+        </div>
+        <button class="gsclose" id="gsClose" aria-label="Close">×</button>
+      </header>
+      <div class="gsbody">
       <!-- HOST view: Desktop Host or verified Master only (gated in getstarted.js).
            A client/visitor never auto-sees this and is never told they are Master. -->
       <div class="gs-host">
@@ -626,6 +707,7 @@
 
         <section class="gspanel" data-gspanel="welcome" role="tabpanel">
           <p class="gslede">loca is a private table where you and your AI agents work together — live.</p>
+          <div class="gshowslot" id="gsHowHost"></div>
           <!-- The map: Building, Floor, Loca. The same drawing as
                docs/concepts-at-a-glance.svg less its style element, whose
                rules are the "concepts map" block of styles.css; a test keeps
@@ -691,7 +773,7 @@
 <text x="26" y="516"><tspan class="lm-h">A loca</tspan> — everything in it is its own</text>
 <text x="26" y="536"><tspan class="lm-b">Operator</tspan> runs it: mode, turns and</text>
 <text x="26" y="550">moderation. At most one.</text>
-<text x="26" y="568"><tspan class="lm-b">Lead</tspan> advises and gives work within bounds.</text>
+<text x="26" y="568"><tspan class="lm-b">Lead</tspan> advises, gives work in bounds.</text>
 <text x="26" y="586"><tspan class="lm-b">participants</tspan> — the people and agents</text>
 <text x="26" y="600">in its seats.</text>
 <text x="26" y="620"><tspan class="lm-b">Chat</tspan> is always on. Extensions:</text>
@@ -772,9 +854,43 @@
       <!-- CLIENT view: anyone who is not the Host/Master. No owner/Master framing. -->
       <div class="gs-client">
         <p class="gslede">Welcome to a private table for people and agents. Here is how to take your seat and find your way around.</p>
+        <!-- How Loca works: three steps and the words of the place. One copy;
+             getstarted.js moves it into the open view, as it does the map. -->
+        <div class="gshowslot" id="gsHowClient">
+          <div class="gshow" id="gsHow">
+            <div class="gshowsteps">
+              <article class="gshowstep">
+                <span class="gshownum">1</span>
+                <h3>Open a loca</h3>
+                <p>A loca is a private room for one piece of work. Only the people and agents invited to it sit at its table.</p>
+              </article>
+              <article class="gshowstep">
+                <span class="gshownum">2</span>
+                <h3>Name who should answer</h3>
+                <p>Write <span class="gshowat">@mobile-dev</span> and only that agent answers. Without a name, everyone reads and nobody has to answer.</p>
+              </article>
+              <article class="gshowstep">
+                <span class="gshownum">3</span>
+                <h3>Watch it work</h3>
+                <p>While an agent writes you see &ldquo;replying&hellip;&rdquo;. Decisions go to Notes, finished work to the Journal.</p>
+              </article>
+            </div>
+            <div class="gswords">
+              <h3>Words you will see</h3>
+              <dl>
+                <dt><span class="gsstar">*</span> agent</dt><dd>An AI that sits at the table, like a colleague.</dd>
+                <dt>Lead</dt><dd>The agent a loca names to coordinate it; it hears more of the room.</dd>
+                <dt>Operator</dt><dd>The person who runs a loca: its mode, its turns, who can talk.</dd>
+                <dt>Live</dt><dd>While on, every message reaches everyone at the table, no @ needed.</dd>
+                <dt>Floor</dt><dd>A team's own locas, seen only by its people and the Master.</dd>
+                <dt class="gscare">Care</dt><dd>The ranks' own loca, where the Building is looked after.</dd>
+              </dl>
+            </div>
+          </div>
+        </div>
         <div class="gsmapslot" id="gsMapClient"></div>
         <ol class="gssteps">
-          <li><b>Take your seat.</b> Use a loca key (invite) the host gave you, or click <b>request to join</b> and name yourself — the host approves you and you join the Lobby.</li>
+          <li><b>Take your seat.</b> Use a loca key (invite) the host gave you, or click <b>Ask to join</b> and name yourself — the host approves you and you join the Lobby.</li>
           <li><b>Your locas.</b> Each loca you are invited to is a private table, listed in the sidebar.</li>
           <li><b>Talk and coordinate.</b> <b>Chat</b> is the live table; each loca also keeps <b>Notes</b> (current state), <b>Focus</b> (the goal), the <b>Loca Board</b> (tasks) and a <b>Journal</b> (what was done).</li>
           <li><b>You are pinged only when needed.</b> loca quietly nudges the room's coordinator when work stalls — it will not spam you.</li>
@@ -784,6 +900,7 @@
       <div class="gsfoot">
         <span class="gshint">Reopen this anytime from <b>?</b> in the top left.</span>
         <button class="gsgot" id="gsGot">Got it</button>
+      </div>
       </div>
     </div>
   </div>

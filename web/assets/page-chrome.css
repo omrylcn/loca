@@ -1,0 +1,333 @@
+/* ── the page's chrome, as the design boards draw it ──────────────────────
+   The sidebar (SideNav, MainLoca's nav), the loca's header (LocaHeader),
+   the account menu and its look (Profile, Appearance) and the phone
+   (Mobile). Loaded after every other stylesheet; it only restyles: every
+   id, class and behaviour stays as it was. Colours are the theme's tokens,
+   so Loca, Calm and Console each draw it in their own palette. Selectors
+   are plain (no nesting): the desktop's WebKitGTK may not read nesting.
+   The sidebar's rules hang from `body:not(.locked) .side` so the sign-in
+   card (the same sidebar while locked) keeps its own look. */
+
+/* ── the sidebar ── */
+body:not(.locked) .side {
+  background: color-mix(in srgb, var(--panel2) 70%, var(--bg));
+  border-right: 1px solid color-mix(in srgb, var(--line) 70%, var(--bg));
+  font-family: inherit;
+}
+/* Three columns on a wide screen: the sidebar is the board's 280px. Below
+   that This Loca shares the sidebar, and its seats need the room. */
+body.locainfo-on { grid-template-columns: 280px minmax(0, 1fr) 300px; }
+
+/* Brand: the mark, "loca", People and the bell on one line. */
+body:not(.locked) .side > h1 { height: auto; padding: 18px 18px 18px; gap: 10px; border-bottom: 0;
+  font-size: 19px; letter-spacing: 0; font-weight: 600; }
+body:not(.locked) .side .brandlink { gap: 10px; font: 600 19px/1 var(--font-mono); color: var(--txt); }
+body:not(.locked) .side .brandlink:hover, body:not(.locked) .side .brandlink:focus-visible { color: var(--txt); }
+body:not(.locked) .side .brandlink .mark { width: 13px; height: 13px; margin: 10px 8.5px 7px; border: 1.8px solid var(--brand); border-radius: 3px; }
+body:not(.locked) .side .brandlink .mark::before { top: -11px; color: var(--agent); font: 700 11px/1 var(--font-mono); }
+body:not(.locked) .side .brandlink .mark::after { bottom: -7px; width: 4px; height: 4px; background: var(--human); }
+body:not(.locked) .side h1 #tabPeople { margin-left: auto; padding: 4px 6px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--agent); font-family: inherit; font-size: 13px; font-weight: 400; letter-spacing: 0; }
+body:not(.locked) .side h1 #tabPeople:hover { text-decoration: underline; color: var(--agent); }
+body:not(.locked) .side h1 #tabPeople.active { border: 0; color: var(--agent); font-weight: 600; text-decoration: underline; }
+body:not(.locked) .side h1 .notifbell { width: 32px; height: 32px; border-radius: 8px; color: var(--muted); margin-left: auto; }
+body:not(.locked) .side h1 .notifbell svg { width: 17px; height: 17px; }
+body:not(.locked) .side h1 .notifbell:hover { color: var(--txt); background: color-mix(in srgb, var(--txt) 6%, transparent); }
+body:not(.locked) .side h1 #tabPeople:not(.hidden) ~ .notifbell { margin-left: 0; }
+body:not(.locked) .side h1 .notifbadge { top: 2px; right: 1px; background: var(--bad); color: var(--on-bad); box-shadow: 0 0 0 2px var(--panel2); }
+body:not(.locked) .side h1 #helpBtn { width: 24px; height: 24px; flex: 0 0 auto; margin-left: auto; padding: 0;
+  border: 1px solid var(--line); border-radius: 50%; color: var(--muted); font-family: inherit; font-size: 12px; font-weight: 600; line-height: 1; }
+body:not(.locked) .side h1 #tabPeople:not(.hidden) ~ #helpBtn,
+body:not(.locked) .side h1 .notifbell:not(.hidden) ~ #helpBtn { margin-left: 0; }
+
+/* Your Locas | This Loca: a quiet switch under the brand. */
+body:not(.locked) .side .sideviewtabs { margin: 0 14px 14px; padding: 3px; gap: 3px; border: 1px solid color-mix(in srgb, var(--line) 70%, var(--bg));
+  border-radius: 9px; background: transparent; }
+body:not(.locked) .side .sideviewtabs button { padding: 5px 8px; border: 0; border-radius: 6px; color: var(--muted);
+  font-family: inherit; font-size: 13px; font-weight: 500; }
+body:not(.locked) .side .sideviewtabs button.active { color: var(--txt); background: var(--panel);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--txt) 10%, transparent); }
+
+/* Your Locas: the Lobby, each floor's locas, Messages; 18px between them. */
+/* One list that scrolls as a whole: the floors, then Messages right after
+   them; the new-loca bar and the Lobby drawer keep to the foot while there
+   is room. A row's menu opens into the list, never cut by a box of its own. */
+body:not(.locked) .side .buildingview { padding: 0 14px; overflow-x: hidden; overflow-y: auto; }
+body:not(.locked) .side .buildingview .rooms,
+body:not(.locked) .side .buildingview .rooms.dmsection { flex: 0 0 auto; min-height: 0; max-height: none; padding: 0; overflow: visible; }
+body:not(.locked) .side .buildingview .newroom { margin-top: auto; }
+body:not(.locked) .side #roomList > .floor + .floor { margin-top: 18px; }
+
+/* The Lobby: a framed row at the head of the list (state.js renderLobbyRoomLink). */
+body:not(.locked) .side .lobbyroomlink { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; width: 100%; margin: 0 0 18px;
+  padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--line) 70%, var(--bg)); border-radius: 8px;
+  background: var(--bg); color: var(--txt); font-family: inherit; font-size: 15px; line-height: 20px; text-align: left; cursor: pointer; }
+body:not(.locked) .side .lobbyroomlink.hidden { display: none; }
+body:not(.locked) .side .lobbyroomlink svg { flex: 0 0 auto; color: var(--muted); }
+body:not(.locked) .side .lobbyroomlink:hover { background: var(--panel); }
+body:not(.locked) .side .lobbyroomlink.active { background: var(--panel); box-shadow: inset 3px 0 0 var(--brand); font-weight: 600; }
+body:not(.locked) .side .lobbyroomlink.has-unread .lobbyroomname { font-weight: 600; }
+body:not(.locked) .side .lobbyroomlink .lobbyroomcount { margin-left: auto; color: var(--dim); font-size: 12px; font-weight: 400; }
+
+/* A floor's heading: its name in sentence case. The arrow that closes it
+   shows on hover and while it is closed; the count only while closed. */
+body:not(.locked) .side .rgrouphead { gap: 6px; padding: 0 8px 6px; border-top: 0; color: var(--dim);
+  font-size: 13px; font-weight: 400; letter-spacing: 0; text-transform: none; line-height: 18px; }
+body:not(.locked) .side .floor > summary.rgrouphead { position: relative; }
+body:not(.locked) .side .floor > summary.rgrouphead::before { order: 9; width: auto; font-size: 10px; opacity: 0; }
+body:not(.locked) .side .floor > summary.rgrouphead:hover::before,
+body:not(.locked) .side .floor > summary.rgrouphead:focus-visible::before,
+body:not(.locked) .side .floor:not([open]) > summary.rgrouphead::before { opacity: 1; }
+body:not(.locked) .side .floor > summary.rgrouphead:hover { color: var(--txt); }
+body:not(.locked) .side .floor[open] > summary.rgrouphead .rgroupcount { display: none; }
+body:not(.locked) .side .rgrouphead .rgroupcount { font-size: 12px; color: var(--dim); }
+body:not(.locked) .side .rgrouphead .grpicon { display: none; }
+
+/* A loca: one line, the "#" (or its mark) and the name; the open one on
+   the page's paper with a bar in the brand colour. */
+body:not(.locked) .side .roomitem { min-height: 0; margin: 0 0 2px; border: 0; border-radius: 8px; }
+body:not(.locked) .side .roomitem:hover { background: color-mix(in srgb, var(--panel) 55%, transparent); }
+body:not(.locked) .side .roomitem:has(> .room.active) { background: var(--panel); box-shadow: inset 3px 0 0 var(--brand); }
+body:not(.locked) .side .room { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 9px 10px; border: 0;
+  border-radius: 8px; background: transparent; color: var(--muted); font-family: inherit; font-size: 15px; line-height: 20px; }
+body:not(.locked) .side .room:hover, body:not(.locked) .side .room.active { background: transparent; }
+body:not(.locked) .side .room .rrow { flex: 1 1 auto; min-width: 0; align-items: center; gap: 8px; }
+body:not(.locked) .side .room .rname { font-weight: 400; color: inherit; }
+body:not(.locked) .side .room .rname::before { content: "#"; margin-right: 8px; color: var(--dim); font-weight: 400; }
+body:not(.locked) .side .room .rrow > .locamark + .rname::before { content: none; }
+body:not(.locked) .side .room.active, body:not(.locked) .side .room.has-unread { color: var(--txt); }
+body:not(.locked) .side .room.active .rname, body:not(.locked) .side .room.has-unread .rname { color: var(--txt); font-weight: 600; }
+body:not(.locked) .side .room .pres, body:not(.locked) .side .room .rlast { display: none; }
+body:not(.locked) .side .room .rlastrow { flex: 0 0 auto; min-height: 0; padding: 0; gap: 0; }
+body:not(.locked) .side .room .rlastrow:not(:has(.unreadbadge)) { display: none; }
+body:not(.locked) .side .room .locamark { width: 22px; height: 22px; border-radius: 6px;
+  background: color-mix(in srgb, var(--loca-c, var(--muted)) 18%, transparent); }
+body:not(.locked) .side .room .locamark svg { width: 14px; height: 14px; }
+/* Unread: an ink pill at the row's end. */
+body:not(.locked) .side .room .unreadbadge,
+body:not(.locked) .side .floor > summary.rgrouphead .unreadbadge { min-width: 22px; height: 20px; padding: 0 8px; border-radius: 10px;
+  background: var(--txt); color: var(--panel); font-family: inherit; font-size: 12px; font-weight: 600; line-height: 20px; letter-spacing: 0; }
+/* The row's ⋯ menu is there on hover and focus, over the row's end. */
+body:not(.locked) .side .roomitem { position: relative; }
+body:not(.locked) .side .roomitem > .roomprefs { position: absolute; top: 50%; right: 6px; z-index: 1; margin: 0; transform: translateY(-50%); }
+body:not(.locked) .side .roomitem .roompreftrigger { opacity: 0; width: 26px; height: 28px; border-radius: 6px; font-size: 15px;
+  background: var(--panel); border-color: var(--line); }
+body:not(.locked) .side .roomitem:hover .roompreftrigger,
+body:not(.locked) .side .roomitem:focus-within .roompreftrigger,
+body:not(.locked) .side .roomprefs[open] .roompreftrigger { opacity: 1; }
+body:not(.locked) .side .roomprefmenu { border-radius: 10px; background: var(--panel); }
+body:not(.locked) .side .roompref { font-family: inherit; font-size: 13px; font-weight: 500; }
+body:not(.locked) .side .room.archived { opacity: .6; }
+:root[data-density="compact"] body:not(.locked) .side .room { padding-top: 6px; padding-bottom: 6px; }
+:root[data-density="spacious"] body:not(.locked) .side .room { padding-top: 12px; padding-bottom: 12px; }
+
+/* Care: violet on its own tint, a heart for its mark, its tag at the end. */
+body:not(.locked) .side .roomitem:has(> .room.special) { background: var(--iye-deep); }
+body:not(.locked) .side .room.special { margin: 0; padding: 9px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--iye); }
+body:not(.locked) .side .room.special:hover, body:not(.locked) .side .room.special.active { background: transparent; border: 0; }
+body:not(.locked) .side .roomitem:has(> .room.special.active) { box-shadow: inset 3px 0 0 var(--iye); }
+body:not(.locked) .side .room.special .rname { color: var(--iye); letter-spacing: 0; }
+body:not(.locked) .side .room.special .locamark { display: none; }
+body:not(.locked) .side .room.special .rname::before,
+body:not(.locked) .side .room.special .rrow > .locamark + .rname::before {
+  content: ""; display: inline-block; width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px; background: var(--iye);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M12 21s-7-4.5-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6c-2.5 4.5-9.5 9-9.5 9z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Cpath d='M12 21s-7-4.5-9.5-9A5.5 5.5 0 0 1 12 6a5.5 5.5 0 0 1 9.5 6c-2.5 4.5-9.5 9-9.5 9z'/%3E%3C/svg%3E") center / contain no-repeat; }
+body:not(.locked) .side .caretag { margin-left: auto; padding: 0 6px; border: 1px solid color-mix(in srgb, var(--iye) 40%, var(--iye-deep));
+  border-radius: 6px; color: var(--iye); font-size: 12px; letter-spacing: 0; text-transform: none; line-height: 18px; }
+body:not(.locked) .side .room:not(.special) .caretag { color: var(--muted); border-color: var(--line); }
+
+/* Messages: a heading like a floor's, a dot for a person, * for an agent. */
+body:not(.locked) .side .dmsection { margin-top: 18px; }
+body:not(.locked) .side .rlabel.dmhead { display: flex; align-items: center; justify-content: space-between; padding: 0 8px 6px;
+  color: var(--dim); font-size: 13px; letter-spacing: 0; line-height: 18px; }
+body:not(.locked) .side .dmnew { display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--dim); cursor: pointer; }
+body:not(.locked) .side .dmnew:hover, body:not(.locked) .side .dmnew[aria-expanded="true"] { color: var(--txt); background: color-mix(in srgb, var(--txt) 6%, transparent); }
+body:not(.locked) .side .dmpicker input { width: 100%; height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--txt); font-family: inherit; font-size: 14px; }
+body:not(.locked) .side .room.dm { padding: 8px 10px; }
+body:not(.locked) .side .room.dm .dmname { gap: 10px; }
+body:not(.locked) .side .room.dm .rname::before { content: none; }
+body:not(.locked) .side .room.dm .glyph { flex: 0 0 auto; width: 8px; text-align: center; }
+body:not(.locked) .side .room.dm .glyph:not(.agent) { height: 8px; border-radius: 50%; background: var(--human); font-size: 0; }
+body:not(.locked) .side .room.dm .glyph.agent { color: var(--agent); font: 700 13px/1 var(--font-mono); }
+body:not(.locked) .side .dmsection.empty .dmhint { padding: 2px 8px 6px; color: var(--dim); font-size: 13px; }
+body:not(.locked) .side .dmmaster { font-size: 12px; border-radius: 6px; }
+
+/* Hidden locas, a new loca and the Lobby drawer: quiet, below the list. */
+body:not(.locked) .side .hiddenlocas { padding: 8px 8px 4px; border-top: 0; }
+body:not(.locked) .side .hiddenlocas summary { color: var(--dim); font-size: 13px; letter-spacing: 0; text-transform: none; }
+body:not(.locked) .side .hiddenroom { font-size: 13px; }
+body:not(.locked) .side .newroom { gap: 6px; padding: 12px 0 4px; border-top: 0; }
+body:not(.locked) .side .newroom input { height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel); color: var(--txt); font-family: inherit; font-size: 14px; }
+body:not(.locked) .side .newroom button { width: 36px; height: 36px; padding: 0; border-radius: 8px;
+  background: var(--accent); color: var(--on-accent); font-size: 18px; font-weight: 500; }
+body:not(.locked) .side .lobby { margin: 8px -14px 0; background: transparent; border-top: 1px solid color-mix(in srgb, var(--line) 70%, var(--bg)); }
+body:not(.locked) .side .lobbyhead { padding: 0 22px 4px; }
+body:not(.locked) .side .lobbyhead .lobbytitle { color: var(--dim); font-size: 13px; font-weight: 400; letter-spacing: 0; text-transform: lowercase; }
+body:not(.locked) .side .lobbyhead .lobbytitle::first-letter { text-transform: uppercase; }
+body:not(.locked) .side .lobby #lobbyCount { color: var(--muted); font-weight: 600; }
+
+/* The signed-in person, at the foot of the sidebar. */
+body:not(.locked) .side > .whoami { order: 10; flex: 0 0 auto; padding: 8px 14px 12px; border-bottom: 0; font-size: 14px; }
+body:not(.locked) .side .whoami .profilemenu > summary { gap: 10px; padding: 6px 4px; border-radius: 8px; }
+body:not(.locked) .side .whoami .profilemenu > summary:hover,
+body:not(.locked) .side .whoami .profilemenu > summary:focus-visible { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+body:not(.locked) .side .whoami .profileidentity { gap: 10px; }
+body:not(.locked) .side .whoami .profileidentity .avatar { width: 32px; height: 32px; }
+body:not(.locked) .side .whoami summary[data-rank] .profileidentity .avatar { box-shadow: 0 0 0 2px var(--gold); }
+body:not(.locked) .side .whoami .profileidentity b { color: var(--txt); font-size: 14px; font-weight: 600; line-height: 1.3; }
+body:not(.locked) .side .whoami .profileidentity small { margin-top: 0; color: var(--muted); font-size: 12px; line-height: 1.3; }
+body:not(.locked) .side .whoami .profileidentity small.profilerank { color: var(--gold); }
+body:not(.locked) .side .whoami .profilechevron { font-size: 16px; }
+/* Opened from the foot, the sheet ends above the name (profile.js). */
+@media (min-width: 761px) {
+  .profilemenu .profilepanel { bottom: var(--profile-bottom, 10px); }
+}
+
+/* ── the loca's header ── */
+.top { column-gap: 12px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, var(--panel)); }
+:root:not([data-layout="classic"]) .top { padding: 18px 28px 0; row-gap: 6px; }
+.top .roomline { gap: 12px; }
+.top .locamark { width: 34px; height: 34px; border-radius: 9px; font-size: 16px;
+  background: color-mix(in srgb, var(--loca-c, var(--muted)) 18%, transparent); }
+.top .locamark svg { width: 20px; height: 20px; }
+/* The name: 22px, one line (its box stays under 24px tall). A loca without
+   a title reads "# id" in the monospace face; a titled one in the reading
+   face, with its id beside it. */
+:root:not([data-layout="classic"]) .top .rname { font-size: 22px; line-height: 22px; font-weight: 600; font-family: var(--font-mono); }
+:root:not([data-layout="classic"]) .top .rname.marked { font-family: inherit; }
+.main.global .top .rname, .main.dm .top .rname, .main.lobbyroom .top .rname { font-family: inherit; }
+.top .rname::before { color: var(--dim); }
+.top .roomid { flex: 0 1 auto; min-width: 0; color: var(--dim); font: 13px var(--font-mono); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.main.global .top .roomid, .main.dm .top .roomid { display: none !important; }
+.top .roomprops { gap: 8px; }
+.top .roomprops .detail, .top .roomdesc { font-size: 13px; color: var(--muted); }
+.top .pill, .top .livebadge, .top .archbadge { padding: 2px 10px; border-radius: 14px; font-size: 12px; font-weight: 600; letter-spacing: 0; }
+.top .substatus { font-size: 13px; line-height: 18px; color: var(--muted); }
+/* The controls on the right: Live as a pill, the rest 36px buttons. */
+.top .roomactions { gap: 8px; }
+.top .livebtn { height: 28px; padding: 0 12px; border-radius: 14px; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.top .leadselect { height: 36px; max-width: 200px; padding: 0 10px; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 500; }
+.top .leadkey { font-size: 13px; }
+.top .iconbtn { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--txt); }
+.top .iconbtn:hover, .top .iconbtn:focus-visible { border-color: var(--muted); color: var(--txt); }
+.top .iconbtn.on { border-color: var(--txt); background: var(--panel2); color: var(--txt); }
+.top .iconbtn.hidden { display: none; }
+.top .admintoggle svg circle { fill: var(--panel); }
+/* The views: underlined words, 22px apart. */
+:root:not([data-layout="classic"]) .top .tabs { gap: 22px; margin-top: 2px; }
+:root:not([data-layout="classic"]) .top .tab { padding: 8px 0; color: var(--muted); font-size: 14px; }
+:root:not([data-layout="classic"]) .top .tab.active { color: var(--txt); }
+/* The phone's controls; the desktop has its own. */
+.mobileinfo, .mobilenav { display: none; }
+
+/* ── the account menu and its look ── */
+.profilemenu .profilepanel { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; }
+.profilepanel .profilepanelhead { background: var(--bg); padding: 16px 16px 12px 24px; }
+.profilepanel .profilepanelhead > span { font-size: 20px; font-weight: 600; }
+.profilepanel .profilepanelhead small { font-size: 13px; color: var(--muted); }
+.profileclose { border-radius: 8px; }
+.profilenav { padding: 12px 24px 0; }
+.pnavbtn { min-height: 32px; padding: 0 12px; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 500; }
+.profilebody { gap: 0 16px; padding: 4px 24px 4px; }
+/* A section: a card with a sentence-case heading. */
+.profilepanel .psec { margin-top: 16px; padding: 18px 20px; border: 1px solid color-mix(in srgb, var(--line) 70%, var(--bg)); border-radius: 12px; background: var(--panel); }
+.profilepanel .psechead { margin: 0 0 12px; color: var(--txt); font-size: 16px; font-weight: 600; letter-spacing: 0; text-transform: none; }
+.profilepanel .psecount { color: var(--muted); font-size: 13px; }
+.profilepanel .plabel, .profilepanel .profilerename label { font-size: 14px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--txt); }
+.profilepanel .profileserver small, .profilepanel .placecard > small, .profilepanel .profilegroups > small, .profilepanel .sessioncard > small {
+  font-size: 12px; letter-spacing: 0; text-transform: none; color: var(--muted); }
+/* You: the face at 64px, the name large, the rank in its colour. */
+.profilepanel .profilehero { gap: 16px; }
+.profilepanel .profilehero .av-xl { width: 64px; height: 64px; }
+.profilepanel .profilehero .av-xl .avinitials { font-size: 22px; }
+.profilepanel .profilehero .av-xl .picon { width: 34px; height: 34px; }
+.profilepanel .phfull { font-size: 24px; font-weight: 600; }
+.profilepanel .phfull:empty + .phat { font-size: 22px; }
+.profilepanel .phat { font-size: 14px; }
+.profilepanel .phkind { font-size: 13px; color: var(--muted); }
+/* Buttons and fields: 36px, 8px corners, the reading face. */
+.profilepanel .pbtn { min-height: 36px; padding: 0 14px; border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 500; }
+.profilepanel .pbtn.small { min-height: 30px; font-size: 13px; }
+.profilepanel .pfield, .profilepanel #credentialLabel { min-height: 38px; border-radius: 8px; font-size: 14px; }
+/* Theme: each a small picture of itself, the chosen one ringed in ink. */
+.profilepanel .themeopt > span.themecard { align-items: flex-start; gap: 6px; width: auto; padding: 8px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--panel); color: var(--txt); font-size: 13px; font-weight: 500; }
+.profilepanel .themeopt:hover > span.themecard { border-color: var(--muted); }
+.profilepanel .themeopt input:checked + span.themecard { border-color: var(--txt); box-shadow: 0 0 0 1px var(--txt); color: var(--txt); background: var(--panel); }
+.profilepanel .themecard .tcpage { width: 84px; height: 46px; border-radius: 6px; }
+.profilepanel .themecard .tcname { text-align: left; font-size: 13px; }
+/* The three themes' own colours, so each card shows the theme it names
+   whatever theme is on (the older themes' are in profile.css). */
+[data-theme-sample="loca"] { --tc-bg: #f6f1e7; --tc-line: #d9cdb7; --tc-txt: #2b2620; --tc-muted: #5f5548; --tc-acc: #2b2620; }
+[data-theme-sample="calm"] { --tc-bg: #ffffff; --tc-line: #d3dad6; --tc-txt: #17201d; --tc-muted: #56615c; --tc-acc: #0f6b63; }
+[data-theme-sample="console"] { --tc-bg: #0e1215; --tc-line: #2b343b; --tc-txt: #e4eae7; --tc-muted: #939fa6; --tc-acc: #2dd4bf; }
+/* Accent: 30px circles, the chosen one ringed. */
+.profilepanel .appearanceopt > span.swatch { width: 30px; height: 30px; border-radius: 50%; }
+.profilepanel .appearanceopt input:checked + span.swatch { border: 3px solid var(--panel); box-shadow: 0 0 0 2px var(--txt); }
+.profilepanel .appearanceopt input:checked + span.swatch::after { content: none; }
+/* The other choices: chips in the reading face, each under its name. */
+.profilepanel .appearancerow { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px 0; }
+.profilepanel .appearancerow > span { padding-top: 0; color: var(--txt); font-size: 14px; font-weight: 500; }
+.profilepanel .appearancehint { grid-column: 1; font-size: 12px; color: var(--muted); }
+.profilepanel .appearanceopt > span { min-height: 32px; padding: 0 12px; border-radius: 8px; font-size: 13px; }
+.profilepanel .appearanceopt input:checked + span:not(.swatch):not(.themecard) { border-color: var(--txt); color: var(--txt);
+  background: var(--panel); box-shadow: 0 0 0 1px var(--txt); }
+.profilepanel .samplecard { border-radius: 12px; background: var(--panel); }
+.profilepanel .samplecard > small { font-size: 12px; letter-spacing: 0; text-transform: none; color: var(--muted); }
+/* Sign out: in the bad colour, a plain button. */
+.profilepanel .profilesignout { margin: 18px 24px 24px; }
+.profilepanel .profilesignout .leavebtn { min-height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  color: var(--bad); font-family: inherit; font-size: 14px; font-weight: 500; }
+.profilepanel .profilesignout .leavebtn:hover { border-color: var(--bad); }
+
+/* ── the phone ── */
+@media (max-width: 760px) {
+  /* The header: back to the locas, the loca's name over its status, info. */
+  :root:not([data-layout="classic"]) .top { min-height: 60px; padding: 8px 8px 0; column-gap: 8px; row-gap: 0; align-items: center; }
+  .top .mobiletoggle { width: 44px; height: 44px; border: 0; border-radius: 8px; background: transparent; color: var(--txt); }
+  .top .mobiletoggle:hover { background: color-mix(in srgb, var(--txt) 6%, transparent); }
+  .top .tophead { flex: 1 1 150px; gap: 0; }
+  .top .roomline { gap: 8px; }
+  .top .locamark { width: 26px; height: 26px; border-radius: 7px; }
+  .top .locamark svg { width: 16px; height: 16px; }
+  :root:not([data-layout="classic"]) .top .rname { font-size: 16px; line-height: 20px; }
+  .top .roomid { display: none; }
+  .top .substatus { font-size: 12px; line-height: 16px; }
+  .top .roomactions { gap: 6px; }
+  .top .iconbtn { width: 36px; height: 36px; }
+  .top .leadselect { height: 36px; max-width: 132px; }
+  /* First line: back, the name, info; then the controls; then the views. */
+  .top .mobileinfo { order: 1; }
+  .top .roomactions, .top .conndot { order: 2; }
+  .top .roomactions { margin-left: auto; padding-bottom: 4px; }
+  .top .conndot { margin-right: 8px; }
+  .mobileinfo { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 auto; padding: 0; border: 0; border-radius: 8px;
+    background: transparent; color: var(--txt); cursor: pointer; }
+  .mobileinfo:hover { background: color-mix(in srgb, var(--txt) 6%, transparent); }
+  .main.global .mobileinfo, .main.dm .mobileinfo { display: none; }
+  :root:not([data-layout="classic"]) .top .tabs { gap: 18px; padding: 0 6px; overflow-x: auto; }
+  :root:not([data-layout="classic"]) .top .tab { flex: 0 0 auto; padding: 10px 0; }
+  /* The four places, at the thumb. */
+  .mobilenav { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); flex: 0 0 62px; height: 62px;
+    border-top: 1px solid color-mix(in srgb, var(--line) 60%, var(--panel)); background: var(--bg); }
+  .mnavbtn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 0; padding: 0;
+    border: 0; background: transparent; color: var(--muted); font-family: inherit; font-size: 11px; line-height: 1.2; cursor: pointer; }
+  .mnavbtn:hover { color: var(--txt); }
+  .mnavglyph { font: 700 16px/18px var(--font-mono); }
+  .mnavme { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--gold); box-sizing: border-box; }
+  .main:not(.dm) .mnavbtn[data-mobile-nav="locas"], .main.dm .mnavbtn[data-mobile-nav="messages"] { color: var(--txt); font-weight: 600; }
+  /* The drawer keeps the sidebar's look at the phone's width. */
+  body:not(.locked) .side > h1 { padding: 16px 16px 14px; }
+  /* The account sheet is the whole screen, as profile.css has it. */
+  .profilemenu .profilepanel { border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+  .profilepanel .profilepanelhead { padding-left: 16px; }
+  .profilebody, .profilenav { padding-left: 14px; padding-right: 14px; }
+  .profilepanel .psec { padding: 14px 12px; }
+  .profilepanel .profilesignout { margin: 16px 14px 20px; }
+  .profilepanel .themecard .tcpage { width: 72px; height: 40px; }
+}

@@ -87,7 +87,7 @@ function personInGroupFilter(name) {
 function groupFilterHtml() {
   const groups = state.groups || [];
   if (!groups.length) return "";
-  const chips = [["all", "All"], ...groups.map(g => [g.id, g.name]), ["none", "Ground floor only"]];
+  const chips = [["all", "All floors"], ...groups.map(g => [g.id, g.name]), ["none", "Ground floor only"]];
   if (!chips.some(([v]) => v === state.groupFilter)) state.groupFilter = "all";
   return `<div class="keyfilters grpfilter" role="group" aria-label="Filter people by floor">` +
     chips.map(([v, l]) => `<button type="button" class="chip${state.groupFilter === v ? " on" : ""}" data-group-filter="${esc(v)}">${esc(l)}</button>`).join("") +
@@ -159,8 +159,8 @@ function renderGroupsPane() {
     ? groups.map(groupCardHtml).join("")
     : `<div class="bbempty">${state.groupsLoaded ? "No floors yet. Everyone is on the Ground floor." : "Loading floors…"}</div>`;
   box.innerHTML =
-    `<div class="bbhead"><b>Floors</b>` +
-    `<small>A floor's locas open only to its people. Everyone is on the Ground floor; the founder (or the Master) adds and removes people.</small></div>` +
+    `<div class="bbhead"><h2 class="bbtitle">Floors</h2>` +
+    `<small>A floor is a team: its people see its locas and nobody else does. Everyone is on the Ground floor; the founder (or the Master) adds and removes people.</small></div>` +
     form + `<div class="grpnotice" id="groupNotice" role="status">${esc(keepNotice)}</div>` +
     `<div class="grplist">${list}</div>`;
 }
