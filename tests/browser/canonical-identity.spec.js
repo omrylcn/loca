@@ -36,6 +36,8 @@ test("door credentials are masked", async ({ page }) => {
 
 test("lead picker options keep readable dark-theme contrast", async ({ page }) => {
   await page.goto("/");
+  // The default look is light now; this is about the dark theme.
+  await page.evaluate(() => applyAppearance({ theme: "dark" }));
   const colors = await page.locator("#leadSelect option").first().evaluate((option) => {
     const style = getComputedStyle(option);
     return { background: style.backgroundColor, foreground: style.color };
@@ -649,6 +651,8 @@ test("goal command, focus, optional tasks, and reminders share one human surface
   page,
   request,
 }) => {
+  // The colours checked below are the dark theme's; the default is light now.
+  await request.put("/profile/preferences", { headers: { "x-admin-token": "MASTER" }, data: { theme: "dark" } });
   const paired = await request.post("/pairings?ttl_hours=1", {
     headers: { "x-admin-token": "MASTER" },
   });

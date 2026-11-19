@@ -39,8 +39,8 @@ fn absent_keys_take_their_defaults_including_the_new_font_family() {
     assert_eq!(
         as_json(&store.principal_preferences(&ada)),
         json!({
-            "theme": "dark", "accent": "teal", "density": "comfortable",
-            "font_size": "normal", "font_family": "mono", "accent_custom": "",
+            "theme": "loca", "accent": "teal", "density": "comfortable",
+            "font_size": "normal", "font_family": "sans", "accent_custom": "",
             "layout": "bubbles", "time_format": "auto", "measure": "normal",
             "own_tint": "on", "motion": "system",
             "sound": "on", "sound_message": "off", "sound_mention": "on", "sound_dm": "on",
@@ -54,8 +54,11 @@ fn the_reading_choices_and_a_custom_accent_are_saved_and_a_bad_one_changes_nothi
     let directory = tempfile::tempdir().unwrap();
     let store = open(&directory);
     let ada = member(&store, "ada");
-    // Every theme and accent an older server accepted stays.
-    for theme in ["dark", "light"] {
+    // Every theme and accent an older server accepted stays, beside the
+    // redesign's three.
+    for theme in [
+        "dark", "light", "ember", "contrast", "paper", "night", "loca", "calm", "console",
+    ] {
         assert!(PREFERENCE_THEMES.contains(&theme));
     }
     for accent in ["teal", "blue", "violet", "amber", "rose"] {
@@ -236,4 +239,25 @@ fn a_row_saved_in_the_old_four_key_shape_loads_unchanged() {
             "sound_notice": "on", "sound_volume": "medium", "sound_background": "on"
         })
     );
+}
+
+#[test]
+fn the_redesign_themes_are_saved_and_loca_is_the_default() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = open(&directory);
+    let ada = member(&store, "ada");
+    assert_eq!(
+        PREFERENCE_THEMES[0], "loca",
+        "each list starts with its default"
+    );
+    assert_eq!(PREFERENCE_FONT_FAMILIES[0], "sans");
+    for theme in ["loca", "calm", "console"] {
+        let saved = store
+            .merge_principal_preferences(&ada, &json!({ "theme": theme }), T0)
+            .unwrap();
+        assert_eq!(as_json(&saved)["theme"], theme);
+    }
+    assert!(store
+        .merge_principal_preferences(&ada, &json!({ "theme": "neon" }), T0)
+        .is_err());
 }

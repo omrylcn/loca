@@ -513,6 +513,8 @@ function autoGrow() {
   const t = $("msg");
   t.style.height = "auto";
   t.style.height = Math.min(t.scrollHeight, window.innerHeight * 0.4) + "px";
+  // The words changed (typed, sent or put back): say again who they reach.
+  if (typeof renderAddressLine === "function") renderAddressLine();
 }
 $("msg").addEventListener("input", autoGrow);
 $("msg").addEventListener("input", updateMentionPop);

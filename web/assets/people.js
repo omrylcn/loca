@@ -287,7 +287,7 @@ function renderMembers() {
   syncSeatMenu();
   const sel = $("target");
   const cur = sel.value;
-  sel.innerHTML = `<option value="">— (wall)</option><option value="all">@all</option>`;
+  sel.innerHTML = `<option value="">Everyone (no reply asked)</option><option value="all">@all</option>`;
   for (const m of state.members) {
     if (m.name === state.name) continue;
     const o = document.createElement("option");
@@ -295,6 +295,7 @@ function renderMembers() {
   }
   if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
   if (typeof refreshSenderCards === "function") refreshSenderCards();
+  if (typeof renderAddressLine === "function") renderAddressLine();
 }
 
 function avatarColor(name) {

@@ -7,6 +7,7 @@
 <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
 <link rel="stylesheet" href="/assets/styles.css" />
 <link rel="stylesheet" href="/assets/appearance.css" />
+<link rel="stylesheet" href="/assets/themes.css" />
 <link rel="stylesheet" href="/assets/profile.css" />
 <link rel="stylesheet" href="/assets/sounds.css" />
 <link rel="stylesheet" href="/assets/ranks.css" />
@@ -14,6 +15,7 @@
 <link rel="stylesheet" href="/assets/floors.css" />
 <link rel="stylesheet" href="/assets/boardlist.css" />
 <link rel="stylesheet" href="/assets/roster.css" />
+<link rel="stylesheet" href="/assets/addressing.css" />
 <script src="/assets/theme.js"></script>
 </head>
 <body>
@@ -267,6 +269,7 @@
       <span><b>Open somewhere else.</b> <span id="evictedText"></span></span>
       <button id="evictedUse" type="button" title="Take the seat back here; the other one steps out">Use it here</button>
     </div>
+    <div class="addressline" id="addressLine" aria-live="polite">To everyone · nobody is asked to answer</div>
     <div class="composer" id="composer">
       <select id="target" title="who should reply"></select>
       <input type="file" id="attachInput" class="hidden" multiple
@@ -816,5 +819,6 @@
 <script src="/assets/keys.js"></script>
 <script src="/assets/groups.js"></script>
 <script src="/assets/notifications.js"></script>
+<script src="/assets/addressing.js"></script>
 </body>
 </html>

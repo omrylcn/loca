@@ -225,10 +225,12 @@ test("a coloured icon reads in both themes, and the panel fits a phone", async (
     const [a, b] = [lum(parse(mark)), lum(parse(bg))].sort((x, y) => y - x);
     return { mark, ratio: (a + 0.05) / (b + 0.05) };
   });
-  await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
+  await page.evaluate(() => applyAppearance({ theme: "dark" }));
   const dark = await reading();
-  await page.evaluate(() => { document.documentElement.dataset.theme = "light"; });
+  await page.evaluate(() => applyAppearance({ theme: "light" }));
   const light = await reading();
+  await page.evaluate(() => applyAppearance({ theme: "loca" }));
+  expect((await reading()).ratio).toBeGreaterThanOrEqual(3);
   expect(dark.mark).not.toBe(light.mark);
   expect(dark.ratio).toBeGreaterThanOrEqual(3);
   expect(light.ratio).toBeGreaterThanOrEqual(3);

@@ -635,14 +635,21 @@ server so it follows the person to every device. It is set from the
 choice at once and show a sample drawn with it, and it is never visible to
 anyone else.
 
+`loca` (warm paper in Loca's own colours), `calm` (white, one teal accent)
+and `console` (a refined dark) are the redesign's themes; `loca` and the
+sans face are the defaults for someone with no saved look. A saved look
+keeps the meaning it had: a field it does not name means what it meant when
+it was saved (the dark theme, the monospace face), so nobody's chosen look
+changes under them.
+
 | Field | Allowed values (default first) |
 |---|---|
-| `theme` | `dark`, `light`, `ember`, `contrast`, `paper`, `night` |
+| `theme` | `loca`, `dark`, `light`, `ember`, `contrast`, `paper`, `night`, `calm`, `console` |
 | `accent` | `teal`, `blue`, `violet`, `amber`, `rose`, `green`, `orange`, `sky`, `indigo`, `custom` |
 | `accent_custom` | `""`, or a colour written `#rrggbb` (stored lower-case) |
 | `density` | `comfortable`, `compact`, `spacious` |
 | `font_size` | `normal`, `small`, `large`, `larger` |
-| `font_family` | `mono`, `sans`, `serif` |
+| `font_family` | `sans`, `mono`, `serif` |
 | `layout` | `bubbles` (cards: others left, you right), `flat` (one column) |
 | `time_format` | `auto` (the device's clock), `h24`, `h12`, `relative` (message lines only) |
 | `measure` | `normal`, `narrow`, `wide` (how wide a message may run) |

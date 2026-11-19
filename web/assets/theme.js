@@ -5,7 +5,7 @@
 // server copy (GET /profile/preferences) once the session resolves.
 
 const APPEARANCE_CHOICES = {
-  theme: ["dark", "ember", "contrast", "night", "light", "paper"],
+  theme: ["loca", "calm", "console", "dark", "ember", "contrast", "night", "light", "paper"],
   accent: ["teal", "blue", "indigo", "violet", "rose", "orange", "amber", "green", "sky", "custom"],
   density: ["compact", "comfortable", "spacious"],
   font_size: ["small", "normal", "large", "larger"],
@@ -17,23 +17,29 @@ const APPEARANCE_CHOICES = {
   motion: ["system", "reduced"],
 };
 const APPEARANCE_DEFAULTS = {
-  theme: "dark", accent: "teal", density: "comfortable", font_size: "normal", font_family: "mono",
+  theme: "loca", accent: "teal", density: "comfortable", font_size: "normal", font_family: "sans",
   accent_custom: "", layout: "bubbles", time_format: "auto", measure: "normal", own_tint: "on",
   motion: "system",
 };
 // Themes drawn on a light page; the rest are dark.
-const LIGHT_THEMES = ["light", "paper"];
+const LIGHT_THEMES = ["loca", "calm", "light", "paper"];
 // Each theme's page and raised surface, for keeping a custom accent readable
 // (the same values as the theme's --bg and --panel2 tokens).
 const THEME_SURFACES = {
+  loca: ["#f6f1e7", "#ece4d5"], calm: ["#f7f8f6", "#eef1ee"], console: ["#0e1215", "#1b2228"],
   dark: ["#0b0e12", "#161b23"], ember: ["#16110e", "#231b16"], contrast: ["#000000", "#121212"],
   night: ["#121522", "#1b2032"], light: ["#f5f7fa", "#e9edf2"], paper: ["#f6f1e7", "#ebe3d3"],
 };
 const CUSTOM_ACCENT = /^#[0-9a-f]{6}$/;
 const APPEARANCE_CACHE_KEY = "loca-appearance";
 
-function normalizeAppearance(value) {
-  const next = { ...APPEARANCE_DEFAULTS };
+// A look cached by an older page keeps the meaning it had: a key it does not
+// name meant the default of that time, the dark theme and the monospace face
+// (as the server reads a saved row). Only no cached look takes today's.
+const SAVED_LOOK_BASELINE = { ...APPEARANCE_DEFAULTS, theme: "dark", font_family: "mono" };
+
+function normalizeAppearance(value, base = APPEARANCE_DEFAULTS) {
+  const next = { ...base };
   if (value && typeof value === "object") {
     for (const [key, allowed] of Object.entries(APPEARANCE_CHOICES)) {
       if (allowed.includes(value[key])) next[key] = value[key];
@@ -120,7 +126,8 @@ function cacheAppearance(prefs) {
 
 function cachedAppearance() {
   try {
-    return normalizeAppearance(JSON.parse(localStorage.getItem(APPEARANCE_CACHE_KEY) || "null"));
+    const cached = JSON.parse(localStorage.getItem(APPEARANCE_CACHE_KEY) || "null");
+    return normalizeAppearance(cached, cached ? SAVED_LOOK_BASELINE : APPEARANCE_DEFAULTS);
   } catch (error) {
     return { ...APPEARANCE_DEFAULTS };
   }

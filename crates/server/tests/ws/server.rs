@@ -156,6 +156,7 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("favicon.svg", "image/svg+xml", "viewBox=\"0 0 64 64\""),
         ("styles.css", "text/css", ":root"),
         ("appearance.css", "text/css", ":root[data-theme=\"paper\"]"),
+        ("themes.css", "text/css", ":root[data-theme=\"loca\"]"),
         ("profile.css", "text/css", ".profilepanel"),
         ("sounds.css", "text/css", ".soundswitch"),
         ("ranks.css", "text/css", ".rankconfirm"),
@@ -163,6 +164,7 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("floors.css", "text/css", "--floor-6"),
         ("boardlist.css", "text/css", ".boardviewswitch"),
         ("roster.css", "text/css", ".seatmenu"),
+        ("addressing.css", "text/css", ".addressline"),
         ("avatar.js", "text/javascript", "function avatarHtml("),
         ("theme.js", "text/javascript", "function applyAppearance("),
         ("state.js", "text/javascript", "const state ="),
@@ -245,6 +247,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ),
         ("sounds.js", "text/javascript", "function playSound("),
         ("roster.js", "text/javascript", "function seatRowHtml("),
+        (
+            "addressing.js",
+            "text/javascript",
+            "function renderAddressLine(",
+        ),
     ];
     for (name, content_type, marker) in assets {
         assert!(

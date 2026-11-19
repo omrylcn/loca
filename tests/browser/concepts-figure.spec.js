@@ -143,17 +143,15 @@ test("At 390 px the map fits without sideways scrolling, in every font", async (
   await page.locator("#gsMap").screenshot({ path: test.info().outputPath("map-phone.png") });
 });
 
-test("Its words have at least 4.5:1 contrast in dark and light, with every accent", async ({ page }) => {
+test("Its words have at least 4.5:1 contrast in every theme, with every accent", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1100 });
   await page.goto("/");
   await page.locator("#helpBtn").click();
   await expect(page.locator(MAP)).toBeVisible();
-  for (const theme of ["dark", "light"]) {
+  for (const theme of ["dark", "light", "loca", "calm", "console"]) {
     for (const accent of ["teal", "blue", "violet", "amber", "rose"]) {
-      await page.evaluate(([t, a]) => {
-        document.documentElement.dataset.theme = t;
-        document.documentElement.dataset.accent = a;
-      }, [theme, accent]);
+      // As theme.js applies a look: the theme with its light or dark scheme.
+      await page.evaluate(([t, a]) => applyAppearance({ theme: t, accent: a }), [theme, accent]);
       const { bg, texts, strokes, boxFills } = await mapColours(page);
       expect(texts.length).toBeGreaterThan(30);
       for (const t of texts) {
