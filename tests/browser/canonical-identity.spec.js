@@ -314,7 +314,8 @@ test("an operation the server cannot attribute is sent again only by choice, as 
   });
 
   await page.evaluate((id) => window.startReply(id), question);
-  await page.locator("#target").selectOption("all");
+  // A target as a restored draft carries it (the list is not drawn).
+  await page.evaluate(() => { document.getElementById("target").value = "all"; });
   await page.locator("#msg").fill("my answer, once");
   await page.locator("#sendBtn").click();
 
@@ -336,6 +337,8 @@ test("an operation the server cannot attribute is sent again only by choice, as 
   expect(sent[1].target).toBe("all");
   expect(sent[1].reply_to).toBe(question);
   expect(sent[1].text).toBe("my answer, once");
+  // That target was the restored draft's: the next message does not carry it.
+  await expect(page.locator("#target")).toHaveValue("");
 
   const stored = await request.get("/rooms/unclear-op/messages", { headers: { "x-room-token": token } });
   const mine = (await stored.json()).filter((message) => message.text === "my answer, once");
