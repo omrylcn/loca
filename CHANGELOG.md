@@ -22,6 +22,13 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Fixed
+
+- People: a member's three actions (Message, Suspend, Revoke) stay on one
+  line at 1280px in the sans face too. Their column was 216px, just enough
+  for the monospace face; with Loca's sans default a wider system face
+  wrapped them onto a second line on Linux.
+
 ### Added
 
 - Three new themes from the redesign, in Profile → Theme: **Loca**, warm
