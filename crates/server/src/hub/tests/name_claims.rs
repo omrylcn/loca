@@ -136,7 +136,7 @@ fn pending_pair(hub: &Hub, round: usize, left: &str, right: &str) -> (String, St
             .create_join_request(id, "secret", name, "agent", hub.now())
             .unwrap();
     }
-    hub.mint_admission_stock(2, 3_600_000);
+    hub.mint_admission_stock(2, 3_600_000, None);
     ids
 }
 

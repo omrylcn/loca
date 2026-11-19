@@ -1054,7 +1054,9 @@ pub(crate) async fn create_admission_stock_route(
         Ok(ms) => ms,
         Err(message) => return (StatusCode::BAD_REQUEST, message).into_response(),
     };
-    let (minted, total, available) = hub.mint_admission_stock(body.count, ttl_ms);
+    let minter = request_principal(&hub, &headers);
+    let (minted, total, available) =
+        hub.mint_admission_stock(body.count, ttl_ms, minter.as_deref());
     (
         StatusCode::CREATED,
         Json(serde_json::json!({ "minted": minted, "total": total, "available": available })),

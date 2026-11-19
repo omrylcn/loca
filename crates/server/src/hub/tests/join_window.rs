@@ -41,7 +41,7 @@ fn approved(path: &std::path::Path, name: &str) -> (Hub, Arc<Store>, String, Str
         .unwrap();
     let hub = hub_on(store.clone());
     TEST_NOW.store(APPROVED_AT, Ordering::Relaxed);
-    hub.mint_admission_stock(1, 3_600_000);
+    hub.mint_admission_stock(1, 3_600_000, None);
     let JoinRequestCreate::Created {
         request_id,
         request_secret,

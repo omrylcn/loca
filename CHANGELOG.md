@@ -22,6 +22,21 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Fixed
+
+- Record the rank that minted an admission right, not always the Master.
+  `POST /admission-stock` is open to a Smaster, but every right it minted
+  was stored as minted by the Master's principal, and the key ledger showed
+  every admission right as issued by "Master", so the Master could not tell
+  its own rights from a Smaster's. A right now records the principal that
+  minted it, and the ledger shows `smaster:<name>` for a Smaster's. Rights
+  minted before this fix keep the Master's name; nothing recorded who really
+  minted them.
+### Changed
+
+- Home and People no longer show the sidebar's "This Loca" tab: they belong
+  to no loca, so the tab had nothing to show; the sidebar keeps Your Locas.
+
 ## [0.19.0] - 2026-11-19
 
 ### Added

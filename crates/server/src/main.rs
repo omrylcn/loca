@@ -1238,7 +1238,8 @@ async fn admin_console_mint_stock(
         )
             .into_response();
     }
-    let (minted, total, available) = hub.mint_admission_stock(count as u32, ttl_ms);
+    // The Master desk acts as the Master.
+    let (minted, total, available) = hub.mint_admission_stock(count as u32, ttl_ms, None);
     (
         StatusCode::CREATED,
         Json(serde_json::json!({ "minted": minted, "total": total, "available": available })),
