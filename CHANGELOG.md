@@ -59,6 +59,11 @@ went wrong or who noticed:
   minted them.
 ### Changed
 
+- The message box no longer has a "who should reply" list beside it (the
+  classic layout keeps it). Calling someone is writing their @name, and the
+  @ list opens as it is typed; the line above the box says who is asked.
+  The list and an @name did the same thing, so the box looked as if a
+  mention had to be picked on the left first.
 - Home and People no longer show the sidebar's "This Loca" tab: they belong
   to no loca, so the tab had nothing to show; the sidebar keeps Your Locas.
 

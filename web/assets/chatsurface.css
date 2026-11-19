@@ -65,9 +65,9 @@ body.locainfo-on .locainfo .sideview { display: block; }
   gap: 10px; margin: 0 28px 22px; padding: 8px 10px; border-radius: 12px; background: var(--panel); }
 :root:not([data-layout="classic"]) .composer button.attach { order: 1; width: 40px; height: 40px; padding: 0;
   border: 0; border-radius: 8px; background: var(--panel2); display: grid; place-items: center; }
-:root:not([data-layout="classic"]) .composer select#target { order: 2; flex: 0 0 auto; max-width: 190px;
-  height: 30px; border: 0; border-radius: 5px; background: var(--panel2); color: var(--muted);
-  font: 600 13px var(--font-mono, var(--mono)); padding: 0 6px; }
+/* Nobody is picked from a list: an @name in the words calls someone (the
+   @ list opens as it is typed) and the address line says who is asked. */
+:root:not([data-layout="classic"]) .composer select#target { display: none; }
 :root:not([data-layout="classic"]) .composer textarea#msg { order: 3; flex: 1 1 auto; min-width: 0; width: auto;
   min-height: 40px; padding: 10px 2px; }
 :root:not([data-layout="classic"]) .composer button.send { order: 4; height: 40px; padding: 0 18px; border-radius: 8px;

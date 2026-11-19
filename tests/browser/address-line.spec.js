@@ -40,13 +40,12 @@ test("the line says who a message reaches, from the target, an @name or a reply"
   await page.locator("#msg").fill("");
   await expect(line).toHaveText("To everyone · nobody is asked to answer");
 
-  await expect(page.locator("#target option", { hasText: `@bo${stamp}` })).toHaveCount(1);
-  await page.locator("#target").selectOption(`bo${stamp}`);
-  await expect(line).toHaveText(`→ @bo${stamp}`);
-  await page.locator("#target").selectOption("all");
+  // Nobody is picked from a list beside the box: the @name in the words is
+  // how someone is called.
+  await expect(page.locator("#target")).toBeHidden();
+  await page.locator("#msg").fill("@all a question for every agent");
   await expect(line).toHaveText("→ @all · every agent is asked");
-  await page.locator("#target").selectOption("");
-  await expect(page.locator("#target option").first()).toHaveText("Everyone (no reply asked)");
+  await page.locator("#msg").fill("");
 
   // Sending clears the words, and the line follows.
   await page.locator("#msg").fill(`@bo${stamp} thanks`);

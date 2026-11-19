@@ -391,6 +391,9 @@ async function sendFrom(box) {
   const room = state.room;
   const replyTo = box ? box.replyTo : state.replyTo;
   const target = box ? null : ($("target").value || null);
+  // Where the list is not drawn (the redesign), a target exists only for the
+  // one send it was restored for: it never sticks to the next message.
+  if (!box && target && !$("target").offsetParent) $("target").value = "";
   const opId = sameRestoredOperation(room, text, replyTo, target)
     ? restoredSendOperation.payload.op_id
     : (globalThis.crypto?.randomUUID?.()
