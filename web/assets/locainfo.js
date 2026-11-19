@@ -1,19 +1,15 @@
 "use strict";
-// Loca info beside the chat. In the redesign themes (Loca, Calm, Console) on
-// a screen wide enough for three columns, This Loca — who answers for the
+// Loca info beside the chat. On a screen wide enough for three columns, This Loca — who answers for the
 // loca, who is at the table, calling someone in — stands on the right of the
 // chat instead of behind the sidebar's second tab, and the sidebar keeps
 // Your Locas. It is the same panel (the same elements, moved), so everything
-// that draws or reads it keeps working; narrower screens and the other
-// themes keep the two sidebar tabs.
+// that draws or reads it keeps working; narrower screens keep the two
+// sidebar tabs.
 
 const LOCA_INFO_WIDE = window.matchMedia("(min-width: 1400px)");
-const LOCA_INFO_THEMES = ["loca", "calm", "console"];
 
 function locaInfoWanted() {
-  return LOCA_INFO_WIDE.matches
-    && LOCA_INFO_THEMES.includes(document.documentElement.dataset.theme)
-    && !!state.room && !isDm(state.room);
+  return LOCA_INFO_WIDE.matches && !!state.room && !isDm(state.room);
 }
 
 function placeLocaInfo() {

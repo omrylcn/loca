@@ -1,10 +1,9 @@
 const { test, expect } = require("@playwright/test");
 const { provisionRooms } = require("./support/building");
 
-// The redesign themes draw each message with its writer's face on the left
+// Every theme draws each message with its writer's face on the left
 // (an agent's * on a square, a person's initials on a circle) and its address
-// as "→ @name" in front of the words. The other themes keep their bubbles and
-// draw no face.
+// as "→ @name" in front of the words.
 
 const MASTER = { "x-admin-token": "MASTER" };
 const ROOM = "chat-rows";
@@ -27,7 +26,7 @@ async function masterPage(browser, request) {
   return page;
 }
 
-test("each message wears its writer's face and its address in the redesign themes", async ({ browser, request }) => {
+test("each message wears its writer's face and its address, in every theme", async ({ browser, request }) => {
   await provisionRooms(request, [ROOM]);
   const page = await masterPage(browser, request);
   await page.evaluate(() => applyAppearance({ theme: "loca" }));
@@ -52,17 +51,18 @@ test("each message wears its writer's face and its address in the redesign theme
   expect(Math.abs(a.x - p.x)).toBeLessThan(1);
   expect(a.width).toBeCloseTo(36, 0);
 
-  // Another theme keeps its bubbles: no face, no arrow.
+  // Every theme reads this way: the older Dark too, which many saved
+  // looks still name.
   await page.evaluate(() => applyAppearance({ theme: "dark" }));
-  await expect(agentRow.locator(".face")).toBeHidden();
-  expect(await addr.evaluate(el => getComputedStyle(el, "::before").content)).toBe("none");
+  await expect(agentRow.locator(".face")).toBeVisible();
+  expect(await addr.evaluate(el => getComputedStyle(el, "::before").content)).toBe('"→ "');
   await page.close();
 });
 
 // On a wide screen in the redesign themes, This Loca stands on the right of
 // the chat and the sidebar keeps Your Locas; narrower, or in another theme,
 // it goes back behind the sidebar's second tab.
-test("This Loca stands beside the chat on a wide screen in the redesign themes", async ({ browser, request }) => {
+test("This Loca stands beside the chat on a wide screen, in every theme", async ({ browser, request }) => {
   await provisionRooms(request, [ROOM]);
   const page = await masterPage(browser, request);
   await page.evaluate(() => applyAppearance({ theme: "loca" }));
@@ -85,10 +85,10 @@ test("This Loca stands beside the chat on a wide screen in the redesign themes",
   await page.locator("#sideLocaTab").click();
   await expect(page.locator("#sideLocaView")).toBeVisible();
 
-  // Wide again, but another theme: the sidebar keeps it.
+  // Wide again, in the older Dark theme: beside the chat as well.
   await page.setViewportSize({ width: 1500, height: 900 });
   await page.evaluate(() => applyAppearance({ theme: "dark" }));
-  await expect(panel).toBeHidden();
-  await expect(page.locator("#sidebar #sideLocaView")).toHaveCount(1);
+  await expect(panel).toBeVisible();
+  await expect(panel.locator("#sideLocaView")).toHaveCount(1);
   await page.close();
 });

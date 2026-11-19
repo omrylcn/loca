@@ -523,6 +523,7 @@ function onFrame(f, from) {
   else if (f.t === "typing") { onTyping(f.name, f.on); }
   else if (f.t === "task") {
     state.tasks[f.task.id] = f.task;
+    noteLiveFrame("tasks", f.task);
     refreshTaskView(f.task);
     // The board, and the counts Focus shows of it.
     renderTasks();
@@ -532,6 +533,7 @@ function onFrame(f, from) {
   else if (f.t === "goal") {
     const previous = state.goals[f.goal.id];
     state.goals[f.goal.id] = f.goal;
+    noteLiveFrame("goals", f.goal);
     markLocaContextReady("goals");
     const receipt = goalChatReceipt(previous, f.goal);
     if (receipt) addSys(receipt);

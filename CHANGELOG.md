@@ -24,6 +24,10 @@ went wrong or who noticed:
 
 ### Fixed
 
+- A task (or goal) created while the page was reading the task list no
+  longer vanishes from the Loca Board until a reload: the older answer used
+  to replace the list and wipe the newer live update.
+
 - The Loca, Calm and Console themes name their sans face (Segoe UI, the
   Apple face, then Liberation Sans or Arial) instead of system-ui, which on
   Linux is whatever the machine says: DejaVu Sans is wide enough to wrap
@@ -33,6 +37,13 @@ went wrong or who noticed:
   line at 1280px in the sans face too. Their column was 216px, just enough
   for the monospace face; with Loca's sans default a wider system face
   wrapped them onto a second line on Linux.
+
+### Changed
+
+- The redesigned chat — faces on the left, "→ @name", the tabs on their own
+  line and This Loca on the right of a wide screen — is now in every theme,
+  not only Loca, Calm and Console: a saved Dark (or any older) look reads the
+  same way in its own colours.
 
 ### Added
 

@@ -10,9 +10,19 @@ async function fetchJournal() {
   } catch (e) { /* offline; the WS frame will fill it in */ }
 }
 
+// Live task and goal frames that arrive while a read of the lists is on its
+// way. The read's answer is older than they are, so they are laid over it
+// instead of being wiped by it.
+const liveDuringRead = new Set();
+function noteLiveFrame(kind, item) {
+  for (const live of liveDuringRead) live[kind][item.id] = item;
+}
+
 async function fetchTasks() {
   const room = state.room;
   if (!room) return;
+  const live = { tasks: {}, goals: {} };
+  liveDuringRead.add(live);
   try {
     // Goals are Focus's and tasks the Loca Board's; attentions and waits are
     // care and stay on in every loca.
@@ -34,13 +44,18 @@ async function fetchTasks() {
     if (state.room !== room) return;
     state.tasks = {};
     for (const t of list) state.tasks[t.id] = t;
+    Object.assign(state.tasks, live.tasks);
     state.goals = {};
     for (const goal of goals) state.goals[goal.id] = goal;
+    Object.assign(state.goals, live.goals);
     state.attentions = {};
     for (const attention of attentions) state.attentions[attention.id] = attention;
     state.waits = {};
     for (const wait of waits) state.waits[wait.waiter] = wait;
-  } catch (e) {}
+  } catch (e) {
+  } finally {
+    liveDuringRead.delete(live);
+  }
   if (state.room !== room) return;
   markLocaContextReady("goals", room);
   refreshTaskBadges();
