@@ -62,6 +62,7 @@ docs/protocol-frames.json
 docs/protocol.md
 docs/public-contributions.md
 docs/release-protocol.md
+docs/screens
 docs/security.md
 docs/self-host.md
 docs/troubleshooting.md
