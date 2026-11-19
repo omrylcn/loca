@@ -262,6 +262,9 @@ pub(super) fn require_home_rule(rooms: &HashMap<String, Room>, home: &str) {
 /// `ROOM_RENAME` runs before the hub exists, so it asks the store which
 /// locas there are. Read only when the variable is set.
 pub fn require_rename_rule(store: &Store, from: &str, to: &str) {
+    if to.eq_ignore_ascii_case(crate::hub::LOBBY_ROOM) {
+        panic!("ROOM_RENAME refused: '{to}' is the Building's Lobby room");
+    }
     let existing: Vec<String> = store
         .load()
         .expect("persistent room state is unreadable; refusing to start")
@@ -272,6 +275,25 @@ pub fn require_rename_rule(store: &Store, from: &str, to: &str) {
         panic!(
             "ROOM_RENAME refused: '{to}' cannot be a new loca id: {}",
             error.message()
+        );
+    }
+}
+
+/// A loca named `lobby` opened before the Lobby room existed (v0.18 and
+/// earlier accepted the name) would become the Lobby on upgrade: its
+/// history readable by every member, its Operator moderating the whole
+/// Building. Refuse to start until it has a new id. Run after `ROOM_RENAME`,
+/// so `ROOM_RENAME=lobby:<new>` is the way through.
+pub fn require_no_legacy_lobby(store: &Store) {
+    let found = store
+        .legacy_loca_records(crate::hub::LOBBY_ROOM)
+        .expect("persistent room state is unreadable; refusing to start");
+    if !found.is_empty() {
+        panic!(
+            "a loca named 'lobby' from before the Lobby room exists (it has {}); \
+             it would become the Building's Lobby and every member could read it. \
+             Start once with ROOM_RENAME=lobby:<new-id> to give it a new id",
+            found.join(", ")
         );
     }
 }

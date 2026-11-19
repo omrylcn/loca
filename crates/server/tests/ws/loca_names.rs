@@ -444,3 +444,110 @@ async fn the_sandbox_answers_an_invite_to_a_refused_name_with_the_rule() {
         "a name the rule takes still opens: {status} {body}"
     );
 }
+
+/// v0.18 and earlier accepted the name `lobby`. On upgrade such a loca would
+/// become the Building's Lobby room: every member could read it and its
+/// Operator would moderate the whole Building. The server refuses to start
+/// until `ROOM_RENAME=lobby:<new>` gives it a new id, and no rename may take
+/// the Lobby's id.
+#[tokio::test]
+async fn a_loca_named_lobby_from_before_the_lobby_room_must_be_renamed() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("legacy-lobby.db");
+    let (port, guard) = closed_building(&db, &[]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let (status, body) = create(&base, "oldlobby").await;
+    assert_eq!(status, 201, "{body}");
+    let (status, body) = send(
+        reqwest::Method::POST,
+        format!("{base}/members"),
+        ADMIN,
+        Some(serde_json::json!({ "name": "alice", "kind": "user" })),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+    let (status, body) = send(
+        reqwest::Method::POST,
+        format!("{base}/rooms/oldlobby/invites"),
+        ADMIN,
+        Some(serde_json::json!({ "name": "alice" })),
+    )
+    .await;
+    assert!((200..300).contains(&status), "{body}");
+    let (status, body) = send(
+        reqwest::Method::POST,
+        format!("{base}/rooms/oldlobby/messages"),
+        ADMIN,
+        Some(serde_json::json!({ "sender": "master", "sender_type": "user", "text": "PRIVATE plan" })),
+    )
+    .await;
+    assert!((200..300).contains(&status), "{body}");
+    drop(guard);
+    wait_for_server_shutdown(port).await;
+
+    // What an older server left behind: that loca under the id `lobby`.
+    {
+        let c = rusqlite::Connection::open(&db).unwrap();
+        let tables: Vec<String> = c
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        for table in tables {
+            let has_room = c
+                .prepare(&format!(
+                    "SELECT 1 FROM pragma_table_info('{table}') WHERE name = 'room'"
+                ))
+                .unwrap()
+                .exists([])
+                .unwrap();
+            if has_room {
+                c.execute(
+                    &format!("UPDATE {table} SET room = 'lobby' WHERE room = 'oldlobby'"),
+                    [],
+                )
+                .unwrap();
+            }
+        }
+    }
+
+    let env = |extra: Option<&str>| {
+        let mut env = vec![
+            ("DB_PATH", db.to_str().unwrap().to_string()),
+            ("REQUIRE_INVITE", "1".to_string()),
+        ];
+        if let Some(rename) = extra {
+            env.push(("ROOM_RENAME", rename.to_string()));
+        }
+        env
+    };
+    let out = refuses_to_start(&env(None)).await;
+    assert!(out.contains("ROOM_RENAME=lobby:"), "{out}");
+    let out = refuses_to_start(&env(Some("lobby:Lobby"))).await;
+    assert!(out.contains("Lobby room"), "{out}");
+
+    // Renamed, it starts; the loca keeps its words under the new id and the
+    // Lobby room starts empty.
+    let (port, _guard) = closed_building(&db, &[("ROOM_RENAME", "lobby:old-lobby".into())]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let (status, body) = send(
+        reqwest::Method::GET,
+        format!("{base}/rooms/old-lobby/messages"),
+        ADMIN,
+        None,
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(body.to_string().contains("PRIVATE plan"), "{body}");
+    let (status, body) = send(
+        reqwest::Method::GET,
+        format!("{base}/rooms/lobby/messages"),
+        ADMIN,
+        None,
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(!body.to_string().contains("PRIVATE plan"), "{body}");
+}

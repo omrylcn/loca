@@ -191,7 +191,13 @@ pub(crate) async fn post_message(
         None if sess.is_some() => {
             return (StatusCode::UNAUTHORIZED, "invalid session token").into_response();
         }
-        None if hub.require_sessions() => {
+        // The Lobby holds the whole Building: a name chosen in the body would
+        // let one member speak as another there, and its ban, mute and rate
+        // limit are keyed on that name. It always takes a session, except
+        // from a rank's own key (the rank is who the key proves).
+        None if hub.require_sessions()
+            || (hub.is_lobby_room(&id) && !is_admin_req(&hub, &headers)) =>
+        {
             return (
                 StatusCode::UNAUTHORIZED,
                 "session token required (POST /sessions)",

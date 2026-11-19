@@ -87,7 +87,37 @@ fn rename_in_care_signal(signal: &mut protocol::CareSignal, from: &str, to: &str
     changed
 }
 
+/// Records the Lobby room can never hold (it takes no invitations, no
+/// Operator, no group and carries no extensions). One of them under the id
+/// `lobby` is a loca of that name from before the Lobby existed.
+const LEGACY_LOBBY_EVIDENCE: &[&str] = &[
+    "invites",
+    "room_operator_assignments",
+    "group_rooms",
+    "notes",
+    "tasks",
+    "goals",
+    "loca_vault",
+    "loca_wiki_pages",
+];
+
 impl Store {
+    /// The tables that show a loca was once opened under `room` as an
+    /// ordinary loca (see [`LEGACY_LOBBY_EVIDENCE`]); empty in memory mode.
+    pub fn legacy_loca_records(&self, room: &str) -> rusqlite::Result<Vec<&'static str>> {
+        let Some(c) = self.conn() else {
+            return Ok(Vec::new());
+        };
+        let mut found = Vec::new();
+        for table in LEGACY_LOBBY_EVIDENCE {
+            let sql = format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE room = ?1)");
+            if c.query_row(&sql, params![room], |row| row.get::<_, bool>(0))? {
+                found.push(*table);
+            }
+        }
+        Ok(found)
+    }
+
     /// Atomically move every durable record from one loca name to another.
     /// Re-running after a successful migration is a no-op; merging two
     /// existing locas is refused because their histories must never blur.
