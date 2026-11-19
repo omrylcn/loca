@@ -1,0 +1,57 @@
+/* ── the chat transcript in the redesign themes (Loca, Calm, Console) ────
+   Every message is a row with its writer's face on the left: the writer's
+   own avatar, or an agent's * on a blue square and a person's initials on
+   a green circle. No bubbles; your own messages sit on the left like the
+   rest, marked by your name. A message's address reads "→ @name" in front
+   of the words. Other themes keep their bubbles: the face is not drawn. */
+
+.row > .face { display: none; }
+.av-md { width: 36px; height: 36px; }
+.av-md .picon { width: 20px; height: 20px; }
+.av-md .avinitials { font-size: 12px; font-weight: 600; }
+
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .feed { gap: 0; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row { justify-content: flex-start; gap: 12px; padding: 8px 4px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row.mine { justify-content: flex-start; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row > .face { display: block; flex: 0 0 36px; padding-top: 2px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row > .face .avatar { margin: 0; vertical-align: top; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .face-agent { background: color-mix(in srgb, var(--agent) 12%, var(--panel)); border: 1.5px solid color-mix(in srgb, var(--agent) 38%, transparent); color: var(--agent); font: 700 18px var(--mono); }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .face-person { background: color-mix(in srgb, var(--human) 10%, var(--panel)); border: 1.5px solid color-mix(in srgb, var(--human) 38%, transparent); color: var(--human); }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .bubble, :root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row.mine .bubble { flex: 1 1 auto; width: auto; max-width: 100%; background: transparent; border: 0; border-radius: 0; padding: 0; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .bubble.mentioned { box-shadow: none; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row.mentioned:not(.mine) { background: color-mix(in srgb, var(--agent) 6%, transparent); border-radius: 10px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row.pinned-source .bubble { box-shadow: none; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row.pinned-source { box-shadow: inset 3px 0 0 var(--iye); border-radius: 4px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row.locareminder .bubble { background: transparent; border: 0; box-shadow: none; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row.locareminder { background: color-mix(in srgb, var(--warn) 8%, transparent); border-radius: 10px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .line { gap: 8px; margin-bottom: 3px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .line .glyph { display: none; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .line .sender { font-size: 15px; font-weight: 600; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .sender.user, :root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .row.mine .sender { color: var(--txt); }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .line .time { margin-left: 0; padding-left: 0; font: 12px var(--mono); color: var(--dim); }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .body.chatmarkdown { font-size: 15px; line-height: 1.55; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .bubble .mention.addr { font: 600 13px var(--mono); color: var(--agent); background: color-mix(in srgb, var(--agent) 11%, transparent); border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .bubble .mention.addr::before { content: "→ "; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .typing { height: auto; min-height: 20px; padding: 2px 28px 2px 76px; font-size: 13px; font-style: normal; color: var(--dim); }
+
+/* The loca's header: its name and state on the first line, the views on a
+   second line of underlined tabs that never has to scroll. */
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .top { height: auto; flex: 0 0 auto; flex-wrap: wrap; padding: 14px 24px 0; row-gap: 4px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .tophead { flex: 1 1 260px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .roomactions { margin-left: auto; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .top .rname { font-size: 18px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .tabs { order: 5; flex: 1 0 100%; width: 100%; margin-left: 0; background: transparent; border: 0;
+  border-radius: 0; padding: 0; gap: 20px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .tab { padding: 8px 0 9px; border-radius: 0; font: inherit; font-size: 14px; line-height: 16px; }
+:root:is([data-theme="loca"], [data-theme="calm"], [data-theme="console"]) .tab.active { background: transparent; box-shadow: inset 0 -2px 0 var(--txt); color: var(--txt); font-weight: 600; }
+
+/* ── Loca info beside the chat (locainfo.js) ─────────────────────────────
+   Three columns on a wide screen in the redesign themes: the sidebar with
+   Your Locas, the chat, and This Loca on the right. */
+.locainfo { display: none; }
+body.locainfo-on { grid-template-columns: 300px minmax(0, 1fr) 300px; }
+body.locainfo-on .locainfo { display: block; grid-column: 3; grid-row: 1 / -1; height: 100vh;
+  overflow-y: auto; background: var(--bg); border-left: 1px solid var(--line); padding: 16px 14px;
+  box-sizing: border-box; }
+body.locainfo-on .side .sideviewtabs { display: none; }
+body.locainfo-on .locainfo .sideview { display: block; }

@@ -454,6 +454,9 @@ function onFrame(f, from) {
   }
   else if (f.t === "msg") {
     const mine = f.message.sender === state.name;
+    // A message is the end of its sender's typing: "replying…" gives way to
+    // the reply at once, not seconds later.
+    if (typers.has(f.message.sender)) onTyping(f.message.sender, false);
     const mid = Number(f.message.id || 0);
     // Native notification only for a message addressed to me (not reactions or
     // ordinary chatter); the desktop shell suppresses it while focused.

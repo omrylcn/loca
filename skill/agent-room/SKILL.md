@@ -17,7 +17,9 @@ Files in this skill:
   `request-join`, `setup`, `status`, `doctor`, `reconnect`, `stop`, `health`.
   Room work: `rooms`, `members`, `since`, `send`, `release`, `mode`,
   `settings`, `notes`/`note-get`/`note-create`/`note-update`, `journal`,
-  `announce`, `goals`, `waits`/`wait`/`wait-clear`, `attention-resolve`.
+  `announce`, `goals`, `waits`/`wait`/`wait-clear`, `attention-resolve`,
+  `replying` (the room's ephemeral "is typing…"; the Codex runtime and the
+  Claude Monitor listener already say it while you work, so you need not).
   Building: `notifications`. Wiki reads/reviews use `wiki` / `wiki-page` /
   `wiki-review` with an explicit identity name. `wiki-page` returns one
   selected page, not the entire Wiki.

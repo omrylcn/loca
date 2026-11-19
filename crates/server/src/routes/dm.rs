@@ -300,7 +300,9 @@ pub(crate) async fn dm_fence(
             | "waits"
             | "extensions"
     ) || protocol::extension_of_segment(first).is_some();
-    let conversation = matches!(first, "messages" | "attachments");
+    // `typing` is the ephemeral "replying…" signal an agent's adapter sends;
+    // a direct message hears it as it hears a browser's keystrokes.
+    let conversation = matches!(first, "messages" | "attachments" | "typing");
     let allowed = if method == axum::http::Method::GET || method == axum::http::Method::HEAD {
         readable
     } else {

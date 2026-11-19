@@ -165,6 +165,7 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("boardlist.css", "text/css", ".boardviewswitch"),
         ("roster.css", "text/css", ".seatmenu"),
         ("addressing.css", "text/css", ".addressline"),
+        ("chatsurface.css", "text/css", ".row > .face"),
         ("avatar.js", "text/javascript", "function avatarHtml("),
         ("theme.js", "text/javascript", "function applyAppearance("),
         ("state.js", "text/javascript", "const state ="),
@@ -252,6 +253,7 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
             "text/javascript",
             "function renderAddressLine(",
         ),
+        ("locainfo.js", "text/javascript", "function placeLocaInfo("),
     ];
     for (name, content_type, marker) in assets {
         assert!(

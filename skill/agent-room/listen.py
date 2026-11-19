@@ -26,6 +26,7 @@ import ssl
 import struct
 import sys
 import threading
+import weakref
 import time
 import urllib.request
 import uuid
@@ -804,6 +805,21 @@ def connect(url, protocols=None):
     return s, buf.split(b"\r\n\r\n", 1)[1]
 
 
+# One writer at a time per socket: the reading thread answers pings while the
+# "replying" thread may send a typing frame; interleaved bytes would corrupt
+# the stream.
+_SEND_LOCKS = weakref.WeakKeyDictionary()
+_SEND_LOCKS_GUARD = threading.Lock()
+
+
+def send_lock_for(s):
+    with _SEND_LOCKS_GUARD:
+        lock = _SEND_LOCKS.get(s)
+        if lock is None:
+            lock = _SEND_LOCKS[s] = threading.Lock()
+        return lock
+
+
 def send_control_frame(s, opcode, payload=b""):
     """Send one masked client control frame (pong/close)."""
     payload = bytes(payload)
@@ -811,7 +827,77 @@ def send_control_frame(s, opcode, payload=b""):
         raise ValueError("WebSocket control payload is too large")
     mask = os.urandom(4)
     masked = bytes(value ^ mask[index % 4] for index, value in enumerate(payload))
-    s.sendall(bytes([0x80 | opcode, 0x80 | len(payload)]) + mask + masked)
+    with send_lock_for(s):
+        s.sendall(bytes([0x80 | opcode, 0x80 | len(payload)]) + mask + masked)
+
+
+def send_text_frame(s, text):
+    """Send one masked client text frame (small JSON control messages)."""
+    payload = text.encode("utf-8")
+    if len(payload) > 125:
+        raise ValueError("text frame is larger than this listener sends")
+    mask = os.urandom(4)
+    masked = bytes(value ^ mask[index % 4] for index, value in enumerate(payload))
+    with send_lock_for(s):
+        s.sendall(bytes([0x81, 0x80 | len(payload)]) + mask + masked)
+
+
+# A Claude Monitor session has no adapter that knows when its model turn
+# ends, so its listener says "replying" from the moment it hands the session a
+# turn that asks for an answer until the agent's own message reaches the room,
+# or REPLYING_MAX_SECONDS pass. The room forgets a typing signal after about
+# four seconds, so "on" is repeated every REPLYING_REFRESH_SECONDS.
+REPLYING_REFRESH_SECONDS = 3.0
+REPLYING_MAX_SECONDS = 90.0
+REPLYING_PRIORITIES = ("direct_user", "addressed_agent")
+
+
+class ReplyingPulse:
+    """Which rooms should hear "replying" now. ``tick`` returns the signals
+    to send as (room, on) pairs; it holds no socket and never blocks."""
+
+    def __init__(self, refresh=REPLYING_REFRESH_SECONDS, limit=REPLYING_MAX_SECONDS):
+        self.refresh = refresh
+        self.limit = limit
+        self.until = {}
+        self.next_at = {}
+        self.after = {}
+        self.lock = threading.Lock()
+
+    def start(self, room, now, after_id=0):
+        with self.lock:
+            self.until[room] = now + self.limit
+            self.next_at.setdefault(room, now)
+            # The answer is a message of the agent's after this id.
+            self.after[room] = max(int(after_id or 0), self.after.get(room, 0))
+
+    def owed(self):
+        """{room: message id the agent's answer must come after}."""
+        with self.lock:
+            return {
+                room: self.after.get(room, 0)
+                for room, until in self.until.items()
+                if until != float("-inf")
+            }
+
+    def stop(self, room):
+        with self.lock:
+            if room in self.until:
+                self.until[room] = float("-inf")
+
+    def tick(self, now):
+        signals = []
+        with self.lock:
+            for room in sorted(self.until):
+                if now >= self.until[room]:
+                    del self.until[room]
+                    self.next_at.pop(room, None)
+                    self.after.pop(room, None)
+                    signals.append((room, False))
+                elif now >= self.next_at.get(room, now):
+                    self.next_at[room] = now + self.refresh
+                    signals.append((room, True))
+        return signals
 
 
 def frames(s, leftover=b"", on_activity=None):
@@ -1202,6 +1288,33 @@ def backfill_pages(url, last_id, skip_own, is_lead=False):
             return
 
 
+def own_message_since(url, after_id, name):
+    """Whether ``name`` has posted in the WS ``url``'s room after
+    ``after_id``. A mentions-filtered socket never echoes the agent's own
+    message, so the "replying" signal asks REST. Any failure answers False."""
+    u = urlparse(url)
+    room = parse_qs(u.query).get("room", ["general"])[0]
+    scheme = "https" if u.scheme == "wss" else "http"
+    rest = f"{scheme}://{u.hostname}:{u.port or (443 if u.scheme == 'wss' else 80)}"
+    params = urlencode({"since": int(after_id or 0), "limit": 50})
+    req = urllib.request.Request(f"{rest}/rooms/{quote(room, safe='')}/messages?{params}")
+    token = token_for_room(room)
+    if token:
+        req.add_header("x-room-token", token)
+    if session_for_room(room):
+        req.add_header("x-session-token", session_for_room(room))
+    try:
+        with urllib.request.urlopen(req, timeout=5) as response:
+            messages = json.loads(response.read().decode())
+    except Exception:
+        return False
+    return isinstance(messages, list) and any(
+        isinstance(m, dict)
+        and str(m.get("sender") or "").casefold() == name.casefold()
+        for m in messages
+    )
+
+
 def runtime_turn_max(url, settings=None):
     """Mirror the server's bounded turn size for reconnect deliveries."""
     query = parse_qs(urlparse(url).query)
@@ -1440,6 +1553,12 @@ def main():
     # notice owed to the agent's next turn there (see VAULT_CHANGED).
     vault_known = {}
     vault_owed = {}
+    # Claude Monitor only (stdout is the session): which rooms hear
+    # "replying", and each live room socket with its send lock.
+    replying = ReplyingPulse() if sink is None else None
+    room_sockets = {}
+    room_urls = {}
+    room_sockets_lock = threading.Lock()
     if membership:
         # Separate scope and cursor: a Building id must never advance a chat
         # watermark or be relayed as an invented room message.
@@ -1579,6 +1698,13 @@ def main():
                         {k: v for k, v in event.items() if k != "notification_context"},
                         event.get("notification_context"),
                     )
+                    if (
+                        replying is not None
+                        and delivery["priority"] in REPLYING_PRIORITIES
+                    ):
+                        replying.start(
+                            room, time.monotonic(), delivery.get("last_id") or 0
+                        )
                 if turn_sink is not None:
                     turn_sink.write(json.dumps(delivery, ensure_ascii=False) + "\n")
                 durable_flush((sink, turn_sink))
@@ -1657,6 +1783,9 @@ def main():
             refused = False
             try:
                 s, leftover = connect(wurl, room_protocols(room))
+                with room_sockets_lock:
+                    room_sockets[room] = s
+                    room_urls[room] = wurl
                 if runtime_health is not None:
                     runtime_health.connected()
                 # A live handshake means the (possibly renewed) session works;
@@ -1821,6 +1950,13 @@ def main():
                             if t == "msg"
                             else f.get("messages", [])
                         )
+                        if replying is not None and any(
+                            isinstance(message, dict)
+                            and str(message.get("sender") or "").casefold()
+                            == requested_name.casefold()
+                            for message in incoming
+                        ):
+                            replying.stop(room)
                         # Lead assignment/removal is an announce. Refresh before
                         # local filtering so a newly named lead immediately
                         # hears the whole room, and a replaced lead immediately
@@ -1889,6 +2025,9 @@ def main():
                 else:
                     sys.stderr.write(f"[{room}] reconnect after error: {e}\n"); sys.stderr.flush()
             finally:
+                with room_sockets_lock:
+                    if room_sockets.get(room) is s:
+                        room_sockets.pop(room, None)
                 if s is not None and runtime_health is not None:
                     runtime_health.disconnected()
                 if s is not None:
@@ -1912,6 +2051,36 @@ def main():
             else:
                 refused_streak = 0
                 time.sleep(2)
+
+    def replying_loop():
+        """Send the "replying" signals ReplyingPulse asks for. A failed send
+        is dropped: the hint is ephemeral and the socket loop owns errors."""
+        checked_at = {}
+        while True:
+            time.sleep(0.5)
+            now = time.monotonic()
+            for room, after_id in replying.owed().items():
+                if now < checked_at.get(room, 0):
+                    continue
+                checked_at[room] = now + REPLYING_REFRESH_SECONDS
+                with room_sockets_lock:
+                    room_url = room_urls.get(room)
+                if room_url and own_message_since(room_url, after_id, requested_name):
+                    replying.stop(room)
+            for room, on in replying.tick(time.monotonic()):
+                if not on:
+                    checked_at.pop(room, None)
+                with room_sockets_lock:
+                    sock = room_sockets.get(room)
+                if sock is None:
+                    continue
+                try:
+                    send_text_frame(sock, json.dumps({"t": "typing", "on": on}))
+                except (OSError, ValueError):
+                    pass
+
+    if replying is not None:
+        threading.Thread(target=replying_loop, daemon=True).start()
 
     active = {}
     active_lock = threading.Lock()

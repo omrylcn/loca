@@ -311,7 +311,8 @@ function addMsg(m) {
   }
   let source = m.text;
   // In a direct message every word is to the other side; saying so on each line is noise.
-  if (m.target && m.target !== "all" && !isDm(m.room) && !m.text.includes("@" + m.target)) {
+  const addressed = !!(m.target && m.target !== "all" && !isDm(m.room) && !m.text.includes("@" + m.target));
+  if (addressed) {
     source = `@${m.target} ${source}`;
   }
   const txt = renderChatMarkdown(source);
@@ -324,6 +325,7 @@ function addMsg(m) {
       </div>`
     : "";
   row.innerHTML = `
+    <span class="face" data-writer="${esc(m.sender_principal || "")}" data-sender="${esc(m.sender)}" data-kind="${esc(m.sender_type || "")}" aria-hidden="true">${faceHtml(m.sender, m.sender_type, m.sender_principal)}</span>
     <div class="bubble${mentionsMe && !mine ? " mentioned" : ""}">
       <div class="line">
         <span class="glyph ${m.sender_type}">${glyph}</span>
@@ -335,6 +337,9 @@ function addMsg(m) {
       ${m.id ? reactionHtml(m.id) : ""}
     </div>${acts}
     ${m.id && !mine ? `<div class="reactionpicker hidden" data-picker="${m.id}">${locaReactionSet.map(emoji => `<button type="button" data-react="${m.id}" data-emoji="${emoji}">${emoji}</button>`).join("")}</div>` : ""}`;
+  // The target the client wrote in front of the words is the address, not
+  // part of what was said: the redesign themes draw it as "→ @name".
+  if (addressed) row.querySelector(".body .mention")?.classList.add("addr");
   if (m.kind === "reminder") {
     const reminderAt = Number(m.ts || 0);
     const newer = Array.from($("feed").querySelectorAll(".row[data-ts]"))
@@ -562,10 +567,23 @@ function senderCardHtml(writer) {
   return avatarHtml(card, card.name, "xs") + (card.full_name ? `<bdi class="fullname">${esc(card.full_name)}</bdi>` : "");
 }
 
+// The face at the head of a message: the writer's own avatar when their card
+// has one; otherwise an agent's * on a square and a person's initials on a
+// circle. Display only, like the card (the @name is who someone is).
+function faceHtml(sender, kind, writer) {
+  const card = writer && typeof personCardById === "function" ? personCardById(writer) : null;
+  if (cardHasAvatar(card)) return avatarHtml(card, sender, "md");
+  if (kind === "agent") return `<span class="avatar av-md av-rounded face-agent">*</span>`;
+  return `<span class="avatar av-md av-circle face-person"><span class="avinitials">${esc(avatarInitials(card?.full_name, sender))}</span></span>`;
+}
+
 // The roster or a directory changed: redraw the cards already in the feed.
 function refreshSenderCards() {
   for (const el of document.querySelectorAll("#feed .sendercard[data-writer]")) {
     el.innerHTML = senderCardHtml(el.dataset.writer);
+  }
+  for (const el of document.querySelectorAll("#feed .face[data-sender]")) {
+    el.innerHTML = faceHtml(el.dataset.sender, el.dataset.kind, el.dataset.writer);
   }
 }
 

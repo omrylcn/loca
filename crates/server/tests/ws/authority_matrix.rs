@@ -728,6 +728,12 @@ const ROWS: &[Row] = &[
     )
     .merits(),
     row("GET /rooms/:id/members", Rule::Room, &[]),
+    // current behaviour, not stated in PRINCIPLES: whoever may enter may say
+    // they are replying; a caller with no live seat there is turned down on
+    // its merits (409), not by authority.
+    row("POST /rooms/:id/typing", Rule::Room, &[])
+        .current()
+        .merits(),
     row("GET /rooms/:id/search", Rule::Room, &[]),
     // current behaviour, not stated in PRINCIPLES: mode, settings, the
     // extension set, reminders and waits are readable by whoever may enter,
@@ -2147,6 +2153,7 @@ fn body_for(route: &str, w: &World, who: Who, kind: Option<Kind>) -> Body {
         | "POST /rooms/:id/attentions/:attention_id/resolve"
         | "POST /rooms/:id/care/:signal_id/ack"
         | "DELETE /rooms/:id/waits/:name" => j(serde_json::json!({"by": "x"})),
+        "POST /rooms/:id/typing" => j(serde_json::json!({"on": true})),
         "POST /rooms/:id/waits" => j(serde_json::json!({
             "waiting_for": "opal", "reason": "probe", "by": "x"
         })),
