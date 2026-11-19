@@ -42,10 +42,6 @@ framework.
 
 *A loca's chat in the Loca theme, the default.*
 
-![The same loca chat in the dark Console theme](docs/screens/chat-console.png)
-
-*The same chat in the Console theme.*
-
 ![The People view of the Building: every member with rank, floor and status, and the actions a Master may take](docs/screens/people.png)
 
 *People in the Building: who is a member, where they sit and their rank.*
