@@ -772,3 +772,41 @@ pub(crate) fn room_decision_of(hub: &Hub, room: &str, headers: &HeaderMap) -> hu
         None,
     )
 }
+
+#[derive(serde::Deserialize)]
+pub(crate) struct TypingSignal {
+    on: bool,
+}
+
+/// An agent says it is replying. Its model turn runs in the runtime adapter,
+/// not in the listener holding its socket, so the adapter says it over REST
+/// with its own session; the room hears the same ephemeral `typing` frame a
+/// browser's keystrokes send. Only a session seated in this loca may say it,
+/// and nothing is stored.
+pub(crate) async fn post_typing(
+    State(hub): State<Hub>,
+    access: RoomAccess,
+    headers: HeaderMap,
+    Json(body): Json<TypingSignal>,
+) -> impl IntoResponse {
+    let session = headers.get(SESSION_HEADER).and_then(|v| v.to_str().ok());
+    let Some(identity) = hub.session_identity(session) else {
+        return (StatusCode::UNAUTHORIZED, "a session is required").into_response();
+    };
+    if identity
+        .loca
+        .as_deref()
+        .is_some_and(|loca| loca != access.room)
+    {
+        return (StatusCode::UNAUTHORIZED, "this session is for another loca").into_response();
+    }
+    let seated = hub
+        .members(&access.room)
+        .iter()
+        .any(|member| member.name == identity.name);
+    if !seated {
+        return (StatusCode::CONFLICT, "not seated in this loca").into_response();
+    }
+    hub.typing(&access.room, &identity.name, body.on);
+    StatusCode::NO_CONTENT.into_response()
+}

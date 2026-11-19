@@ -185,7 +185,8 @@ function setSidebarView(view, focus = false) {
   state.sidebarView = selected;
   const building = selected === "building";
   $("sideBuildingView").classList.toggle("hidden", !building);
-  $("sideLocaView").classList.toggle("hidden", building);
+  // Beside the chat (locainfo.js) This Loca is always shown.
+  $("sideLocaView").classList.toggle("hidden", building && !document.body.classList.contains("locainfo-on"));
   for (const [button, active] of [
     [$("sideBuildingTab"), building],
     [$("sideLocaTab"), !building],
@@ -204,6 +205,7 @@ function sidebarLifecycle() {
 }
 
 function renderLocaSidebar() {
+  if (typeof placeLocaInfo === "function") placeLocaInfo();
   const tab = $("sideLocaTab");
   // A private conversation is not a loca: it has no operator, lead, roles or
   // extensions to show, and its id is nobody's business on screen.

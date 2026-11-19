@@ -1547,6 +1547,8 @@ const CORE_LOCA_SEGMENTS: &[&str] = &[
     "release",
     "search",
     "settings",
+    // An agent runtime's ephemeral "replying" signal: chat, not an extension.
+    "typing",
     "waits",
 ];
 

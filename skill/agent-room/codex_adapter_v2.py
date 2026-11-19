@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -30,6 +31,9 @@ MAX_CONTEXT_MESSAGES = 20
 MAX_GOAL_CONTEXT_CHARS = 640
 NO_REPLY_SENTINEL = "LOCA_NO_REPLY"
 NOTIFICATION_CONTEXT_CHARS = 12_000
+# The room forgets a typing signal after about four seconds, so a running
+# turn repeats "replying" a little sooner than that.
+REPLYING_REFRESH_MS = 3_000
 
 
 def bounded_value(value: Any, limit: int) -> str:
@@ -451,6 +455,37 @@ class ConnectShRelay:
             raise RuntimeError("send receipt does not identify this relay's accepted message")
 
 
+class ConnectShReplying:
+    """Say "replying" (or stop saying it) through ``connect.sh replying``.
+
+    Fire and forget: a background thread runs the call so a slow or absent
+    server never holds up a model turn, and a refusal is not retried."""
+
+    def __init__(self, connect_sh: Path):
+        self.connect_sh = connect_sh
+
+    def send(self, server: str, room: str, identity: str, on: bool) -> None:
+        subprocess.run(
+            [
+                str(self.connect_sh),
+                "replying",
+                server,
+                room,
+                identity,
+                "on" if on else "off",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=10,
+            check=False,
+        )
+
+    def __call__(self, server: str, room: str, identity: str, on: bool) -> None:
+        threading.Thread(
+            target=self.send, args=(server, room, identity, on), daemon=True
+        ).start()
+
+
 class ContextProvider:
     def __init__(self, connect_sh: Path, identity: str = ""):
         self.connect_sh = connect_sh
@@ -607,8 +642,12 @@ class PersistentCodexAdapter:
         replay_existing: bool = False,
         app_server_factory: Callable[[str, float], AppServer] = AppServer,
         notification_cache: Path | None = None,
+        replying: Callable[[str, str, str, bool], None] | None = None,
     ):
         self.store = store
+        self.replying = replying
+        # (server, room) -> when to say "replying" again while a turn runs.
+        self.replying_refresh_at: dict[tuple[str, str], int] = {}
         self.notification_cache = notification_cache
         self.inbox = inbox
         self.identity = identity
@@ -1746,6 +1785,7 @@ class PersistentCodexAdapter:
             relayed += self.process_relays()
         # A cycle with no dispatch still has to advance retryable output.
         relayed += self.process_relays()
+        self.pulse_replying()
         self.refresh_progress_health()
         save_health(self.health_file, self.health)
         return {
@@ -1755,6 +1795,32 @@ class PersistentCodexAdapter:
             "relayed": relayed,
             "dispatched": dispatched,
         }
+
+    def pulse_replying(self) -> None:
+        """Say "replying" in each room with a running turn, again every
+        ``REPLYING_REFRESH_MS``, and stop saying it once the turn ends. Only a
+        live adapter speaks to the room; a failed signal is dropped."""
+        if self.replying is None or self.relay_mode != "live":
+            return
+        running = {
+            self.thread_scopes[thread_id]
+            for thread_id in self.active_turns
+            if thread_id in self.thread_scopes
+        }
+        now = wall_time_ms()
+        signals: list[tuple[tuple[str, str], bool]] = []
+        for scope in sorted(running):
+            if now >= self.replying_refresh_at.get(scope, 0):
+                self.replying_refresh_at[scope] = now + REPLYING_REFRESH_MS
+                signals.append((scope, True))
+        for scope in sorted(set(self.replying_refresh_at) - running):
+            del self.replying_refresh_at[scope]
+            signals.append((scope, False))
+        for (server, room), on in signals:
+            try:
+                self.replying(server, room, self.identity, on)
+            except Exception:  # noqa: BLE001 - a typing hint never fails a turn
+                pass
 
     def close(self) -> None:
         try:
@@ -1813,6 +1879,7 @@ def main() -> int:
         sandbox=args.sandbox,
         replay_existing=args.replay_existing,
         notification_cache=args.notification_cache,
+        replying=ConnectShReplying(args.connect_sh),
     )
     try:
         adapter.initialize()

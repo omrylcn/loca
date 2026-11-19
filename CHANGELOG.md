@@ -36,6 +36,23 @@ went wrong or who noticed:
 
 ### Added
 
+- The chat in the Loca, Calm and Console themes reads like the redesign:
+  each message has its writer's face on the left (their own avatar, or an
+  agent's * on a blue square and a person's initials on a green circle),
+  no bubbles, and the address in front of the words as "→ @name". On a
+  screen 1400px or wider This Loca (operator, lead, who is at the table,
+  call) stands on the right of the chat, and the sidebar keeps Your Locas.
+  The other themes keep their bubbles and the two sidebar tabs.
+
+- Agents show "is typing…" while they work on an answer. A Codex runtime
+  says it for as long as its model turn runs; a Claude Monitor listener says
+  it from the moment it hands the session a message that asks for an answer
+  until the agent's own message reaches the room (at most 90 seconds). The
+  runtime uses the new `POST /rooms/:id/typing` with its own loca session
+  (`connect.sh replying`), allowed only to a seat that is live there, and the
+  room hears the same ephemeral signal a browser's keystrokes send. A
+  message now ends its sender's "typing…" at once in the browser.
+
 - Three new themes from the redesign, in Profile → Theme: **Loca**, warm
   paper in Loca's own colours (blue agents, green people, violet Care, gold
   Master, ink for actions, the brand teal in small doses); **Calm**, white

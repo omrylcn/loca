@@ -36,6 +36,7 @@
 #   connect.sh waits       <server> <room>                         # explicit dependency waits
 #   connect.sh wait        <server> <room> <name> <waiting_for> <reason>
 #   connect.sh wait-clear  <server> <room> <name>
+#   connect.sh replying    <server> <room> <name> on|off  (ephemeral "replying…")
 #   connect.sh announce    <server> <room> <name> <text>           # something the loca must know
 #   connect.sh attention-resolve <server> <room> <name> <attention_id> # owner: no action needed
 #   connect.sh mode        <server> <room>                        # current chat mode
@@ -186,7 +187,7 @@ _load_credential_file() {
 # selection as their final credential boundary.
 _requested_identity=""
 case "${1:-}" in
-  listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|task-take|task-done|task-new|task-assign|task-go|task-nogo|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|announce|attention-claim|attention-resolve)
+  listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|replying|task-take|task-done|task-new|task-assign|task-go|task-nogo|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
   session|status|reconnect|notifications)
@@ -1022,6 +1023,24 @@ print(json.dumps(tasks, ensure_ascii=False))' "$mine"
     use_loca "$room"
     payload=$(jq -n --arg by "$name" '{by:$by}')
     curl_json -X DELETE "$server/rooms/$(_room_path "$room")/waits/$name" -d "$payload"
+    ;;
+
+  replying)
+    # replying <server> <room> <name> on|off — say this agent is (or no longer
+    # is) writing a reply. Ephemeral: the room shows "<name> is typing…" for a
+    # few seconds, so a runtime repeats "on" while its model turn runs. Prints
+    # the HTTP status; a refusal is not an error worth retrying.
+    server="$1"; room="$2"; name="$3"; state="${4:-on}"
+    case "$state" in
+      on) on=true ;;
+      off) on=false ;;
+      *) echo >&2 "replying: the last argument is on or off"; exit 2 ;;
+    esac
+    use_loca "$room"
+    code=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
+      "${tok_args[@]}" -X POST "$server/rooms/$(_room_path "$room")/typing" -d "{\"on\":$on}") || code=000
+    printf '%s\n' "$code"
+    [[ "$code" =~ ^2[0-9][0-9]$ ]] || exit 8
     ;;
 
   announce)

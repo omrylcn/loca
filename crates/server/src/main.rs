@@ -122,7 +122,9 @@ const WEB_GROUPS: &str = include_str!("../../../web/assets/groups.js");
 const WEB_KIT_VERSION: &str = include_str!("../../../web/assets/kitversion.js");
 const WEB_ROSTER: &str = include_str!("../../../web/assets/roster.js");
 const WEB_ADDRESSING: &str = include_str!("../../../web/assets/addressing.js");
+const WEB_LOCAINFO: &str = include_str!("../../../web/assets/locainfo.js");
 const WEB_ADDRESSING_STYLES: &str = include_str!("../../../web/assets/addressing.css");
+const WEB_CHATSURFACE_STYLES: &str = include_str!("../../../web/assets/chatsurface.css");
 const WEB_NOTIFICATIONS: &str = include_str!("../../../web/assets/notifications.js");
 const WEB_SOUNDS: &str = include_str!("../../../web/assets/sounds.js");
 const PRINCIPLES_TR: &str = include_str!("../../../PRINCIPLES.tr.md");
@@ -569,6 +571,7 @@ async fn main() {
             axum::routing::post(set_reaction),
         )
         .route("/rooms/{id}/members", get(get_members))
+        .route("/rooms/{id}/typing", axum::routing::post(post_typing))
         .route("/rooms/{id}/mode", get(get_mode).put(set_mode))
         .route("/rooms/{id}/lead", axum::routing::post(set_lead))
         .route(
@@ -879,7 +882,9 @@ async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "kitversion.js" => Some(("text/javascript; charset=utf-8", WEB_KIT_VERSION)),
         "roster.js" => Some(("text/javascript; charset=utf-8", WEB_ROSTER)),
         "addressing.js" => Some(("text/javascript; charset=utf-8", WEB_ADDRESSING)),
+        "locainfo.js" => Some(("text/javascript; charset=utf-8", WEB_LOCAINFO)),
         "addressing.css" => Some(("text/css; charset=utf-8", WEB_ADDRESSING_STYLES)),
+        "chatsurface.css" => Some(("text/css; charset=utf-8", WEB_CHATSURFACE_STYLES)),
         "notifications.js" => Some(("text/javascript; charset=utf-8", WEB_NOTIFICATIONS)),
         "sounds.js" => Some(("text/javascript; charset=utf-8", WEB_SOUNDS)),
         _ => None,

@@ -364,7 +364,10 @@ addressing only says who is invited to answer.
   uses it.
 - **Loca product:** chat modes (`free`, `restricted`, `round-robin`, `paused`;
   frame `mode`), rate limits, mute and ban (`mod`), reactions (`reaction`),
-  attachments, typing (`typing`), the direct message rule that every word is
+  attachments, typing (`typing`; an agent's runtime, whose model turn runs
+  apart from the socket, says it with `POST /rooms/:id/typing {"on": bool}`
+  and its own loca session, only while it holds a live seat there, and the
+  room hears the same ephemeral frame), the direct message rule that every word is
   addressed to the other side, and the rule that an agent posting
   `target: "all"` while naming people loses the `all` target (its `@name`s
   still address).

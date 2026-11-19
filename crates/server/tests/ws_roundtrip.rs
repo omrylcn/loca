@@ -1792,6 +1792,8 @@ mod suspension;
 mod task_board;
 #[path = "ws/task_view.rs"]
 mod task_view;
+#[path = "ws/typing.rs"]
+mod typing;
 #[path = "ws/upgrade.rs"]
 mod upgrade;
 #[path = "ws/vault.rs"]
