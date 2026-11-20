@@ -68,6 +68,14 @@ pub(crate) fn socket_sees_nothing(
     !exists || private == Some(hub::EnterDecision::Denied)
 }
 
+/// Header carrying the admin token for admin-only actions.
+pub(crate) const ADMIN_HEADER: &str = "x-admin-token";
+/// Header carrying the room (join) token.
+pub(crate) const ROOM_HEADER: &str = "x-room-token";
+/// Header carrying a session token (server-derived identity).
+pub(crate) const SESSION_HEADER: &str = "x-session-token";
+/// Header carrying a one-use master-browser pairing code.
+pub(crate) const PAIRING_HEADER: &str = "x-pairing-code";
 pub(crate) fn valid_identity_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     !bytes.is_empty()

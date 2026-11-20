@@ -242,7 +242,7 @@ def do_onboard(server, name, state_file, env_path):
         say("server must be an http(s) origin without a path")
         return 2
     if not NAME_RE.match(name):
-        say("name must be 1-64 ASCII letters, digits, dot, dash, or underscore")
+        say("name must be 1-64 ASCII letters, digits, dot, dash, or underscore, starting with a letter or digit")
         return 2
 
     # Step A — already onboarded? Verify the LOCAL env against /whoami (name +
@@ -460,7 +460,7 @@ def claim_key(server, name, invite, state_file, env_path):
         say("server must be an http(s) origin without a path")
         return 2
     if not NAME_RE.match(name):
-        say("name must be 1-64 ASCII letters, digits, dot, dash, or underscore")
+        say("name must be 1-64 ASCII letters, digits, dot, dash, or underscore, starting with a letter or digit")
         return 2
     if not invite or any(c.isspace() for c in invite):
         say("an invite is required on stdin")

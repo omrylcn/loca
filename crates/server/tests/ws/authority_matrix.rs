@@ -1214,6 +1214,23 @@ fn app_routes() -> Vec<String> {
     parse_routes(&chain)
 }
 
+/// The public router's routes as `(METHOD, /path)`, sorted and unique: the
+/// one reader of `router.rs` the other tests share (principles.rs,
+/// hidden_locas.rs), so a change in how the router is written is taught in
+/// one place.
+pub(super) fn served_routes() -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = app_routes()
+        .into_iter()
+        .map(|route| {
+            let (method, path) = route.split_once(' ').expect("METHOD /path");
+            (method.to_string(), path.to_string())
+        })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// The public router is composed whole in `router.rs` (`router(hub)`), and
 /// `main.rs` serves it without adding a path: between taking it and serving
 /// it there is no route, no second router and no other way to add paths.

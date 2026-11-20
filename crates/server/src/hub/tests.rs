@@ -540,6 +540,9 @@ fn display_names_are_labels_never_titles() {
         "two words",
         "ömer",
         "a@b",
+        "_ops",
+        ".dot",
+        "-dash",
         "x".repeat(65).as_str(),
     ] {
         assert_eq!(

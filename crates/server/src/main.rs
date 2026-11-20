@@ -45,14 +45,6 @@ use protocol::{
 use routes::*;
 use ws::*;
 
-/// Header carrying the admin token for admin-only actions.
-const ADMIN_HEADER: &str = "x-admin-token";
-/// Header carrying the room (join) token.
-const ROOM_HEADER: &str = "x-room-token";
-/// Header carrying a session token (server-derived identity).
-const SESSION_HEADER: &str = "x-session-token";
-/// Header carrying a one-use master-browser pairing code.
-const PAIRING_HEADER: &str = "x-pairing-code";
 fn env_u32(key: &str, default: u32) -> u32 {
     std::env::var(key)
         .ok()

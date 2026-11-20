@@ -1443,60 +1443,12 @@ fn routes_of(room: &str) -> Vec<(&'static str, reqwest::Method, String, Option<V
         .collect()
 }
 
-/// The (method, path) pairs registered on the public router in `router.rs`,
-/// read from its source: every `.route("path", <method>(...)...)` between
-/// `Router::new()` and the `extension_fence` layer that wraps them.
-/// The router cannot be enumerated from outside the binary, so its source is
-/// the smallest honest place to read it from.
-fn registered_routes(router_rs: &str) -> BTreeSet<(String, String)> {
-    // Only literal `.route(` calls before the first layer are read below; a
-    // `.merge`/`.nest`/fallback or a second router anywhere in the served
-    // chain, or a route after the first layer, must fail rather than add
-    // paths this list never sees.
-    super::authority_matrix::assert_public_router_plain();
-    let start = router_rs
-        .find("Router::new()")
-        .expect("router.rs builds the router with Router::new()");
-    let end = start
-        + router_rs[start..]
-            .find("extension_fence")
-            .expect("the extension fence wraps the main router");
-    let mut rest = &router_rs[start..end];
-    let mut out = BTreeSet::new();
-    while let Some(at) = rest.find(".route(") {
-        let args = &rest[at + ".route(".len()..];
-        let mut depth = 1;
-        let close = args
-            .char_indices()
-            .find(|&(_, c)| {
-                match c {
-                    '(' => depth += 1,
-                    ')' => depth -= 1,
-                    _ => {}
-                }
-                depth == 0
-            })
-            .map(|(i, _)| i)
-            .expect("balanced .route(...)");
-        let call = &args[..close];
-        let open = call.find('"').expect("route path literal");
-        let len = call[open + 1..].find('"').unwrap();
-        let path = &call[open + 1..open + 1 + len];
-        let chain = &call[open + 1 + len + 1..];
-        for method in ["get", "post", "put", "patch", "delete"] {
-            for (pos, _) in chain.match_indices(&format!("{method}(")) {
-                let before = chain[..pos].chars().last();
-                if before.is_none_or(|c| !(c.is_alphanumeric() || c == '_')) {
-                    out.insert((
-                        method.to_uppercase(),
-                        super::authority_matrix::colon_path(path),
-                    ));
-                }
-            }
-        }
-        rest = &args[close..];
-    }
-    out
+/// The (method, path) pairs registered on the public router in `router.rs`
+/// (read once, by `authority_matrix::served_routes`).
+fn registered_routes() -> BTreeSet<(String, String)> {
+    super::authority_matrix::served_routes()
+        .into_iter()
+        .collect()
 }
 
 /// The extension that owns each `/rooms/:id/<segment>`, as the registry
@@ -1567,7 +1519,7 @@ fn loca_segment(path: &str) -> Option<&str> {
 #[test]
 fn every_loca_route_is_claimed_by_an_extension_or_core() {
     let claimed = fence_segments();
-    let registered = registered_routes(super::authority_matrix::ROUTER_RS);
+    let registered = registered_routes();
     let served: BTreeSet<&str> = registered
         .iter()
         .filter_map(|(_, path)| loca_segment(path))
@@ -1610,15 +1562,14 @@ fn every_loca_route_is_claimed_by_an_extension_or_core() {
 #[test]
 fn every_fenced_route_is_in_the_matrix() {
     let segments = fence_segments();
-    let registered: BTreeSet<(String, String)> =
-        registered_routes(super::authority_matrix::ROUTER_RS)
-            .into_iter()
-            .filter(|(_, path)| {
-                path.strip_prefix("/rooms/:id/")
-                    .and_then(|tail| tail.split('/').next())
-                    .is_some_and(|segment| segments.contains_key(segment))
-            })
-            .collect();
+    let registered: BTreeSet<(String, String)> = registered_routes()
+        .into_iter()
+        .filter(|(_, path)| {
+            path.strip_prefix("/rooms/:id/")
+                .and_then(|tail| tail.split('/').next())
+                .is_some_and(|segment| segments.contains_key(segment))
+        })
+        .collect();
     let mut matrix = BTreeSet::new();
     for (ext, method, template, _) in route_matrix() {
         if ext == "live" {

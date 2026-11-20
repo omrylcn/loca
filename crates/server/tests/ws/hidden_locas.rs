@@ -13,38 +13,15 @@
 use super::*;
 
 const ROOT: &str = "hidden-root-credential";
-const ROUTER_RS: &str = include_str!("../../src/router.rs");
 
 /// Every `/rooms/:id…` route the router serves, as `(METHOD, path)`, read
-/// from the `Router::new()` chain so a new route is covered as it lands.
+/// from the router (`authority_matrix::served_routes`) so a new route is
+/// covered as it lands.
 fn loca_routes() -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for chunk in ROUTER_RS.split(".route(").skip(1) {
-        let chunk = chunk.split(".route_layer(").next().unwrap();
-        let Some(start) = chunk.find('"') else {
-            continue;
-        };
-        let rest = &chunk[start + 1..];
-        let path = &super::authority_matrix::colon_path(&rest[..rest.find('"').unwrap()]);
-        if path != "/rooms/:id" && !path.starts_with("/rooms/:id/") {
-            continue;
-        }
-        let bytes = chunk.as_bytes();
-        for method in ["get", "post", "put", "delete", "patch"] {
-            let needle = format!("{method}(");
-            let mut from = 0;
-            while let Some(at) = chunk[from..].find(&needle) {
-                let at = from + at;
-                let before = at.checked_sub(1).map(|i| bytes[i]);
-                if !before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') {
-                    out.push((method.to_uppercase(), path.to_string()));
-                }
-                from = at + needle.len();
-            }
-        }
-    }
-    out.sort();
-    out.dedup();
+    let out: Vec<(String, String)> = super::authority_matrix::served_routes()
+        .into_iter()
+        .filter(|(_, path)| path == "/rooms/:id" || path.starts_with("/rooms/:id/"))
+        .collect();
     // A reader that matches nothing would pass every test below vacuously
     // (the router's path syntax changed once under it).
     assert!(
