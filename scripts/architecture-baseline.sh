@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+command -v rg >/dev/null || { echo "architecture-baseline.sh needs ripgrep (rg); without it every count would read 0" >&2; exit 1; }
+
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 
@@ -28,7 +30,7 @@ for file in "${files[@]}"; do
 done
 
 production_unwraps="$(
-  (rg -o '\.unwrap\(\)' crates/server/src -g '*.rs' || true) \
+  (rg -o '\.unwrap\(\)' crates/server/src -g '*.rs' -g '!tests.rs' -g '!tests/**' || true) \
     | wc -l \
     | tr -d ' '
 )"

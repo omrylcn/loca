@@ -1,6 +1,6 @@
 //! HTTP ownership boundary.
 //!
-//! `main.rs` composes the router and shared state; these modules own request
+//! `router.rs` composes the router and `main.rs` the shared state; these modules own request
 //! extraction, authorization decisions, and domain-specific HTTP handlers.
 
 mod access;
@@ -99,3 +99,15 @@ pub(crate) use work::{
     clear_wait, create_goal, create_task, get_task, list_goals, list_tasks, list_waits, set_wait,
     update_goal, update_task,
 };
+
+/// A hub answer this route does not expect (a variant its call cannot
+/// produce today). Logged and answered 500 instead of panicking the request,
+/// so a later change in the hub cannot turn one into a crash.
+pub(crate) fn unexpected_answer(what: &'static str) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    tracing::error!(
+        what,
+        "the hub answered with a variant this route does not expect"
+    );
+    axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response()
+}

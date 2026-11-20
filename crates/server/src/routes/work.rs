@@ -197,7 +197,7 @@ pub(crate) async fn create_goal(
             "could not save goal — try again",
         )
             .into_response(),
-        Err(GoalError::NotFound) => unreachable!(),
+        Err(GoalError::NotFound) => unexpected_answer("create goal"),
     }
 }
 pub(crate) async fn update_goal(
@@ -316,7 +316,7 @@ pub(crate) async fn set_wait(
             "could not save wait — try again",
         )
             .into_response(),
-        Err(WaitError::NotFound) => unreachable!(),
+        Err(WaitError::NotFound) => unexpected_answer("set wait"),
     }
 }
 pub(crate) async fn clear_wait(
@@ -351,6 +351,6 @@ pub(crate) async fn clear_wait(
             "could not clear wait — try again",
         )
             .into_response(),
-        Err(WaitError::SelfWait) => unreachable!(),
+        Err(WaitError::SelfWait) => unexpected_answer("clear wait"),
     }
 }

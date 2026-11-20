@@ -681,7 +681,7 @@ const RESERVED_NAMES: &[&str] = &[
 
 /// Words that address a message instead of naming a person: a `target` of
 /// `all`, or `@all` in the text, calls everyone at the table (`msg_addresses`
-/// in main.rs). Somebody named so could never be addressed alone, so no door
+/// in ws.rs). Somebody named so could never be addressed alone, so no door
 /// admits a new name that is one of these, in any letter case. The admission
 /// doors' refusal names the word (`ADDRESS_WORD_RULE`).
 const ADDRESS_WORDS: &[&str] = &["all"];
@@ -1228,19 +1228,15 @@ pub enum JoinRequestCreate {
     BacklogFull,
 }
 
-/// Does this text call everyone with `@all`, as a whole word in any letter
-/// case? The same words the mentions filter reads (`msg_addresses`).
-pub(crate) fn text_calls_all(text: &str) -> bool {
-    text.to_lowercase()
-        .split(|c: char| !(c.is_alphanumeric() || c == '@' || c == '-' || c == '_'))
-        .any(|token| token == "@all")
-}
-
-/// Does this text address specific people with `@name`, and not everyone with
-/// `@all`? Names are the identity-name characters (letters, digits, `-`, `_`,
-/// `.`); an `@` inside a word (an e-mail address) is not a mention.
-pub(crate) fn names_people_but_not_all(text: &str) -> bool {
-    let mut named = false;
+/// The names a text calls with `@name`, lowercased, in the order written.
+/// This is the one mention grammar of the server (the agent kit mirrors it,
+/// and `docs/mention-cases.json` pins it for both): a name is the
+/// identity-name characters (letters, digits, `-`, `_`, `.`) after an `@`
+/// that does not sit inside a word (an e-mail address is not a mention);
+/// a trailing `.` or `-` is punctuation, so `@ayse.` calls `ayse` and
+/// `@ops.bot` calls `ops.bot`. `all` is returned like any other name.
+pub(crate) fn mentioned_names(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
     let mut prev: Option<char> = None;
     let chars: Vec<char> = text.chars().collect();
     let mut i = 0;
@@ -1256,11 +1252,8 @@ pub(crate) fn names_people_but_not_all(text: &str) -> bool {
             }
             let name: String = chars[start..end].iter().collect();
             let name = name.trim_end_matches(['.', '-']);
-            if name.eq_ignore_ascii_case("all") {
-                return false;
-            }
             if !name.is_empty() {
-                named = true;
+                names.push(name.to_lowercase());
             }
             i = end;
             prev = chars.get(end.saturating_sub(1)).copied();
@@ -1269,7 +1262,20 @@ pub(crate) fn names_people_but_not_all(text: &str) -> bool {
         prev = Some(c);
         i += 1;
     }
-    named
+    names
+}
+
+/// Does this text call everyone with `@all`, as a whole word in any letter
+/// case? The same grammar the mentions filter reads (`mentioned_names`).
+pub(crate) fn text_calls_all(text: &str) -> bool {
+    mentioned_names(text).iter().any(|name| name == "all")
+}
+
+/// Does this text address specific people with `@name`, and not everyone with
+/// `@all`? (`mentioned_names`.)
+pub(crate) fn names_people_but_not_all(text: &str) -> bool {
+    let names = mentioned_names(text);
+    !names.is_empty() && !names.iter().any(|name| name == "all")
 }
 
 #[cfg(test)]

@@ -1,0 +1,19 @@
+{
+  "about": "The mention grammar: which names a message's words call with @name. The server (crates/server/src/hub.rs mentioned_names) and the agent kit (skill/agent-room/listen_addressing.py mentions) are both tested against these cases. Names come back lowercased, in the order written.",
+  "cases": [
+    {"text": "@ayse can you look?", "names": ["ayse"]},
+    {"text": "ok @Mithrandir.", "names": ["mithrandir"]},
+    {"text": "@ops.bot review this", "names": ["ops.bot"]},
+    {"text": "ping @ops.bot.", "names": ["ops.bot"]},
+    {"text": "@build-1, @x_y and @Z", "names": ["build-1", "x_y", "z"]},
+    {"text": "(@ayse) and @mehmet's turn", "names": ["ayse", "mehmet"]},
+    {"text": "@all please look", "names": ["all"]},
+    {"text": "@all.bot is a name, not everyone", "names": ["all.bot"]},
+    {"text": "mail me at omer@example.com", "names": []},
+    {"text": "a.@b is inside a word", "names": []},
+    {"text": "@ alone", "names": []},
+    {"text": "@- and @.", "names": []},
+    {"text": "Ayşe: @ayşe merhaba", "names": ["ayşe"]},
+    {"text": "no mention here", "names": []}
+  ]
+}

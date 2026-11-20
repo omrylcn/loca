@@ -5,6 +5,22 @@ narrower rule, and the delivery priority of an event.
 import re
 from credentials import LOBBY_ROOM
 
+# The server's mention grammar (crates/server/src/hub.rs `mentioned_names`),
+# pinned for both by docs/mention-cases.json: an @ that does not sit inside a
+# word, then letters, digits, `-`, `_` or `.`; a trailing `.` or `-` is
+# punctuation. So `@ops.bot` names `ops.bot` and `@ayse.` names `ayse`.
+_MENTION = re.compile(r"(?<![\w.])@([\w.-]+)")
+
+
+def mentions(text):
+    """The names ``text`` calls with @name, lowercased, in the order written."""
+    names = []
+    for match in _MENTION.finditer(str(text or "")):
+        name = match.group(1).rstrip(".-")
+        if name:
+            names.append(name.lower())
+    return names
+
 
 def directly_names(message, name):
     """Return true only for an exact target or exact @name token."""
@@ -17,18 +33,11 @@ def directly_names(message, name):
     # treating target=all as authoritative made those calls disappear for
     # --only-direct listeners.  Bare @all remains filtered because it does not
     # contain this identity's exact name.
-    mentions = re.findall(r"(?<![A-Za-z0-9_-])@([A-Za-z0-9_-]+)", message.get("text") or "")
-    return any(mention.casefold() == expected for mention in mentions)
+    return any(mention.casefold() == expected for mention in mentions(message.get("text")))
 
 
 def exact_mentions(message):
-    return {
-        mention.casefold()
-        for mention in re.findall(
-            r"(?<![A-Za-z0-9_-])@([A-Za-z0-9_-]+)",
-            str(message.get("text") or ""),
-        )
-    }
+    return {mention.casefold() for mention in mentions(message.get("text"))}
 
 
 def broadcasts(message):
@@ -97,16 +106,7 @@ def addresses(m, name, room=None):
         return lobby_addresses(m, name)
     if m.get("target") in (name, "all"):
         return True
-    needle = "@" + name.lower()
-    tok = ""
-    for c in m.get("text", "").lower() + " ":
-        if c.isalnum() or c in "@-_":
-            tok += c
-        else:
-            if tok in (needle, "@all"):
-                return True
-            tok = ""
-    return False
+    return any(mention in (name.lower(), "all") for mention in mentions(m.get("text")))
 
 
 def should_deliver_message(message, skip_own, only_direct, current_lead):
