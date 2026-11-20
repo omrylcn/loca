@@ -69,7 +69,11 @@ def connect(url, protocols=None):
     path = u.path + ("?" + u.query if u.query else "")
     s = socket.create_connection((host, port), timeout=10)
     if u.scheme == "wss":
-        s = ssl.create_default_context().wrap_socket(s, server_hostname=host)
+        context = ssl.create_default_context()
+        # Never below TLS 1.2 (the default since Python 3.10; explicit here so
+        # an older interpreter cannot negotiate TLS 1.0/1.1).
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        s = context.wrap_socket(s, server_hostname=host)
     key = base64.b64encode(os.urandom(16)).decode()
     protocol_header = ""
     if protocols:
