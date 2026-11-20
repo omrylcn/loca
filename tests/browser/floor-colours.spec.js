@@ -93,9 +93,10 @@ test("named floors carry a colour by id in the sidebar, the Floors tab and Peopl
   await page.reload();
   await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
   await page.evaluate(() => refreshRooms());
+  // refreshRooms() may redraw the list under the read: ask until it settles.
   for (const [i, floor] of floors.entries()) {
     await expect(heading(floor.name)).toBeVisible();
-    expect(await colourOf(heading(floor.name))).toBe(sidebarColour[i]);
+    await expect.poll(() => colourOf(heading(floor.name))).toBe(sidebarColour[i]);
   }
 
   // Every palette colour reads at 4.5:1 on each theme's page and panels.

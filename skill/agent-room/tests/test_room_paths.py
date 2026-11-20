@@ -19,10 +19,12 @@ class RoomPathTests(unittest.TestCase):
                     self.fail(f"{path.name}:{n} puts a raw loca name in a URL: {line.strip()}")
 
     def test_no_shell_url_puts_a_raw_room_in_a_path(self):
-        text = (KIT / "connect.sh").read_text(encoding="utf-8")
-        for n, line in enumerate(text.splitlines(), 1):
-            if "/rooms/$room" in line or "/rooms/${room}" in line:
-                self.fail(f"connect.sh:{n} puts a raw loca name in a URL: {line.strip()}")
+        # connect.sh and the command groups it sources (connect.d/).
+        for path in [KIT / "connect.sh", *sorted((KIT / "connect.d").glob("*.sh"))]:
+            text = path.read_text(encoding="utf-8")
+            for n, line in enumerate(text.splitlines(), 1):
+                if "/rooms/$room" in line or "/rooms/${room}" in line:
+                    self.fail(f"{path.name}:{n} puts a raw loca name in a URL: {line.strip()}")
 
     def test_shell_listener_encodes_query_components(self):
         text = (KIT / "connect.sh").read_text(encoding="utf-8")

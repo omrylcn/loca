@@ -2,19 +2,24 @@ const { test, expect } = require("@playwright/test");
 const fs = require("node:fs");
 const path = require("node:path");
 
-// The desktop shell's document-start Storage override (KEYCHAIN_SHIM in
-// desktop/src-tauri/src/main.rs), run in a real page with a stand-in for
+// The desktop shell's document-start Storage override (KEYCHAIN_SHIM, kept in
+// desktop/src-tauri/src/shims/keychain.js), run in a real page with a stand-in for
 // Tauri's invoke that records which keychain commands it was asked for. The
 // init script runs again, with the same launch-time values, on every load of
 // the page, exactly as the shell's initialization script does.
 function keychainShim() {
-  const source = fs.readFileSync(
+  const main = fs.readFileSync(
     path.join(__dirname, "../../desktop/src-tauri/src/main.rs"),
     "utf8",
   );
-  const found = source.match(/const KEYCHAIN_SHIM: &str = r#"([\s\S]*?)"#;/);
-  if (!found) throw new Error("KEYCHAIN_SHIM not found in main.rs");
-  return found[1];
+  // The shell embeds this very file as KEYCHAIN_SHIM.
+  if (!main.includes('const KEYCHAIN_SHIM: &str = include_str!("shims/keychain.js");')) {
+    throw new Error("KEYCHAIN_SHIM is no longer shims/keychain.js in main.rs");
+  }
+  return fs.readFileSync(
+    path.join(__dirname, "../../desktop/src-tauri/src/shims/keychain.js"),
+    "utf8",
+  );
 }
 
 // `storage` stands for the window's sessionStorage: "ok"; "full" (every write

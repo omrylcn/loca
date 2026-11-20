@@ -1,0 +1,526 @@
+/* Personal appearance (Profile → Appearance): the accent tokens, light
+   theme, density, text size and font family; and the full name beside an
+   @name. */
+/* Part of the base styles, split from styles.css; index.html loads
+   the parts in this order, so the cascade is the one styles.css had. */
+
+/* ── personal appearance: tokens ─────────────────────────────────────────
+   Appended (not merged into the rules above) so concurrent stylesheet work
+   merges cleanly. New tokens and the theme/accent overrides come first;
+   then every rule above that hard-coded a colour is re-declared with the
+   matching token, so it follows the light theme and the chosen accent. In
+   the default dark/teal look each re-declaration computes to the original. */
+:root {
+  --scheme: dark; --me: var(--accent); --on-accent: #06231d; --on-bad: #2a0e0e;
+  --gold: #f5c76b; --gold-txt: #ffe0a0; --master: #e7b95a; --smaster: #d3a95d;
+}
+/* Personal appearance (GET/PUT /profile/preferences). theme.js sets
+   data-theme / data-accent / data-density / data-font-size on <html>.
+   Every accent has a bright dark-theme pair and a deep light-theme pair so
+   accent text keeps 4.5:1 on --bg, --panel and --panel2 in both themes. */
+:root[data-accent="blue"] { --accent: #7aa7ff; --accent2: #a8c4ff; }
+:root[data-accent="violet"] { --accent: #b99aff; --accent2: #d3bfff; }
+:root[data-accent="amber"] { --accent: #ffbe4d; --accent2: #ffd585; }
+:root[data-accent="rose"] { --accent: #ff7eaa; --accent2: #ffaac8; }
+:root[data-theme="light"] {
+  --scheme: light;
+  --bg: #f5f7fa; --panel: #ffffff; --panel2: #e9edf2; --line: #c9d1db;
+  --txt: #1a1f27; --muted: #4a5568; --dim: #566173;
+  --accent: #00766b; --accent2: #006a60; --on-accent: #ffffff;
+  --agent: #0a5fa8; --human: #0b6e47;
+  --iye: #6a3db5; --iye-deep: #ece3fb;
+  --warn: #8f4a00; --bad: #b8212a; --on-bad: #ffffff;
+  --gold: #7d5200; --gold-txt: #6e4800; --master: #7d5200; --smaster: #6e4800;
+}
+:root[data-theme="light"][data-accent="blue"] { --accent: #2c56cf; --accent2: #2448b3; }
+:root[data-theme="light"][data-accent="violet"] { --accent: #6c3fd0; --accent2: #5c32b5; }
+:root[data-theme="light"][data-accent="amber"] { --accent: #8c5400; --accent2: #7a4800; }
+:root[data-theme="light"][data-accent="rose"] { --accent: #c02460; --accent2: #a61f53; }
+/* Hard-coded colours above, re-declared with tokens. */
+.wikiindex button.active { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.wikiprimary { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.profileroles b.building-master { color: var(--master); }
+.profileroles b.building-smaster { color: var(--smaster); }
+.profilesignout .leavebtn { border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+.leaveconfirm { border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+.leaveconfirm .yes { color: var(--on-bad); }
+.leadtag { background: color-mix(in srgb, var(--gold) 18%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 62%, transparent); color: var(--gold-txt); }
+.leadtag::before { color: var(--gold); }
+.omem.is-lead { background: linear-gradient(90deg, color-mix(in srgb, var(--gold) 22%, transparent), color-mix(in srgb, var(--gold) 4%, transparent) 82%); box-shadow: inset 3px 0 var(--gold); }
+.omem.is-lead .oname { color: var(--gold-txt); }
+.memoryownertag { background: color-mix(in srgb, var(--accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 52%, transparent); }
+.omem.is-memory-owner:not(.is-lead) { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), color-mix(in srgb, var(--accent) 3%, transparent) 82%); }
+.pstatus.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.pstage.relay { color: var(--warn); }
+.callrow:hover { background: var(--panel2, color-mix(in srgb, var(--txt) 4%, transparent)); }
+.row.announce .bub { background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.conn select { color-scheme: var(--scheme); }
+.conn button { color: var(--on-accent); }
+.roomitem { border-bottom: 1px solid color-mix(in srgb, var(--txt) 2.5%, transparent); }
+.roompref:hover, .roompref:focus-visible { background: color-mix(in srgb, var(--txt) 5.5%, transparent); }
+.room .unreadbadge { color: var(--on-accent); }
+.newroom button { color: var(--on-accent); }
+.lobby .lobbycall { border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+.lobby .lobbycall:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.omem .glyph.lead { color: var(--gold); text-shadow: 0 0 9px color-mix(in srgb, var(--gold) 72%, transparent); }
+.omacts button.release { border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent); }
+.omacts button.release:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.conndot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 12%, transparent); }
+.conndot.on { box-shadow: 0 0 0 3px color-mix(in srgb, var(--human) 12%, transparent); }
+.pill.free { background: color-mix(in srgb, var(--human) 14%, transparent); }
+.pill.restricted { background: color-mix(in srgb, var(--agent) 14%, transparent); }
+.pill.roundrobin { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.pill.paused { background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.livebadge { background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.archbadge { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.leadkey { color: var(--gold); }
+.leadselect { color-scheme: var(--scheme); background: color-mix(in srgb, var(--gold) 10%, transparent); border: 1px solid color-mix(in srgb, var(--gold) 48%, transparent); color: var(--gold-txt); }
+.leadselect:focus { outline: 1px solid var(--gold); }
+.propertyfield { border: 1px solid var(--line); background: color-mix(in srgb, var(--bg) 34%, transparent); }
+.propertyfield.lifecycle { border-color: color-mix(in srgb, var(--bad) 20%, transparent); }
+.adminbar button { color: var(--on-accent); }
+.adminbar button.danger { border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent); }
+.livebtn.on { color: var(--on-bad) !important; }
+.pinnedbar { border-color: color-mix(in srgb, var(--iye) 38%, transparent); border-left-color: var(--iye); background: linear-gradient(100deg, color-mix(in srgb, var(--iye-deep) 42%, transparent), var(--panel2)); }
+.row.mine .bubble { background: color-mix(in srgb, var(--accent) 7%, transparent); border-color: color-mix(in srgb, var(--accent) 28%, transparent); }
+.row.locareminder .bubble { background: color-mix(in srgb, var(--warn) 11%, transparent); border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.bubble .mention.leadkeyword, .txt .mention.leadkeyword { color: var(--gold); }
+.jump { color: var(--on-accent); }
+@keyframes flash { from { background: color-mix(in srgb, var(--accent) 14%, transparent); } to { background: transparent; } }
+.composer:focus-within { box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent); }
+.composer button.send { color: var(--on-accent); }
+.composer.sending { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.memorysteward { border:1px solid color-mix(in srgb, var(--accent) 52%, transparent); background:color-mix(in srgb, var(--accent) 10%, transparent); }
+.note .nkey { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.markdown blockquote { background: color-mix(in srgb, var(--agent) 5%, transparent); }
+.newnote button { color: var(--on-accent); }
+.tchip.open { background: color-mix(in srgb, var(--agent) 14%, transparent); }
+.tchip.taken { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.tchip.done { background: color-mix(in srgb, var(--human) 14%, transparent); }
+.tchip.claimed { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.tchip.resolved { background: color-mix(in srgb, var(--human) 14%, transparent); }
+.tchip.cancelled { background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.goalbar { border-bottom: 1px solid color-mix(in srgb, var(--gold) 22%, transparent); background: color-mix(in srgb, var(--gold) 3.5%, transparent); }
+.goalbar .goalmark { color: var(--gold); }
+.goalbar .goallabel { color: var(--gold); }
+.reminderstatus.on .reminderstate { border-color: color-mix(in srgb, var(--accent2) 32%, transparent); background: color-mix(in srgb, var(--accent2) 7%, transparent); }
+.reminderrecipientcontrol button.selected { background: color-mix(in srgb, var(--accent2) 10%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent2) 27%, transparent); }
+.reminderrow:has(> input:checked) { border-color: color-mix(in srgb, var(--accent2) 25%, transparent); background: color-mix(in srgb, var(--accent2) 2.5%, transparent); }
+.reminderrow > input[type="checkbox"]:checked { border-color: color-mix(in srgb, var(--accent2) 48%, transparent); background: color-mix(in srgb, var(--accent2) 14%, transparent); }
+.reminderview #saveReminders { color: var(--on-accent); }
+.mentionpop div.sel, .mentionpop div:hover { color: var(--on-accent); }
+.jrerr { color: var(--bad); }
+.gserror { color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent); }
+
+/* ── personal appearance ─────────────────────────────────────────────── */
+/* Light theme: the few dark-only gradients keep their shape, lighter. */
+:root[data-theme="light"] .room.special { border-color: color-mix(in srgb, var(--iye) 45%, var(--line));
+  background: linear-gradient(105deg, color-mix(in srgb, var(--iye) 12%, transparent), transparent); }
+:root[data-theme="light"] .room.special:hover, :root[data-theme="light"] .room.special.active {
+  background: linear-gradient(105deg, color-mix(in srgb, var(--iye) 20%, transparent), color-mix(in srgb, var(--iye) 6%, transparent)); }
+:root[data-theme="light"] .omem .glyph.lead { text-shadow: none; }
+/* Compact density: tighter sidebar rows and feed, nothing else moves. */
+:root[data-density="compact"] .rooms { padding: 4px 0; }
+:root[data-density="compact"] .roomitem { min-height: 36px; }
+:root[data-density="compact"] .room { padding: 5px 12px 5px 13px; }
+:root[data-density="compact"] .rlabel { padding: 3px 16px; }
+:root[data-density="compact"] .omem { padding: 1px 16px; }
+:root[data-density="compact"] .feed { padding: 8px 20px 6px; gap: 3px; }
+:root[data-density="compact"] .bubble { padding: 4px 10px 3px; border-radius: 9px; }
+:root[data-density="compact"] .composer { padding: 7px 10px; }
+/* Large text: reading surfaces only, so the chrome keeps its layout. */
+:root[data-font-size="large"] .body, :root[data-font-size="large"] .row .txt,
+:root[data-font-size="large"] .composer textarea#msg { font-size: 15px; }
+:root[data-font-size="large"] .line .sender { font-size: 13px; }
+:root[data-font-size="large"] .note .nbody { font-size: 14px; }
+:root[data-font-size="large"] .wikibody { font-size: 17px; }
+/* Small and larger text: the same reading surfaces, one step either side. */
+:root[data-font-size="small"] .body, :root[data-font-size="small"] .row .txt,
+:root[data-font-size="small"] .composer textarea#msg { font-size: 12px; }
+:root[data-font-size="small"] .line .sender { font-size: 11px; }
+:root[data-font-size="small"] .note .nbody { font-size: 11px; }
+:root[data-font-size="small"] .wikibody { font-size: 14px; }
+:root[data-font-size="larger"] .body, :root[data-font-size="larger"] .row .txt,
+:root[data-font-size="larger"] .composer textarea#msg { font-size: 17px; }
+:root[data-font-size="larger"] .line .sender { font-size: 15px; }
+:root[data-font-size="larger"] .note .nbody { font-size: 16px; }
+:root[data-font-size="larger"] .wikibody { font-size: 19px; }
+/* Spacious density: the compact rules' mirror, more air in the same places. */
+:root[data-density="spacious"] .rooms { padding: 12px 0; }
+:root[data-density="spacious"] .roomitem { min-height: 56px; }
+:root[data-density="spacious"] .room { padding: 14px 12px 14px 13px; }
+:root[data-density="spacious"] .rlabel { padding: 9px 16px; }
+:root[data-density="spacious"] .omem { padding: 6px 16px; }
+:root[data-density="spacious"] .feed { padding: 20px 28px 12px; gap: 12px; }
+:root[data-density="spacious"] .bubble { padding: 10px 15px 9px; }
+:root[data-density="spacious"] .composer { padding: 13px 15px; }
+/* Font family. --mono is the app's one type token (the name predates the
+   choice); a choice swaps its face. Every face is already on the device:
+   no download, no external request (the CSP allows none). */
+:root {
+  --font-mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+}
+:root[data-font-family="sans"] { --mono: var(--font-sans); }
+:root[data-font-family="serif"] { --mono: var(--font-serif); }
+/* Commands and paths stay monospace whatever the face. */
+.gscard code, .gspath { font-family: var(--font-mono); }
+@media (max-width: 760px) {
+  :root[data-density="compact"] .feed { padding-inline: 10px; }
+  :root[data-density="spacious"] .feed { padding-inline: 12px; }
+}
+/* Appearance block in the profile menu: real radios, styled as chips. */
+.profileappearance { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--line); display: grid; gap: 5px; }
+.profileappearance > small { color: var(--dim); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+.appearancerow { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; gap: 6px; }
+.appearancerow > span { color: var(--muted); font-size: 9px; }
+.appearanceopts { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.appearanceopt { position: relative; display: inline-flex; cursor: pointer; }
+.appearanceopt input { position: absolute; inset: 0; z-index: 1; margin: 0; opacity: 0; cursor: pointer; }
+.appearanceopt > span { display: inline-flex; align-items: center; min-height: 22px; padding: 2px 7px;
+  border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 9px; background: var(--panel); }
+.appearanceopt:hover > span { color: var(--txt); }
+.appearanceopt input:checked + span { border-color: var(--accent); color: var(--accent2);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel)); font-weight: 700; }
+.appearanceopt input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.appearanceopt > span.swatch { width: 22px; padding: 0; justify-content: center; border-radius: 50%;
+  border: 2px solid var(--panel2); box-shadow: 0 0 0 1px var(--line); background: var(--sw); }
+.appearanceopt input:checked + span.swatch { border-color: var(--panel2); box-shadow: 0 0 0 2px var(--txt); background: var(--sw); }
+.appearanceopt input:checked + span.swatch::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--panel2); }
+.swatch.teal { --sw: #2ee6c8; } .swatch.blue { --sw: #7aa7ff; } .swatch.violet { --sw: #b99aff; }
+.swatch.amber { --sw: #ffbe4d; } .swatch.rose { --sw: #ff7eaa; }
+:root[data-theme="light"] .swatch.teal { --sw: #00766b; } :root[data-theme="light"] .swatch.blue { --sw: #2c56cf; }
+:root[data-theme="light"] .swatch.violet { --sw: #6c3fd0; } :root[data-theme="light"] .swatch.amber { --sw: #8c5400; }
+:root[data-theme="light"] .swatch.rose { --sw: #c02460; }
+.visuallyhidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.appearanceopt > span.fontface.mono { font-family: var(--font-mono); }
+.appearanceopt > span.fontface.sans { font-family: var(--font-sans); }
+.appearanceopt > span.fontface.serif { font-family: var(--font-serif); }
+/* The sample uses the chat's own rules; only its frame is fitted here. */
+.appearancepreview { font-size: 13px; line-height: 1.6; min-width: 0; }
+.appearancepreview .bubble { max-width: 100%; }
+.appearancestatus { color: var(--bad); font-size: 9px; min-height: 0; }
+.appearancestatus:empty { display: none; }
+/* The closed off-canvas sidebar keeps no shadow: on the light theme it would
+   leave a grey band along the left edge of the phone layout. */
+@media (max-width: 760px) {
+  body:not(.locked):not(.sidebar-open) .side { box-shadow: none; }
+}
+/* The sign-in card floats on a light page: a softer shadow keeps its edge. */
+:root[data-theme="light"] body.locked .side { box-shadow: 0 16px 48px rgba(16,24,40,.14); }
+
+  /* New private message (dm.js): + beside MESSAGES and a person picker. */
+  .rlabel.dmhead { display: flex; align-items: center; justify-content: space-between; }
+  .dmnew { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0;
+    background: none; border: 1px solid transparent; border-radius: 6px; color: var(--muted); cursor: pointer; }
+  .dmnew:hover, .dmnew:focus-visible, .dmnew[aria-expanded="true"] { color: var(--accent); border-color: var(--line); }
+  .dmpicker { margin: 0 10px 8px; padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); }
+  .dmpicker.hidden { display: none; }
+  .dmpicker input { box-sizing: border-box; width: 100%; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 7px; padding: 6px 8px; color: var(--txt); font: 12px var(--mono); }
+  .dmpicker input:focus { outline: none; border-color: var(--accent); }
+  #dmCandidates { margin-top: 6px; max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+  .dmcand { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 8px; background: none; border: 0;
+    border-radius: 7px; color: var(--txt); font: 12px var(--mono); text-align: left; cursor: pointer; min-height: 32px; }
+  .dmcand:hover, .dmcand:focus-visible { background: var(--panel); outline: none; }
+  .dmcandname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* The operator wears its title on every line, like the lead. */
+  .roletags { display: inline-flex; gap: 4px; margin-left: 6px; vertical-align: middle; }
+  .roletags:empty { display: none; }
+  .optag { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: 9px;
+    font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--accent2); border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .optag::before { content: "▲"; font-size: 7px; }
+  .roletags .leadtag, .roletags .rankbadge { margin-left: 0; }
+  /* The number of the task a person holds, worn like a title. */
+  .tasktag { display: inline-flex; align-items: center; padding: 0 6px; border-radius: 9px; margin-left: 6px;
+    font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--txt);
+    border: 1px solid color-mix(in srgb, var(--txt) 30%, transparent); }
+  .roletags .tasktag { margin-left: 0; }
+
+  /* Groups (groups.js): the Groups tab, the People group column and filter,
+     the sidebar group headers, the create choice and a person's card. */
+  .pgroups, .grpchips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+  .grpchip { display: inline-block; max-width: 100%; padding: 1px 7px; border-radius: 6px; border: 1px solid
+      color-mix(in srgb, var(--accent) 40%, var(--line)); color: var(--txt); font-size: 10px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pnamebtn { min-width: 0; padding: 0; border: 0; background: none; font: inherit; color: var(--txt);
+    font-weight: 600; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pnamebtn:hover, .pnamebtn:focus-visible { color: var(--accent2); text-decoration: underline; outline: none; }
+  .grpfilter { margin: 0 0 14px; }
+  .grpform input { flex: 1 1 220px; }
+  .grpnotice { color: var(--muted); font-size: 11px; min-height: 0; margin: 0 0 8px; overflow-wrap: anywhere; }
+  .grpnotice:empty { display: none; }
+  .grplist { display: grid; gap: 10px; }
+  .grpcard { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel2); min-width: 0; }
+  .grpcard.archived { opacity: .8; border-style: dashed; }
+  .grphead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .grpname { display: inline-flex; align-items: center; gap: 7px; min-width: 0; flex: 1 1 160px; }
+  .grpname b { color: var(--txt); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grpicon { flex: 0 0 auto; color: var(--accent2); }
+  .grpacts { flex-wrap: wrap; justify-content: flex-end; }
+  .grpowner { flex-basis: 100%; color: var(--muted); font-size: 11px; }
+  .grplocas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+  .grplabel { color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; margin-right: 4px; }
+  .grpmembers { margin-top: 10px; }
+  .grpmembers > .grplabel { display: block; margin-bottom: 2px; }
+  .grpmember { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0;
+    border-top: 1px solid var(--line); min-width: 0; }
+  .grpmember .pname { flex: 1 1 auto; }
+  .grpmember .pname b { color: var(--txt); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grpremove { gap: 4px; }
+  .grpadd { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .grpadd select { flex: 1 1 200px; min-width: 0; background: var(--panel); color: var(--txt); border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 8px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
+  .rgrouphead { display: flex; align-items: center; gap: 6px; padding: 10px 16px 4px; color: var(--muted);
+    font-size: 10px; letter-spacing: .1em; text-transform: uppercase; border-top: 1px solid var(--line); }
+  .rgroupname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A named floor's heading reads "<name> floor", beside "Ground floor". The
+     word is drawn here, so the element's text stays the group's own name. */
+  .rgrouphead.saysfloor .rgroupname::after { content: " floor"; }
+  .caretag { flex: none; margin-left: 6px; padding: 0 5px; border-radius: 6px; font-size: 9px;
+    letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+    border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent); }
+  .rgroupcount { color: var(--dim); letter-spacing: 0; }
+  /* A floor of "Your Locas": its heading opens and closes it. */
+  .floor > summary.rgrouphead { list-style: none; cursor: pointer; user-select: none; }
+  .floor > summary.rgrouphead::-webkit-details-marker { display: none; }
+  .floor > summary.rgrouphead::before { content: "▸"; color: var(--dim); font-size: 9px; width: 8px;
+    transition: transform .12s ease; }
+  .floor[open] > summary.rgrouphead::before { transform: rotate(90deg); }
+  .floor > summary.rgrouphead:hover { color: var(--txt); }
+  .floor > summary.rgrouphead .unreadbadge { min-width: 16px; height: 16px; padding: 0 4px; display: inline-flex;
+    align-items: center; justify-content: center; border-radius: 9px; background: var(--accent);
+    color: var(--on-accent, #06231d); font: 800 9px/1 var(--mono); letter-spacing: 0; }
+  #roomList > .floor:first-child > summary.rgrouphead { border-top: 0; }
+  .extfield select { box-sizing: border-box; width: 100%; background: var(--panel); border: 1px solid var(--line);
+    color: var(--txt); border-radius: 7px; padding: 7px 10px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
+  .extfield select:focus { outline: none; border-color: var(--accent); }
+  .extgroupfield { margin-top: 12px; }
+  .extgroupnote { color: var(--muted); font-size: 10px; }
+  .personcard h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .personcard .grpmember .pname { gap: 7px; }
+  .profilegroups { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 7px 1px 0; }
+  .profilegroups small { color: var(--dim); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+  .profilegroups .grpchips { justify-content: flex-end; }
+  .grpfilter .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 520px) {
+    .grpremove { padding: 0 8px; }
+    .grpremove span { display: none; }
+  }
+
+  /* MESSAGES sits at the bottom of the sidebar: its row menu opens upward,
+     or it would fall behind the new-loca bar and never be seen. */
+  #dmList .roomprefmenu { top: auto; bottom: calc(100% + 4px); }
+  .roomprefmenu .roompref.danger { color: var(--bad); }
+
+  /* This Loca › Group: the Master moves a loca after seeing what changes. */
+  .groupmove { margin-top: 8px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px;
+    background: var(--panel2); display: grid; gap: 7px; font-size: 11px; }
+  .gmfield { display: flex; flex-direction: column; gap: 4px; }
+  .gmfield > span { color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+  .gmfield select { background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 7px;
+    padding: 6px 8px; font: 12px var(--mono); color-scheme: var(--scheme, dark); }
+  .gmline { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
+  .gmline b { color: var(--txt); font-weight: 600; }
+  .gmline.bad b { color: var(--bad); }
+  .gmerror { color: var(--bad); }
+  .gmacts { display: flex; justify-content: flex-end; gap: 6px; }
+
+  /* Location chips never spill out of their column: a long loca name is cut
+     with an ellipsis (full name on hover), extra locas fold into "+N". */
+  .pwhere, .pgroups { overflow: hidden; }
+  .locachip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; box-sizing: border-box; }
+  .locachip.more { flex: 0 0 auto; color: var(--muted); }
+
+  /* Notifications (notifications.js): the bell in the sidebar header, its
+     panel, the composer for senders, and the arrival toast. */
+  .side h1 .notifbell { position: relative; display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; border-radius: 7px; }
+  .side h1 .notifbell.hidden { display: none; }
+  .side h1 .notifbell[aria-expanded="true"] { color: var(--accent); background: var(--panel2); }
+  .notifbadge { position: absolute; top: -2px; right: -5px; min-width: 15px; height: 15px; padding: 0 4px;
+    box-sizing: border-box; border-radius: 999px; background: var(--accent); color: var(--on-accent, var(--bg));
+    font: 700 9px/15px var(--mono); text-align: center; letter-spacing: 0; pointer-events: none;
+    box-shadow: 0 0 0 2px var(--panel); }
+  .notifpanel { position: fixed; z-index: 90; top: var(--notif-top, 60px); left: var(--notif-left, 12px);
+    width: min(400px, calc(100vw - 16px)); max-height: calc(100vh - var(--notif-top, 60px) - 12px);
+    box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.5); font-family: var(--mono); color: var(--txt); }
+  .notifhead { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 10px 10px 10px 14px;
+    border-bottom: 1px solid var(--line); }
+  .notifhead h2 { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 7px; margin: 0;
+    font-size: 13px; font-weight: 600; outline: none; }
+  .notifhead h2 svg { color: var(--accent2); flex: 0 0 auto; }
+  .notifcount { color: var(--accent2); font-size: 10px; font-weight: 400; white-space: nowrap; }
+  .notifclose { width: 26px; height: 26px; }
+  .notifstatus { flex: 0 0 auto; padding: 7px 14px; color: var(--accent2); font-size: 11px;
+    border-bottom: 1px solid var(--line); }
+  .notifcompose { flex: 0 0 auto; border-bottom: 1px solid var(--line); }
+  .notifcompose summary { cursor: pointer; padding: 9px 14px; color: var(--accent2); font-size: 11px; font-weight: 600; }
+  .notifcompose summary:hover { color: var(--txt); }
+  .notifcompose form { display: grid; gap: 9px; padding: 0 14px 12px; }
+  .notifauds { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  .notifauds legend { padding: 0; margin-bottom: 5px; color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+  .notifaud { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 4px 9px; box-sizing: border-box;
+    border: 1px solid var(--line); border-radius: 7px; font-size: 11px; color: var(--txt); cursor: pointer; min-width: 0; }
+  .notifaud span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .notifaud small { color: var(--dim); font-size: 9px; white-space: nowrap; }
+  .notifaud input { margin: 0; accent-color: var(--accent); }
+  .notifaud:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .notifaud:has(input:disabled) { opacity: .5; cursor: default; }
+  .notiffield { display: grid; gap: 4px; }
+  .notiffield > span { display: flex; justify-content: space-between; color: var(--dim); font-size: 9px;
+    text-transform: uppercase; letter-spacing: .08em; }
+  .notiffield small { text-transform: none; letter-spacing: 0; }
+  .notiffield input, .notiffield textarea { box-sizing: border-box; width: 100%; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; color: var(--txt); font: 12px var(--mono); }
+  .notiffield textarea { resize: vertical; min-height: 64px; max-height: 40vh; }
+  .notiffield input:focus, .notiffield textarea:focus { outline: none; border-color: var(--accent); }
+  .notiferr { color: var(--bad); font-size: 11px; overflow-wrap: anywhere; }
+  .notiferr:empty { display: none; }
+  .notifformacts { display: flex; justify-content: flex-end; }
+  .notiftabs { flex: 0 0 auto; display: flex; gap: 6px; padding: 9px 14px 0; }
+  .notifscroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px 0 10px; }
+  .notiflist { list-style: none; margin: 0; padding: 0; }
+  .notifitem { position: relative; padding: 10px 14px 10px 17px; border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); min-width: 0; }
+  .notifitem.unread::before { content: ""; position: absolute; left: 7px; top: 15px; width: 5px; height: 5px;
+    border-radius: 50%; background: var(--accent); }
+  .notifitemhead { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+  .notiftitle { font-size: 12px; font-weight: 600; color: var(--txt); overflow-wrap: anywhere; min-width: 0; }
+  .notifitem:not(.unread) .notiftitle { font-weight: 400; color: var(--muted); }
+  .notifmark { flex: 0 0 auto; height: 22px; padding: 0 7px; font-size: 10px; }
+  .notifmeta { display: flex; flex-wrap: wrap; gap: 0 5px; margin-top: 3px; color: var(--dim); font-size: 10px; min-width: 0; }
+  .notifmeta span { overflow-wrap: anywhere; }
+  .notifbody { margin: 6px 0 0; color: var(--txt); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .notifitem:not(.unread) .notifbody { color: var(--muted); }
+  .notifcounts { margin-top: 5px; color: var(--accent2); font-size: 10px; }
+  .notifempty { padding: 22px 14px; color: var(--muted); font-size: 12px; text-align: center; }
+  .notifolder { margin: 10px 14px 0; }
+  .notiftoast { position: fixed; z-index: 95; right: 16px; bottom: 16px; width: min(340px, calc(100vw - 32px));
+    box-sizing: border-box; display: flex; align-items: flex-start; gap: 4px; padding: 6px 6px 6px 4px;
+    background: var(--panel2); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 10px;
+    box-shadow: 0 14px 40px rgba(0,0,0,.45); font-family: var(--mono); animation: tipin .16s ease-out; }
+  .notiftoastopen { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 9px; padding: 6px 8px;
+    background: none; border: 0; border-radius: 7px; color: var(--txt); text-align: left; cursor: pointer; font: inherit; }
+  .notiftoastopen:hover { background: var(--panel); }
+  .notiftoastopen svg { flex: 0 0 auto; margin-top: 2px; color: var(--accent2); }
+  .notiftoastopen > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .notiftoastopen b { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .notiftoastopen small { color: var(--muted); font-size: 10px; }
+  .notiftoast .iconbtn { width: 26px; height: 26px; flex: 0 0 auto; }
+  @media (max-width: 760px) {
+    .notifpanel { left: 8px; right: 8px; top: 8px; width: auto; max-height: calc(100dvh - 16px); }
+    .notiftoast { left: 8px; right: 8px; bottom: 8px; width: auto; }
+    body.notif-unread:not(.sidebar-open) .mobiletoggle { position: relative; }
+    body.notif-unread:not(.sidebar-open) .mobiletoggle::after { content: ""; position: absolute; top: 4px; right: 4px;
+      width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--panel2); }
+  }
+  @media (prefers-reduced-motion: reduce) { .notiftoast { animation: none; } }
+  .notifitem.sent .notiftitle { font-weight: 600; color: var(--txt); }
+  .notifitem.sent .notifbody { color: var(--txt); }
+
+  /* A loca's identity (identity.js): its mark (icon in its colour) beside
+     its name, its description, its labels, and the identity fields of the
+     create / Loca identity panel. The palette is Okabe–Ito: a bright shade
+     for the dark theme and a deep one for the light theme, each at least
+     3:1 against the panels; the icon carries the meaning too. */
+  [data-loca-color="orange"] { --loca-c: #e69f00; }
+  [data-loca-color="sky"] { --loca-c: #56b4e9; }
+  [data-loca-color="green"] { --loca-c: #2bb38a; }
+  [data-loca-color="yellow"] { --loca-c: #f0e442; }
+  [data-loca-color="blue"] { --loca-c: #4d8fd1; }
+  [data-loca-color="vermillion"] { --loca-c: #e0712a; }
+  [data-loca-color="purple"] { --loca-c: #cc79a7; }
+  :root[data-theme="light"] [data-loca-color="orange"] { --loca-c: #8f5500; }
+  :root[data-theme="light"] [data-loca-color="sky"] { --loca-c: #1b6fa8; }
+  :root[data-theme="light"] [data-loca-color="green"] { --loca-c: #00704f; }
+  :root[data-theme="light"] [data-loca-color="yellow"] { --loca-c: #6b6200; }
+  :root[data-theme="light"] [data-loca-color="blue"] { --loca-c: #0b3d8c; }
+  :root[data-theme="light"] [data-loca-color="vermillion"] { --loca-c: #a84300; }
+  :root[data-theme="light"] [data-loca-color="purple"] { --loca-c: #8e4577; }
+  .locamark { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; align-self: center;
+    width: 18px; height: 18px; border-radius: 5px; color: var(--loca-c, var(--muted));
+    background: color-mix(in srgb, var(--loca-c, var(--muted)) 16%, transparent);
+    font: 700 11px/1 var(--mono); }
+  .top .locamark { width: 24px; height: 24px; border-radius: 7px; font-size: 13px; }
+  .room .rrow > .locamark + .rname::before, .top .rname.marked::before { content: ""; }
+  .main.global .top .locamark { display: none !important; }
+  .main.global .top .rname.marked::before { content: ""; }
+  /* Shown only where there is room: it gives way before the mode detail. */
+  .roomdesc { flex: 0 1000 auto; min-width: 0; max-width: 360px; color: var(--muted); font-size: 10px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 1360px) { .roomdesc { display: none; } }
+  .locaident { margin-top: 12px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .locadesc { margin: 7px 0 0; color: var(--txt); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere; }
+  .locadesc.empty { color: var(--dim); font-size: 11.5px; }
+  .locaseats { display: block; margin-top: 7px; color: var(--dim); font-size: 11px; }
+  /* A label is not a badge: square corners, a dashed outline, plain case,
+     regular weight, no fill. Rank and role badges are rounded, filled or
+     solid, bold and upper-case. */
+  .localabels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .localabel { display: inline-block; max-width: 100%; padding: 0 5px; border: 1px dashed var(--line); border-radius: 2px;
+    color: var(--muted); background: transparent; font: 400 11px/1.6 var(--mono); text-transform: none; letter-spacing: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .identfields { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+  .extfield textarea { box-sizing: border-box; width: 100%; resize: vertical; min-height: 44px; background: var(--panel);
+    border: 1px solid var(--line); color: var(--txt); border-radius: 7px; padding: 8px 10px; font: 12px/1.45 var(--mono); }
+  .extfield textarea:focus { outline: none; border-color: var(--accent); }
+  .extfield input:disabled, .extfield textarea:disabled { opacity: .7; }
+  .identcount { align-self: flex-end; color: var(--dim); font-size: 9px; }
+  .identrow { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 10px; }
+  .identnote { color: var(--dim); font-size: 10px; line-height: 1.4; margin-top: -4px; }
+  .identpick { margin: 0; padding: 0; border: 0; min-width: 0; }
+  .identpick legend { padding: 0; margin-bottom: 5px; color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+  .identopts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .identopt { position: relative; display: inline-flex; cursor: pointer; }
+  .identopt input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+  .identopt .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .identswatch { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; box-sizing: border-box;
+    border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--loca-c, var(--txt));
+    font: 600 12px var(--mono); }
+  .identswatch.none { color: var(--dim); }
+  .identdot { width: 14px; height: 14px; border-radius: 50%; background: var(--loca-c); }
+  .identopt input:checked + .identswatch { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
+  .identopt input:focus-visible + .identswatch { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .identopt input:disabled + .identswatch { opacity: .55; cursor: default; }
+  .identopt input:disabled:checked + .identswatch { opacity: 1; }
+  @media (max-width: 520px) { .identswatch { width: 34px; height: 34px; } }
+  /* The create panel's preset (Loca or Lounge): two rows like the extension
+     rows, the chosen one outlined. */
+  .createpreset { margin-bottom: 12px; }
+  .presetopts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .presetopt { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 8px; background: var(--panel); cursor: pointer; min-width: 0; }
+  .presetopt input { flex: 0 0 auto; margin: 2px 0 0; width: 14px; height: 14px; accent-color: var(--accent); }
+  .presetopt:has(input:checked) { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .presetopt:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* ── full name and profile icon (people.js personLabelHtml) ─────────────
+   The full name leads; the @name stays beside it, quieter but always there.
+   Icons are line glyphs in the text colour, sized to the text. */
+.picon { width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -0.15em; margin-right: 4px;
+  fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+bdi.fullname { unicode-bidi: isolate; font-weight: inherit; }
+.atname { color: var(--dim); font-weight: 400; font-size: .9em; }
+.line .sendercard { display: inline-flex; align-items: baseline; gap: 0; color: inherit; font-weight: 700; }
+.line .sendercard:empty { display: none; }
+.line .sendercard bdi.fullname { color: var(--txt); white-space: nowrap; }
+/* With a full name the @name reads as the address it is. */
+.line .sendercard:has(bdi.fullname) + .sender { font-weight: 400; color: var(--dim); }
+.line .sendercard:has(bdi.fullname) + .sender::before { content: "@"; }
+.mentionpop bdi.fullname { color: inherit; opacity: .8; font-weight: 400; margin-left: 4px; }
+.profileicons { margin-top: 6px; }
+.iconopt > span { min-width: 26px; justify-content: center; }
+.iconopt .picon { margin-right: 0; }
+.profilecardhint { font-size: 9px; color: var(--dim); margin-top: 4px; }
+/* In a narrow row the full name gives way first: the @name is never cut. */
+.omem .oname:has(bdi.fullname), .pnamebtn:has(bdi.fullname) { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; }
+.oname bdi.fullname, .pnamebtn bdi.fullname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oname .atname, .pnamebtn .atname, .oname .picon, .pnamebtn .picon { flex: 0 0 auto; }
+.profilecard label.iconopt { text-transform: none; letter-spacing: 0; color: inherit; font-size: inherit; }

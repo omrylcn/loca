@@ -20,6 +20,7 @@ sys.path.insert(0, str(SKILL_DIR))
 import bot  # noqa: E402
 import credentials  # noqa: E402
 import listen  # noqa: E402
+import listen_state  # noqa: E402
 
 
 def load_agentd():
@@ -692,8 +693,10 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                     # guarded code is still waiting for the Lobby thread.
                     thread.join(2)
 
+            # store_room_invite lives in listen_state and looks the writer up
+            # there (listen re-exports it).
             with mock.patch.object(
-                listen, "update_env_values", update_then_let_the_release_in
+                listen_state, "update_env_values", update_then_let_the_release_in
             ):
                 self.assertTrue(listen.store_room_invite("project-x", "dv_new"))
                 self.assertEqual(len(release), 1, "the release never ran")

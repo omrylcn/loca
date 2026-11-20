@@ -1,0 +1,164 @@
+/* The conversation: the feed's lines, pinned messages, message actions, the
+   composer and attachments. */
+/* Part of the base styles, split from styles.css; index.html loads
+   the parts in this order, so the cascade is the one styles.css had. */
+
+  /* ── the feed: flat mono lines, no bubbles ── */
+  .feed { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 20px 8px;
+    display: flex; flex-direction: column; gap: 7px; }
+
+  /* ── pinned message bar (personal, per-room; restored) ── */
+  .pinnedbar { flex: 0 0 auto; margin: 8px 20px 0; padding: 8px 11px;
+    border: 1px solid rgba(201,167,255,.38); border-left: 3px solid var(--iye);
+    border-radius: 9px; background: linear-gradient(100deg, rgba(57,38,84,.42), var(--panel2));
+    display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 9px; }
+  .pinnedbar .pinmark { color: var(--iye); font-weight: 700; }
+  .pinnedbar .pincontent { min-width: 0; cursor: pointer; }
+  .pinnedbar .pinmeta { color: var(--iye); font-size: 10px; font-weight: 700; }
+  /* Compact pins never get a tiny inner scrollbar. Click the preview to open
+     the full message in-place; click it again to fold it back to three lines. */
+  .pinnedbar .pintext { color: var(--txt); font-size: 11px; white-space: pre-wrap;
+    overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3; overflow: hidden; }
+  .pinnedbar.expanded .pintext { display: block; -webkit-line-clamp: unset;
+    overflow: visible; }
+  .pinnedbar .pinactions { display: flex; align-items: center; gap: 5px; }
+  .pinnedbar button { background: none; border: 0; color: var(--muted);
+    cursor: pointer; font: 10px var(--mono); padding: 1px 3px; }
+  .pinnedbar button:hover { color: var(--bad); }
+  .pinnedbar #pinJumpBtn:hover { color: var(--accent); }
+  .row.pinned-source .bubble { box-shadow: inset 3px 0 0 var(--iye); }
+  /* WhatsApp order, loca skin: others left, you right */
+  .row { display: flex; align-items: flex-start; position: relative; width: 100%; min-width: 0; }
+  .row.mine { justify-content: flex-end; }
+  .row.nomatch { display: none; }
+  /* Short messages hug their content; long ones stop at 70% of the chat
+     column. min-width:0 is essential inside flex — without it a long token or
+     code block can force the bubble past max-width. */
+  .bubble { width: fit-content; max-width: 70%; min-width: 0; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 12px; padding: 7px 12px 6px; }
+  .row.mine .bubble { background: rgba(46,230,200,.07); border-color: rgba(46,230,200,.28); }
+  .bubble.mentioned { box-shadow: inset 2px 0 0 var(--accent); }
+  .row.locareminder .bubble { background: rgba(255,176,102,.11); border-color: rgba(255,176,102,.55);
+    box-shadow: inset 3px 0 0 var(--warn); }
+  .row.locareminder .sender, .row.locareminder .glyph { color: var(--warn); }
+  .line { display: flex; gap: 8px; align-items: baseline; margin-bottom: 1px; }
+  .line .glyph { width: 11px; text-align: center; font-weight: 700; flex: 0 0 auto; }
+  .glyph.agent { color: var(--agent); } .glyph.user { color: var(--human); }
+  .line .sender { font-weight: 700; white-space: nowrap; font-size: 12px; }
+  .sender.agent { color: var(--agent); } .sender.user { color: var(--human); }
+  .row.mine .sender { color: var(--me); }
+  .line .time { margin-left: auto; padding-left: 14px; }
+  .body { max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; color: var(--txt); }
+  .body.chatmarkdown { white-space: normal; line-height: 1.5; }
+  .body.chatmarkdown p { margin: 0; }
+  .body.chatmarkdown p + p, .body.chatmarkdown p + ul, .body.chatmarkdown p + ol,
+  .body.chatmarkdown ul + p, .body.chatmarkdown ol + p { margin-top: 6px; }
+  .body.chatmarkdown ul, .body.chatmarkdown ol { margin-block: 4px; }
+  .body.chatmarkdown h1, .body.chatmarkdown h2, .body.chatmarkdown h3 { margin-block: 5px 3px; }
+  .row .txt { white-space: pre-wrap; word-break: break-word; min-width: 0; }
+  .bubble .mention, .txt .mention { color: var(--accent); font-weight: 700; }
+  .bubble .mention.leadkeyword, .txt .mention.leadkeyword { color: #f5c76b; }
+  .bubble code.inline, .txt code.inline { background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .bubble pre.code, .txt pre.code { background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: 8px 10px; overflow-x: auto; margin: 4px 0; }
+  .line .time { font-size: 10px; color: var(--dim); white-space: nowrap; }
+  .quote { font-size: 11px; color: var(--muted); border-left: 2px solid var(--dim);
+    padding: 1px 8px; margin: 0 0 3px; cursor: pointer; }
+  /* Message actions participate in the row layout so they remain attached to
+     the end of their bubble instead of floating against the chat viewport. */
+  .lineacts { flex: 0 0 auto; align-self: flex-start; display: inline-flex; gap: 4px;
+    margin: 4px 0 0 5px; opacity: 0; pointer-events: none;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+  .row:hover .lineacts, .row:focus-within .lineacts { opacity: 1; pointer-events: auto; }
+  .lineacts button { appearance: none; background: none; border: 0; padding: 0;
+    font: 10px var(--mono); color: var(--muted); cursor: pointer; }
+  .lineacts button:hover, .lineacts button:focus-visible { color: var(--accent); outline: none; }
+  .lineacts button:focus-visible { text-decoration: underline; text-underline-offset: 2px; }
+  .reactions { display: flex; flex-wrap: wrap; gap: 4px; min-height: 0; margin-top: 4px; }
+  .reactionchip { border: 1px solid var(--line); border-radius: 12px; background: var(--panel2);
+    color: var(--muted); padding: 1px 7px; font: 12px var(--mono); cursor: pointer; }
+  .reactionchip span { margin-left: 3px; font-size: 10px; }
+  .reactionchip.mine { border-color: var(--dim); color: var(--muted); background: var(--panel); }
+  .reactionpicker { align-self: flex-start; display: flex; gap: 3px; margin: 3px 0 0 5px;
+    padding: 4px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel2);
+    box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+  .reactionpicker.hidden { display: none; }
+  .reactionpicker button { border: 0; border-radius: 50%; background: transparent; color: var(--txt);
+    width: 28px; height: 28px; font-size: 16px; cursor: pointer; }
+  .reactionpicker button:hover, .reactionpicker button:focus-visible { background: var(--panel); outline: 1px solid var(--accent); }
+  .to { display: none; }
+  .sysline { text-align: center; color: var(--dim); font-size: 11px; padding: 4px; }
+  .daychip { text-align: center; color: var(--dim); font-size: 11px; margin: 10px 0 4px; }
+  .daychip::before { content: "— "; } .daychip::after { content: " —"; }
+  .unread-line { display: flex; align-items: center; gap: 10px; color: var(--accent);
+    font-size: 10px; font-weight: 700; margin: 4px 0; letter-spacing: .1em; }
+  .unread-line::before, .unread-line::after { content: ""; flex: 1; border-top: 1px solid var(--accent); opacity: .4; }
+  .jump { position: absolute; right: 28px; bottom: 130px; z-index: 15;
+    background: var(--accent); color: #06231d; border: 0; border-radius: 18px;
+    padding: 7px 14px; font: 700 12px var(--mono); cursor: pointer;
+    box-shadow: 0 6px 18px rgba(0,0,0,.45); }
+  .jump:hover { background: var(--accent2); }
+  .typing { height: 18px; padding: 0 26px; font-size: 11px; color: var(--accent2); font-style: italic; }
+  .flash { animation: flash 1s ease; }
+  @keyframes flash { from { background: rgba(46,230,200,.14); } to { background: transparent; } }
+
+  /* ── composer: the claude.ai/code feel ── */
+  .replybar { padding: 5px 20px; font-size: 11px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .replybar span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .replybar button { background: none; border: 0; color: var(--muted); cursor: pointer; }
+  .composer { margin: 6px 20px 6px; padding: 10px 12px; display: grid;
+    grid-template-columns: auto 1fr auto auto auto; gap: 8px 10px; align-items: center;
+    background: var(--panel2); border: 1px solid var(--line); border-radius: 14px;
+    transition: border-color .15s ease; }
+  .composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(46,230,200,.25); }
+  .composer.gated { opacity: .5; }
+  .composer select { background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 8px; padding: 7px 8px; font: 11px var(--mono);
+    grid-column: 1; grid-row: 2; justify-self: start; }
+  .composer textarea#msg { width: 100%; grid-column: 1 / -1; grid-row: 1;
+    background: none; border: 0; color: var(--txt);
+    font: 13px/1.5 var(--mono); padding: 7px 2px; resize: none; overflow-y: auto;
+    max-height: 40vh; min-height: 22px; }
+  .composer textarea#msg:focus { outline: none; }
+  .composer button.send { background: var(--accent); color: #06231d; border: 0; border-radius: 9px;
+    padding: 7px 16px; font: 700 12px var(--mono); cursor: pointer;
+    grid-column: 3; grid-row: 2; }
+  .composer button.send:hover { background: var(--accent2); }
+  .composer button.send:disabled { background: var(--line); color: var(--muted);
+    cursor: wait; }
+  .composer.sending { border-color: rgba(46,230,200,.45); }
+  .composer button.ctl { background: none; border: 1px solid var(--line); color: var(--muted);
+    border-radius: 9px; padding: 6px 10px; font: 11px var(--mono); cursor: pointer; }
+  .composer button.stop { color: var(--bad); }
+  .composer button.stop { grid-column: 4; grid-row: 2; }
+  .composer #clearBtn { grid-column: 5; grid-row: 2; }
+  .hint { padding: 0 26px 10px; color: var(--dim); font-size: 10px; }
+  .hint b { color: var(--muted); }
+
+  /* ── attachments: composer button, staged strip, in-message render ── */
+  .composer button.attach { grid-column: 2; grid-row: 2; justify-self: start;
+    font-size: 14px; line-height: 1; padding: 5px 9px; }
+  .composer button.attach:hover { color: var(--accent2); border-color: var(--accent); }
+  .attachstrip { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 20px 0; }
+  .pendingchip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 8px;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--panel2);
+    color: var(--txt); font: 11px var(--mono); max-width: 240px; }
+  .pendingchip .pname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pendingchip .psize { color: var(--dim); font-size: 10px; }
+  .pendingchip .premove { background: none; border: 0; color: var(--muted); cursor: pointer;
+    font-size: 12px; padding: 0 2px; line-height: 1; }
+  .pendingchip .premove:hover { color: var(--bad); }
+  .attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .attachimg { max-width: min(320px, 100%); max-height: 320px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--panel); cursor: zoom-in; }
+  .attachchip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--panel2);
+    color: var(--accent2); font: 11px var(--mono); cursor: pointer; }
+  .attachchip:hover { border-color: var(--accent); }
+  .attachchip .asize { color: var(--dim); }
+  .attachchip { max-width: 100%; min-height: 44px; flex-wrap: wrap; }
+  .attachchip .aname { overflow-wrap: anywhere; min-width: 0; }
+  #feed.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
+  #composer.dropping { outline: 2px dashed var(--accent); outline-offset: -2px; }
+

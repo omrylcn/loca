@@ -1262,7 +1262,17 @@ async fn a_lowered_ceiling_holds_a_locas_larger_number() {
 }
 
 const IDENTITY_JS: &str = include_str!("../../../../web/assets/identity.js");
-const STYLES_CSS: &str = include_str!("../../../../web/assets/styles.css");
+/// The base styles, in the order index.html loads them.
+const STYLES_CSS: &str = concat!(
+    include_str!("../../../../web/assets/styles.css"),
+    include_str!("../../../../web/assets/sidebar.css"),
+    include_str!("../../../../web/assets/room.css"),
+    include_str!("../../../../web/assets/feed.css"),
+    include_str!("../../../../web/assets/panels.css"),
+    include_str!("../../../../web/assets/overlays.css"),
+    include_str!("../../../../web/assets/guide.css"),
+    include_str!("../../../../web/assets/personal.css"),
+);
 
 /// The keys of `const <name> = { ... };` in web/assets/identity.js, in order.
 fn web_keys(name: &str) -> Vec<String> {

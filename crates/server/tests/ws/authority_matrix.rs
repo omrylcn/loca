@@ -5,7 +5,7 @@
 //! How it fits together:
 //!
 //! - The routes come from the router itself. `app_routes()` reads the
-//!   `Router::new()` chain in `src/main.rs` (axum 0.7 cannot list its routes)
+//!   `Router::new()` chain in `src/router.rs` (axum 0.7 cannot list its routes)
 //!   and fails closed on anything it does not understand (`.nest`, `.merge`,
 //!   a non-literal path, an unknown method). The live server then has to
 //!   serve every listed route, so the two cannot drift silently.
@@ -41,6 +41,8 @@ use super::*;
 
 const ROOT: &str = "matrix-root-credential";
 const MAIN_RS: &str = include_str!("../../src/main.rs");
+/// The public router (`router(hub)`); `main.rs` serves it as it is.
+pub(super) const ROUTER_RS: &str = include_str!("../../src/router.rs");
 
 // ---------------------------------------------------------------------------
 // Callers and loca kinds
@@ -1066,10 +1068,10 @@ const CONSOLE_ROUTES: &[&str] = &[
 fn router_block(src: &str, start: &str, end: &str) -> String {
     let from = src
         .find(start)
-        .unwrap_or_else(|| panic!("router start marker `{start}` not found in main.rs"));
+        .unwrap_or_else(|| panic!("router start marker `{start}` not found"));
     let to = src[from..]
         .find(end)
-        .unwrap_or_else(|| panic!("router end marker `{end}` not found in main.rs"));
+        .unwrap_or_else(|| panic!("router end marker `{end}` not found"));
     src[from..from + to]
         .lines()
         .map(|line| {
@@ -1155,7 +1157,7 @@ fn parse_routes(block: &str) -> Vec<String> {
                 break;
             }
         }
-        assert_eq!(depth, 0, "unbalanced .route( in main.rs");
+        assert_eq!(depth, 0, "unbalanced .route( in the router source");
         let args = rest[open..end].trim_start();
         assert!(
             args.starts_with('"'),
@@ -1207,14 +1209,28 @@ fn parse_routes(block: &str) -> Vec<String> {
 /// added after the membership gate would bypass it), and nothing may compose
 /// paths in any other way, after the layers included.
 fn app_routes() -> Vec<String> {
-    assert_plain_composition(
-        MAIN_RS,
-        "let app = Router::new()",
-        ".expect(\"serve\")",
-        ".route_layer(",
-    );
-    let chain = router_block(MAIN_RS, "let app = Router::new()", ".route_layer(");
+    assert_public_router_plain();
+    let chain = router_block(ROUTER_RS, "Router::new()", ".route_layer(");
     parse_routes(&chain)
+}
+
+/// The public router is composed whole in `router.rs` (`router(hub)`), and
+/// `main.rs` serves it without adding a path: between taking it and serving
+/// it there is no route, no second router and no other way to add paths.
+pub(super) fn assert_public_router_plain() {
+    assert_plain_composition(ROUTER_RS, "Router::new()", "\n}", ".route_layer(");
+    let served = router_block(
+        MAIN_RS,
+        "let app = router::router(hub);",
+        ".expect(\"serve\")",
+    );
+    for construct in UNREAD_CONSTRUCTS.iter().chain(&[".route(", "Router::"]) {
+        assert!(
+            !served.contains(construct),
+            "main.rs adds `{construct}` to the public router after `router(hub)`; build \
+             every path in router.rs, where the authority matrix reads them"
+        );
+    }
 }
 
 /// Every `METHOD /path` of the loopback master desk, held the same way.

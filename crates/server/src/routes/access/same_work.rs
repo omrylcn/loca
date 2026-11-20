@@ -9,7 +9,7 @@
 //! the test-only tally in `crate::sync::work`: every state mutex and every
 //! SQLite connection the request takes on this (single, current-thread)
 //! test thread. A REST request runs through the real middlewares in the
-//! order `main.rs` layers them, into a `RoomAccess` handler. The WebSocket
+//! order `router.rs` layers them, into a `RoomAccess` handler. The WebSocket
 //! door cannot be driven in process (the upgrade needs a real connection),
 //! so its part that reads the loca id, `socket_sees_nothing` after the
 //! session is resolved, is counted directly; `ws_handler` looks nothing up
@@ -21,7 +21,7 @@ use std::sync::Arc;
 use tower::ServiceExt;
 
 const ROOT: &str = "same-work-root";
-const MAIN_RS: &str = include_str!("../../main.rs");
+const ROUTER_RS: &str = include_str!("../../router.rs");
 
 type Credential = (&'static str, String);
 
@@ -188,9 +188,9 @@ fn nothing_ids(dm: &str) -> [String; 2] {
     ]
 }
 
-/// The route layers `main.rs` puts on the router, outermost last.
+/// The route layers `router.rs` puts on the router, outermost last.
 fn main_layers() -> Vec<String> {
-    MAIN_RS
+    ROUTER_RS
         .split(".route_layer(axum::middleware::from_fn_with_state(")
         .skip(1)
         .map(|chunk| {
@@ -207,7 +207,7 @@ fn main_layers() -> Vec<String> {
         .collect()
 }
 
-/// The router's gates as `main.rs` stacks them, around one `RoomAccess`
+/// The router's gates as `router.rs` stacks them, around one `RoomAccess`
 /// handler that says when a request got through.
 fn gates(hub: &Hub) -> axum::Router {
     assert_eq!(
@@ -218,7 +218,7 @@ fn gates(hub: &Hub) -> axum::Router {
             "group_fence",
             "require_membership"
         ],
-        "main.rs changed its route layers; mirror them here"
+        "router.rs changed its route layers; mirror them here"
     );
     axum::Router::new()
         .route(

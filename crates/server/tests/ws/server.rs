@@ -155,6 +155,13 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
     let assets = [
         ("favicon.svg", "image/svg+xml", "viewBox=\"0 0 64 64\""),
         ("styles.css", "text/css", ":root"),
+        ("sidebar.css", "text/css", ".side > .rooms"),
+        ("room.css", "text/css", ".tabs"),
+        ("feed.css", "text/css", ".composer"),
+        ("panels.css", "text/css", ".notes"),
+        ("overlays.css", "text/css", ".mentionpop"),
+        ("guide.css", "text/css", "concepts map: begin"),
+        ("personal.css", "text/css", ":root[data-accent=\"blue\"]"),
         ("appearance.css", "text/css", ":root[data-theme=\"paper\"]"),
         ("themes.css", "text/css", ":root[data-theme=\"loca\"]"),
         ("profile.css", "text/css", ".profilepanel"),

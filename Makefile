@@ -5,6 +5,11 @@ PYTHON ?= python3
 
 SHELL_SCRIPTS := \
 	skill/agent-room/connect.sh \
+	skill/agent-room/connect.d/content.sh \
+	skill/agent-room/connect.d/doctor.sh \
+	skill/agent-room/connect.d/onboarding.sh \
+	skill/agent-room/connect.d/wiki.sh \
+	skill/agent-room/connect.d/work.sh \
 	skill/agent-room/runtime.sh \
 	packaging/remote-agent/install.sh \
 	packaging/remote-agent/start-lobby.sh \

@@ -1,0 +1,67 @@
+/* Overlays: dialogs and sheets over the page. */
+/* Part of the base styles, split from styles.css; index.html loads
+   the parts in this order, so the cascade is the one styles.css had. */
+
+  /* ── overlays ── */
+  .mentionpop { position: absolute; bottom: 76px; left: 24px; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 28px rgba(0,0,0,.5);
+    overflow: hidden; z-index: 20; min-width: 170px; }
+  .mentionpop div { padding: 6px 12px; cursor: pointer; font-size: 12px; display: flex; gap: 8px; align-items: center; }
+  .mentionpop div.sel, .mentionpop div:hover { background: var(--accent); color: #06231d; }
+  .mentionpop .mtag { font-size: 9px; opacity: .7; }
+  .searchres { position: absolute; top: 130px; left: 50%; transform: translateX(-50%);
+    width: min(660px, 92%); max-height: 62vh; overflow-y: auto; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.55);
+    z-index: 30; padding: 10px 14px; }
+  .searchres h3 { margin: 6px 0; font-size: 10px; color: var(--dim); letter-spacing: .1em;
+    display: flex; justify-content: space-between; }
+  .searchres h3 button { background: none; border: 0; color: var(--muted); cursor: pointer; }
+  .sres { padding: 6px 8px; border-radius: 8px; font-size: 12px; }
+  .sres:hover { background: var(--panel2); }
+  .sres .smeta { font-size: 10px; color: var(--dim); }
+  .sres .snote { color: var(--accent2); font-size: 11px; }
+  .mobiletoggle, .sidebackdrop { display: none; }
+  @media (max-width: 760px) {
+    body { display: block; }
+    body.locked { display: grid; }
+    body:not(.locked) .side { position: fixed; inset: 0 auto 0 0; width: min(320px, 88vw);
+      z-index: 80; transform: translateX(-102%); transition: transform .18s ease;
+      box-shadow: 14px 0 36px rgba(0,0,0,.55); }
+    body.sidebar-open .side { transform: translateX(0); }
+    body.locked .side { position: static; transform: none; box-shadow: 0 20px 60px rgba(0,0,0,.55); }
+    .sidebackdrop { position: fixed; inset: 0; z-index: 70; border: 0;
+      background: rgba(0,0,0,.58); }
+    body.sidebar-open:not(.locked) .sidebackdrop { display: block; }
+    .mobiletoggle { display: inline-flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; flex: 0 0 auto; background: var(--panel2);
+      border: 1px solid var(--line); border-radius: 7px; color: var(--txt); cursor: pointer; }
+    body.locked .mobiletoggle { display: none; }
+    .top { min-height: 76px; height: auto; flex-basis: auto; padding: 10px 12px;
+      gap: 8px; flex-wrap: wrap; }
+    .tophead { min-width: 150px; }
+    .roomprops .detail { display: none; }
+    .tabs { order: 5; width: 100%; margin-left: 0; overflow-x: auto; }
+    .tab { flex: 1 0 auto; padding-inline: 9px; }
+    .roomactions { margin-left: auto; }
+    .leadselect { max-width: 124px; }
+    .adminbar { top: 118px; right: 8px; width: calc(100% - 16px); max-height: 62vh; padding: 8px; }
+    .goaloptions[open] { grid-template-columns: 1fr; }
+    .propertyfields { grid-template-columns: 1fr; }
+    .reminderrow { grid-template-columns: auto minmax(0,1fr); }
+    .reminderrow .reminderafter { grid-column: 2; justify-self: start; }
+    .reminderstatus .remindersummary { white-space: normal; }
+    .reminderto { grid-template-columns: auto minmax(0,1fr); }
+    .reminderto small { grid-column: 1 / -1; white-space: normal; }
+    .feed { padding-inline: 10px; }
+    .bubble, .bub { max-width: 92%; }
+    .lineacts { opacity: 1; pointer-events: auto; }
+    .composer { margin: 6px 8px; grid-template-columns: 1fr auto auto auto; }
+    .composer select { grid-column: 1; }
+    .composer button.send { grid-column: 2; }
+    .composer button.stop { grid-column: 3; }
+    .composer #clearBtn { grid-column: 4; }
+    .composer button.attach { grid-column: 1 / -1; grid-row: 3; justify-self: start; }
+    .hint { padding-inline: 12px; }
+    .notes { padding: 12px 10px; }
+  }
+

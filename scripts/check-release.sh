@@ -67,7 +67,7 @@ if ! grep -Fq "## [$VERSION]" "$ROOT/CHANGELOG.md"; then
   exit 1
 fi
 
-if grep -Fq 'include_str!("../../../docs/' "$ROOT/crates/server/src/main.rs" \
+if grep -Eq 'include_str!\("(\.\./)+docs/' "$ROOT"/crates/server/src/main.rs "$ROOT"/crates/server/src/routes/static_assets.rs \
   && ! grep -Eq '^COPY[[:space:]]+docs[[:space:]]+docs$' "$ROOT/Dockerfile"; then
   echo "Dockerfile must copy docs used by server include_str! assets" >&2
   exit 1

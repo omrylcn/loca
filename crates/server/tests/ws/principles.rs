@@ -1297,7 +1297,7 @@ fn fenced(status: u16, v: &Value, id: &str) -> bool {
 }
 
 /// Every route of each extension in the catalog, as (extension, method,
-/// path template as registered in `main.rs`, body). `live` has no route of
+/// path template as registered in `router.rs`, body). `live` has no route of
 /// its own; its one door is turning live mode on through the settings, which
 /// the fence does not cover. `every_fenced_route_is_in_the_matrix` holds
 /// this list to the router.
@@ -1443,30 +1443,25 @@ fn routes_of(room: &str) -> Vec<(&'static str, reqwest::Method, String, Option<V
         .collect()
 }
 
-/// The (method, path) pairs registered on the main router in `main.rs`, read
-/// from its source: every `.route("path", <method>(...)...)` between
-/// `let app = Router::new()` and the `extension_fence` layer that wraps them.
+/// The (method, path) pairs registered on the public router in `router.rs`,
+/// read from its source: every `.route("path", <method>(...)...)` between
+/// `Router::new()` and the `extension_fence` layer that wraps them.
 /// The router cannot be enumerated from outside the binary, so its source is
 /// the smallest honest place to read it from.
-fn registered_routes(main_rs: &str) -> BTreeSet<(String, String)> {
+fn registered_routes(router_rs: &str) -> BTreeSet<(String, String)> {
     // Only literal `.route(` calls before the first layer are read below; a
     // `.merge`/`.nest`/fallback or a second router anywhere in the served
     // chain, or a route after the first layer, must fail rather than add
     // paths this list never sees.
-    super::authority_matrix::assert_plain_composition(
-        main_rs,
-        "let app = Router::new()",
-        ".expect(\"serve\")",
-        ".route_layer(",
-    );
-    let start = main_rs
-        .find("let app = Router::new()")
-        .expect("main.rs builds `app` with Router::new()");
+    super::authority_matrix::assert_public_router_plain();
+    let start = router_rs
+        .find("Router::new()")
+        .expect("router.rs builds the router with Router::new()");
     let end = start
-        + main_rs[start..]
+        + router_rs[start..]
             .find("extension_fence")
             .expect("the extension fence wraps the main router");
-    let mut rest = &main_rs[start..end];
+    let mut rest = &router_rs[start..end];
     let mut out = BTreeSet::new();
     while let Some(at) = rest.find(".route(") {
         let args = &rest[at + ".route(".len()..];
@@ -1572,7 +1567,7 @@ fn loca_segment(path: &str) -> Option<&str> {
 #[test]
 fn every_loca_route_is_claimed_by_an_extension_or_core() {
     let claimed = fence_segments();
-    let registered = registered_routes(include_str!("../../src/main.rs"));
+    let registered = registered_routes(super::authority_matrix::ROUTER_RS);
     let served: BTreeSet<&str> = registered
         .iter()
         .filter_map(|(_, path)| loca_segment(path))
@@ -1616,7 +1611,7 @@ fn every_loca_route_is_claimed_by_an_extension_or_core() {
 fn every_fenced_route_is_in_the_matrix() {
     let segments = fence_segments();
     let registered: BTreeSet<(String, String)> =
-        registered_routes(include_str!("../../src/main.rs"))
+        registered_routes(super::authority_matrix::ROUTER_RS)
             .into_iter()
             .filter(|(_, path)| {
                 path.strip_prefix("/rooms/:id/")

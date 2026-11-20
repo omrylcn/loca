@@ -13,13 +13,13 @@
 use super::*;
 
 const ROOT: &str = "hidden-root-credential";
-const MAIN_RS: &str = include_str!("../../src/main.rs");
+const ROUTER_RS: &str = include_str!("../../src/router.rs");
 
 /// Every `/rooms/:id…` route the router serves, as `(METHOD, path)`, read
 /// from the `Router::new()` chain so a new route is covered as it lands.
 fn loca_routes() -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for chunk in MAIN_RS.split(".route(").skip(1) {
+    for chunk in ROUTER_RS.split(".route(").skip(1) {
         let chunk = chunk.split(".route_layer(").next().unwrap();
         let Some(start) = chunk.find('"') else {
             continue;
@@ -49,7 +49,7 @@ fn loca_routes() -> Vec<(String, String)> {
     // (the router's path syntax changed once under it).
     assert!(
         out.len() > 40,
-        "only {} loca routes read from main.rs",
+        "only {} loca routes read from router.rs",
         out.len()
     );
     out
