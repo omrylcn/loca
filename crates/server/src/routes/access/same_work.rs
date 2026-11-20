@@ -17,6 +17,7 @@
 use super::*;
 use crate::hub::HubConfig;
 use crate::sync::work;
+use protocol::CreateSession;
 use std::sync::Arc;
 use tower::ServiceExt;
 

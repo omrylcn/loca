@@ -2,7 +2,7 @@
 //! plain text per loca, with who wrote it and when. Rows are only inserted;
 //! the newest revision is the document. The text is stored as given and
 //! never read for meaning.
-use super::*;
+use super::{params, sender_type_str, ChatMode, OptionalExtension, RoomSettings, Store};
 
 /// A new table only, so a database from an earlier version opens unchanged:
 /// none of its locas has rules.

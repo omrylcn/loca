@@ -1,7 +1,7 @@
 //! What the Master sets for the whole Building at runtime, one row per
 //! setting. Today that is only the Building's display name; everything else a
 //! Building runs on comes from its environment and is not stored here.
-use super::*;
+use super::{params, OptionalExtension, Store};
 
 /// A new table only, so a database from an earlier version opens unchanged:
 /// its Building simply has no name.

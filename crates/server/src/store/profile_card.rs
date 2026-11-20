@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use super::*;
+use super::{params, OptionalExtension, Store};
 
 /// What a person chose to be shown as, beside the `@name` they are.
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]

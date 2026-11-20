@@ -1,6 +1,10 @@
 //! Moderation and the loca Operator: bans, mutes, who may moderate whom.
 
-use super::*;
+use super::{
+    invite_issuer_rank, map_loca_operator_error, BuildingRole, Hub, InviteRecord,
+    LocaOperatorAssignment, ModerationError, ModerationRanks, OperatorAssignmentError,
+    RecoverMutex, RequestAuthority, ServerFrame,
+};
 
 impl Hub {
     /// Whether `name` is banned from `room`.

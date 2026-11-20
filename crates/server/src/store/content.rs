@@ -1,4 +1,7 @@
-use super::*;
+use super::{
+    attachments_from_json, params, parse_kind, parse_sender_type, search_fold, sender_type_str,
+    Connection, Message, Note, Store,
+};
 
 impl Store {
     /// A note's past versions, newest first (without the current one).

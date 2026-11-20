@@ -1,6 +1,9 @@
 //! Who holds rank: the Master's key and sessions, Smasters, profile credentials and preferences.
 
-use super::*;
+use super::{
+    authority_from_principal, AdminSessionGrant, BuildingRole, CredentialError, CredentialSummary,
+    Hub, LobbyEvent, NameClaimError, RecoverMutex, RequestAuthority, SenderType,
+};
 
 impl Hub {
     /// True if `token` authorizes admin actions. When no token is configured,

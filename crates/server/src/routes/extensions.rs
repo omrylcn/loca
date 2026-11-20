@@ -9,7 +9,10 @@
 //! Changes are for the loca's appointed Operator, the Master and Smasters.
 //! The fence below refuses every route of an extension that is off.
 use super::rooms::is_room_operator_req;
-use crate::*;
+use crate::{
+    admin_token_of, hub, room_decision_of, session_of, HashMap, HeaderMap, Hub, IntoResponse, Json,
+    Path, Query, RoomAccess, SenderType, State, StatusCode,
+};
 
 /// The one refusal every disabled extension gives, reads and writes alike.
 /// The Loca Board's says plainly what is off, in front of the shared words.

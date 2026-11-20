@@ -1,6 +1,11 @@
 //! Posting a message and reacting to one.
 
-use super::*;
+use super::{
+    names_people_but_not_all, Attention, AttentionAudience, AttentionStatus, CareReason,
+    CareSignal, ChatMode, Hub, LegacyOwner, Message, OperationScope, Ordering, PostMessage,
+    PostReject, ReactionReject, RecoverMutex, SenderType, ServerFrame, WaitState, HISTORY_LIMIT,
+    MAX_ATTACHMENTS_PER_MESSAGE,
+};
 
 impl Hub {
     /// Append a posted message, trim history, and broadcast it. The current

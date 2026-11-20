@@ -10,7 +10,7 @@
 //!   * GLOBAL PHYSICAL liveness         = `COUNT(*) WHERE sha = ?` across ALL
 //!     rooms — the file is deleted only when that reaches 0, so deleting one
 //!     room can never corrupt a blob another room still shares.
-use super::*;
+use super::{params, Connection, Message, OptionalExtension, Store};
 use sha2::{Digest, Sha256};
 
 /// Why an attachment upload was refused. The route maps each to an HTTP status.

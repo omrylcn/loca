@@ -7,7 +7,11 @@ ROOT = Path(__file__).resolve().parents[3]
 
 class WebAuthContractTests(unittest.TestCase):
     def test_auth_unknown_is_not_rendered_as_logged_out(self):
-        state = (ROOT / "web/assets/state.js").read_text(encoding="utf-8")
+        # state.js and session.js (split from it): the page's state and session.
+        state = "\n".join(
+            (ROOT / "web/assets" / name).read_text(encoding="utf-8")
+            for name in ("state.js", "session.js")
+        )
         app = (ROOT / "web/assets/app.js").read_text(encoding="utf-8")
         self.assertIn('authStatus: "unknown"', state)
         self.assertIn('if (state.authStatus === "unknown") return;', state)

@@ -94,7 +94,7 @@ for required in connect.sh connect.d/content.sh connect.d/doctor.sh connect.d/on
   connect.d/wiki.sh connect.d/work.sh credentials.py portable_lock.py join_request.py kit_version.py \
   listen.py listen_ws.py listen_state.py listen_addressing.py listen_frames.py \
   monitor_listener.py runtime.sh runtime_agent.py runtime_consumer.py \
-  codex_rpc.py attention_store.py codex_adapter_v2.py orchestrator_queue.py \
+  codex_rpc.py attention_store.py attention_schema.py codex_adapter_v2.py orchestrator_queue.py \
   stop_listener.py setup.ps1 references/runtimes.md; do
   if [ ! -f "$ROOT/loca/$required" ]; then
     echo "package is incomplete: missing loca/$required; obtain a complete agent kit" >&2

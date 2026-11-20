@@ -1,0 +1,86 @@
+/* ── Call into a loca (calldialog.js) ──────────────────────────────────────
+   Loaded after the page styles. The dialog is drawn like Add people
+   (page-people.css #addPeople): the overlay of the other dialogs, a panel
+   card with a head (title and ×), a body and a foot, the reading face and
+   only theme tokens, so it sits in Loca, Calm and Console alike. The list
+   scrolls inside the body; the search and the buttons stay put. Each
+   candidate is two lines: who (and online or away), then where they sit,
+   their floors and who admitted an agent. On a phone it is a full sheet. */
+#callDialog .extcard.calldialog { display: flex; flex-direction: column; width: min(640px, 100%);
+  height: min(680px, calc(100dvh - 32px)); max-height: none; padding: 0; overflow: hidden; border-radius: 16px;
+  background: var(--panel); box-shadow: 0 24px 60px color-mix(in srgb, var(--txt) 25%, transparent);
+  font-family: var(--font-sans, inherit); font-size: 14px; color: var(--txt); }
+.calldialog .cdhead { display: flex; align-items: center; gap: 10px; padding: 18px 20px 18px 24px;
+  border-bottom: 1px solid var(--line); }
+.calldialog .cdhead h2 { margin: 0; min-width: 0; font-size: 19px; font-weight: 600; overflow-wrap: anywhere; }
+.calldialog .cdclose { margin-left: auto; flex: 0 0 auto; width: 36px; height: 36px; border: 0; border-radius: 8px;
+  background: none; color: var(--muted); font-family: inherit; font-size: 20px; cursor: pointer; }
+.calldialog .cdclose:hover, .calldialog .cdclose:focus-visible { background: var(--panel2); color: var(--txt); }
+.calldialog .cdbody { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; gap: 12px; padding: 18px 24px 0; }
+.calldialog .cdlabel { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.calldialog #callSearch { box-sizing: border-box; width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--panel); color: var(--txt); font-family: inherit; font-size: 15px; }
+.calldialog #callSearch:focus { outline: none; border-color: var(--accent); }
+.callfloornote { margin: 0; color: var(--muted); font-size: 13px; }
+.callfloornote:empty { display: none; }
+#callCands { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0 -8px; padding: 0 8px 12px; }
+.callgroup + .callgroup { margin-top: 10px; }
+.callgroup h3 { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; margin: 0;
+  padding: 6px 0 8px; background: var(--panel); color: var(--txt); font-size: 15px; font-weight: 600; }
+.callgroup h3 .bcount { color: var(--muted); font-size: 13px; font-weight: 500; }
+.callcand { display: grid; grid-template-columns: 18px minmax(0, 1fr); column-gap: 12px; row-gap: 4px;
+  margin-bottom: 4px; padding: 10px 12px; border: 1px solid transparent; border-radius: 8px;
+  background: var(--panel2); cursor: pointer; }
+.callcand[hidden] { display: none; }
+.callcand:hover { border-color: var(--line); }
+.callcand:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel2)); }
+.callcand:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.callcand input { grid-row: 1 / span 2; align-self: start; margin: 2px 0 0; width: 16px; height: 16px;
+  accent-color: var(--accent); cursor: pointer; }
+.callwho { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.callname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px; font-weight: 600; }
+.callname .kindmark { display: inline-block; margin-right: 7px; vertical-align: 1px; }
+.callpresence { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 13px; }
+.callpresence::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+.callpresence.on { color: var(--human); }
+.callpresence.on::before { background: var(--human); }
+.callmeta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0;
+  color: var(--muted); font-size: 13px; }
+.callwhere { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; max-width: 100%; }
+.callloca { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; color: var(--txt); }
+.callmore { color: var(--muted); }
+.callfloors { display: inline-flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.callfloors .pnowhere { color: var(--muted); font-size: inherit; }
+.callowner { color: var(--muted); }
+#callCands .callnone { padding: 10px 2px; color: var(--muted); font-size: 13px; }
+.callresults { display: flex; flex-direction: column; gap: 6px; padding-top: 2px; }
+.callresult { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); font-size: 14px; }
+.callresultname { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.callresultwhat { color: var(--muted); overflow-wrap: anywhere; }
+.callresult.called .callresultwhat { color: var(--human); }
+.callresult.already .callresultwhat { color: var(--warn); }
+.callresult.failed { border-color: color-mix(in srgb, var(--bad) 45%, var(--line));
+  background: color-mix(in srgb, var(--bad) 7%, var(--panel2)); }
+.callresult.failed .callresultwhat { color: var(--bad); }
+.calldialog .cdfoot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 14px 24px 18px; border-top: 1px solid var(--line); }
+.callsummary { flex: 1 1 auto; min-width: 0; color: var(--muted); font-size: 13px; }
+.calldialog .btn { flex: 0 0 auto; height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--txt); font-family: inherit; font-size: 13px; font-weight: 500; }
+.calldialog .btn:hover, .calldialog .btn:focus-visible { border-color: var(--muted); }
+.calldialog .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.calldialog .btn.primary:hover, .calldialog .btn.primary:focus-visible { background: var(--accent2); border-color: var(--accent2); }
+.calldialog .btn:disabled { opacity: .5; cursor: default; }
+.calldialog .btn.hidden { display: none; }
+@media (max-width: 520px) {
+  #callDialog { padding: 0; }
+  #callDialog .extcard.calldialog { width: 100%; height: 100%; border: 0; border-radius: 0; }
+  .calldialog .cdhead { padding: 14px 12px 14px 16px; }
+  .calldialog .cdbody { padding: 14px 16px 0; }
+  .calldialog .cdfoot { padding: 12px 16px 16px; }
+  /* The count on its own line, the buttons together under it. */
+  .callsummary { flex-basis: 100%; }
+}

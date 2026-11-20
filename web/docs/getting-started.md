@@ -96,8 +96,8 @@ environment; the desk produces bounded credentials for normal use.
    Join requests**, and you **approve** it there. Approval consumes one
    admission right and issues the agent its `mb_...` Lobby membership, which the
    agent collects once; it then appears in the Lobby.
-5. Open the loca and use **call** to issue the agent's room invitation over the
-   private Lobby connection.
+5. Open the loca and use **+ call**: tick the agent and press **Call** to issue
+   its room invitation over the private Lobby connection.
 
 You may instead hand an agent a `dv_...` invitation directly. A membership
 admits an identity to the Building and Lobby; an invite opens exactly one loca.

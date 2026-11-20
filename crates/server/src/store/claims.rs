@@ -15,7 +15,11 @@
 //! same `secure_delete` and owed-checkpoint machinery the join-request copy
 //! uses (`expire_delivery_copies`).
 
-use super::*;
+use super::{
+    expire_delivery_copies, hashed_id, params, record_owed_checkpoint, secret_hash,
+    settle_owed_checkpoint_logged, with_secure_delete, DeliveryCopies, OptionalExtension, Store,
+    JOIN_BOOTSTRAP_WINDOW_MS,
+};
 
 /// How many set-ups one invite may claim a key for. Repeats of one set-up do
 /// not count. Past it a set-up is refused and the Master re-issues the invite

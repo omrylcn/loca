@@ -5,7 +5,7 @@
 //! writes their own row. Every value is checked against a closed allow-list so
 //! the browser can put it straight into a `data-*` attribute.
 
-use super::*;
+use super::{params, Connection, OptionalExtension, Store};
 
 mod sounds;
 use sounds::SoundPreferences;

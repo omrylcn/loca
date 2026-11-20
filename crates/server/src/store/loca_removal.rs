@@ -8,7 +8,7 @@
 //! is never quietly re-created by a late join or post (as after a seal).
 
 use super::rooms::ROOM_KEYED_TABLES;
-use super::*;
+use super::{params, Store};
 
 /// Loca tables an archive leaves out: credentials and secrets (invites, the
 /// vault), and runtime bookkeeping that means nothing outside the server.

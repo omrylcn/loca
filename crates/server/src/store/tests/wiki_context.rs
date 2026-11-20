@@ -1,4 +1,5 @@
 use super::*;
+use crate::store::WikiPageEdit;
 
 #[test]
 fn selected_context_restart_and_receipt_fences() {

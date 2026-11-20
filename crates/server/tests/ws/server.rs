@@ -185,9 +185,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("page-manage.css", "text/css", "#adminbar"),
         ("page-content.css", "text/css", "#notesPanel"),
         ("page-home.css", "text/css", "#homePanel"),
+        ("calldialog.css", "text/css", ".calldialog"),
         ("avatar.js", "text/javascript", "function avatarHtml("),
         ("theme.js", "text/javascript", "function applyAppearance("),
         ("state.js", "text/javascript", "const state ="),
+        ("session.js", "text/javascript", "function takeSession("),
         ("socket.js", "text/javascript", "function openWs()"),
         ("people.js", "text/javascript", "function renderMembers()"),
         ("chat.js", "text/javascript", "function renderMarkdown("),
@@ -282,6 +284,11 @@ async fn web_shell_has_security_headers_and_http_bodies_are_bounded() {
         ("search.css", "text/css", "#searchView"),
         ("threads.js", "text/javascript", "function openThread("),
         ("home.js", "text/javascript", "function renderHome("),
+        (
+            "calldialog.js",
+            "text/javascript",
+            "function openCallDialog(",
+        ),
     ];
     for (name, content_type, marker) in assets {
         assert!(

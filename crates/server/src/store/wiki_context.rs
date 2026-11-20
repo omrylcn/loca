@@ -1,5 +1,5 @@
 //! Durable page selection and native acceptance, never a chat/LLM trigger.
-use super::*;
+use super::{params, OptionalExtension, Store, WikiError};
 use serde::Deserialize;
 
 #[cfg(test)]

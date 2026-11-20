@@ -1,6 +1,11 @@
 //! Invitations: issuing, reissuing, delivering and ending a loca's invites.
 
-use super::*;
+#[cfg(test)]
+use super::TestHook;
+use super::{
+    invite_issuer_rank, secret_hash, Hub, InviteError, InviteRecord, LobbyEvent, RecoverMutex,
+    ReissueError, RequestAuthority, ServerFrame,
+};
 
 impl Hub {
     /// True if `token` is an invite for THIS loca. An invite opens one loca and no

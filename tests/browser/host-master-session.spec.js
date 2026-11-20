@@ -3,7 +3,7 @@ const { test, expect } = require("@playwright/test");
 // Loca Host (the desktop app with its own server) hands its page a Master
 // session it mints from the Host's admin token: at start, and again when the
 // page asks because the one it holds has ended (main.rs host_master_session;
-// state.js hostMasterSession). Here the shell is a stand-in: its
+// session.js hostMasterSession). Here the shell is a stand-in: its
 // host_master_session mints a real Master session on the test server, the way
 // the shell does on its own. The page never sees an admin token.
 

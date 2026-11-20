@@ -9,7 +9,7 @@
 //! set-ups per invite) live in `store/claims.rs`; a memory-only Building keeps
 //! the same rules here, in memory.
 
-use super::*;
+use super::{secret_hash, HashMap, Hub, MemberRecord, RecoverMutex};
 use crate::store::{MemberClaim, CLAIM_DELIVERY_WINDOW_MS, MEMBERSHIP_CLAIMS_PER_INVITE};
 
 /// Why a claim was refused before anything was looked up for a set-up.

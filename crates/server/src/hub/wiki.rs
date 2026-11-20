@@ -1,6 +1,6 @@
 //! Loca memory and the Loca Wiki.
 
-use super::*;
+use super::{Hub, SenderType};
 
 impl Hub {
     pub fn loca_memory(&self, room: &str) -> rusqlite::Result<Option<protocol::LocaMemory>> {

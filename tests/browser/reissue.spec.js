@@ -58,22 +58,24 @@ test("a seated member's invitation is re-sent against the real server", async ({
   await admitted(request, name);
   await openRoom(page, request);
 
-  // The list was opened while the member was free; someone seated them in
-  // the meantime, so the click answers `already`.
+  // The dialog was opened while the member was free; someone seated them in
+  // the meantime, so the call answers `already`.
   await page.locator("#callBtn").click();
-  const row = page.locator(`#callList [data-call="${name}"]`);
+  const row = page.locator("#callDialog .callcand").filter({ hasText: name }).getByRole("checkbox");
   await expect(row).toBeVisible();
   const called = await request.post(`/rooms/${ROOM}/call`, { headers: MASTER, data: { name } });
   expect(called.status()).toBe(201);
   const old = (await called.json()).token;
   expect((await request.get(`/rooms/${ROOM}/messages`, { headers: { "x-room-token": old } })).status()).toBe(200);
-  await row.click();
+  await row.check();
+  await page.locator("#callSubmit").click();
 
   await expect(sysLines(page).filter({ hasText: `${name} already has a seat in this loca` })).toHaveCount(1);
-  await expect(reissueButton(page)).toHaveText("Re-send invitation");
-  await reissueButton(page).click();
+  const resend = page.locator("#callDialog [data-call-dialog-reissue]");
+  await expect(resend).toHaveText("Re-send invitation");
+  await resend.click();
   await expect(sysLines(page).filter({ hasText: `fresh invitation sent to ${name}` })).toHaveCount(1);
-  await expect(page.locator("#callList")).toBeHidden();
+  await expect(page.locator("#callDialog .callresult").filter({ hasText: name })).toContainText("fresh invitation sent");
   // The page never shows the invite itself.
   expect(await page.locator("body").innerText()).not.toContain("dv_");
 

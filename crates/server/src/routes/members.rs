@@ -1,7 +1,10 @@
 //! The Building's people: members (admit, suspend, revoke), residents,
 //! profiles, ranks and Smasters.
 
-use crate::*;
+use crate::{
+    admin_token_of, hub, is_admin_req, is_master_req, member_token_of, session_of, HeaderMap, Hub,
+    IntoResponse, Json, Path, State, StatusCode, NAME_WORN_RULE,
+};
 
 use super::profile::{with_cards_by_id, with_people};
 

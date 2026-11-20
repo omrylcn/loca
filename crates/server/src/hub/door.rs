@@ -1,6 +1,9 @@
 //! The door: who may enter which loca, and which identity a request acts as.
 
-use super::*;
+use super::{
+    secret_hash, BuildingRole, EnterDecision, Hub, LegacyOwner, Message, OperationScope,
+    PrivateDoor, RequestAuthority, SenderType, SessionIdentity,
+};
 
 impl Hub {
     /// May this room credential enter `room`? An active per-device credential

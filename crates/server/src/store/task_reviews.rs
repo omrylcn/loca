@@ -4,7 +4,7 @@
 //! back with it. A new table only: a database from an earlier version opens
 //! unchanged (its tasks simply have no history), and an earlier binary opens
 //! a database that has it and leaves the table alone.
-use super::*;
+use super::{params, Connection, Store, Task};
 use protocol::{TaskReview, TaskReviewKind};
 
 pub(super) const SCHEMA: &str = r#"

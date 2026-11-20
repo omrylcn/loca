@@ -1,5 +1,10 @@
 //! Durable bounded Wiki maintenance, separate from chat and model turns.
-use super::*;
+#[cfg(test)]
+use super::WikiCommit;
+use super::{
+    attachments_from_json, params, parse_kind, parse_sender_type, Connection, Message,
+    OptionalExtension, Store, WikiError,
+};
 use serde::{Deserialize, Serialize};
 
 const MAX_BATCH_MESSAGES: usize = 100;

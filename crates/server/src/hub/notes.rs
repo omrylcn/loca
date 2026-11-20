@@ -1,6 +1,6 @@
 //! Notes: a loca's editable current facts.
 
-use super::*;
+use super::{CreateNote, Hub, Note, NoteError, RecoverMutex, ServerFrame, UpdateNote};
 
 impl Hub {
     /// All notes in a room (sorted by key for stable display).

@@ -1,6 +1,6 @@
 //! Durable wiki state. Access to reads and operator configuration belongs to
 //! the HTTP layer; writes additionally bind to the assigned principal here.
-use super::*;
+use super::{params, Connection, OptionalExtension, Store};
 use serde::{Deserialize, Serialize};
 
 const PAGE_MAX_BYTES: usize = 32 * 1024;

@@ -1,7 +1,14 @@
 //! Ways into the Building on disk: admission rights, join requests and their
 //! bootstrap window, and invite delivery copies.
 
-use super::*;
+#[cfg(test)]
+use super::migrations::checkpoint_owed;
+use super::{
+    expire_delivery_copies, expire_invite_copies, identity, params, record_owed_checkpoint,
+    secret_hash, settle_owed_checkpoint_logged, with_secure_delete, ApproveTxn, BootstrapClaim,
+    DeliveryCopies, JoinRequestView, MemberRecord, OptionalExtension, Store,
+    JOIN_BOOTSTRAP_WINDOW_MS, PAST_JOIN_BOOTSTRAP_DEADLINE,
+};
 
 impl Store {
     /// Insert one admission-stock row per pre-generated right id (a Master
