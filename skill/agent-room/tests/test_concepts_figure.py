@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 SVG = ROOT / "docs/concepts-at-a-glance.svg"
 INDEX = ROOT / "web/index.html"
-STYLES = ROOT / "web/assets/styles.css"
+STYLES = ROOT / "web/assets/guide.css"
 CONCEPTS = ROOT / "docs/concepts.md"
 
 STYLE_ELEMENT = re.compile(r"<style>\n(.*?)</style>\n", re.S)
@@ -104,7 +104,7 @@ class ConceptsFigureTests(unittest.TestCase):
         rules = STYLE_ELEMENT.search(figure_svg_source()).group(1)
         css = STYLES.read_text(encoding="utf-8")
         block = re.search(r"/\* concepts map: begin \*/\n(.*?)/\* concepts map: end \*/\n", css, re.S)
-        self.assertIsNotNone(block, "styles.css has no concepts map block")
+        self.assertIsNotNone(block, "guide.css has no concepts map block")
         self.assertEqual(block.group(1), rules)
 
     def test_concepts_doc_shows_the_figure_before_the_long_prose(self):

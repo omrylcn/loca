@@ -5,6 +5,7 @@
 
 mod access;
 mod actor;
+mod admin_console;
 mod attachments;
 mod attention;
 mod board_off;
@@ -21,9 +22,12 @@ mod membership;
 mod notifications;
 mod rooms;
 mod search;
+mod static_assets;
 mod vault;
 mod wiki;
 mod work;
+pub(crate) use admin_console::*;
+pub(crate) use static_assets::*;
 pub(crate) use wiki::{
     claim_wiki_review, commit_wiki, configure_wiki, edit_wiki_page, finish_wiki_review, get_wiki,
     get_wiki_page, remove_wiki_page, renew_wiki_review, wiki_context, wiki_context_accept,

@@ -1,0 +1,364 @@
+/* The sidebar: the brand and account rows, This Loca, the Building directory
+   and its buttons, the Lobby, the loca list. */
+/* Part of the base styles, split from styles.css; index.html loads
+   the parts in this order, so the cascade is the one styles.css had. */
+
+  /* ── sidebar ── */
+  .side { background: var(--panel); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; overflow: hidden; height: 100vh; }
+  .side > h1, .side > .whoami, .side > .conn, .side > .newroom,
+  .side > .lobby { flex: 0 0 auto; }
+  .side > .rooms { flex: 0 1 auto; min-height: 60px; max-height: 38vh; }
+  .side > .online { flex: 1 1 auto; min-height: 150px; max-height: none; }
+  .sideviewtabs { flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr;
+    gap: 3px; padding: 7px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .sideviewtabs button { border: 1px solid transparent; border-radius: 7px; padding: 6px 8px;
+    background: transparent; color: var(--muted); font: 700 10px var(--mono); cursor: pointer; }
+  .sideviewtabs button:hover:not(:disabled) { color: var(--txt); background: var(--panel2); }
+  .sideviewtabs button.active { color: var(--accent2); border-color: var(--line); background: var(--panel2); }
+  .sideviewtabs button:disabled { opacity: .38; cursor: not-allowed; }
+  .sideview { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .buildingview .rooms { flex: 1 1 auto; min-height: 60px; max-height: none; }
+  .buildingview .newroom, .buildingview .lobby { flex: 0 0 auto; }
+  .hiddenlocas { flex: 0 0 auto; border-top: 1px solid var(--line); padding: 5px 12px 7px; }
+  .hiddenlocas summary { cursor: pointer; color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
+  .hiddenlocas summary span { color: var(--muted); }
+  .hiddenroom { display: flex; align-items: center; gap: 8px; padding: 4px 2px; color: var(--muted); font-size: 10px; }
+  .hiddenroom span { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .hiddenroom button { border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--accent2); font: 9px var(--mono); cursor: pointer; }
+  .locaview .online { flex: 1 1 auto; min-height: 100px; max-height: none; }
+  /* This Loca: what it is for, who answers for it, what it carries.
+     Reading sizes, not captions: nothing here is under 10px. */
+  .locasummary { flex: 0 0 auto; padding: 14px 14px 13px; border-bottom: 1px solid var(--line); }
+  .locasummaryhead { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .locasummaryhead b { flex: 1 1 auto; min-width: 0; font-size: 15px; letter-spacing: -.01em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .locasummaryhead .locamark, .locaglyph { flex: 0 0 auto; width: 30px; height: 30px; display: grid;
+    place-items: center; border-radius: 8px; }
+  .locaglyph { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent);
+    font-weight: 800; font-size: 15px; }
+  .lifecycle { flex: 0 0 auto; border: 1px solid currentColor; border-radius: 999px;
+    padding: 2px 9px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+  .lifecycle.open { color: var(--human); background: color-mix(in srgb, var(--human) 10%, transparent); }
+  .lifecycle.closed { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
+  .lifecycle.loading { color: var(--dim); }
+  .locafacts { display: grid; gap: 0; margin: 12px 0 0; }
+  .locafacts > div { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; align-items: baseline;
+    padding: 8px 0; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .locafacts dt { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+  .locafacts dd { margin: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+    min-width: 0; color: var(--txt); font-size: 12.5px; overflow-wrap: anywhere; }
+  .locafacts dd small { flex: 0 0 auto; color: var(--dim); font-size: 10px; }
+  .locafacts dd .extlink { flex: 0 0 auto; }
+  .locafacts .myrole dd { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .06em; }
+  /* A titled loca keeps its id in reach under the title. */
+  .locasummaryhead .locanamecol { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+  .locasummaryhead .locaid { color: var(--dim); font: 10px var(--mono); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .side h1 { display: flex; align-items: center; gap: 9px; font-size: 14px; margin: 0;
+    height: 56px; padding: 0 16px; border-bottom: 1px solid var(--line);
+    letter-spacing: .5px; font-weight: 600; }
+  .brandlink { display: inline-flex; align-items: center; gap: 9px; color: inherit;
+    text-decoration: none; }
+  .brandlink:hover, .brandlink:focus-visible { color: var(--accent2); outline: none; }
+  /* logo mark: the table and those around it — * agent above, . human below */
+  .mark { width: 13px; height: 13px; border: 1.5px solid var(--accent); border-radius: 3px;
+    position: relative; flex: 0 0 auto; margin: 6px 2px; }
+  .mark::before { content: "*"; position: absolute; top: -11px; left: 50%; transform: translateX(-50%);
+    color: var(--agent); font: 700 11px var(--mono); line-height: 1; }
+  .mark::after { content: ""; position: absolute; bottom: -7px; left: 50%; transform: translateX(-50%);
+    width: 3.5px; height: 3.5px; border-radius: 50%; background: var(--human); }
+  .side h1 button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; }
+  .side h1 button:hover { color: var(--accent); }
+  .side h1 #tabPeople { margin-left: auto; border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 7px; font: 700 9px var(--mono); letter-spacing: .08em; }
+  .side h1 #tabPeople.active { border-color: var(--agent); color: var(--agent); }
+  .whoami { position: relative; padding: 0; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); display: none; z-index: 12; }
+  .whoami.on { display: block; }
+  .whoami b { color: var(--accent2); font-weight: 600; }
+  .whoami .adm { color: var(--warn); font-size: 10px; margin-left: 6px; }
+  .profilemenu > summary { list-style: none; padding: 9px 14px; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .profilemenu > summary::-webkit-details-marker { display: none; }
+  .profilemenu > summary:hover, .profilemenu > summary:focus-visible { background: color-mix(in srgb, var(--panel) 72%, transparent); outline: none; }
+  .profilechevron { margin-left: auto; color: var(--dim); font-size: 18px; line-height: 1; transition: transform .15s ease; }
+  .profilemenu[open] .profilechevron { transform: rotate(90deg); color: var(--accent2); }
+  .profilepanel { position: absolute; top: calc(100% + 7px); left: 10px; right: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); box-shadow: 0 14px 40px rgba(0,0,0,.42);
+    max-height: calc(100vh - 130px); overflow-y: auto; }
+  .profilepanelhead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .profilepanelhead > span { color: var(--text); font-weight: 700; }
+  .profilepanelhead small, .profileconnected, .profileempty { color: var(--dim); font-size: 9px; }
+  .profileconnected { padding-top: 8px; }
+  .profileidentity { display: flex; gap: 9px; align-items: center; min-width: 0; }
+  .profileidentity > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+  .profileidentity b { color: var(--text); font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+  .profileidentity small { color: var(--dim); font-size: 9px; margin-top: 1px; }
+  .profileglyph { width: 25px; height: 25px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; background: color-mix(in srgb, var(--human) 15%, transparent); color: var(--human); font-size: 18px; }
+  .profileroles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 9px; }
+  .profileroles > span { border: 1px solid var(--line); border-radius: 7px; padding: 6px 7px; display: flex; flex-direction: column; min-width: 0; background: color-mix(in srgb, var(--panel) 65%, transparent); }
+  .profileroles small, .profilesession small { color: var(--dim); font-size: 8px; text-transform: uppercase; letter-spacing: .08em; }
+  .profileroles b.role { font-size: 9px; line-height: 1.35; overflow-wrap: anywhere; }
+  .profileroles b.building-master { color: #e7b95a; }
+  .profileroles b.building-smaster { color: #d3a95d; }
+  .profileroles b.loca-role { color: var(--warn); }
+  .profileroles em { font-style: normal; font-size: 8px; color: var(--dim); }
+  .profilesession { display: flex; justify-content: space-between; gap: 8px; margin: 7px 1px 0; font-size: 9px; }
+  .profilesession span { text-align: right; color: var(--muted); }
+  .profileaccess { margin-top: 7px; border-top: 1px solid var(--line); padding-top: 6px; }
+  .profileaccess summary { cursor: pointer; color: var(--muted); font-size: 10px; user-select: none; }
+  .profileaccess summary span { float: right; color: var(--accent2); }
+  .credentiallist { display: flex; flex-direction: column; gap: 4px; margin-top: 7px; max-height: 190px; overflow: auto; }
+  .credentialrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 5px; padding: 6px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); }
+  .credentialrow > span:first-child { display: flex; flex-direction: column; min-width: 0; }
+  .credentialrow b { color: var(--text); font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
+  .credentialrow small { font-size: 8px; color: var(--dim); }
+  .credentialrow.revoked { opacity: .55; }
+  .credentialstate { font-size: 8px; color: var(--accent2); }
+  .credentialrow button { grid-column: 2; padding: 2px 5px; font-size: 8px; color: var(--bad); background: transparent; border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); border-radius: 4px; }
+  .credentialcreate { display: flex; gap: 4px; margin-top: 6px; }
+  .credentialcreate input { min-width: 0; width: 100%; padding: 5px 6px; font-size: 9px; }
+  .credentialcreate button { flex: 0 0 auto; padding: 4px 7px; font-size: 9px; }
+  .credentialsecret { margin-top: 6px; padding: 6px; border-radius: 6px; border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+  .credentialsecret b { display: block; color: var(--warn); font-size: 9px; }
+  .credentialsecret code { display: block; margin: 4px 0; color: var(--text); font-size: 8px; overflow-wrap: anywhere; user-select: all; }
+  .credentialsecret button { padding: 2px 6px; font-size: 8px; }
+  /* Sign out, at the foot of the account menu (profile.js). */
+  .profilesignout { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .profilesignout .leavebtn { width: 100%; padding: 7px 10px; background: transparent;
+    border: 1px solid rgba(255,107,107,.35); color: var(--muted);
+    border-radius: 7px; font: 11px var(--mono); cursor: pointer; }
+  .profilesignout .leavebtn:hover { color: var(--bad); border-color: var(--bad); }
+  .leaveconfirm { margin-top: 8px; padding: 9px; border: 1px solid rgba(255,107,107,.35);
+    border-radius: 7px; color: var(--txt); font-size: 10px; line-height: 1.45; text-align: center; }
+  .leaveconfirm .choices { display: flex; gap: 7px; margin-top: 7px; }
+  .leaveconfirm button { margin: 0; padding: 6px; flex: 1; border-radius: 6px; cursor: pointer; font: 700 10px var(--mono); }
+  .leaveconfirm .no { background: var(--panel2); color: var(--txt); border: 1px solid var(--line); }
+  .leaveconfirm .yes { background: var(--bad); color: #2a0e0e; border: 0; }
+  .profileserver span { overflow-wrap: anywhere; }
+  body.locked .leavebtn { display: none; }
+  /* An announcement is not a turn in the conversation — give it a shape that
+     survives a fast-scrolling room. */
+  .omem.away { opacity: .55; }
+  .omem.away .oname::after { content: " · away"; color: var(--dim); font-size: 10px; }
+  .leadtag { display: inline-flex; align-items: center; gap: 4px;
+    background: rgba(245,199,107,.18); border: 1px solid rgba(245,199,107,.62);
+    color: #ffe0a0; font-size: 9px; font-weight: 800; padding: 1px 6px;
+    border-radius: 10px; margin-left: 6px; letter-spacing: .06em; text-transform: uppercase; }
+  .leadtag::before { content: "◆"; color: #f5c76b; font-size: 8px; }
+  /* Building rank worn beside a name: the name says who, the badge says what. */
+  .rankbadge { display: inline-flex; align-items: center; font-size: 9px; font-weight: 800;
+    padding: 1px 6px; border-radius: 10px; margin-left: 6px; letter-spacing: .06em;
+    text-transform: uppercase; border: 1px solid var(--accent); color: var(--accent); }
+  .rankbadge.rank-master { background: var(--accent); color: var(--bg); }
+  .prow.rankrow .pname { font-weight: 700; }
+  .profilerename { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .profilerename label { font-size: 10px; color: var(--dim); letter-spacing: .06em; text-transform: uppercase; }
+  .profilerenamerow { display: flex; gap: 6px; }
+  .profilerenamerow input { flex: 1; min-width: 0; }
+  .profilerenamehint { font-size: 11px; color: var(--accent); }
+  .profilerenamenote { font-size: 11px; color: var(--dim); min-height: 1em; }
+  .omem.is-lead { background: linear-gradient(90deg, rgba(245,199,107,.22), rgba(245,199,107,.04) 82%);
+    box-shadow: inset 3px 0 #f5c76b; }
+  .omem.is-lead .oname { color: #ffe0a0; font-weight: 800; }
+  .memoryownertag { display: inline-flex; align-items: center;
+    background: rgba(46,230,200,.14); border: 1px solid rgba(46,230,200,.52);
+    color: var(--accent); font-size: 9px; font-weight: 800; padding: 1px 6px;
+    border-radius: 10px; margin-left: 6px; letter-spacing: .04em; text-transform: uppercase; }
+  .memoryownertag::before { content: "●"; font-size: 7px; margin-right: 4px; }
+  .omem.is-memory-owner:not(.is-lead) { background: linear-gradient(90deg, rgba(46,230,200,.16), rgba(46,230,200,.03) 82%);
+    box-shadow: inset 3px 0 var(--accent); }
+  /* Building directory: one grid for ranks and members — who, status, where,
+     actions — so every row reads the same way and actions never wrap. */
+  .bblock { margin: 0 0 22px; }
+  .bsection { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 0 4px;
+    color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+  .bcount { min-width: 18px; padding: 0 6px; border-radius: 999px; background: var(--panel2);
+    border: 1px solid var(--line); color: var(--txt); font-size: 10px; text-align: center; letter-spacing: 0; }
+  /* The last column holds a member's three actions (Message · Suspend ·
+     Revoke); at 170px they spilled left over Location. */
+  .peoplehead, .prow { display: grid; grid-template-columns: minmax(0,1.6fr) 160px minmax(0,.9fr) minmax(0,.9fr) 244px;
+    align-items: center; column-gap: 16px; }
+  .peoplehead { padding: 6px 10px; color: var(--dim); font-size: 9px; letter-spacing: .08em;
+    text-transform: uppercase; border-bottom: 1px solid var(--line); }
+  .prow { padding: 10px; border-bottom: 1px solid var(--line); border-radius: 0; transition: background .12s; }
+  .prow:hover { background: color-mix(in srgb, var(--panel2) 70%, transparent); }
+  .prow.suspended .pnametext { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--dim); }
+  .pname { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .pnametext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--txt); font-weight: 600; }
+  .pkind { color: var(--dim); font-size: 10px; }
+  .kindmark { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); }
+  .kindmark.agent { background: var(--agent); border-radius: 2px; }
+  .kindmark.human { background: var(--human); }
+  .pstatuses { display: flex; flex-wrap: wrap; gap: 6px; }
+  .pwhere { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; font-size: 12px; color: var(--dim); }
+  .pnowhere { color: var(--dim); font-size: 11px; }
+  .locachip { padding: 1px 7px; border-radius: 6px; background: var(--panel2); border: 1px solid var(--line);
+    color: var(--accent2); font-size: 11px; white-space: nowrap; }
+  .pflag { padding: 1px 6px; border-radius: 6px; font-size: 10px; border: 1px solid var(--line); white-space: nowrap; }
+  .pflag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+  .pflag.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+  .pacts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; min-width: 0; white-space: nowrap; }
+  .pban { color: var(--bad); font-size: 11px; }
+  /* One button vocabulary for the Building: quiet outline, accent primary,
+     red only on hover for the destructive one. */
+  .btn { display: inline-flex; align-items: center; height: 26px; padding: 0 10px; border-radius: 7px;
+    border: 1px solid var(--line); background: transparent; color: var(--muted);
+    font: 600 11px var(--mono); white-space: nowrap; cursor: pointer; }
+  .btn:hover, .btn:focus-visible { color: var(--txt); border-color: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  .btn.primary:hover { background: var(--accent2); border-color: var(--accent2); color: var(--bg); }
+  .btn.danger:hover, .btn.danger:focus-visible { color: var(--bad); border-color: var(--bad); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .pstatus { width: max-content; max-width: 100%; padding: 2px 6px; border: 1px solid var(--line);
+    border-radius: 999px; font-size: 9px; white-space: nowrap; }
+  .pstatus.ok { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .pstatus.off, .pstatus.unknown { color: var(--muted); }
+  .pstatus.na { color: var(--dim); border-style: dashed; }
+  .pstatus.bad { color: var(--danger, #e06c75); border-color: color-mix(in srgb, var(--danger, #e06c75) 45%, var(--line)); }
+  .pstage { margin-left: 6px; padding: 1px 5px; border: 1px solid var(--line);
+    border-radius: 999px; color: var(--muted); font-size: 9px; letter-spacing: .04em; }
+  .pstage.accepted, .pstage.first { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .pstage.final { color: var(--human); border-color: color-mix(in srgb, var(--human) 45%, var(--line)); }
+  .pstage.relay { color: var(--warn, #f5c76b); }
+  .callbtn { width: calc(100% - 24px); margin: 8px 12px 4px; background: transparent; color: var(--muted);
+    border: 1px dashed var(--line); border-radius: 6px; padding: 6px; font-size: 12px; cursor: pointer; }
+  .callbtn:hover { color: var(--accent); border-color: var(--accent); }
+  .calllist { margin: 0 12px 8px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .callrow { padding: 6px 10px; font-size: 12px; cursor: pointer; display: flex; justify-content: space-between; }
+  button.callrow { width: 100%; border: 0; background: transparent; color: inherit;
+    text-align: left; font-family: var(--mono); }
+  .callrow:hover { background: var(--panel2, rgba(255,255,255,.04)); color: var(--accent); }
+  .callrow .where { color: var(--dim); font-size: 11px; }
+  .callnone { padding: 8px 10px; font-size: 11px; color: var(--dim); }
+  .row.announce .bub { border-left: 3px solid var(--accent); background: var(--announce-bg, rgba(255,140,0,.10)); }
+  .row.announce .bub::before { content: "announcement"; display: block; font-size: 10px; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+  .jday { font-size: 11px; color: var(--dim); margin: 14px 0 6px; letter-spacing: .04em; }
+  .jrow { display: flex; gap: 10px; padding: 6px 2px; border-bottom: 1px solid var(--line); }
+  .jwho { flex: 0 0 auto; color: var(--accent); font-size: 12px; min-width: 74px; }
+  .jtxt { flex: 1; font-size: 13px; line-height: 1.45; }
+  .jat  { flex: 0 0 auto; color: var(--dim); font-size: 11px; }
+  .conn { padding: 10px 16px; border-bottom: 1px solid var(--line); overflow-y: auto; }
+  .conn label { display: block; font-size: 10px; color: var(--muted); margin: 8px 0 3px; letter-spacing: .4px; }
+  .conn input, .conn select { box-sizing: border-box; width: 100%; min-width: 0; min-height: 40px;
+    background: var(--panel2); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 7px; padding: 9px 11px; font: 12px var(--mono); }
+  .conn select { color-scheme: dark; cursor: pointer; }
+  .conn input:focus, .conn select:focus { border-color: var(--accent); }
+  .conn button { width: 100%; margin-top: 12px; background: var(--accent); color: #06231d; border: 0;
+    border-radius: 8px; padding: 9px; font: 600 12px var(--mono); cursor: pointer; }
+  .conn button.off { background: var(--panel2); color: var(--muted); }
+  .conn .entryswitch { min-height: 40px; margin-top: 8px; background: transparent;
+    border: 1px solid var(--line); color: var(--muted); font-weight: 400; }
+  .conn .entryswitch:hover { color: var(--accent2); border-color: var(--accent2); }
+  .conn .devnote { font-size: 10px; color: var(--dim); margin-top: 8px; text-align: center; }
+  .rooms { overflow-y: auto; padding: 8px 0; min-height: 0; }
+  .rlabel { font-size: 10px; color: var(--dim); padding: 6px 16px; letter-spacing: .12em; }
+  .room { width: 100%; padding: 10px 12px 10px 13px; cursor: pointer;
+    border: 0; border-left: 3px solid transparent; background: transparent;
+    color: inherit; text-align: left; font: inherit; }
+  .room:hover { background: var(--panel2); }
+  /* The Lobby room: above the floors, where everyone lands first. */
+  .lobbyroomlink { display: flex; align-items: center; gap: 8px; width: calc(100% - 20px);
+    margin: 10px 10px 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--txt); font: inherit; cursor: pointer; text-align: left; }
+  .lobbyroomlink:hover { background: var(--panel2); }
+  .lobbyroomlink.active { background: var(--panel2); box-shadow: inset 3px 0 0 var(--accent); }
+  .lobbyroomlink.has-unread .lobbyroomname { font-weight: 700; }
+  .lobbyroomlink .lobbyroomcount { margin-left: auto; font-size: 11px; color: var(--dim); }
+  .lobbyroomabout { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .roomitem { position: relative; display: flex; align-items: center; min-height: 48px;
+    border-bottom: 1px solid rgba(255,255,255,.025); }
+  .roomitem .room { flex: 1; min-width: 0; }
+  .roomprefs { position: relative; flex: 0 0 auto; margin-right: 8px; }
+  .roompreftrigger { width: 28px; height: 30px; display: inline-flex; align-items: center;
+    justify-content: center; border: 1px solid transparent; border-radius: 7px; color: var(--muted);
+    font: 700 17px/1 var(--mono); cursor: pointer; list-style: none; user-select: none; }
+  .roompreftrigger::-webkit-details-marker { display: none; }
+  .roompreftrigger:hover, .roompreftrigger:focus-visible, .roomprefs[open] .roompreftrigger {
+    background: var(--panel2); color: var(--txt); border-color: var(--line); outline: none; }
+  .roomprefmenu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 35;
+    width: 136px; padding: 5px; display: grid; gap: 2px; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 10px 30px rgba(0,0,0,.48); }
+  .roompref { width: 100%; min-height: 30px; padding: 6px 9px; border: 0; border-radius: 6px;
+    background: transparent; color: var(--muted); text-align: left; font: 600 11px/1.2 var(--mono);
+    cursor: pointer; }
+  .roompref:hover, .roompref:focus-visible { background: rgba(255,255,255,.055); color: var(--txt);
+    outline: none; }
+  .roompref.hide:hover, .roompref.hide:focus-visible { color: var(--bad); }
+  .roompref:disabled { opacity: .45; cursor: not-allowed; }
+  .room.active { background: var(--panel2); border-left-color: var(--accent); }
+  .room .rrow { display: flex; align-items: baseline; gap: 8px; }
+  /* One line per loca name: a long name (investment_gold_and_currency) used
+     to wrap after "# " and leave the mark alone on its own line. */
+  .room .rname { font-weight: 600; min-width: 0; flex: 1 1 auto;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .room .rname::before { content: "# "; color: var(--dim); font-weight: 400; }
+  .room .pres { margin-left: auto; font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .room .rlastrow { display: flex; align-items: center; gap: 7px; min-height: 16px; padding-left: 13px; }
+  .room .rlast { flex: 1; min-width: 0; font-size: 11px; color: var(--dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .room .unreadbadge { flex: 0 0 auto; min-width: 18px; height: 18px; padding: 0 5px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 10px; background: var(--accent); color: #06231d;
+    font: 800 10px/1 var(--mono); }
+  .room.has-unread .rname { color: var(--accent2); font-weight: 700; }
+  .room.archived { opacity: .58; }
+  .room.special { margin: 3px 8px; padding-left: 10px; border: 1px solid #684a91;
+    border-left: 3px solid var(--iye); border-radius: 7px;
+    background: linear-gradient(105deg, rgba(87,52,126,.38), rgba(20,18,29,.35)); }
+  .room.special:hover, .room.special.active {
+    background: linear-gradient(105deg, rgba(112,66,163,.5), rgba(29,22,43,.65));
+    border-color: var(--iye); }
+  .room.special .rname { color: var(--iye); letter-spacing: .04em; }
+  .room.special .rname::before { content: "✦ "; color: var(--iye); }
+  .newroom { display: flex; gap: 5px; padding: 8px 13px; border-top: 1px solid var(--line); }
+  .newroom input { flex: 1; min-width: 0; background: var(--panel2); border: 1px solid var(--line);
+    color: var(--txt); border-radius: 7px; padding: 6px 9px; font: 11px var(--mono); }
+  .newroom button { background: var(--accent); color: #06231d; border: 0; border-radius: 7px;
+    padding: 6px 11px; font-weight: 700; cursor: pointer; }
+
+  .online { overflow-y: auto; min-height: 0; border-top: 1px solid var(--line); padding: 6px 0 10px; }
+  .online .rlabel { display: flex; justify-content: space-between; }
+  .online #onlineCount { color: var(--accent); font-weight: 700; }
+  /* Bottom-left Lobby drawer. Drag its top grip upward to make room for more
+     waiting members; the current-loca roster yields space above it. */
+  .lobby { height: 66px; min-height: 48px; max-height: 55vh; border-top: 1px solid var(--line);
+    background: var(--panel); overflow: hidden; }
+  .lobbyresize { height: 8px; cursor: ns-resize; position: relative; touch-action: none; }
+  .lobbyresize::after { content: ""; position: absolute; left: 50%; top: 3px;
+    width: 34px; height: 2px; transform: translateX(-50%); border-radius: 2px; background: var(--line); }
+  .lobbyresize:hover::after { background: var(--agent); }
+  .lobbyhead { display: flex; align-items: center; padding: 0 14px 3px; }
+  .lobbyhead .lobbytitle { color: var(--agent); font-size: 10px; font-weight: 700;
+    letter-spacing: .12em; }
+  .lobby #lobbyCount { color: var(--warn); font-weight: 700; }
+  .lobby #lobbyList { max-height: calc(100% - 31px); overflow-y: auto; }
+  .lobby .omem { padding-top: 4px; padding-bottom: 4px; }
+  .lobby .lobbycall { background: none; border: 1px solid rgba(46,230,200,.45); color: var(--accent);
+    border-radius: 6px; cursor: pointer; font: 700 10px var(--mono); padding: 3px 8px; }
+  .lobby .lobbycall:hover { border-color: var(--accent); background: rgba(46,230,200,.08); }
+  .omem { display: flex; align-items: center; gap: 8px; padding: 3px 16px; font-size: 12px; }
+  .omem .odot { display: none; }
+  .omem .glyph { width: 10px; text-align: center; flex: 0 0 auto; font-weight: 700; }
+  .omem .glyph.agent { color: var(--agent); } .omem .glyph.user { color: var(--human); }
+  .omem .glyph.lead { color: #f5c76b; text-shadow: 0 0 9px rgba(245,199,107,.72); }
+  .omem .oname { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* With moderation acts in the row the name keeps its own width, tags and
+     task number included, and the acts go to a second line when both do not
+     fit: squeezed beside them the name was cut before its badges. */
+  .omem:has(.omacts) { flex-wrap: wrap; row-gap: 2px; }
+  .omem:has(.omacts) .oname { flex: 1 1 auto; max-width: 100%; }
+  .omem:has(.omacts) .omacts { margin-left: auto; }
+  .omem .otag { font-size: 9px; color: var(--dim); letter-spacing: .4px; }
+  .omem.self .oname { color: var(--accent2); font-weight: 600; }
+  .omem .mflag { font-size: 10px; }
+  .omacts { display: inline-flex; align-items: center; gap: 3px; margin-left: 4px; }
+  .omacts button { background: none; border: 0; cursor: pointer; font-size: 11px; padding: 0 2px; }
+  .omacts button:not(.release) { opacity: .38; }
+  .omem:hover .omacts button { opacity: 1; }
+  .omacts button:hover { transform: scale(1.2); }
+  .omacts button.release { border: 1px solid rgba(46,230,200,.6); border-radius: 7px;
+    color: var(--accent); font: 700 11px var(--mono); padding: 5px 10px; opacity: 1;
+    min-width: 68px; }
+  .omacts button.release:hover { background: rgba(46,230,200,.1); transform: none; }
+

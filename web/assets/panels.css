@@ -1,0 +1,207 @@
+/* The side panels: notes and tasks, and the Loca Board. */
+/* Part of the base styles, split from styles.css; index.html loads
+   the parts in this order, so the cascade is the one styles.css had. */
+
+  /* ── notes & tasks panels ── */
+  .notes { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; }
+  .memorytitle { display:flex; align-items:baseline; gap:10px; margin-bottom:12px; }
+  .memorytitle span { color:var(--dim); font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+  .memorytitle b { color:var(--accent2); font-size:18px; }
+  .memorygrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; }
+  .memorycard, .memorybody, .memoryentry { background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .memorycard small, .memorymeta { display:block; color:var(--dim); font-size:10px; margin-bottom:4px; }
+  .memorybody { white-space:pre-wrap; word-break:break-word; line-height:1.55; min-height:56px; }
+  .memoryentry { margin-bottom:8px; }
+  .memoryentry .memorymeta { margin-top:7px; margin-bottom:0; }
+  .memorywarn { color:var(--warn); }
+  .memorysteward { margin-bottom:8px; padding:10px 12px; border:1px solid rgba(46,230,200,.52);
+    border-radius:10px; background:rgba(46,230,200,.10); color:var(--txt); }
+  .memorysteward b { color:var(--accent); }
+  .memoryeditor { margin:8px 0 14px; }
+  .memoryeditor textarea { width:100%; min-height:110px; resize:vertical; }
+  .memoryeditbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:6px; }
+  .memoryeditbar span { font-size:11px; color:var(--muted); }
+  .note, .newnote { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px 14px; margin-bottom: 12px; }
+  .newnote { border-style: dashed; }
+  .note .nhead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .note .nkey { color: var(--accent2); background: rgba(46,230,200,.08); padding: 1px 7px;
+    border-radius: 5px; font-size: 11px; }
+  .note .ntitle { font-weight: 700; }
+  .note .nmeta { margin-left: auto; font-size: 10px; color: var(--dim); }
+  .note .nbody { white-space: pre-wrap; word-break: break-word; font-size: 12px; margin: 4px 0 8px; }
+  .note .nbody.markdown, .nhist .hbody.markdown { white-space: normal; line-height: 1.6; }
+  .markdown > :first-child { margin-top: 0; }
+  .markdown > :last-child { margin-bottom: 0; }
+  .markdown h1, .markdown h2, .markdown h3 { color: var(--txt); line-height: 1.3;
+    margin: 14px 0 7px; }
+  .markdown h1 { font-size: 17px; } .markdown h2 { font-size: 15px; }
+  .markdown h3 { font-size: 13px; color: var(--accent2); }
+  .markdown p { margin: 7px 0; }
+  .markdown ul, .markdown ol { margin: 7px 0; padding-left: 24px; }
+  .markdown li { margin: 3px 0; }
+  .markdown blockquote { margin: 8px 0; padding: 3px 10px; border-left: 2px solid var(--agent);
+    color: var(--muted); background: rgba(90,184,255,.05); }
+  .markdown a { color: var(--agent); text-decoration-thickness: 1px; }
+  .markdown code.inline { background: var(--panel); border: 1px solid var(--line);
+    padding: 1px 5px; border-radius: 4px; }
+  .markdown pre.code { background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
+    padding: 9px 11px; overflow-x: auto; white-space: pre; }
+  .markdown .tablewrap { max-width: 100%; overflow-x: auto; margin: 7px 0; border: 1px solid var(--line);
+    border-radius: 7px; }
+  .markdown table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .markdown th, .markdown td { padding: 6px 9px; border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  .markdown th { color: var(--accent2); background: var(--panel); font-weight: 700; }
+  .markdown th:last-child, .markdown td:last-child { border-right: 0; }
+  .markdown tbody tr:last-child td { border-bottom: 0; }
+  .markdown hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
+  .markdownhint { display: block; margin: -1px 0 8px; color: var(--dim); font-size: 10px; }
+  .note .nwrite { font-size: 10px; color: var(--muted); }
+  .note .nwrite b { color: var(--human); }
+  .note .nactions { margin-top: 8px; display: flex; gap: 6px; }
+  .note .nactions button, .newnote button { background: var(--panel); border: 1px solid var(--line);
+    color: var(--txt); border-radius: 6px; padding: 4px 11px; font: 11px var(--mono); cursor: pointer; }
+  .newnote button { background: var(--accent); color: #06231d; border: 0; font-weight: 700; }
+  .note textarea, .note input.nedit, .newnote input, .newnote textarea { width: 100%;
+    background: var(--panel); border: 1px solid var(--line); color: var(--txt); border-radius: 6px;
+    padding: 6px 9px; font: 12px var(--mono); margin-bottom: 6px; }
+  .newnote textarea, .note textarea { min-height: 80px; resize: vertical; }
+  .nhist { margin-top: 8px; border-top: 1px dashed var(--line); padding-top: 6px; }
+  .nhist .hrow { font-size: 11px; padding: 5px 6px; border-radius: 6px; }
+  .nhist .hrow:hover { background: var(--panel); }
+  .nhist .hmeta { color: var(--dim); font-size: 10px; }
+  .nhist .hbody { white-space: pre-wrap; word-break: break-word; opacity: .85; }
+  .task { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+  .task .tid { color: var(--dim); font-size: 11px; }
+  .task .ttitle { flex: 1; }
+  .task .ttitle .tmeta { display: block; font-size: 10px; color: var(--dim); }
+  .tchip { font-size: 10px; font-weight: 700; padding: 2px 9px; border-radius: 12px; letter-spacing: .3px; }
+  .tchip.open { background: rgba(90,184,255,.14); color: var(--agent); }
+  .tchip.taken { background: rgba(255,176,102,.16); color: var(--warn); }
+  .tchip.done { background: rgba(87,217,163,.14); color: var(--human); }
+  .tchip.claimed { background: rgba(255,176,102,.16); color: var(--warn); }
+  .tchip.resolved { background: rgba(87,217,163,.14); color: var(--human); }
+  .tchip.cancelled { background: rgba(255,107,107,.12); color: var(--bad); text-decoration: line-through; }
+  .task .tacts button { background: var(--panel); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 6px; padding: 3px 9px; font: 10px var(--mono); cursor: pointer; margin-left: 4px; }
+  /* Loca Board (board.js): four columns while the `board` extension is on. */
+  .tchip.review { background: rgba(245,199,107,.16); color: var(--accent2); }
+  .taskboard { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .boardcol { min-width: 0; }
+  .boardhead { margin: 0 2px 8px; color: var(--dim); font-size: 10px; font-weight: 800;
+    letter-spacing: .1em; text-transform: uppercase; }
+  /* A card in a column is narrow: number and state on the first line, the
+     title on a line of its own at the column's full width, the acts last.
+     Beside the chip the title had a few letters per line. */
+  .taskboard .task { flex-wrap: wrap; align-items: baseline; gap: 6px 8px; padding: 9px 10px; }
+  .taskboard .task .tid { order: 0; }
+  .taskboard .task .tchip { order: 1; margin-left: auto; }
+  .taskboard .task .ttitle { order: 2; flex: 1 1 100%; min-width: 0; overflow-wrap: break-word; }
+  .taskboard .task .tacts { order: 3; width: 100%; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+  .taskboard .task .tacts button { margin-left: 0; }
+  @media (max-width: 760px) { .taskboard { grid-template-columns: 1fr; } }
+  .sectionlabel { margin: 18px 2px 8px; color: var(--accent2); font-size: 10px;
+    font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+  .sectionhelp { margin: -4px 2px 10px; color: var(--dim); font-size: 10px; line-height: 1.45; }
+  .goalbar { flex: 0 0 auto; border-bottom: 1px solid rgba(245,199,107,.22);
+    background: rgba(245,199,107,.035); padding: 6px 20px; display: flex;
+    align-items: center; gap: 9px; }
+  .goalbar .goalmark { color: #f5c76b; font-size: 13px; }
+  .goalbar #goalCard { min-width: 0; flex: 1; display: flex; align-items: center; gap: 9px; }
+  .goalbar .goallabel { color: #f5c76b; font-size: 9px; font-weight: 800;
+    letter-spacing: .11em; text-transform: uppercase; }
+  .goalbar .goaloutcome { min-width: 0; flex: 1; color: var(--txt); font-size: 11px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .goalbar .goalproof { color: var(--dim); font-size: 9px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; max-width: 34%; }
+  .goalbar button { background: transparent; border: 1px solid var(--line); color: var(--muted);
+    border-radius: 6px; padding: 3px 8px; font: 9px var(--mono); cursor: pointer; }
+  .goalbar button:hover { color: var(--txt); border-color: var(--muted); }
+  .taskcreate { margin-top: 12px; color: var(--muted); font-size: 11px; }
+  .taskcreate summary { cursor: pointer; user-select: none; }
+  .taskcreate .newnote { margin-top: 8px; }
+  .focuspanelrow { min-height: 36px; display: flex; align-items: center; gap: 10px;
+    padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--panel2); color: var(--muted); font-size: 11px; }
+  .focuspanelrow > span:first-child { min-width: 0; flex: 1; }
+  .focuspanelrow button, .reminderview button { background: var(--panel); border: 1px solid var(--line);
+    color: var(--txt); border-radius: 6px; padding: 4px 10px; font: 10px var(--mono); cursor: pointer; }
+  .reminderview { display: grid; gap: 12px; border: 1px solid var(--line); border-radius: 12px;
+    padding: 13px; background: var(--panel2); box-shadow: 0 12px 30px rgba(0,0,0,.12); }
+  .reminderstatus { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center;
+    gap: 10px; padding: 2px 1px 10px; border-bottom: 1px solid var(--line); }
+  .reminderstatuscopy { min-width: 0; display: grid; gap: 2px; }
+  .reminderstatuscopy strong { color: var(--txt); font-size: 12px; font-weight: 700; }
+  .reminderstatus .remindersummary { color: var(--muted); font-size: 10px; line-height: 1.4;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .reminderstate { padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px;
+    color: var(--dim); font-size: 9px; font-weight: 800; letter-spacing: .08em; }
+  .reminderstatus.on .reminderstate { color: var(--accent2); border-color: rgba(125,242,213,.32);
+    background: rgba(125,242,213,.07); }
+  .reminderblock { display: grid; gap: 8px; }
+  .reminderblockhead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  .reminderblockhead b { color: var(--txt); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+  .reminderblockhead small { color: var(--dim); font-size: 9px; }
+  .reminderrecipientcontrol { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5px;
+    padding: 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
+  .reminderrecipientcontrol button { min-height: 31px; background: transparent; color: var(--muted);
+    border: 0; border-radius: 6px; padding: 6px 10px; }
+  .reminderrecipientcontrol button:hover:not(:disabled) { color: var(--txt); background: var(--panel2); }
+  .reminderrecipientcontrol button.selected { color: var(--txt); background: rgba(125,242,213,.10);
+    box-shadow: inset 0 0 0 1px rgba(125,242,213,.27); }
+  .reminderrecipientcontrol button.selected::before { content: "✓ "; color: var(--accent2); }
+  .reminderpersonrow { display: grid; grid-template-columns: minmax(0,1fr); }
+  .reminderpersonrow select { width: 100%; background: var(--panel); border: 1px solid var(--line);
+    color: var(--txt); border-radius: 8px; padding: 8px 9px; font: 10px var(--mono); }
+  .reminderto { display: grid; grid-template-columns: auto auto minmax(0,1fr); align-items: baseline;
+    gap: 6px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+  .reminderto b { color: var(--accent2); }
+  .reminderto small { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .reminderrules { display: grid; gap: 6px; }
+  .reminderrow { display: grid; grid-template-columns: auto minmax(180px,1fr) auto;
+    align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--line);
+    border-radius: 9px; background: var(--panel); color: var(--txt); transition: border-color .15s, background .15s; }
+  .reminderrow:has(> input:checked) { border-color: rgba(125,242,213,.25); background: rgba(125,242,213,.025); }
+  .reminderrow > input[type="checkbox"] { appearance: none; width: 27px; height: 16px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel2); position: relative; cursor: pointer; }
+  .reminderrow > input[type="checkbox"]::after { content: ""; position: absolute; width: 10px; height: 10px;
+    left: 2px; top: 2px; border-radius: 50%; background: var(--dim); transition: transform .15s, background .15s; }
+  .reminderrow > input[type="checkbox"]:checked { border-color: rgba(125,242,213,.48); background: rgba(125,242,213,.14); }
+  .reminderrow > input[type="checkbox"]:checked::after { transform: translateX(11px); background: var(--accent2); }
+  .reminderrow .remindercopy { min-width: 0; font-size: 11px; }
+  .reminderrow .remindercopy small { display: block; margin-top: 2px; color: var(--dim); line-height: 1.35; }
+  .reminderrow .reminderafter { display: flex; align-items: center; gap: 5px;
+    color: var(--muted); font-size: 10px; white-space: nowrap; }
+  .reminderview input[type="number"] { width: 66px; background: var(--panel); border: 1px solid var(--line);
+    color: var(--txt); border-radius: 6px; padding: 5px 7px; font: 11px var(--mono); }
+  .reminderview input:disabled { opacity: .45; }
+  .reminderview small { color: var(--dim); }
+  .reminderadvanced { color: var(--muted); font-size: 10px; }
+  .reminderadvanced summary { cursor: pointer; margin: 3px 0; }
+  .reminderadvanced[open] { display: grid; gap: 7px; padding: 7px;
+    border: 1px dashed var(--line); border-radius: 7px; }
+  .reminderlast { padding-top: 9px; border-top: 1px solid var(--line); color: var(--dim);
+    font-size: 10px; line-height: 1.45; }
+  .reminderhistory { border-top: 1px solid var(--line); padding-top: 8px; color: var(--muted); }
+  .reminderhistory summary { cursor: pointer; font-size: 10px; }
+  .reminderhistory summary span { color: var(--dim); }
+  #reminderHistoryList { display: grid; gap: 6px; margin-top: 8px; }
+  .reminderhistoryrow { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 4px 10px;
+    padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .reminderhistoryrow .rhsubject { min-width: 0; color: var(--txt); font-size: 10px; line-height: 1.4; }
+  .reminderhistoryrow .rhmeta { grid-column: 1; color: var(--dim); font-size: 9px; }
+  .reminderhistoryrow .rhstate { grid-column: 2; grid-row: 1; align-self: start; color: var(--accent2);
+    font-size: 9px; font-weight: 800; text-transform: uppercase; }
+  .reminderhistoryrow.resolved .rhstate { color: var(--dim); }
+  .reminderhistoryrow button { grid-column: 2; grid-row: 2; justify-self: end; padding: 2px 7px; }
+  .reminderactions { display: flex; justify-content: flex-end; align-items: center; gap: 9px; }
+  .remindersavestate { color: var(--dim); font-size: 10px; }
+  .remindersavestate.saved { color: var(--human); }
+  .remindersavestate.error { color: var(--bad); }
+  .reminderview #saveReminders { background: var(--accent);
+    color: #06231d; border: 0; font-weight: 700; }
+  .newnote select { background: var(--panel); border: 1px solid var(--line); color: var(--txt);
+    border-radius: 6px; padding: 6px 8px; font: 11px var(--mono); }
+

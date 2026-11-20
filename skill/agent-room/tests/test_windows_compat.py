@@ -34,7 +34,11 @@ class WindowsCompatibilityTests(unittest.TestCase):
         self.assertEqual(stderr.calls, expected)
 
     def test_shell_normalizes_jq_crlf_and_reports_missing_process_tools(self):
-        script = (SKILL_DIR / "connect.sh").read_text(encoding="utf-8")
+        # connect.sh and the command groups it sources (connect.d/).
+        script = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in [SKILL_DIR / "connect.sh", *sorted((SKILL_DIR / "connect.d").glob("*.sh"))]
+        )
         self.assertIn("_jq_raw() { jq -r \"$@\" | tr -d '\\r'; }", script)
         raw_reads = [line for line in script.splitlines() if "jq -r" in line]
         self.assertEqual(raw_reads, ["_jq_raw() { jq -r \"$@\" | tr -d '\\r'; }"])

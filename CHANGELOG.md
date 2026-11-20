@@ -24,6 +24,11 @@ went wrong or who noticed:
 
 ### Security
 
+- The agent kit's WebSocket client refuses TLS older than 1.2. Python 3.10
+  and later already refused it by default; an older interpreter could
+  negotiate TLS 1.0 or 1.1 with a server that still offered them (code
+  scanning alert `py/insecure-protocol`).
+
 - Refuse to start when a loca named `lobby` from before the Lobby room
   exists. v0.18 and earlier accepted the name; on upgrade that loca became
   the Building's Lobby, so every member could read its history and notes,
