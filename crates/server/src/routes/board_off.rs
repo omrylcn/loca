@@ -1,7 +1,7 @@
 //! The question turning the Loca Board off asks while tasks are not done:
 //! 409 with the counts, and the three answers a caller may give with
 //! `?open_tasks=` (hub/work/board_off.rs).
-use crate::*;
+use crate::{hub, IntoResponse, Json, StatusCode};
 
 pub(crate) fn ask(unfinished: hub::Unfinished) -> axum::response::Response {
     let total = unfinished.total();

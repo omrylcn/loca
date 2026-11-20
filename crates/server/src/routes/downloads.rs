@@ -6,7 +6,7 @@
 //! NO membership — the bundles are public release artifacts, byte-identical to
 //! what the Desktop ships (same SHA-256 in each manifest).
 
-use crate::*;
+use crate::{IntoResponse, StatusCode};
 use axum::extract::Path;
 use axum::http::header;
 use axum::response::Response;

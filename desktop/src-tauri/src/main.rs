@@ -10,7 +10,7 @@
 //
 //   The web UI (measured in web/assets/) persists exactly two sensitive keys:
 //     - "loca-seat"          => { name, roomToken (=invite), room }   (api.js)
-//     - "loca-admin-session" => { token, expiresAt }                 (state.js)
+//     - "loca-admin-session" => { token, expiresAt }                 (session.js)
 //   Everything else in localStorage is non-secret (preferences, read cursors,
 //   lobby height) and stays in plain localStorage untouched.
 //
@@ -308,7 +308,7 @@ fn is_host_window(label: &str) -> bool {
 }
 
 // Loca Host only: a new Master session for the Host's own page when the one it
-// was given has ended (web/assets/state.js hostMasterSession). It is the start
+// was given has ended (web/assets/session.js hostMasterSession). It is the start
 // provisioning again (standalone::renew_master_session): the page gets the
 // bounded session, never the admin token. Only the window this app built
 // can invoke it; the client flavor has no Host to ask and refuses.

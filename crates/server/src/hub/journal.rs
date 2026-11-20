@@ -1,6 +1,6 @@
 //! The Journal: the append-only record of what landed in a loca.
 
-use super::*;
+use super::{Hub, RecoverMutex, SenderType, ServerFrame};
 
 impl Hub {
     /// Everything recorded in this loca's journal, oldest first.

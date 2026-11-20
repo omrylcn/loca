@@ -6,6 +6,7 @@ skill/agent-room/LICENSE
 skill/agent-room/SKILL.md
 skill/agent-room/VERSION
 skill/agent-room/agents/openai.yaml
+skill/agent-room/attention_schema.py
 skill/agent-room/attention_store.py
 skill/agent-room/bot.py
 skill/agent-room/codex_adapter_v2.py

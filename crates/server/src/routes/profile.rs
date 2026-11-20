@@ -1,7 +1,10 @@
 //! A person's own profile: the profile view and card, reading preferences,
 //! and the profile's own credentials.
 
-use crate::*;
+use crate::{
+    admin_token_of, room_decision_of, session_of, HashMap, HeaderMap, Hub, IntoResponse, Json,
+    Path, Query, State, StatusCode,
+};
 
 #[derive(serde::Deserialize)]
 pub(crate) struct CreateProfileCredential {

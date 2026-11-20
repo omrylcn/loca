@@ -1,4 +1,4 @@
-use super::super::*;
+use super::super::{Goal, GoalCompletion, GoalError, GoalStatus, Hub, Room, Task, TaskStatus};
 
 impl Hub {
     pub(in crate::hub) fn normalize_goal_tasks(

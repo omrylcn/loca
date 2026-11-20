@@ -10,6 +10,9 @@
 //!   GET  /rooms/{id}/members     -> [{name, type}]
 //!   GET  /ws?room=&name=&type=   -> live channel (listen; users may also send)
 
+// A module names what it uses (Phase 7.8): no `use x::*` outside test modules.
+#![warn(clippy::wildcard_imports)]
+
 mod hub;
 mod router;
 mod routes;
@@ -42,8 +45,54 @@ use protocol::{
     CreateGoal, CreateInvite, CreateNote, CreateSession, CreateTask, Moderate, PostMessage,
     SenderType, ServerFrame, SetMode, SetSettings, SetWait, UpdateGoal, UpdateNote, UpdateTask,
 };
-use routes::*;
-use ws::*;
+use routes::{
+    ack_care, ack_join_request_route, ack_membership_claim_route, actor_of, add_extension,
+    add_group_member_route, admin_console_admit, admin_console_approve_join_request,
+    admin_console_deny_join_request, admin_console_index, admin_console_invite,
+    admin_console_join_requests, admin_console_mint_stock, admin_console_pairing,
+    admin_console_state, admin_token_of, admit_member, append_long_memory,
+    appoint_loca_operator_route, approve_join_request_route, bootstrap_join_request_route,
+    call_into_loca, caller_reach, caretaker_memory, caretaker_residents, caretaker_viewer,
+    claim_attention, claim_membership, claim_wiki_review, clear_wait, commit_wiki, configure_wiki,
+    create_admission_stock_route, create_attention, create_goal, create_group_route, create_invite,
+    create_join_request_route, create_loca_route, create_note, create_pairing_route,
+    create_profile_credential_route, create_session_route, create_smaster, create_task,
+    delete_group_route, delete_loca_records, delete_note, delete_room, delete_session_route,
+    deny_join_request_route, dm_candidates_route, dm_close_route, dm_fence, dm_master_route,
+    dm_overview_route, dm_seal_route, dm_witness_route, download_skill_bundle, edit_wiki_page,
+    extension_catalog, extension_fence, extension_off, finish_wiki_review,
+    get_admission_stock_route, get_attachment, get_building_settings, get_extensions, get_group,
+    get_join_request_route, get_journal, get_loca_memory, get_loca_memory_snapshot,
+    get_loca_operator, get_members, get_messages, get_mod, get_mode, get_note, get_notes,
+    get_profile_preferences, get_reactions, get_settings, get_task, get_vault, get_vault_history,
+    get_wiki, get_wiki_page, getting_started_doc, group_fence, group_log_route, index,
+    is_admin_req, is_master_req, issue_key, leave_building_route, list_attentions,
+    list_building_bans, list_building_ranks, list_goals, list_groups, list_invites,
+    list_join_requests_route, list_keys, list_long_memory_entries, list_members, list_my_dms,
+    list_notifications, list_profile_credentials, list_profiles, list_residents, list_rooms,
+    list_smasters, list_tasks, list_waits, lobby_ws_handler, loca_archive, member_token_of,
+    moderate, no_such_loca, note_history, notification_audiences_route, open_dm_route,
+    pairing_code_of, pairing_ttl_ms, post_journal, post_message, post_typing,
+    preview_loca_group_route, principles_en, principles_tr, profile_view, put_building_settings,
+    put_extensions, put_profile_card, put_profile_preferences, put_vault,
+    read_all_notifications_route, read_notification_route, release_self_from_loca,
+    remove_extension, remove_group_member_route, remove_wiki_page, rename_profile_route,
+    rename_smaster_route, renew_wiki_review, report_runtime_health, require_membership,
+    resolve_attention, revoke_invite, revoke_key_route, revoke_loca_operator_route,
+    revoke_member_route, revoke_profile_credential_route, revoke_smaster_route, room_decision_of,
+    search_building, search_room, send_notification_route, sent_notifications_route, session_of,
+    set_lead, set_loca_group_route, set_loca_memory_owner, set_member_suspension_route, set_mode,
+    set_reaction, set_settings, set_wait, skill_bundle_manifest, skill_bundles_index,
+    socket_sees_nothing, unexpected_answer, update_goal, update_group_route, update_note,
+    update_task, upload_attachment, valid_identity_name, web_asset, whoami, wiki_context,
+    wiki_context_accept, wiki_context_offer, wiki_context_request, wiki_context_requests,
+    wiki_maintenance_status, wiki_native_ready, write_short_memory, RoomAccess, NAME_WORN_RULE,
+    SESSION_HEADER,
+};
+use ws::{
+    drain_before_close, legacy_ws_query_auth, websocket_credential, ws_handler, WS_PING_SECS,
+    WS_PROTOCOL,
+};
 
 fn env_u32(key: &str, default: u32) -> u32 {
     std::env::var(key)

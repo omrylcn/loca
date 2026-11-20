@@ -303,19 +303,14 @@ $("peopleList").onclick = async (e) => {
   });
   fetchPeople();
 };
-$("callBtn").onclick = () => {
-  const box = $("callList");
-  if (box.classList.contains("hidden")) openCallList(); else box.classList.add("hidden");
-};
+$("callBtn").onclick = () => openCallDialog();
 $("callList").onclick = (e) => {
   const ai = e.target.closest("[data-admit-invite]");
   if (ai) { admitAndInvite(ai.dataset.admitInvite); return; }
   const re = e.target.closest("[data-call-reissue]");
   if (re) { reissueInvite(re.dataset.callReissue, re.dataset.room); return; }
   const cancel = e.target.closest("[data-call-cancel]");
-  if (cancel) { $("callList").classList.add("hidden"); return; }
-  const row = e.target.closest("[data-call]");
-  if (row) callIn(row.dataset.call);
+  if (cancel) $("callList").classList.add("hidden");
 };
 $("lobbyList").onclick = (e) => {
   const row = e.target.closest("[data-lobby-call]");

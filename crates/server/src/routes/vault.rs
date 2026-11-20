@@ -8,7 +8,10 @@
 //!   Only the loca's appointed Operator, the Master and Smasters.
 //! - `GET /rooms/:id/vault/history` — older revisions, newest first.
 use super::extensions::{journal_actor, may_manage};
-use crate::*;
+use crate::{
+    admin_token_of, hub, session_of, HeaderMap, Hub, IntoResponse, Json, RoomAccess, State,
+    StatusCode,
+};
 
 fn unavailable() -> axum::response::Response {
     (

@@ -80,47 +80,6 @@ function residentStatusBadges(p) {
   return connection + wake;
 }
 
-/// Who is in the building but not in this loca — the people you can call in.
-async function openCallList() {
-  const box = $("callList");
-  box.classList.remove("hidden");
-  box.innerHTML = `<div class="callnone">looking…</div>`;
-  const gen = state.buildingGen;
-  try {
-    const r = await fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) });
-    if (buildingStale(gen)) return;
-    if (!r.ok) { box.innerHTML = `<div class="callnone">could not fetch the list</div>`; return; }
-    const all = await r.json();
-    if (buildingStale(gen)) return;
-    const here = new Set(state.members.map(m => m.name));
-    // A group loca seats only its group's people: offer nobody else.
-    const groupId = (state.rooms || []).find(rm => rm.room === state.room)?.group_id;
-    let inGroup = null;
-    if (groupId) {
-      await fetchGroups(false);
-      if (buildingStale(gen)) return;
-      const group = (state.groups || []).find(g => g.id === groupId);
-      inGroup = new Set((group?.members || []).map(m => m.name));
-    }
-    const free = all.filter(p => !p.suspended && !here.has(p.name) && !(p.locas || []).includes(state.room)
-      && (!inGroup || inGroup.has(p.name)));
-    if (!free.length) {
-      box.innerHTML = `<div class="callnone">${inGroup ? "nobody else on this floor to call — add them to the floor first" : "nobody in the building to call"}</div>`;
-      return;
-    }
-    box.innerHTML = `<div class="callhead">Someone already in the building</div>` + free.map(p => {
-      const locas = p.locas || [];
-      const where = (locas.length ? `in ${locas.map(l => "#" + locaName(l)).join(", ")}` : "waiting for a loca") +
-        (p.online ? " · online" : " · away");
-      return `<button type="button" class="callrow" data-call="${esc(p.name)}">` +
-             `<span class="callwho">${kindMark(p.kind === "agent" ? "agent" : "human")}<b>${esc(p.name)}</b></span>` +
-             `<span class="where">${esc(where)}</span><span class="callinvite" aria-hidden="true">Invite</span></button>`;
-    }).join("");
-  } catch (e) {
-    if (!buildingStale(gen)) box.innerHTML = `<div class="callnone">could not reach the server</div>`;
-  }
-}
-
 /// Seat a member in this loca. They belong to the building already, so nothing
 /// is handed over and nobody re-runs setup — they are simply in.
 async function callIn(name) {
@@ -181,7 +140,7 @@ async function reissueInvite(name, room) {
     if (!r.ok) {
       const why = await r.text();
       if (!buildingStale(gen)) addSys(`could not re-send ${name}'s invitation: ${why}`);
-      return;
+      return false;
     }
     const v = await r.json().catch(() => ({}));
     if (buildingStale(gen)) return;
@@ -191,7 +150,9 @@ async function reissueInvite(name, room) {
     if (v.already) addSys(`this server cannot re-send invitations yet; ${name}'s invitation was not changed`);
     else addSys(`fresh invitation sent to ${name}; the previous one no longer works`);
     fetchSeated();
+    return v.already ? "unchanged" : "sent";
   } catch (e) { if (!buildingStale(gen)) addSys("re-send failed to send"); }
+  return false;
 }
 
 /// The open two-step for an outsider: admit to the building, then invite to

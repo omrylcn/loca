@@ -5,7 +5,7 @@
 //! Both are the Master's alone, as a seal is.
 
 use super::access::is_master_req;
-use crate::*;
+use crate::{hub, HeaderMap, Hub, IntoResponse, Path, State, StatusCode};
 use axum::http::header;
 use hub::LocaRemovalError;
 

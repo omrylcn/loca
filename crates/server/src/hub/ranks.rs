@@ -1,6 +1,9 @@
 //! The Building's ranks and profiles as people see them, and renaming a profile.
 
-use super::*;
+use super::{
+    seat_rank, validate_display_name, BuildingRole, HashMap, Hub, Message, PrincipalIdentity,
+    ProfileRenameError, RankPresence, RecoverMutex, RequestAuthority, SenderType, ServerFrame,
+};
 
 impl Hub {
     pub fn master_principal(&self) -> Option<PrincipalIdentity> {

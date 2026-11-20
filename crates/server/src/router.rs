@@ -1,6 +1,43 @@
 //! The HTTP router: every public route, and the fences layered over them.
 
-use crate::*;
+use crate::{
+    ack_care, ack_join_request_route, ack_membership_claim_route, add_extension,
+    add_group_member_route, admit_member, append_long_memory, appoint_loca_operator_route,
+    approve_join_request_route, bootstrap_join_request_route, call_into_loca, caretaker_memory,
+    caretaker_residents, claim_attention, claim_membership, claim_wiki_review, clear_wait,
+    commit_wiki, configure_wiki, create_admission_stock_route, create_attention, create_goal,
+    create_group_route, create_invite, create_join_request_route, create_loca_route, create_note,
+    create_pairing_route, create_profile_credential_route, create_session_route, create_smaster,
+    create_task, delete_group_route, delete_loca_records, delete_note, delete_room,
+    delete_session_route, deny_join_request_route, dm_candidates_route, dm_close_route, dm_fence,
+    dm_master_route, dm_overview_route, dm_seal_route, dm_witness_route, download_skill_bundle,
+    edit_wiki_page, extension_catalog, extension_fence, finish_wiki_review, get,
+    get_admission_stock_route, get_attachment, get_building_settings, get_extensions, get_group,
+    get_join_request_route, get_journal, get_loca_memory, get_loca_memory_snapshot,
+    get_loca_operator, get_members, get_messages, get_mod, get_mode, get_note, get_notes,
+    get_profile_preferences, get_reactions, get_settings, get_task, get_vault, get_vault_history,
+    get_wiki, get_wiki_page, getting_started_doc, group_fence, group_log_route, health, hub, index,
+    issue_key, leave_building_route, list_attentions, list_building_bans, list_building_ranks,
+    list_goals, list_groups, list_invites, list_join_requests_route, list_keys,
+    list_long_memory_entries, list_members, list_my_dms, list_notifications,
+    list_profile_credentials, list_profiles, list_residents, list_rooms, list_smasters, list_tasks,
+    list_waits, lobby_ws_handler, loca_archive, moderate, note_history,
+    notification_audiences_route, open_dm_route, post_journal, post_message, post_typing,
+    preview_loca_group_route, principles_en, principles_tr, profile_view, put_building_settings,
+    put_extensions, put_profile_card, put_profile_preferences, put_vault,
+    read_all_notifications_route, read_notification_route, release_self_from_loca,
+    remove_extension, remove_group_member_route, remove_wiki_page, rename_profile_route,
+    rename_smaster_route, renew_wiki_review, report_runtime_health, require_membership,
+    resolve_attention, revoke_invite, revoke_key_route, revoke_loca_operator_route,
+    revoke_member_route, revoke_profile_credential_route, revoke_smaster_route, search_building,
+    search_room, send_notification_route, sent_notifications_route, set_lead, set_loca_group_route,
+    set_loca_memory_owner, set_member_suspension_route, set_mode, set_reaction, set_settings,
+    set_wait, skill_bundle_manifest, skill_bundles_index, update_goal, update_group_route,
+    update_note, update_task, upload_attachment, web_asset, whoami, wiki_context,
+    wiki_context_accept, wiki_context_offer, wiki_context_request, wiki_context_requests,
+    wiki_maintenance_status, wiki_native_ready, write_short_memory, ws_handler, DefaultBodyLimit,
+    Hub, Router, MAX_HTTP_BODY_BYTES,
+};
 
 /// Every public route of the server, with its fences and body limit.
 pub(crate) fn router(hub: Hub) -> Router {

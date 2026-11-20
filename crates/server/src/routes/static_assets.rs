@@ -1,7 +1,7 @@
 //! The web client and the documents the server serves: `/`, `/assets/*`, the
 //! principles and the getting-started guide.
 
-use crate::*;
+use crate::{Html, IntoResponse, Path, StatusCode};
 
 pub(crate) const WEB_INDEX: &str = include_str!("../../../../web/index.html");
 pub(crate) const WEB_FAVICON: &str = include_str!("../../../../web/assets/favicon.svg");
@@ -25,8 +25,11 @@ pub(crate) const WEB_CARETAKER_STYLES: &str = include_str!("../../../../web/asse
 pub(crate) const WEB_FLOORS_STYLES: &str = include_str!("../../../../web/assets/floors.css");
 pub(crate) const WEB_BOARD_LIST_STYLES: &str = include_str!("../../../../web/assets/boardlist.css");
 pub(crate) const WEB_ROSTER_STYLES: &str = include_str!("../../../../web/assets/roster.css");
+pub(crate) const WEB_CALL_DIALOG_STYLES: &str =
+    include_str!("../../../../web/assets/calldialog.css");
 pub(crate) const WEB_AVATAR: &str = include_str!("../../../../web/assets/avatar.js");
 pub(crate) const WEB_STATE: &str = include_str!("../../../../web/assets/state.js");
+pub(crate) const WEB_SESSION: &str = include_str!("../../../../web/assets/session.js");
 pub(crate) const WEB_SOCKET: &str = include_str!("../../../../web/assets/socket.js");
 pub(crate) const WEB_PEOPLE: &str = include_str!("../../../../web/assets/people.js");
 pub(crate) const WEB_CHAT: &str = include_str!("../../../../web/assets/chat.js");
@@ -59,6 +62,7 @@ pub(crate) const WEB_IDENTITY: &str = include_str!("../../../../web/assets/ident
 pub(crate) const WEB_GROUPS: &str = include_str!("../../../../web/assets/groups.js");
 pub(crate) const WEB_KIT_VERSION: &str = include_str!("../../../../web/assets/kitversion.js");
 pub(crate) const WEB_ROSTER: &str = include_str!("../../../../web/assets/roster.js");
+pub(crate) const WEB_CALL_DIALOG: &str = include_str!("../../../../web/assets/calldialog.js");
 pub(crate) const WEB_ADDRESSING: &str = include_str!("../../../../web/assets/addressing.js");
 pub(crate) const WEB_LOCAINFO: &str = include_str!("../../../../web/assets/locainfo.js");
 pub(crate) const WEB_THREADS: &str = include_str!("../../../../web/assets/threads.js");
@@ -161,8 +165,10 @@ pub(crate) async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "floors.css" => Some(("text/css; charset=utf-8", WEB_FLOORS_STYLES)),
         "boardlist.css" => Some(("text/css; charset=utf-8", WEB_BOARD_LIST_STYLES)),
         "roster.css" => Some(("text/css; charset=utf-8", WEB_ROSTER_STYLES)),
+        "calldialog.css" => Some(("text/css; charset=utf-8", WEB_CALL_DIALOG_STYLES)),
         "avatar.js" => Some(("text/javascript; charset=utf-8", WEB_AVATAR)),
         "state.js" => Some(("text/javascript; charset=utf-8", WEB_STATE)),
+        "session.js" => Some(("text/javascript; charset=utf-8", WEB_SESSION)),
         "socket.js" => Some(("text/javascript; charset=utf-8", WEB_SOCKET)),
         "people.js" => Some(("text/javascript; charset=utf-8", WEB_PEOPLE)),
         "chat.js" => Some(("text/javascript; charset=utf-8", WEB_CHAT)),
@@ -194,6 +200,7 @@ pub(crate) async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
         "kitversion.js" => Some(("text/javascript; charset=utf-8", WEB_KIT_VERSION)),
         "roster.js" => Some(("text/javascript; charset=utf-8", WEB_ROSTER)),
+        "calldialog.js" => Some(("text/javascript; charset=utf-8", WEB_CALL_DIALOG)),
         "addressing.js" => Some(("text/javascript; charset=utf-8", WEB_ADDRESSING)),
         "locainfo.js" => Some(("text/javascript; charset=utf-8", WEB_LOCAINFO)),
         "threads.js" => Some(("text/javascript; charset=utf-8", WEB_THREADS)),

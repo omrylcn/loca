@@ -1,6 +1,6 @@
 //! Reading a loca's words: recent messages, pages after an id, its members and the room list.
 
-use super::*;
+use super::{Hub, Member, Message, Note, RecoverMutex, RoomSummary, SenderType};
 
 impl Hub {
     /// Room memory search: full message archive (DB) + current notes.

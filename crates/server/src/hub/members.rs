@@ -1,6 +1,9 @@
 //! Building membership: admitting, suspending and revoking members, and the names they may take.
 
-use super::*;
+use super::{
+    admission_name_refusal, secret_hash, AdmitError, BuildingRole, Hub, InviteRecord, LobbyEvent,
+    MemberRecord, RecoverMutex,
+};
 
 impl Hub {
     /// True if `token` may connect / post. Open when no room token is set; the

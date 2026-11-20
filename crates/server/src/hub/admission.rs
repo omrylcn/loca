@@ -1,6 +1,9 @@
 //! Ways into the Building: the Master's pairing code, admission rights and join requests.
 
-use super::*;
+use super::{
+    admission_name_refusal, AdminPairing, Approve, ChatMode, Hub, JoinRequestCreate, Message,
+    Ordering, RecoverMutex, SenderType, ServerFrame,
+};
 
 impl Hub {
     /// The boot-time pairing code is printed only by the server process. It is

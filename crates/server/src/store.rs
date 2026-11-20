@@ -49,10 +49,21 @@ mod wiki;
 mod wiki_context;
 mod wiki_maintenance;
 mod work;
-use migrations::*;
+use migrations::{
+    add_column, add_invite_delivery_columns, attribute_messages_once, expire_delivery_copies,
+    expire_invite_copies, migrate_admin_session_tokens, migrate_member_keys, migrate_smaster_codes,
+    record_owed_checkpoint, rewrite_key_scopes, scrub_secret_residue,
+    settle_owed_checkpoint_logged, DeliveryCopies,
+};
 pub use preferences::{PreferenceError, Preferences};
 pub use profile_card::{CardPatch, ProfileCard, ProfileCardError};
-pub(crate) use schema::*;
+#[cfg(test)]
+pub(crate) use schema::LEGACY_MEMBER_TABLES;
+use schema::STORAGE_MAINTENANCE_SCHEMA;
+pub(crate) use schema::{
+    admin_sessions_table_sql, invites_table_sql, member_suspensions_table_sql, members_table_sql,
+    smasters_table_sql,
+};
 pub use vault::VaultRevision;
 pub use wiki::{
     WikiCommit, WikiError, WikiPageEdit, WikiPageRemoval, WikiPageSnapshot, WikiSnapshot,

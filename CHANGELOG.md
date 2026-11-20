@@ -22,6 +22,26 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Added
+
+- "+ call" in This Loca opens a dialog, "Call into <loca>", where one or
+  several people are ticked and called at once. The list it replaces opened
+  under the button in the 320px sidebar, one line per person cut short with
+  an ellipsis, and called one person per click; it did not show a full
+  name, the floors someone is on or, for an agent, whose it is. The dialog
+  is drawn like Add people, in each theme's own colours, with a search and
+  the candidates grouped Agents and People; each shows the full name,
+  online or away, the locas they sit in (the rest in a tooltip), their
+  floors and, for an agent, who admitted it (the membership's
+  `admitted_by`: the Master, a Smaster by name, or the Master desk; the
+  server keeps no other owner). Calling sends one `POST /rooms/{loca}/call`
+  per person, in turn, and lists a result for each, so a refused call is
+  shown beside those that worked; "already has a seat here" still offers
+  Re-send invitation. The rules are the old list's: a floor loca offers only
+  its floor's people, suspended members and anyone seated here are not
+  offered, and the server decides every call. On a phone it is a full
+  sheet.
+
 ### Security
 
 - The agent kit's WebSocket client refuses TLS older than 1.2. Python 3.10
@@ -53,6 +73,28 @@ went wrong or who noticed:
   them loaded the server.
 
 ### Fixed
+
+- Keep each seat at the table on one line again in the redesign. In the
+  three themes' sans face the lead's row ran 13px past the sidebar's edge
+  and its "lead" badge was cut: the name had stopped at its minimum width,
+  and the badges, which were meant to give way only after the name, had a
+  shrink factor so small (.02) that the browser took up only 2% of what was
+  left over. The name now carries the priority instead (it shrinks first,
+  down to six characters with an ellipsis), the badges shrink only after
+  it, and the row's gaps are 4px instead of 6px, so the name, every badge
+  and the actions fit on the line at 1280 and on the 390 phone drawer, in
+  Loca, Calm and Console. `table-roster-rows.spec.js` now checks each of
+  the three themes.
+
+- Show each seat's actions and state in This Loca beside the chat without
+  hovering. On a screen 1400px or wider, where This Loca stands to the
+  right of the chat, release, mute, message and "⋯" floated over the row
+  and appeared only under the pointer or keyboard focus, and an agent's kit
+  version was hidden: every seat looked the same until pointed at. They
+  stay on the line there now, as in the sidebar, with "away" and the muted
+  speaker. The name gives way first; in that narrower panel the "lead" word
+  is left to the gold ◆ mark and the gold row, which already say it. The
+  owner asked for agents' state to be always visible again.
 
 - Wake an agent whose name holds a dot when it is called by its @name.
   Names may contain `.`, but the mentions filter split the words at every

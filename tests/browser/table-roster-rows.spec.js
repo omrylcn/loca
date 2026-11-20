@@ -79,12 +79,18 @@ const seat = (page, name) => page.locator("#onlineList .omem").filter({ hasText:
 // Every roster row that is taller than one line, or reaches past the sidebar.
 function brokenRows(page) {
   return page.evaluate(() => {
-    const side = document.querySelector(".side").getBoundingClientRect();
     return [...document.querySelectorAll("#onlineList .omem")].map(row => {
+      // The sidebar, or This Loca beside the chat on a wide screen.
+      const side = (row.closest("#locaInfo") || document.querySelector(".side")).getBoundingClientRect();
       const r = row.getBoundingClientRect();
       const parts = [...row.children].filter(c => c.getBoundingClientRect().width > 0);
       const mids = parts.map(c => { const b = c.getBoundingClientRect(); return (b.top + b.bottom) / 2; });
-      const oneLine = mids.every(m => Math.abs(m - mids[0]) < 6) && r.height <= 34;
+      // One line: the parts share a middle, and the row is no taller than its
+      // tallest part plus its own padding (7px a side beside the chat).
+      const cs = getComputedStyle(row);
+      const tallest = Math.max(...parts.map(c => c.getBoundingClientRect().height));
+      const oneLine = mids.every(m => Math.abs(m - mids[0]) < 6)
+        && r.height <= tallest + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + 2;
       const inside = r.right <= side.right + 0.5 && row.scrollWidth <= row.clientWidth + 1
         && parts.every(c => c.getBoundingClientRect().right <= r.right + 0.5);
       return oneLine && inside ? null : `${row.textContent.trim().slice(0, 40)} (${Math.round(r.height)}px)`;
@@ -100,7 +106,11 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await expect(seat(page, "rr-quiet").locator("[data-mod='unmute']")).toHaveCount(1);
     await expect(seat(page, LONG).locator("button.release")).toBeVisible();
     await expect(page.locator("#onlineList .omem.self")).toHaveCount(1);
-    expect(await brokenRows(page)).toEqual([]);
+    // In each of the three themes: their faces and weights differ in width.
+    for (const theme of ["loca", "calm", "console"]) {
+      await page.evaluate(t => applyAppearance({ theme: t }), theme);
+      expect({ theme, broken: await brokenRows(page) }).toEqual({ theme, broken: [] });
+    }
     // The lead and the muted state stay visible on the line.
     await expect(seat(page, "rr-helper").locator(".leadtag")).toBeVisible();
     await expect(seat(page, "rr-quiet").locator("[data-mod='unmute']")).toHaveAttribute("aria-pressed", "true");
@@ -108,6 +118,46 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
     await page.close();
   });
 }
+
+// From 1400px This Loca stands beside the chat (#locaInfo, locainfo.js). There
+// a seat's release, mute, message and ⋯ and an agent's kit version waited for
+// the pointer: a seat looked the same whatever state it was in until hovered.
+test("beside the chat, every seat shows its actions and state without hover, on one line", async ({ browser, request }) => {
+  await seatPeople(request);
+  // A connected agent that sent its kit version: what the roster showed the
+  // Master beside its name.
+  const agent = "rr-kit-agent";
+  const admitted = await request.post("/members", { headers: MASTER, data: { name: agent, kind: "agent" } });
+  expect([200, 201]).toContain(admitted.status());
+  const invited = await request.post(`/rooms/${ROOM}/invites`, { headers: MASTER, data: { name: agent } });
+  expect(invited.ok(), await invited.text()).toBeTruthy();
+  const session = await (await request.post("/sessions", {
+    headers: { "x-room-token": (await invited.json()).token }, data: { name: agent, kind: "agent", loca: ROOM },
+  })).json();
+  const host = new URL(test.info().project.use.baseURL).host;
+  const socket = new WebSocket(`ws://${host}/ws?room=${ROOM}&name=${agent}&type=agent&kit_version=0.1.0`,
+    ["loca.v1", `loca.session.${session.session_token}`]);
+  await new Promise(resolve => socket.addEventListener("open", resolve));
+
+  const page = await masterPage(browser, request, { width: 1440, height: 900 });
+  await expect(page.locator("#locaInfo #onlineList")).toHaveCount(1);
+  await expect(seat(page, agent)).toHaveCount(1);
+  await page.mouse.move(2, 2);
+  for (const theme of ["loca", "calm", "console"]) {
+    await page.evaluate(t => applyAppearance({ theme: t }), theme);
+    const hidden = await page.evaluate(() => [...document.querySelectorAll("#onlineList .omem:not(.self) .seatacts")]
+      .map(acts => getComputedStyle(acts))
+      .filter(cs => cs.opacity !== "1" || cs.pointerEvents === "none" || cs.position === "absolute").length);
+    expect({ theme, hidden }).toEqual({ theme, hidden: 0 });
+    expect({ theme, broken: await brokenRows(page) }).toEqual({ theme, broken: [] });
+  }
+  await expect(seat(page, LONG).locator("button.release")).toBeVisible();
+  await expect(seat(page, "rr-quiet").locator("[data-mod='unmute']")).toBeVisible();
+  await expect(seat(page, LONG).locator(".seatstate")).toHaveText("away");
+  await expect(seat(page, agent).locator(".kitver")).toBeVisible();
+  socket.close();
+  await page.close();
+});
 
 test("no emoji in the roster's buttons: mute is one SVG toggle, the rest sit behind ⋯", async ({ browser, request }) => {
   await seatPeople(request);

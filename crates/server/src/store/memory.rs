@@ -1,4 +1,4 @@
-use super::*;
+use super::{params, MemoryReadError, OptionalExtension, Store};
 
 pub const LONG_MEMORY_ENTRY_MAX_BYTES: usize = 8 * 1024;
 pub const LONG_MEMORY_SOFT_BYTES: usize = 32 * 1024;

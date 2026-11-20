@@ -4,13 +4,17 @@
    edge in fixed columns. The ⋯ menu lives on <body>, fixed to the screen,
    so the sidebar never clips it. Kick and ban ask under the row, like the
    Master's Remove (ranks.css). Every colour is a theme token. */
-#onlineList .omem:not(.banned) { flex-wrap: nowrap; gap: 6px; min-height: 26px; padding-right: 10px; }
+#onlineList .omem:not(.banned) { flex-wrap: nowrap; gap: 4px; min-height: 26px; padding-right: 10px; }
 /* The name gives way first, down to a few letters; the badges only after
-   that, so "lead" or "away" is not the part that is cut. */
-#onlineList .omem .oname { flex: 0 1 auto; min-width: 7ch; }
+   that, so "lead" or "away" is not the part that is cut. The order is in
+   the name's large shrink factor, not a tiny one on the badges: once the
+   name stops at its minimum, flexbox takes up only the remaining items'
+   share of the overflow when their factors add to less than 1, and a
+   badge strip at .02 left the row 13px too wide in the redesign's face. */
+#onlineList .omem .oname { flex: 0 100 auto; min-width: 6ch; }
 /* "away" is a badge now: on the name it was cut off with a long name. */
 #onlineList .omem.away .oname::after { content: none; }
-.omem .obadges { display: inline-flex; align-items: center; gap: 4px; flex: 0 0.02 auto; min-width: 0;
+.omem .obadges { display: inline-flex; align-items: center; gap: 4px; flex: 0 1 auto; min-width: 0;
   overflow: hidden; white-space: nowrap; }
 .omem .obadges > * { flex: 0 0 auto; margin-left: 0; }
 .omem .seatstate { color: var(--dim); font-size: 10px; }
@@ -30,6 +34,19 @@
   color: var(--accent); font: 700 10px var(--mono); }
 .omem .seatacts .release:hover, .omem .seatacts .release:focus-visible {
   background: color-mix(in srgb, var(--accent) 10%, transparent); }
+/* This Loca beside the chat (from 1400px, chatsurface.css #locaInfo) floated
+   a seat's actions over the row and showed them, and the kit version, only
+   on hover or focus: every seat looked alike until pointed at. They stay on
+   the line there too, as in the sidebar; the name is what gives way. */
+#locaInfo #onlineList .omem .seatacts { position: static; transform: none; padding: 0; border: 0;
+  background: none; opacity: 1; pointer-events: auto; }
+#locaInfo #onlineList .omem .obadges { flex: 0 1 auto; }
+#locaInfo #onlineList .omem .kitver, #locaInfo #onlineList .omem .kitold { display: inline; }
+/* The panel is narrower than the sidebar and reads at 14px: with the
+   actions on the line, "away" and the 53px "LEAD" left the lead's name
+   14px. The lead's row already says it twice, in the gold ◆ mark and the
+   gold row; the word gives way there, and only there. */
+#locaInfo #onlineList .omem .leadtag { display: none; }
 /* The banned list's unban, in the same quiet pill. */
 .omem.banned .omacts button { padding: 2px 7px; border-radius: 7px; opacity: 1; color: var(--muted);
   border: 1px solid var(--line); font: 600 10px var(--mono); }

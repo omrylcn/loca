@@ -1,7 +1,14 @@
 //! Upgrading an older database while the store opens: added columns, rebuilt
 //! tables, scrubbed secrets and owed checkpoints.
 
-use super::*;
+use super::{
+    admin_sessions_table_sql, current_time_ms, identity, invites_table_sql,
+    member_suspensions_table_sql, members_table_sql, params, secret_hash, smasters_table_sql,
+    table_has_column, with_secure_delete, with_temp_store_in_memory, Connection, MemberRecord,
+    CLAIM_DELIVERY_WINDOW_MS, INVITE_DELIVERY_WINDOW_MS, JOIN_BOOTSTRAP_WINDOW_MS,
+    PAST_CLAIM_DELIVERY_DEADLINE, PAST_INVITE_DELIVERY_DEADLINE, PAST_JOIN_BOOTSTRAP_DEADLINE,
+    STORE_BUSY_TIMEOUT,
+};
 
 /// Add one column to an existing table while the store opens. A database that
 /// already has the column answers "duplicate column name", and only that

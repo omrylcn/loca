@@ -33,6 +33,7 @@
 <link rel="stylesheet" href="/assets/page-chrome.css" />
 <link rel="stylesheet" href="/assets/search.css" />
 <link rel="stylesheet" href="/assets/page-home.css" />
+<link rel="stylesheet" href="/assets/calldialog.css" />
 <script src="/assets/theme.js"></script>
 </head>
 <body>
@@ -807,6 +808,32 @@
     </div>
   </div>
 
+  <!-- "+ call" in This Loca: call Building members into this loca, one or
+       several at once (calldialog.js). -->
+  <div class="extoverlay hidden" id="callDialog" role="dialog" aria-modal="true" aria-labelledby="callDialogTitle">
+    <button class="extbackdrop" id="callDialogBackdrop" type="button" aria-label="Close" tabindex="-1"></button>
+    <div class="extcard calldialog">
+      <div class="cdhead">
+        <h2 id="callDialogTitle">Call into this loca</h2>
+        <button type="button" class="cdclose" id="callDialogClose" aria-label="Close">×</button>
+      </div>
+      <div class="cdbody">
+        <div class="cdsearch" id="callSearchField">
+          <label class="cdlabel" for="callSearch">Search</label>
+          <input id="callSearch" type="search" autocomplete="off" spellcheck="false" placeholder="Search people and agents" />
+        </div>
+        <p class="callfloornote" id="callFloorNote"></p>
+        <div id="callCands"></div>
+      </div>
+      <div class="cdfoot">
+        <span class="callsummary" id="callSummary" aria-live="polite"></span>
+        <button type="button" class="btn" id="callCancel">Cancel</button>
+        <button type="button" class="btn hidden" id="callAgain">Call more</button>
+        <button type="button" class="btn primary" id="callSubmit" disabled>Call</button>
+      </div>
+    </div>
+  </div>
+
   <!-- A person's card: who they are and the groups they are in. The founder
        of a group (or the Master) adds and removes them here. -->
   <div class="extoverlay hidden" id="personCard" role="dialog" aria-modal="true" aria-labelledby="personCardTitle">
@@ -1055,6 +1082,7 @@
   </div>
 
 <script src="/assets/state.js"></script>
+<script src="/assets/session.js"></script>
 <script src="/assets/clipboard.js"></script>
 <script src="/assets/avatar.js"></script>
 <script src="/assets/dm.js"></script>
@@ -1063,6 +1091,7 @@
 <script src="/assets/people.js"></script>
 <script src="/assets/kitversion.js"></script>
 <script src="/assets/roster.js"></script>
+<script src="/assets/calldialog.js"></script>
 <script src="/assets/chat.js"></script>
 <script src="/assets/admin.js"></script>
 <script src="/assets/focus.js"></script>

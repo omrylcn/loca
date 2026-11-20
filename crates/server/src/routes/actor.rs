@@ -1,6 +1,6 @@
 //! Who acted, as the Building's admission records name it.
 
-use crate::*;
+use crate::{admin_token_of, session_of, HeaderMap, Hub};
 
 /// The rank behind a request, written the way admission records name their
 /// actor: `master`, or `smaster:<name>`.

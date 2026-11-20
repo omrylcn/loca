@@ -1,4 +1,6 @@
-use super::*;
+use super::{
+    params, Connection, Goal, GoalCompletion, GoalStatus, Store, Task, TaskStatus, WaitState,
+};
 use protocol::TaskActor;
 
 impl Store {
