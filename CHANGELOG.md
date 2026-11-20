@@ -75,6 +75,12 @@ went wrong or who noticed:
   minted them.
 ### Changed
 
+- A new name must start with a letter or digit. The server admitted names
+  such as `_ops` or `.bot`, but the agent kit, the web client and the
+  reminder recipient check refused them, so such a member could not run
+  `connect.sh setup`, be named as a reminder recipient or be highlighted in
+  chat. Names already on record are not re-checked and keep working.
+
 - The message box no longer has a "who should reply" list beside it (the
   classic layout keeps it). Calling someone is writing their @name, and the
   @ list opens as it is typed; the line above the box says who is asked.

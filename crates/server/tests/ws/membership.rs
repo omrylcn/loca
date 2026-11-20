@@ -923,14 +923,18 @@ async fn admit_rejects_unknown_kind() {
 }
 
 /// Names the join-request door refuses (`valid_agent_name`): a space, a
-/// non-ASCII letter, an `@`, and 65 characters.
+/// non-ASCII letter, an `@`, 65 characters, and a first character that is
+/// not a letter or digit.
 const REFUSED_NAMES: &[&str] = &[
     "has space",
+    "_ops",
+    ".dot",
+    "-dash",
     "Ay\u{015F}e",
     "a@b",
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 ];
-const NAME_RULE: &str = "name must be 1-64 ASCII letters, digits, dot, dash, or underscore";
+const NAME_RULE: &str = "name must be 1-64 ASCII letters, digits, dot, dash, or underscore, starting with a letter or digit";
 
 /// Direct admission and the master desk apply the join-request door's name
 /// rule, with the same status and sentence, so no door admits a name the

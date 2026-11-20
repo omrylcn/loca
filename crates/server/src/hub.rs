@@ -280,6 +280,28 @@ pub(crate) fn seat_rank(identity: &str) -> Option<&'static str> {
 pub type TestHook = Arc<dyn Fn() + Send + Sync>;
 
 /// The whole server's room state. Cheap to clone (`Arc` inside).
+///
+/// # Lock order
+///
+/// Every field below that is a `Mutex` is a plain `std::sync::Mutex`: not
+/// re-entrant, so a function must not call another that takes a lock it
+/// already holds. The order, outermost first, as the code takes them (each
+/// line restates a comment kept beside the code that relies on it):
+///
+/// 1. `name_claims` — only while a name comes into being or changes, and
+///    taken first, with no other hub lock held.
+/// 2. `member_lifecycle` — membership cutoffs; under `name_claims` only for
+///    a rename.
+/// 3. `moderation_ranks`.
+/// 4. `sessions` → `invites`, `members` (`hub/sessions.rs`).
+/// 5. `rooms` → `groups` (`create_loca`, `post`; `hub/groups.rs`). `groups`
+///    is a leaf: nothing else is taken under it but the store's connection.
+/// 6. The store's connection, last, under any of the above.
+///
+/// A door decision (`enter_decision`, via `is_banned`) takes `rooms` itself,
+/// so callers decide reachability before they take `rooms`
+/// (`hub/history.rs`, `hub/search.rs`, `hub/identity.rs`). A new path that
+/// needs two of these locks takes them in this order.
 #[derive(Clone)]
 pub struct Hub {
     rooms: Arc<Mutex<HashMap<String, Room>>>,
@@ -695,10 +717,16 @@ pub(crate) fn is_address_word(name: &str) -> bool {
 
 /// Why `valid_agent_name` refused a name, said the same way at every door.
 pub(crate) const AGENT_NAME_RULE: &str =
-    "name must be 1-64 ASCII letters, digits, dot, dash, or underscore";
+    "name must be 1-64 ASCII letters, digits, dot, dash, or underscore, starting with a letter or digit";
 
+/// A new identity name: 1-64 ASCII letters, digits, `.`, `_` or `-`, and the
+/// first a letter or digit, the rule the agent kit and the web client hold
+/// too (`routes::valid_identity_name`). Names already on record are not
+/// re-checked.
 pub(crate) fn valid_agent_name(name: &str) -> bool {
-    !name.is_empty()
+    name.as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphanumeric)
         && name.len() <= 64
         && name
             .chars()
@@ -732,12 +760,15 @@ pub enum NameError {
     Reserved,
 }
 
-/// A person's display name: 1–64 ASCII letters, digits, `-`, `_` or `.`
-/// (the join-request rule, so it survives `@mention`), and never a rank or
-/// title word.
+/// A person's display name: 1–64 ASCII letters, digits, `-`, `_` or `.`,
+/// starting with a letter or digit (the join-request rule, so it survives
+/// `@mention`), and never a rank or title word.
 pub fn validate_display_name(name: &str) -> Result<&str, NameError> {
     let name = name.trim();
-    if name.is_empty()
+    if !name
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphanumeric)
         || name.len() > 64
         || !name
             .chars()

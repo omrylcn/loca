@@ -23,7 +23,7 @@ case "$cmd" in
       exit 2
     fi
     if ! [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
-      echo "agent name must be 1-64 ASCII letters, digits, dot, dash, or underscore" >&2
+      echo "agent name must be 1-64 ASCII letters, digits, dot, dash, or underscore, starting with a letter or digit" >&2
       exit 2
     fi
     if [ "${3+x}" = x ]; then
@@ -237,7 +237,7 @@ case "$cmd" in
       exit 2
     fi
     if ! [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
-      echo "name must be 1-64 ASCII letters, digits, dot, dash, or underscore" >&2
+      echo "name must be 1-64 ASCII letters, digits, dot, dash, or underscore, starting with a letter or digit" >&2
       exit 2
     fi
     if [ "${3+x}" = x ]; then

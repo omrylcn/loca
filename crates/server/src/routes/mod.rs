@@ -15,13 +15,17 @@ mod dm;
 mod downloads;
 mod extensions;
 mod groups;
+mod join;
 mod keys;
 mod lobby;
 mod loca_removal;
+mod members;
 mod membership;
 mod notifications;
+mod profile;
 mod rooms;
 mod search;
+mod sessions;
 mod static_assets;
 mod vault;
 mod wiki;
@@ -41,6 +45,7 @@ pub(crate) use access::mutation_actor;
 pub(crate) use access::{
     admin_token_of, is_admin_req, is_master_req, member_token_of, no_such_loca, pairing_code_of,
     require_membership, session_of, socket_sees_nothing, valid_identity_name, RoomAccess,
+    SESSION_HEADER,
 };
 pub(crate) use attachments::{get_attachment, upload_attachment};
 pub(crate) use attention::{
@@ -68,24 +73,29 @@ pub(crate) use groups::{
     group_log_route, list_groups, preview_loca_group_route, remove_group_member_route,
     set_loca_group_route, update_group_route,
 };
+pub(crate) use join::{
+    ack_join_request_route, approve_join_request_route, bootstrap_join_request_route,
+    create_admission_stock_route, create_join_request_route, deny_join_request_route,
+    get_admission_stock_route, get_join_request_route, list_join_requests_route,
+};
 pub(crate) use keys::{issue_key, list_keys, rename_smaster_route, revoke_key_route};
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};
 pub(crate) use loca_removal::{delete_loca_records, loca_archive};
+pub(crate) use members::{
+    admit_member, caretaker_residents, caretaker_viewer, create_smaster, list_building_ranks,
+    list_members, list_profiles, list_residents, list_smasters, rename_profile_route,
+    revoke_member_route, revoke_smaster_route, set_member_suspension_route,
+};
 pub(crate) use membership::{
-    ack_join_request_route, ack_membership_claim_route, admit_member, approve_join_request_route,
-    bootstrap_join_request_route, caretaker_residents, caretaker_viewer, claim_membership,
-    create_admission_stock_route, create_join_request_route, create_pairing_route,
-    create_profile_credential_route, create_session_route, create_smaster, delete_session_route,
-    deny_join_request_route, get_admission_stock_route, get_join_request_route,
-    get_profile_preferences, leave_building_route, list_building_ranks, list_join_requests_route,
-    list_members, list_profile_credentials, list_profiles, list_residents, list_smasters,
-    pairing_ttl_ms, profile_view, put_profile_card, put_profile_preferences, rename_profile_route,
-    revoke_member_route, revoke_profile_credential_route, revoke_smaster_route,
-    set_member_suspension_route, whoami, NAME_WORN_RULE,
+    ack_membership_claim_route, claim_membership, leave_building_route, whoami, NAME_WORN_RULE,
 };
 pub(crate) use notifications::{
     list_notifications, notification_audiences_route, read_all_notifications_route,
     read_notification_route, send_notification_route, sent_notifications_route,
+};
+pub(crate) use profile::{
+    create_profile_credential_route, get_profile_preferences, list_profile_credentials,
+    profile_view, put_profile_card, put_profile_preferences, revoke_profile_credential_route,
 };
 pub(crate) use rooms::{
     actor_of, appoint_loca_operator_route, caller_reach, create_invite, create_loca_route,
@@ -94,6 +104,9 @@ pub(crate) use rooms::{
     revoke_invite, revoke_loca_operator_route, room_decision_of, set_lead, set_mode, set_settings,
 };
 pub(crate) use search::search_building;
+pub(crate) use sessions::{
+    create_pairing_route, create_session_route, delete_session_route, pairing_ttl_ms,
+};
 pub(crate) use vault::{get_vault, get_vault_history, put_vault};
 pub(crate) use work::{
     clear_wait, create_goal, create_task, get_task, list_goals, list_tasks, list_waits, set_wait,
