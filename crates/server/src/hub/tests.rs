@@ -3833,6 +3833,24 @@ fn join_request_is_announced_visibly_in_the_home_loca_without_leaking_the_secret
     );
 }
 
+/// The mention grammar is pinned by `docs/mention-cases.json`, which the
+/// agent kit is tested against too.
+#[test]
+fn mentions_follow_the_shared_cases() {
+    let cases: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../docs/mention-cases.json")).unwrap();
+    for case in cases["cases"].as_array().unwrap() {
+        let text = case["text"].as_str().unwrap();
+        let expected: Vec<String> = case["names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|name| name.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(super::mentioned_names(text), expected, "{text:?}");
+    }
+}
+
 #[test]
 fn an_agent_naming_people_does_not_wake_every_agent() {
     use super::names_people_but_not_all as named;

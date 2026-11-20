@@ -65,7 +65,9 @@ pub(crate) async fn create_attention(
             "could not save attention — try again",
         )
             .into_response(),
-        Err(AttentionError::Forbidden | AttentionError::Conflict) => unreachable!(),
+        Err(AttentionError::Forbidden | AttentionError::Conflict) => {
+            unexpected_answer("create attention")
+        }
     }
 }
 pub(crate) async fn claim_attention(
@@ -165,7 +167,7 @@ pub(crate) fn attention_response(
             "could not update attention — try again",
         )
             .into_response(),
-        Err(AttentionError::NoRecipient) => unreachable!(),
+        Err(AttentionError::NoRecipient) => unexpected_answer("update attention"),
     }
 }
 pub(crate) async fn ack_care(

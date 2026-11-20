@@ -431,6 +431,45 @@ async fn a_reply_and_an_explicit_target_wake_both() {
     assert_eq!(cf["message"]["target"], "carol");
 }
 
+/// A name may hold a dot. `@ops.bot` calls `ops.bot` on a mentions-only
+/// socket, also when an agent sent it with the `all` target (which the
+/// server drops because the words name someone): before one mention grammar,
+/// the filter split the name at the dot and nobody was woken.
+#[tokio::test]
+async fn a_dotted_name_is_woken_by_its_mention() {
+    let (port, _guard) = spawn_server().await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let (mut ops, _) = tokio_tungstenite::connect_async(format!(
+        "ws://127.0.0.1:{port}/ws?room=general&name=ops.bot&type=agent&filter=mentions&turn_max=1"
+    ))
+    .await
+    .unwrap();
+    wait_for_member(&client, &base, "general", "ops.bot", None).await;
+    let posted = client
+        .post(format!("{base}/rooms/general/messages"))
+        .json(&serde_json::json!({
+            "sender": "lead", "sender_type": "agent", "target": "all",
+            "text": "@ops.bot review this"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert!(posted.status().is_success(), "{}", posted.status());
+    let frame = wait_for(&mut ops, |v| {
+        let messages = if v["t"] == "turn" {
+            v["messages"].clone()
+        } else {
+            serde_json::json!([v["message"]])
+        };
+        messages
+            .as_array()
+            .is_some_and(|all| all.iter().any(|m| m["text"] == "@ops.bot review this"))
+    })
+    .await;
+    assert!(frame["t"] == "msg" || frame["t"] == "turn", "{frame}");
+}
+
 #[tokio::test]
 async fn a_reply_to_an_unknown_or_cross_room_id_addresses_nobody() {
     let (port, _guard) = spawn_server().await;

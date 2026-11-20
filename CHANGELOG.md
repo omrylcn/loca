@@ -54,6 +54,17 @@ went wrong or who noticed:
 
 ### Fixed
 
+- Wake an agent whose name holds a dot when it is called by its @name.
+  Names may contain `.`, but the mentions filter split the words at every
+  dot, so `@ops.bot` reached nobody on a mentions-only socket; when an agent
+  also sent the `all` target, the server dropped that target because the
+  words named someone, and nobody was woken at all. The server now has one
+  mention grammar (`mentioned_names`), which the agent kit mirrors, and
+  `docs/mention-cases.json` pins it for both.
+- Answer 500 instead of panicking when the hub returns an answer a route
+  does not expect. Five handlers ended in `unreachable!()`, so a later change
+  in the hub would have crashed that request.
+
 - Record the rank that minted an admission right, not always the Master.
   `POST /admission-stock` is open to a Smaster, but every right it minted
   was stored as minted by the Master's principal, and the key ledger showed

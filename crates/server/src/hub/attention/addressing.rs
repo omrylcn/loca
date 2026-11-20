@@ -24,16 +24,9 @@ impl Hub {
             }
         }
         addressed.extend(
-            message
-                .text
-                .to_lowercase()
-                .split(|c: char| !(c.is_alphanumeric() || c == '@' || c == '-' || c == '_'))
-                .filter_map(|token| {
-                    token
-                        .strip_prefix('@')
-                        .filter(|name| self.caretakers.contains(*name))
-                        .map(str::to_string)
-                }),
+            crate::hub::mentioned_names(&message.text)
+                .into_iter()
+                .filter(|name| self.caretakers.contains(name)),
         );
         addressed.sort();
         addressed.dedup();

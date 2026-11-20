@@ -58,6 +58,7 @@ docs/loca-model.svg
 docs/loca-ui.png
 docs/monitoring.md
 docs/multi-agent-connection.md
+docs/mention-cases.json
 docs/protocol-frames.json
 docs/protocol.md
 docs/public-contributions.md

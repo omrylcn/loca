@@ -299,18 +299,11 @@ pub(crate) fn msg_addresses(
     if all_is_a_call && m.target.as_deref() == Some("all") {
         return true;
     }
-    // word-boundary @name or @all, case-insensitive
-    let text = m.text.to_lowercase();
-    let needle_name = format!("@{}", name.to_lowercase());
-    for tok in text.split(|c: char| !(c.is_alphanumeric() || c == '@' || c == '-' || c == '_')) {
-        if tok == needle_name {
-            return true;
-        }
-        if all_is_a_call && all_in_text && tok == "@all" {
-            return true;
-        }
-    }
-    false
+    // An @name or @all in the words, case-insensitive (`mentioned_names`).
+    let name = name.to_lowercase();
+    crate::hub::mentioned_names(&m.text)
+        .iter()
+        .any(|mention| *mention == name || (all_is_a_call && all_in_text && mention == "all"))
 }
 
 /// Server-side keepalive so an idle connection isn't closed (was seen as 1006).
