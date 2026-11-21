@@ -60,14 +60,15 @@ pub(crate) async fn create_session_route(
     } else if invite.is_none() && admin_token_of(&headers).is_some() {
         hub.admin_session_grant(admin_token_of(&headers), Hub::ADMIN_SESSION_TTL_MS)
     } else if invite.is_none()
-        && (hub.member_for_credential(token).is_some()
-            || matches!(
-                personal_authority.building_role,
-                Some(crate::store::BuildingRole::Smaster)
-            ))
+        && (hub.member_for_credential(token).is_some() || personal_authority.principal_id.is_some())
     {
-        // Bind Smaster and Member credentials through canonical authority.
-        // Master pairing and anonymous/shared-key sandbox entry stay separate.
+        // Bind every credential that names a principal (a member's key, a
+        // Smaster's, a Master Agent's, a profile credential) through
+        // canonical authority, so the session is that principal's and the
+        // body cannot name it. A principal's key used to fall through to an
+        // anonymous session under any name when it was not a member's or a
+        // Smaster's. Master pairing and anonymous/shared-key sandbox entry
+        // stay separate.
         hub.admin_session_grant(token, Hub::ADMIN_SESSION_TTL_MS)
     } else {
         None

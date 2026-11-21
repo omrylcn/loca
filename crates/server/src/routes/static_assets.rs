@@ -57,6 +57,7 @@ pub(crate) const WEB_DM: &str = include_str!("../../../../web/assets/dm.js");
 pub(crate) const WEB_KEYS: &str = include_str!("../../../../web/assets/keys.js");
 pub(crate) const WEB_BUILDING_SETTINGS: &str =
     include_str!("../../../../web/assets/buildingsettings.js");
+pub(crate) const WEB_MASTER_AGENT: &str = include_str!("../../../../web/assets/masteragent.js");
 pub(crate) const WEB_EXTENSIONS: &str = include_str!("../../../../web/assets/extensions.js");
 pub(crate) const WEB_IDENTITY: &str = include_str!("../../../../web/assets/identity.js");
 pub(crate) const WEB_GROUPS: &str = include_str!("../../../../web/assets/groups.js");
@@ -80,6 +81,8 @@ pub(crate) const WEB_PAGE_PEOPLE_STYLES: &str =
     include_str!("../../../../web/assets/page-people.css");
 pub(crate) const WEB_BUILDING_SETTINGS_STYLES: &str =
     include_str!("../../../../web/assets/buildingsettings.css");
+pub(crate) const WEB_MASTER_AGENT_STYLES: &str =
+    include_str!("../../../../web/assets/masteragent.css");
 pub(crate) const WEB_PAGE_MANAGE_STYLES: &str =
     include_str!("../../../../web/assets/page-manage.css");
 pub(crate) const WEB_PAGE_CONTENT_STYLES: &str =
@@ -107,7 +110,9 @@ pub(crate) async fn index() -> impl IntoResponse {
             ),
             (
                 "content-security-policy",
-                "default-src 'self'; connect-src 'self'; img-src 'self' data:; \
+                // blob: — a chat image is fetched with the session and drawn
+                // from an object URL the page made (chat.js renderAttachments).
+                "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; \
                  style-src 'self' 'unsafe-inline'; script-src 'self'; \
                  frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
             ),
@@ -195,6 +200,7 @@ pub(crate) async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "dm.js" => Some(("text/javascript; charset=utf-8", WEB_DM)),
         "keys.js" => Some(("text/javascript; charset=utf-8", WEB_KEYS)),
         "buildingsettings.js" => Some(("text/javascript; charset=utf-8", WEB_BUILDING_SETTINGS)),
+        "masteragent.js" => Some(("text/javascript; charset=utf-8", WEB_MASTER_AGENT)),
         "extensions.js" => Some(("text/javascript; charset=utf-8", WEB_EXTENSIONS)),
         "identity.js" => Some(("text/javascript; charset=utf-8", WEB_IDENTITY)),
         "groups.js" => Some(("text/javascript; charset=utf-8", WEB_GROUPS)),
@@ -212,6 +218,7 @@ pub(crate) async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "page-entry.css" => Some(("text/css; charset=utf-8", WEB_PAGE_ENTRY_STYLES)),
         "page-people.css" => Some(("text/css; charset=utf-8", WEB_PAGE_PEOPLE_STYLES)),
         "buildingsettings.css" => Some(("text/css; charset=utf-8", WEB_BUILDING_SETTINGS_STYLES)),
+        "masteragent.css" => Some(("text/css; charset=utf-8", WEB_MASTER_AGENT_STYLES)),
         "page-manage.css" => Some(("text/css; charset=utf-8", WEB_PAGE_MANAGE_STYLES)),
         "page-content.css" => Some(("text/css; charset=utf-8", WEB_PAGE_CONTENT_STYLES)),
         "page-home.css" => Some(("text/css; charset=utf-8", WEB_PAGE_HOME_STYLES)),

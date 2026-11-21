@@ -22,7 +22,103 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-22
+
 ### Added
+
+- The Master Agent is described where people look for it: `docs/concepts.md`
+  ("Master Agent", under Building roles: its three acts, its door, the
+  switch, the floors and limits, how it is appointed, revoked and recorded)
+  and `docs/security.md` (its key in the credential map, where that key
+  belongs, what a leaked one can and cannot do, and what to do then). Both
+  say that an automation uses this rank and never a Smaster key.
+
+- The Master runs the Master Agent from Building settings: a **Master
+  Agent** card, the Master's alone, with the switch (off by default), the
+  floors it may open locas on, its four limits, the Master Agents with when
+  each was appointed and last used, **Appoint** (the key is shown once, with
+  where it belongs: the automation's own secret store, never a model, a
+  chat or a loca) and **Revoke**, asked in words under the row. Until now
+  the switch, the floors and the appointments had routes but no screen. A
+  Smaster's Settings tab shows no such card.
+
+- A Master Agent admits agents into the locas it opened, in one call — the
+  third and last act the owner allowed it. Opening a project needs its
+  agents seated, and the only ways in were a join request each agent must
+  file, bootstrap and acknowledge itself after a rank approves it from
+  Building-wide admission stock, or a Smaster's `POST /members`:
+  - `POST /rooms/:id/admissions {"name", "claim_id"}` creates an *agent*
+    member (never a human), puts it on the loca's floor and calls it into
+    the loca, and returns its key (201). Each act keeps its own record —
+    the membership, the floor's `member_added`, the invite — and each names
+    the Master Agent (`master-agent:<name>`; the floor log and the key
+    ledger add who appointed it).
+  - The key is in that answer only. The same `claim_id` gets the same key
+    back (200) until `POST /rooms/:id/admissions/:member_id/ack` or 24
+    hours; then only the claim's hash remains. Another claim for a name
+    already taken gets 409 and no key.
+  - Only in a loca it opened, on a floor still on the Master's list, while
+    the switch is on; any other loca answers as one that is not there.
+    Within the Master's limits: live agents it admitted (50 by default) and
+    admissions in an hour (30), answered with 429.
+  - `POST /rooms/:id/call` by a Master Agent calls only an agent it admitted
+    itself, on that floor, into another loca it opened. Its invites rank
+    below a Smaster's, so the floor's founder or any rank may end them.
+
+- A Master Agent opens a loca on a floor the Master designated for it, and
+  sets or clears the lead in the locas it opened — two of the three acts the
+  owner allowed it (admitting agents is the third, and comes next). Legion's
+  core needs both to open a project without a human at the keyboard, and
+  until now it could only have done so with a Smaster key that reaches every
+  Ground-floor loca:
+  - `POST /rooms {"name", "group"}` by a Master Agent opens a loca only on a
+    live floor named in the Master Agent setting; the Ground floor, a floor
+    it was not given and one that does not exist get one and the same 403,
+    so it learns nothing of the Building's floors. It takes no Operator
+    seat. It stays within the Master's limits: locas open on one floor
+    (20 by default) and locas opened in an hour (10), answered with 429.
+  - It enters only the locas it opened, and there reads, watches and
+    writes; every other loca stays shut at the door itself (REST, the
+    socket, the loca list), another loca of the same floor included, which
+    answers as an id that names nothing. A floor taken off the list keeps
+    its locas reachable but takes no new one.
+  - `POST /rooms/:id/lead` sets or clears the lead only in a loca it opened;
+    the announcement reads "automaton set @lead envoy on behalf of Master
+    Agent automaton, appointed by Master." The floor's record names it the
+    same way (`by_role`, `on_behalf_of` in `GET /groups/:id/log`).
+  - Turning the switch off, or revoking it, closes its sockets at once.
+
+- A Master Agent rank, off by default, so an automation (Legion's core) has
+  a Building identity of its own and never needs a Smaster key. The trial
+  that asked for it ran a whole project opening with a Smaster key: it
+  worked, but that key admits anyone into the Building, enters every
+  Ground-floor loca and Care, and its acts were recorded as a human
+  Smaster's. This change adds the rank and its controls only; it permits no
+  act yet:
+  - The Master turns the feature on or off for the Building, names the
+    floors it may later use, and adjusts its limits (locas per floor 20,
+    locas per hour 10, admissions per hour 30, live agents 50 by default):
+    `GET/PUT /building/settings/master-agent`. The value is a row of
+    `building_settings`; every change is journaled with who made it and
+    when. A Smaster never sees or changes it.
+  - The Master appoints one with `POST /keys {"kind": "master_agent",
+    "name"}` (refused while the switch is off); its key is shown once. It is
+    an agent principal with the role `master_agent`, which is not a
+    Building rank. `GET /master-agents` lists them, `DELETE
+    /master-agents/:id` revokes one.
+  - While the switch is off, every Master Agent key and session is refused
+    with 403 "Master Agent is turned off in this Building"; turning it back
+    on restores the ones not revoked. Nothing else changes.
+  - A Master Agent reaches a short list of routes (its sessions, the loca
+    list, a loca's reads, socket and messages) and is refused everywhere
+    else before any handler runs. Its loca door is decided first: it enters
+    no loca it did not open, and it has opened none, so it enters none — not
+    a Ground-floor loca, not the Lobby room, not Care, not a direct message,
+    not a floor loca. Nobody can open a direct message with it.
+  The authority matrix has a Master Agent caller. The first start rebuilds
+  `principals` once to let its role list hold `master_agent` (every row and
+  column kept; see docs/backup-restore.md before running an older release
+  on that database).
 
 - "+ call" in This Loca opens a dialog, "Call into <loca>", where one or
   several people are ticked and called at once. The list it replaces opened
@@ -74,6 +170,16 @@ went wrong or who noticed:
 
 ### Fixed
 
+- Draw a chat image again. The page's Content-Security-Policy allowed
+  images only from the server and `data:`, but a chat image is fetched with
+  the session and drawn from an object URL (`blob:`), so every preview
+  showed its file name in an empty box; Download still worked. `img-src`
+  now allows `blob:`.
+- Keep a seat's name readable in This Loca beside the chat. With the
+  actions on the line the name gave way to four letters and a rank badge
+  slid under "release". The name keeps nine characters, the badges give way
+  inside their own box, and the panel is wider by default (360px).
+
 - Keep each seat at the table on one line again in the redesign. In the
   three themes' sans face the lead's row ran 13px past the sidebar's edge
   and its "lead" badge was cut: the name had stopped at its minimum width,
@@ -116,6 +222,12 @@ went wrong or who noticed:
   minted before this fix keep the Master's name; nothing recorded who really
   minted them.
 ### Changed
+
+- This Loca beside the chat can be widened or narrowed from its left edge
+  (drag it, or the arrow keys on it), between 320px and 560px; the width is
+  remembered on this browser. The header's Info button is not shown there:
+  the panel is already in view, and the button only flashed it. On a
+  narrower screen it still opens the sidebar's This Loca tab.
 
 - A new name must start with a letter or digit. The server admitted names
   such as `_ops` or `.bot`, but the agent kit, the web client and the
@@ -3045,7 +3157,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/omrylcn/loca/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/omrylcn/loca/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/omrylcn/loca/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/omrylcn/loca/compare/v0.16.0...v0.17.0

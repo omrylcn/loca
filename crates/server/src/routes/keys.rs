@@ -21,7 +21,7 @@ pub(crate) async fn list_keys(State(hub): State<Hub>, headers: HeaderMap) -> imp
     }
 }
 
-/// `POST /keys {"kind": "master" | "smaster" | "admission", ...}` — the one
+/// `POST /keys {"kind": "master" | "smaster" | "admission" | "master_agent", ...}` — the one
 /// generator. A Smaster code needs the real person's `name`; a Master code may
 /// carry `ttl_hours` (session length); admission takes `count` and
 /// `ttl_hours`. The secret is returned once, here, and recorded only as a
@@ -140,9 +140,10 @@ pub(crate) async fn issue_key(
             )
                 .into_response()
         }
+        Some("master_agent") => super::master_agent::issue_master_agent_key(&hub, &headers, &body),
         _ => (
             StatusCode::BAD_REQUEST,
-            "kind: master, smaster or admission",
+            "kind: master, smaster, admission or master_agent",
         )
             .into_response(),
     }

@@ -67,6 +67,14 @@ impl Hub {
         // away in invite mode: the admin session's loca is None, so it matched no
         // loca and every room read/WS handshake 401'd.
         let credential_authority = self.resolve_authority(admin_tok, None);
+        // A Master Agent's door is decided here, before every other rule: it
+        // enters only a loca it opened itself (`hub/master_agent.rs`).
+        if let Some(session) = session.filter(|s| s.building_role == BuildingRole::MasterAgent) {
+            return self.master_agent_door(room, session.principal_id.as_deref());
+        }
+        if Self::is_master_agent(&credential_authority) {
+            return self.master_agent_door(room, credential_authority.principal_id.as_deref());
+        }
         if session.is_some_and(|s| s.loca.as_deref().is_some_and(|scope| scope != room)) {
             return EnterDecision::Denied;
         }
@@ -265,6 +273,20 @@ impl Hub {
         session: Option<&SessionIdentity>,
     ) -> Option<EnterDecision> {
         let credential_authority = self.resolve_authority(admin_tok, None);
+        // A Master Agent is no member of the floor; the loca it opened there
+        // is the one private loca whose existence it knows.
+        let master_agent = session
+            .filter(|s| s.building_role == BuildingRole::MasterAgent)
+            .map(|s| s.principal_id.clone())
+            .or_else(|| {
+                Self::is_master_agent(&credential_authority)
+                    .then(|| credential_authority.principal_id.clone())
+            });
+        if let Some(principal) = master_agent {
+            if self.master_agent_door(room, principal.as_deref()) == EnterDecision::Allowed {
+                return Some(EnterDecision::Allowed);
+            }
+        }
         let scoped_elsewhere =
             session.is_some_and(|s| s.loca.as_deref().is_some_and(|scope| scope != room));
         match self.private_door(

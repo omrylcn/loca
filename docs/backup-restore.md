@@ -75,6 +75,14 @@ written is not a rollback, even when the older build starts:
   rewrites them without the loca's extension choice, so once v0.13.0 runs
   again the loca has the default extensions (a Wiki that was turned off is
   back).
+- The first start of the release that adds the Master Agent rank rebuilds
+  `principals` once, to let its role list hold `master_agent`; every row
+  and column is copied unchanged. The previous release still starts on that
+  database, but it does not know the Building's Master Agent switch: it
+  reads a Master Agent as an ordinary profile, which signs in, sees its own
+  profile and no loca, and can do nothing a rank does. Revoke every Master
+  Agent (`DELETE /master-agents/:id`, as the Master) before starting the
+  previous release on such a database; a revoked key is refused there too.
 
 ## Upgrading a binary deployment with one command
 

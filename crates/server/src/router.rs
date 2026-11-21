@@ -1,5 +1,9 @@
 //! The HTTP router: every public route, and the fences layered over them.
 
+use crate::routes::{
+    ack_admission, admit_into_loca, get_master_agent_setting, list_master_agents,
+    master_agent_fence, put_master_agent_setting, revoke_master_agent_route,
+};
 use crate::{
     ack_care, ack_join_request_route, ack_membership_claim_route, add_extension,
     add_group_member_route, admit_member, append_long_memory, appoint_loca_operator_route,
@@ -174,6 +178,14 @@ pub(crate) fn router(hub: Hub) -> Router {
         .route("/residents", get(list_residents))
         .route("/rooms/{id}/call", axum::routing::post(call_into_loca))
         .route(
+            "/rooms/{id}/admissions",
+            axum::routing::post(admit_into_loca),
+        )
+        .route(
+            "/rooms/{id}/admissions/{member_id}/ack",
+            axum::routing::post(ack_admission),
+        )
+        .route(
             "/rooms/{id}/release",
             axum::routing::post(release_self_from_loca),
         )
@@ -184,6 +196,15 @@ pub(crate) fn router(hub: Hub) -> Router {
         )
         .route("/keys", get(list_keys).post(issue_key))
         .route("/keys/{id}", axum::routing::delete(revoke_key_route))
+        .route(
+            "/building/settings/master-agent",
+            get(get_master_agent_setting).put(put_master_agent_setting),
+        )
+        .route("/master-agents", get(list_master_agents))
+        .route(
+            "/master-agents/{id}",
+            axum::routing::delete(revoke_master_agent_route),
+        )
         .route("/rooms", get(list_rooms).post(create_loca_route))
         // Building-wide search: only the locas the caller may enter are read.
         .route("/search", get(search_building))
@@ -361,6 +382,12 @@ pub(crate) fn router(hub: Hub) -> Router {
         .route_layer(axum::middleware::from_fn_with_state(
             hub.clone(),
             require_membership,
+        ))
+        // Outermost: a Master Agent reaches its few routes and nothing else,
+        // and nothing at all while the Building switch is off.
+        .route_layer(axum::middleware::from_fn_with_state(
+            hub.clone(),
+            master_agent_fence,
         ))
         .with_state(hub)
         .layer(DefaultBodyLimit::max(MAX_HTTP_BODY_BYTES))

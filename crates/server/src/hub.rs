@@ -26,6 +26,8 @@ mod lobby;
 pub mod loca_name;
 mod loca_removal;
 mod locas;
+mod master_agent;
+mod master_agent_admissions;
 mod members;
 mod moderation;
 mod notes;
@@ -49,6 +51,8 @@ pub use identity::{IdentityEdit, IdentityError};
 pub use keys::KeyRevokeError;
 pub use loca_name::LocaNameError;
 pub use loca_removal::LocaRemovalError;
+pub use master_agent::MasterAgentError;
+pub use master_agent_admissions::AdmissionError;
 pub use notifications::{NotificationAudience, NotificationError, NOTIFICATION_SEND_LIMIT};
 pub use vault::VaultError;
 pub use work::{BoardOff, GoalError, OpenTasks, TaskError, Unfinished, WaitError};
@@ -288,8 +292,10 @@ pub type TestHook = Arc<dyn Fn() + Send + Sync>;
 /// already holds. The order, outermost first, as the code takes them (each
 /// line restates a comment kept beside the code that relies on it):
 ///
+/// 0. `master_agent_admitting` — only around a Master Agent's admission;
+///    `name_claims` is taken under it.
 /// 1. `name_claims` — only while a name comes into being or changes, and
-///    taken first, with no other hub lock held.
+///    taken first, with no other hub lock held (or under 0).
 /// 2. `member_lifecycle` — membership cutoffs; under `name_claims` only for
 ///    a rename.
 /// 3. `moderation_ranks`.
@@ -419,6 +425,11 @@ pub struct Hub {
     /// other hub lock is held, and none of them calls another while it holds
     /// it (it is not re-entrant).
     name_claims: Arc<Mutex<()>>,
+    /// Makes a Master Agent's admission one step: its limits are counted,
+    /// the member admitted and the claim recorded under it, so concurrent
+    /// admissions cannot all pass the same count. Taken first, before
+    /// `name_claims` (which `admit_member_once` takes inside it).
+    master_agent_admitting: Arc<Mutex<()>>,
     /// Serialize restriction checks and writes; keep provenance in memory-only
     /// mode too. Persistent decisions restore this mirror before serving.
     moderation_ranks: Arc<Mutex<ModerationRanks>>,
@@ -580,6 +591,8 @@ pub enum CreateLocaError {
     Identity(IdentityError),
     /// The name broke the rule for a new loca (`loca_name`).
     Name(LocaNameError),
+    /// A Master Agent asked for a floor it was not given.
+    MasterAgent(MasterAgentError),
 }
 
 impl From<OperatorAssignmentError> for CreateLocaError {
@@ -832,6 +845,8 @@ impl RequestAuthority {
                 "smaster:{}",
                 self.display_name.as_deref().unwrap_or("unknown")
             )
+        } else if self.building_role == Some(BuildingRole::MasterAgent) {
+            Hub::master_agent_label(self)
         } else {
             format!(
                 "operator:{}",
@@ -870,7 +885,11 @@ impl From<rusqlite::Error> for ModerationError {
 fn invite_issuer_rank(issued_by: &str) -> u8 {
     if issued_by.starts_with("smaster:") {
         2
-    } else if issued_by == "operator" || issued_by.starts_with("operator:") {
+    } else if issued_by == "operator"
+        || issued_by.starts_with("operator:")
+        // A Master Agent ranks below every Smaster: either may end its invites.
+        || issued_by.starts_with("master-agent:")
+    {
         1
     } else {
         3

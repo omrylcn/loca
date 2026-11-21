@@ -57,6 +57,10 @@ enum Who {
     Outsider,
     /// A session taken with nothing but an invite for the ordinary loca.
     Invite,
+    /// `automaton`: a Master Agent the Master appointed, with the Building
+    /// switch on and the group's floor designated for it. It has opened no
+    /// loca, so it enters none.
+    MasterAgent,
     /// `loca-care`: a member agent seated in Care by its own invite.
     Caretaker,
     /// A human Building member with no seat anywhere.
@@ -75,9 +79,10 @@ enum Who {
     Master,
 }
 
-const CALLERS: [Who; 9] = [
+const CALLERS: [Who; 10] = [
     Who::Outsider,
     Who::Invite,
+    Who::MasterAgent,
     Who::Caretaker,
     Who::Lobby,
     Who::Participant,
@@ -413,6 +418,9 @@ fn rank(who: Who) -> bool {
 
 fn want_for(rule: Rule, route: &str, who: Who, kind: Option<Kind>) -> (Want, Option<&'static Gap>) {
     use Who::*;
+    if who == MasterAgent {
+        return (master_agent_want(rule, route, kind), None);
+    }
     let yes = |b: bool| if b { Want::Allow } else { Want::Refuse };
     let want = match (rule, kind) {
         (Rule::Public, _) => Want::Allow,
@@ -480,6 +488,28 @@ fn want_for(rule: Rule, route: &str, who: Who, kind: Option<Kind>) -> (Want, Opt
         ),
     };
     (want, None)
+}
+
+/// The Master Agent's column (owner's decisions, 2026-11-18; PRINCIPLES does
+/// not name the rank yet). A Master Agent reaches a short list of routes and
+/// nothing else (`routes/master_agent.rs`): the public pages, its own
+/// session and `whoami`, the loca listing, and a loca's reads, socket and
+/// messages, where the door decides; and its acts, which the route judges
+/// (opening a loca on a designated floor, setting the lead of its own). It
+/// enters only a loca it opened; this one has opened none, so every loca
+/// door refuses it, a floor loca or a direct message answers as an id that
+/// names nothing, and `POST /rooms` here names no floor, so it is refused.
+/// Its own locas are tested in `master_agent_locas.rs`.
+fn master_agent_want(rule: Rule, route: &str, kind: Option<Kind>) -> Want {
+    if let Some(k) = kind {
+        return at_door(Who::MasterAgent, k, false);
+    }
+    match (rule, route) {
+        (Rule::Public, "POST /join-requests") => Want::Refuse,
+        (Rule::Public, _) => Want::Allow,
+        (_, "DELETE /sessions" | "GET /whoami" | "GET /rooms") => Want::Allow,
+        _ => Want::Refuse,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -637,6 +667,17 @@ const ROWS: &[Row] = &[
     row("GET /smasters", Rule::MasterOnly, &[]).current(),
     row("PUT /smasters/:token", Rule::MasterOnly, &[]).current(),
     row("GET /keys", Rule::MasterOnly, &[]).current(),
+    // Owner's decision, 2026-11-18 (PRINCIPLES does not name the rank yet):
+    // the Master Agent switch and its floors, and the Master Agents, are the
+    // Master's alone; a Smaster never sees them.
+    row("GET /building/settings/master-agent", Rule::MasterOnly, &[]).current(),
+    row("PUT /building/settings/master-agent", Rule::MasterOnly, &[])
+        .current()
+        .iso(PerRow),
+    row("GET /master-agents", Rule::MasterOnly, &[]).current(),
+    row("DELETE /master-agents/:id", Rule::MasterOnly, &[])
+        .current()
+        .iso(PerRow),
     row("POST /keys", Rule::MasterOnly, &[]).current(),
     row("DELETE /keys/:id", Rule::MasterOnly, &[])
         .current()
@@ -819,6 +860,17 @@ const ROWS: &[Row] = &[
     // can enter Care through a call or invitation" (the probe calls a spare
     // member, not the caretaker).
     row("POST /rooms/:id/call", Rule::Seat, &[]),
+    // Owner's decision, 2026-11-18 (PRINCIPLES does not name the rank yet):
+    // only a Master Agent admits an agent in one call, and only into a loca
+    // it opened; the matrix's Master Agent opened none, so nobody here may.
+    // Its own locas are tested in `master_agent_admissions.rs`.
+    row("POST /rooms/:id/admissions", Rule::Only(&[]), &[]).current(),
+    row(
+        "POST /rooms/:id/admissions/:member_id/ack",
+        Rule::Only(&[]),
+        &[],
+    )
+    .current(),
     row("POST /rooms/:id/invites", Rule::Seat, &[]).merits(),
     row("GET /rooms/:id/invites", Rule::RankManage, &[]),
     // PRINCIPLES "Building layer": a smaster "cannot revoke an invitation
@@ -1343,6 +1395,8 @@ struct World {
     spare_principal: String,
     quarry_ref: String,
     second_smaster_ref: String,
+    /// The management id (`maid_`) of the Master Agent.
+    master_agent_ref: String,
     credential_id: String,
     key_id: String,
     join_request: String,
@@ -1420,6 +1474,7 @@ impl World {
             spare_principal: String::new(),
             quarry_ref: String::new(),
             second_smaster_ref: String::new(),
+            master_agent_ref: String::new(),
             credential_id: String::new(),
             key_id: String::new(),
             join_request: String::new(),
@@ -1704,6 +1759,40 @@ impl World {
             "group loca",
         );
         w.locas.insert(Kind::Group, "squad-atelier".into());
+
+        // The Master Agent: the Master turns the Building switch on with the
+        // group's floor designated, appoints it, and it signs in with its key.
+        ok(
+            w.call(
+                Who::Master,
+                "PUT",
+                "/building/settings/master-agent",
+                Body::Json(serde_json::json!({"on": true, "floors": [w.group]})),
+            )
+            .await,
+            "master agent switch",
+        );
+        let appointed = ok(
+            w.call(
+                Who::Master,
+                "POST",
+                "/keys",
+                Body::Json(serde_json::json!({"kind": "master_agent", "name": "automaton"})),
+            )
+            .await,
+            "master agent",
+        );
+        w.master_agent_ref = appointed["id"].as_str().unwrap().to_string();
+        w.sessions.insert(
+            Who::MasterAgent,
+            session(
+                "x-admin-token",
+                appointed["code"].as_str().unwrap().to_string(),
+                "automaton",
+                "agent",
+            )
+            .await,
+        );
         // A title is given after opening, from the identity panel.
         for (kind, marks) in IDENTITY_MARKS {
             let path = format!("/rooms/{}/settings", w.locas[kind]);
@@ -2023,6 +2112,7 @@ fn tag(who: Who) -> &'static str {
     match who {
         Who::Outsider => "x",
         Who::Invite => "d",
+        Who::MasterAgent => "a",
         Who::Caretaker => "c",
         Who::Lobby => "l",
         Who::Participant => "p",
@@ -2038,6 +2128,7 @@ fn display_name(who: Who) -> &'static str {
     match who {
         Who::Outsider => "nobody",
         Who::Invite => "lodger",
+        Who::MasterAgent => "automaton",
         Who::Caretaker => "loca-care",
         Who::Lobby => "idler",
         Who::Participant => "envoy",
@@ -2073,9 +2164,11 @@ fn concrete_path(w: &World, route: &str, kind: Option<Kind>, ghost: bool) -> Str
             ":id" if segs[1] == "join-requests" => w.join_request.clone(),
             ":id" if segs[1] == "notifications" => w.notification.clone(),
             ":id" if segs[1] == "keys" => w.key_id.clone(),
+            ":id" if segs[1] == "master-agents" => w.master_agent_ref.clone(),
             ":principal_id" => w.spare_principal.clone(),
             ":credential_id" => w.credential_id.clone(),
             ":token" if segs[1] == "members" => w.quarry_ref.clone(),
+            ":member_id" => w.quarry_ref.clone(),
             ":token" if segs[1] == "smasters" => w.second_smaster_ref.clone(),
             ":token" => w.quarry_invite_ref.clone(),
             ":name" if segs[1] == "assets" => "app.js".into(),
@@ -2139,6 +2232,16 @@ fn body_for(route: &str, w: &World, who: Who, kind: Option<Kind>) -> Body {
         "POST /smasters" => j(serde_json::json!({"name": format!("sm-{t}")})),
         "PUT /smasters/:token" => j(serde_json::json!({"name": format!("runnerup-{t}")})),
         "POST /keys" => j(serde_json::json!({"kind": "admission", "count": 1})),
+        "POST /rooms/:id/admissions" => j(serde_json::json!({
+            "name": format!("hand-{t}"),
+            "claim_id": format!("cl_{t:0>40}"),
+        })),
+        "POST /rooms/:id/admissions/:member_id/ack" => {
+            j(serde_json::json!({ "claim_id": format!("cl_{t:0>40}") }))
+        }
+        "PUT /building/settings/master-agent" => {
+            j(serde_json::json!({"on": true, "floors": [w.group]}))
+        }
         "POST /rooms" => j(serde_json::json!({"name": format!("parlor-{t}")})),
         "POST /rooms/:id/messages" => j(serde_json::json!({
             "sender": "x", "sender_type": "user", "text": "probe"

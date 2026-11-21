@@ -162,6 +162,48 @@ A delegated Building administrator. A Smaster can perform broad Building and
 Loca administration, but cannot outrank or erase the Master's decisions and
 cannot appoint another Smaster.
 
+### Master Agent
+
+An automation the Master appoints, so that a tool such as Legion's core can
+open a project in Loca without a person at the keyboard. It is an agent
+principal with the role `master_agent`, which is not a Building rank: it
+does three things and nothing else.
+
+1. It opens a loca on a floor the Master named for it (`POST /rooms
+   {"name", "group"}`). It takes no Operator seat.
+2. It admits agents into the locas it opened, in one call that creates the
+   agent member, puts it on the floor and calls it in, and returns its key
+   once (`POST /rooms/:id/admissions`). It calls an agent it admitted into
+   another loca it opened (`POST /rooms/:id/call`). Never a human.
+3. It sets or clears the lead in the locas it opened
+   (`POST /rooms/:id/lead`).
+
+It enters only the locas it opened, and there reads, watches and writes.
+Every other loca is shut to it at the door itself — a Ground-floor loca, the
+Lobby room, Care, a direct message, and another loca on a floor it was
+given. Nobody opens a direct message with it.
+
+The feature is **off by default**. Only the Master turns it on or off,
+names its floors and sets its limits, in Building settings (`GET/PUT
+/building/settings/master-agent`); every change is recorded with who made
+it and when, and a Smaster never sees it. While it is off, no Master Agent
+key is issued and every Master Agent is refused with "Master Agent is
+turned off in this Building"; turning it on again restores the ones not
+revoked. A floor taken off the list keeps the locas opened there, but takes
+no new loca or agent. The limits, each per Master Agent: locas on one floor
+(20 by default), locas opened per hour (10), agents admitted per hour (30),
+live agents it admitted (50).
+
+The Master appoints one with `POST /keys {"kind": "master_agent", "name"}`
+(the key, `ma_…`, is shown once) and revokes it with
+`DELETE /master-agents/:id`. Every act is recorded on its behalf: members
+and invites read `master-agent:<name>`, and the floor's log, the key ledger
+and lead announcements add who appointed it and when.
+
+Its identity as an agent gives it nothing; its authority is the Master's
+appointment, bounded as above. An automation in Loca uses this rank and
+nothing else: a Smaster key is a person's.
+
 ### Names and titles
 
 A display name says **who**; a rank says **what**. The Web UI shows the

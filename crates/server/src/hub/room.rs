@@ -191,6 +191,18 @@ impl Hub {
         lead: Option<String>,
         by: &str,
     ) -> Result<RoomSettings, LeadError> {
+        self.set_lead_noting(room, lead, by, "")
+    }
+
+    /// `set_lead`, with `note` added to the announcement after the name (a
+    /// Master Agent's "on behalf of …").
+    pub fn set_lead_noting(
+        &self,
+        room: &str,
+        lead: Option<String>,
+        by: &str,
+        note: &str,
+    ) -> Result<RoomSettings, LeadError> {
         if self.is_deleted(room) {
             return Ok(self.settings(room));
         }
@@ -216,8 +228,8 @@ impl Hub {
         settings.lead = lead.clone();
         settings.lead_principal = lead_principal;
         let text = match &lead {
-            Some(name) => format!("{by} set @lead {name}."),
-            None => format!("{by} set @lead none."),
+            Some(name) => format!("{by} set @lead {name}{note}."),
+            None => format!("{by} set @lead none{note}."),
         };
         let msg = Message {
             attachments: Vec::new(),

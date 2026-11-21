@@ -44,6 +44,7 @@ async function fetchBuildingSettings() {
     state.buildingSettingsError = true;
   }
   renderBuildingSettings();
+  if (role === "master") fetchMasterAgent();
 }
 
 // A value the environment sets, with the variable that sets it.
@@ -129,6 +130,8 @@ function renderBuildingSettings() {
       `<a class="bslink" href="${esc(bsBackupDocUrl(s))}" target="_blank" rel="noopener noreferrer">Backup and restore (docs/backup-restore.md)</a>` +
     `</section>` +
   `</div>`;
+  // The Master Agent card is the Master's alone (masteragent.js).
+  if (master) renderMasterAgentCard();
 }
 
 async function saveBuildingName(event) {

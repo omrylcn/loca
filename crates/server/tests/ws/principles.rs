@@ -292,6 +292,14 @@ const WORK_RECORDS: &[&str] = &[
     // The Building's own settings (its display name): written only by the
     // Master's PUT /building/settings, never by speech.
     "building_settings",
+    // The Master Agent registry and the journal of the Master's setting:
+    // written only by the Master's explicit acts, never by speech.
+    "master_agents",
+    "building_settings_log",
+    // Which locas a Master Agent opened: written only by its POST /rooms.
+    "master_agent_locas",
+    // A Master Agent's admission claims: written only by its admissions.
+    "master_agent_admissions",
     "tasks",
     // A task's review history: written only by the review moves.
     "task_reviews",
@@ -1475,6 +1483,9 @@ fn fence_segments() -> BTreeMap<String, String> {
 /// reminders and memory are not extensions). `""` is `/rooms/:id` itself.
 const CORE_LOCA_SEGMENTS: &[&str] = &[
     "",
+    // A Master Agent seats an agent it admits: membership and seat, as a
+    // call (`"call"`) is, whatever extensions the loca has.
+    "admissions",
     // The Master's archive and delete of a closed loca: its lifecycle, as a
     // seal (`""`) is, whatever extensions it has.
     "archive",

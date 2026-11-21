@@ -16,7 +16,14 @@ body:not(.locked) .side {
 }
 /* Three columns on a wide screen: the sidebar is the board's 280px. Below
    that This Loca shares the sidebar, and its seats need the room. */
-body.locainfo-on { grid-template-columns: 280px minmax(0, 1fr) 300px; }
+body.locainfo-on { grid-template-columns: 280px minmax(0, 1fr) var(--locainfo-w, 360px); }
+/* Its left edge is a grip: drag it (or use the arrow keys on it) to widen or
+   narrow This Loca; the width is remembered on this browser (locainfo.js). */
+#locaInfo { position: relative; }
+.locainforesize { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 5;
+  touch-action: none; }
+.locainforesize:hover, .locainforesize:focus-visible, .locainforesize.dragging {
+  background: color-mix(in srgb, var(--accent) 35%, transparent); outline: none; }
 
 /* Brand: the mark, "loca", People and the bell on one line. */
 body:not(.locked) .side > h1 { height: auto; padding: 18px 18px 18px; gap: 10px; border-bottom: 0;

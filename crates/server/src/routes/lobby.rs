@@ -16,6 +16,25 @@ pub(crate) async fn call_into_loca(
     headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
+    // A Master Agent calls only an agent it admitted itself, into a loca it
+    // opened (`hub/master_agent_admissions.rs`).
+    let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    if Hub::is_master_agent(&actor) {
+        let name = body.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        return match hub.master_agent_call(&id, name, &actor) {
+            Ok(Some((_, invite))) => (
+                StatusCode::CREATED,
+                Json(serde_json::json!({ "name": name.trim(), "loca": id, "token": invite })),
+            )
+                .into_response(),
+            Ok(None) => (
+                StatusCode::OK,
+                Json(serde_json::json!({ "already": true, "name": name.trim() })),
+            )
+                .into_response(),
+            Err(error) => super::master_agent::admission_refusal(error),
+        };
+    }
     if !is_admin_req(&hub, &headers) {
         return (StatusCode::UNAUTHORIZED, "only the master calls someone in").into_response();
     }

@@ -1770,6 +1770,12 @@ mod loca_delete;
 mod loca_identity;
 #[path = "ws/loca_names.rs"]
 mod loca_names;
+#[path = "ws/master_agent.rs"]
+mod master_agent;
+#[path = "ws/master_agent_admissions.rs"]
+mod master_agent_admissions;
+#[path = "ws/master_agent_locas.rs"]
+mod master_agent_locas;
 #[path = "ws/member_keys.rs"]
 mod member_keys;
 #[path = "ws/membership.rs"]

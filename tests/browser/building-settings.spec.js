@@ -46,7 +46,7 @@ test("Building settings: the Master names the Building, the rest is the environm
     await expect(pane.locator("a.bslink")).toHaveAttribute("href", /docs\/backup-restore\.md$/);
     await expect(pane.getByRole("link", { name: /download/i })).toHaveCount(0);
     // Seats are not editable here: the only field is the name.
-    await expect(pane.locator("input")).toHaveCount(1);
+    await expect(pane.locator(".bscard:not(#maCard) input")).toHaveCount(1);
 
     if (width === 1280) {
       await pane.locator("#bsName").fill("  Omnelo   Tower ");

@@ -268,6 +268,8 @@ fn role_str(role: BuildingRole) -> &'static str {
         BuildingRole::Master => "master",
         BuildingRole::Smaster => "smaster",
         BuildingRole::Member => "member",
+        // Never an appointer; the column's CHECK refuses it if it ever were.
+        BuildingRole::MasterAgent => "master_agent",
     }
 }
 
@@ -275,6 +277,7 @@ fn parse_role(role: &str) -> BuildingRole {
     match role {
         "master" => BuildingRole::Master,
         "smaster" => BuildingRole::Smaster,
+        "master_agent" => BuildingRole::MasterAgent,
         _ => BuildingRole::Member,
     }
 }

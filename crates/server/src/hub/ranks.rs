@@ -37,7 +37,8 @@ impl Hub {
                     let unused = !self.principal_ever_used(&profile.id);
                     add(profile.display_name, "smaster", unused)
                 }
-                BuildingRole::Member => {}
+                // Listed on their own, by the Master only (`GET /master-agents`).
+                BuildingRole::Member | BuildingRole::MasterAgent => {}
             }
         }
         // Memory-only mode persists no profiles; the live registry still knows

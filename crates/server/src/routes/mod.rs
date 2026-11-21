@@ -19,6 +19,7 @@ mod join;
 mod keys;
 mod lobby;
 mod loca_removal;
+mod master_agent;
 mod members;
 mod membership;
 mod notifications;
@@ -87,6 +88,10 @@ pub(crate) use join::{
 pub(crate) use keys::{issue_key, list_keys, rename_smaster_route, revoke_key_route};
 pub(crate) use lobby::{call_into_loca, lobby_ws_handler, release_self_from_loca};
 pub(crate) use loca_removal::{delete_loca_records, loca_archive};
+pub(crate) use master_agent::{
+    ack_admission, admit_into_loca, get_master_agent_setting, list_master_agents,
+    master_agent_fence, put_master_agent_setting, revoke_master_agent_route,
+};
 pub(crate) use members::{
     admit_member, caretaker_residents, caretaker_viewer, create_smaster, list_building_ranks,
     list_members, list_profiles, list_residents, list_smasters, rename_profile_route,

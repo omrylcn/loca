@@ -189,6 +189,7 @@ impl Hub {
             .active_principals()
             .into_iter()
             .filter(|p| p.id != me)
+            .filter(|p| p.role != crate::store::BuildingRole::MasterAgent)
             .filter(|p| rank || self.shares_a_table(&opener.name, &p.display_name))
             .map(|p| DmCandidate {
                 card: cards.get(&p.id).cloned().unwrap_or_default(),
@@ -199,6 +200,7 @@ impl Hub {
                     crate::store::BuildingRole::Master => "master",
                     crate::store::BuildingRole::Smaster => "smaster",
                     crate::store::BuildingRole::Member => "member",
+                    crate::store::BuildingRole::MasterAgent => "master_agent",
                 },
             })
             .collect();
@@ -224,6 +226,11 @@ impl Hub {
         let [peer] = peers.as_slice() else {
             return Err(DmError::PeerNotFound);
         };
+        // A Master Agent is an automation, not a person to talk to: it enters
+        // no loca it did not open, a direct message included.
+        if peer.role == crate::store::BuildingRole::MasterAgent {
+            return Err(DmError::PeerNotFound);
+        }
         if peer.id == me {
             return Err(DmError::SelfPair);
         }

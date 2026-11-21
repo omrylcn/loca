@@ -77,6 +77,17 @@ pub(crate) async fn create_loca_route(
             (StatusCode::BAD_REQUEST, error.message()).into_response()
         }
         Err(hub::CreateLocaError::Name(error)) => name_refusal(&error),
+        // One answer for any floor a Master Agent was not given, so it learns
+        // nothing of the Building's floors.
+        Err(hub::CreateLocaError::MasterAgent(error)) => {
+            let status = match error {
+                hub::MasterAgentError::LocasPerFloor | hub::MasterAgentError::LocasPerHour => {
+                    StatusCode::TOO_MANY_REQUESTS
+                }
+                _ => StatusCode::FORBIDDEN,
+            };
+            (status, error.message()).into_response()
+        }
         Err(hub::CreateLocaError::Operator(hub::OperatorAssignmentError::AuthorityRequired)) => {
             (StatusCode::FORBIDDEN, "Building authority required").into_response()
         }
@@ -317,7 +328,16 @@ pub(crate) async fn set_lead(
     headers: HeaderMap,
     Json(body): Json<protocol::SetLead>,
 ) -> impl IntoResponse {
-    if !is_room_operator_req(&hub, &id, &headers) {
+    // A Master Agent sets the lead only in a loca it opened itself; that is
+    // its whole loca authority, so it never reaches the Operator check.
+    let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
+    let master_agent = Hub::is_master_agent(&actor);
+    let allowed = if master_agent {
+        hub.master_agent_opened(&id, &actor)
+    } else {
+        is_room_operator_req(&hub, &id, &headers)
+    };
+    if !allowed {
         return (
             StatusCode::UNAUTHORIZED,
             "operator authority required for this loca",
@@ -327,14 +347,23 @@ pub(crate) async fn set_lead(
     if !hub.is_writable(&id) {
         return (StatusCode::CONFLICT, "this loca is closed — read-only").into_response();
     }
-    // Who is naming the lead — the session name, or "operator" as a fallback.
-    let by = headers
-        .get(SESSION_HEADER)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|t| hub.session_identity(Some(t)))
-        .map(|idy| idy.name)
-        .unwrap_or_else(|| "operator".into());
-    match hub.set_lead(&id, body.lead, &by) {
+    // Who is naming the lead — the session name, or "operator" as a fallback;
+    // a Master Agent by its own name, with on whose behalf.
+    let (by, note) = if master_agent {
+        (
+            actor.display_name.clone().unwrap_or_default(),
+            hub.master_agent_lead_suffix(&actor).unwrap_or_default(),
+        )
+    } else {
+        let by = headers
+            .get(SESSION_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|t| hub.session_identity(Some(t)))
+            .map(|idy| idy.name)
+            .unwrap_or_else(|| "operator".into());
+        (by, String::new())
+    };
+    match hub.set_lead_noting(&id, body.lead, &by, &note) {
         Ok(settings) => (StatusCode::OK, Json(settings)).into_response(),
         Err(LeadError::ActiveGoal) => (
             StatusCode::CONFLICT,
