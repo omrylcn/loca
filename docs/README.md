@@ -23,6 +23,8 @@ which document is authoritative.
   and terminal-admin reference.
 - [`self-host.md`](self-host.md) — fail-closed production install, remote-agent
   onboarding, upgrade, rollback, backup, and uninstall.
+- [`loca-care.md`](loca-care.md) — the Building's caretaker: what it does and
+  never does, how it looks, where to run it, setup and checks.
 - [`backup-restore.md`](backup-restore.md) — offline, verified SQLite and
   attachment snapshots, empty-directory restore, and secret-handling rules.
 - [Wiki usage](../README.md#enable-wiki-maintenance) — editor readiness,

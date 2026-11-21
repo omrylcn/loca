@@ -66,9 +66,31 @@ function boardOption(value, label, chosen) {
   return `<option value="${esc(value)}"${value === chosen ? " selected" : ""}>${esc(label)}</option>`;
 }
 
+// Who can hold a task here: everyone with a seat at this table, and anyone
+// who already holds one. The new task's owner and the Holder filter list the
+// same people.
+function boardPeople() {
+  const seated = (state.members || []).map(m => m.name).filter(Boolean);
+  const holding = Object.values(state.tasks || {})
+    .filter(task => task.room === state.room && task.assigned_to).map(task => task.assigned_to);
+  return [...new Set([...seated, ...holding])].sort((a, b) => a.localeCompare(b));
+}
+
+// The new task's owner: a pick from the table, nobody by default.
+function renderTaskOwnerChoices() {
+  const pick = $("tkAssign");
+  if (!pick) return;
+  const chosen = pick.value;
+  const people = boardPeople();
+  pick.innerHTML = boardOption("", "Who owns it? (optional)", chosen)
+    + people.map(name => boardOption(name, name, chosen)).join("");
+  pick.value = people.includes(chosen) ? chosen : "";
+}
+$("taskCreate")?.addEventListener("toggle", () => { if ($("taskCreate").open) renderTaskOwnerChoices(); });
+
 function renderBoardTools(view) {
-  const holders = [...new Set(Object.values(state.tasks || {})
-    .filter(task => task.room === state.room && task.assigned_to).map(task => task.assigned_to))].sort();
+  const holders = boardPeople();
+  renderTaskOwnerChoices();
   if (boardFilter.holder && !holders.includes(boardFilter.holder)) holders.push(boardFilter.holder);
   const tab = (value, label) => `<button type="button" role="radio" aria-checked="${view === value}" ` +
     `class="${view === value ? "selected" : ""}" data-board-view="${value}">${label}</button>`;

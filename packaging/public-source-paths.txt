@@ -53,6 +53,7 @@ docs/concepts-at-a-glance.svg
 docs/getting-started.md
 docs/giris.md
 docs/goal-attention-care.html
+docs/loca-care.md
 docs/loca-chat.png
 docs/loca-model.svg
 docs/loca-ui.png

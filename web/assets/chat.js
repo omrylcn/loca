@@ -110,7 +110,10 @@ function markdownTableCells(line) {
   return trimmed.includes("|") ? trimmed.split("|").map(cell => cell.trim()) : [];
 }
 
-function renderMarkdown(text) {
+// `breaks`: a line break the writer typed stays a line break, as in a chat;
+// without it (Notes, Wiki, Vault) the lines of a paragraph join, as in
+// Markdown.
+function renderMarkdown(text, { breaks = false } = {}) {
   const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
   const html = [];
   let paragraph = [];
@@ -120,7 +123,10 @@ function renderMarkdown(text) {
   let code = null;
 
   const flushParagraph = () => {
-    if (paragraph.length) html.push(`<p>${renderMarkdownInline(paragraph.join(" "))}</p>`);
+    if (paragraph.length) {
+      const body = breaks ? paragraph.map(renderMarkdownInline).join("<br>") : renderMarkdownInline(paragraph.join(" "));
+      html.push(`<p>${body}</p>`);
+    }
     paragraph = [];
   };
   const flushList = () => {
@@ -212,12 +218,13 @@ function renderMarkdown(text) {
   return html.join("");
 }
 
-// Chat uses the same deliberately small, safe Markdown subset as Notes. After
+// Chat uses the same deliberately small, safe Markdown subset as Notes, and
+// keeps every line break the writer typed. After
 // escaping and rendering Markdown, mention styling is applied only to text
 // nodes, never inside links or code.
 function renderChatMarkdown(text) {
   const template = document.createElement("template");
-  template.innerHTML = renderMarkdown(text);
+  template.innerHTML = renderMarkdown(text, { breaks: true });
   const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
   const textNodes = [];
   while (walker.nextNode()) {

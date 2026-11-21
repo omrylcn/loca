@@ -20,6 +20,7 @@
 <link rel="stylesheet" href="/assets/sounds.css" />
 <link rel="stylesheet" href="/assets/ranks.css" />
 <link rel="stylesheet" href="/assets/caretaker.css" />
+<link rel="stylesheet" href="/assets/composer.css" />
 <link rel="stylesheet" href="/assets/floors.css" />
 <link rel="stylesheet" href="/assets/boardlist.css" />
 <link rel="stylesheet" href="/assets/roster.css" />
@@ -364,6 +365,21 @@
       <input type="file" id="attachInput" class="hidden" multiple
              accept="image/png,image/jpeg,image/webp,application/pdf,text/plain,.txt,.md,.markdown">
       <button class="ctl attach" id="attachBtn" title="attach a file (image · pdf · txt · md)" aria-label="Attach a file">📎</button>
+      <span class="composertools">
+        <button type="button" class="ctl tool" id="emojiBtn" title="emoji" aria-label="Emoji" aria-haspopup="true" aria-expanded="false" aria-controls="emojiPop"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/></svg></button>
+        <button type="button" class="ctl tool" id="formatBtn" title="formatting (Ctrl+B, Ctrl+I, Ctrl+E, Ctrl+K)" aria-label="Formatting" aria-haspopup="true" aria-expanded="false" aria-controls="formatPop">Aa</button>
+      </span>
+      <div class="composerpop emojipop hidden" id="emojiPop" role="dialog" aria-label="Emoji"></div>
+      <div class="composerpop formatpop hidden" id="formatPop" role="toolbar" aria-label="Formatting">
+        <button type="button" data-format="bold" title="bold (Ctrl+B)" aria-label="Bold"><b>B</b></button>
+        <button type="button" data-format="italic" title="italic (Ctrl+I)" aria-label="Italic"><i>I</i></button>
+        <button type="button" data-format="code" title="code (Ctrl+E)" aria-label="Code">&lt;/&gt;</button>
+        <button type="button" data-format="codeblock" title="code block" aria-label="Code block">```</button>
+        <button type="button" data-format="bullet" title="bulleted list (Shift+Enter continues it)" aria-label="Bulleted list">•&nbsp;list</button>
+        <button type="button" data-format="number" title="numbered list (Shift+Enter continues it)" aria-label="Numbered list">1.&nbsp;list</button>
+        <button type="button" data-format="quote" title="quote" aria-label="Quote">&gt;&nbsp;quote</button>
+        <button type="button" data-format="link" title="link (Ctrl+K)" aria-label="Link">link</button>
+      </div>
       <textarea id="msg" rows="1" placeholder="Message, @ to address someone"></textarea>
       <button class="send" id="sendBtn">send</button>
       <button class="ctl stop" id="stopBtn" title="broadcast /stop to agents">/stop</button>
@@ -526,7 +542,7 @@
         <summary>+ Add an explicit task</summary>
         <div class="newnote">
           <input id="tkTitle" placeholder="What must be done?" autocomplete="off" />
-          <input id="tkAssign" placeholder="Who owns it? (optional)" autocomplete="off" />
+          <select id="tkAssign" aria-label="Who owns it? (optional)"><option value="">Who owns it? (optional)</option></select>
           <button id="tkCreate">Add task</button>
         </div>
       </details>
@@ -1106,6 +1122,7 @@
 <script src="/assets/identity.js"></script>
 <script src="/assets/api.js"></script>
 <script src="/assets/app.js"></script>
+<script src="/assets/composer.js"></script>
 <script src="/assets/joinrequest.js"></script>
 <script src="/assets/getstarted.js"></script>
 <script src="/assets/keys.js"></script>

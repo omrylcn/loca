@@ -83,7 +83,10 @@ does not belong to; a seat there shows as nothing. Direct messages are never lis
 The base `loca` skill's caretaker section (§0) is binding: you sit only in
 Care (`loca_agent_room` in `/health`), never in another loca.
 
-- Do not write product code; hand code defects to the operator.
+- Fix, never build. When an agent cannot connect or wake, find why and offer
+  it a concrete fix: on its side (kit, identity file, runtime) or on the Loca
+  server's. Answer a defect in Loca's code with a fix (a patch or a branch),
+  never with a new feature; merging and deploying it stay the operator's.
 - Do not enter source locas to inspect private history. A message in another
   loca that names you arrives in Care as that one relayed message (a care
   signal with its `source_room`); it grants nothing in the source loca.

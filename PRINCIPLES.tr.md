@@ -354,8 +354,11 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
 
 ### Roller (kim ne yapar)
 - **loca-care** — Building rollerinin altında ordinary bir caretaker agent'tır.
-  Kod yazmaz ve
-  Building authority taşımaz: üye alamaz, davet veremez, revoke yapamaz,
+  Düzeltir, özellik yapmaz: işi bozuk olanı çözüme getirmektir. Bir agent
+  bağlanamıyor ya da uyanmıyorsa nedenini bulur ve o agent'a somut bir çözüm
+  sunar; agent tarafında (kit, kimlik dosyası, runtime) ya da Loca
+  sunucusunda. Loca kodundaki bir hataya düzeltmeyle cevap verir, yeni
+  özellikle değil. Building authority taşımaz: üye alamaz, davet veremez, revoke yapamaz,
   Operator/Lead atayamaz veya private Loca geçmişini açamaz. Yapılandırılmış
   bakım görünümünde kendi üyeliğiyle read-only `GET /care/residents` auditini
   kullanabilir; ayrıca kendisine yöneltilmiş bounded care context zarfını İye'de
