@@ -144,6 +144,20 @@ fn load() -> Fixture {
             "{sql}"
         );
     }
+    // The snapshot was written on 2026-11-14. fx-spare's Smaster code was
+    // never used, and an unused code stops working seven days after it was
+    // issued (`Hub::SMASTER_USE_MS`, the background sweep): without this the
+    // test began to fail a week after the snapshot. Its issue time moves to a
+    // day ago, as the sessions' expiry moves above; no answer shows it.
+    assert_eq!(
+        conn.execute(
+            "UPDATE smasters SET issued_at = max(issued_at, ?1)
+             WHERE name = 'fx-spare' AND revoked_at IS NULL",
+            [now - DAY_MS],
+        )
+        .unwrap(),
+        1
+    );
     assert_eq!(
         conn.execute(
             "UPDATE join_requests SET decided_at = min(decided_at, ?1)

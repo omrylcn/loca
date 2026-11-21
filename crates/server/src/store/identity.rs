@@ -1444,6 +1444,7 @@ fn parse_building_role(role: &str) -> BuildingRole {
     match role {
         "master" => BuildingRole::Master,
         "smaster" => BuildingRole::Smaster,
+        "master_agent" => BuildingRole::MasterAgent,
         _ => BuildingRole::Member,
     }
 }

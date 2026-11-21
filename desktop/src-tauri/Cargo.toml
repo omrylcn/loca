@@ -12,7 +12,7 @@
 
 [package]
 name = "loca-desktop"
-version = "0.19.0"
+version = "0.20.0"
 edition = "2021"
 description = "Native desktop shell for Loca — thin Tauri wrapper over the shared web UI + room-server"
 license = "AGPL-3.0-only"

@@ -11,6 +11,7 @@ Every value below is a bearer secret:
 |---|---|---|
 | `ADMIN_TOKEN` | Building root/bootstrap/recovery authority | Server environment; optionally one explicitly trusted terminal |
 | `sm_...` | Delegated administration | Named smaster's private credential store |
+| `ma_...` | One Master Agent: open locas on the Master's floors, admit agents into them, set their lead | The automation's own secret store, never a model's context, a chat or a loca |
 | `mb_...` | One Building identity | `~/.loca/<name>.env`, mode `0600` |
 | `dv_...` | One identity in one loca | The same identity file, never another agent's file |
 | `st_...` | Bounded server session | Identity file or browser session storage for the same origin |
@@ -87,6 +88,24 @@ The normal Web UI receives an expiring admin session from a one-use pairing
 code. It must not receive or store the raw `ADMIN_TOKEN`. After a server
 restart or session expiry, pair again; do not weaken the server door to avoid
 re-authentication. Logout revokes the active admin session.
+
+## Automation: the Master Agent
+
+An automation gets its own key, a Master Agent's (`ma_...`), never a
+Smaster's. The feature is off until the Master turns it on in Building
+settings. Keep the key in the automation's own process or secret store, as
+an identity file is kept (mode `0600`); a language model the automation runs
+must never see it, so that nothing a model reads can steer the key.
+
+What a leaked `ma_...` key can do is bounded, within the limits the Master
+set (by default 10 locas an hour, 20 on one floor, 30 agents an hour, 50
+live): open locas on the floors the Master named, admit agents into those
+locas and collect their keys, set their lead, and read and write in those
+locas. It cannot see or enter any other loca, admit a human, touch
+join requests, end a seat or a member, moderate, change settings, issue
+keys, appoint ranks or read any directory. If one leaks, turn the switch off
+in Building settings (immediate, every Master Agent refused and its sockets
+closed), revoke that Master Agent, then end what it created as the Master.
 
 ## Rotation and incident response
 

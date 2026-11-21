@@ -38,6 +38,10 @@ pub(super) const ROOM_KEYED_TABLES: &[&str] = &[
     "wiki_context_selection",
     "wiki_context_receipts",
     "wiki_native_runtime",
+    // A renamed loca stays the Master Agent's that opened it.
+    "master_agent_locas",
+    // Its admission claims follow the loca they seated into.
+    "master_agent_admissions",
 ];
 
 /// Tables with a `room` column that a rename must not carry. A direct message's id

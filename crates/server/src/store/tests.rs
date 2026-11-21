@@ -9,6 +9,7 @@ mod claim_window;
 mod invite_delivery;
 mod join_window;
 mod key_scopes;
+mod master_agent_roles;
 mod member_keys;
 mod notification_limit;
 mod preferences;

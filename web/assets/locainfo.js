@@ -29,6 +29,64 @@ function placeLocaInfo() {
   if (typeof placeThreadPanel === "function") placeThreadPanel();
 }
 
+// The panel's width: its left edge is a grip (pointer or arrow keys), kept
+// within 320px and 560px (and leaving the chat room), remembered here.
+const LOCA_INFO_WIDTH_KEY = "loca-locainfo-width";
+const LOCA_INFO_MIN = 320;
+function locaInfoMax() { return Math.max(LOCA_INFO_MIN, Math.min(560, innerWidth - 280 - 520)); }
+function setLocaInfoWidth(width, persist = false) {
+  const bounded = Math.round(Math.max(LOCA_INFO_MIN, Math.min(locaInfoMax(), width)));
+  document.documentElement.style.setProperty("--locainfo-w", `${bounded}px`);
+  const grip = $("locaInfoResize");
+  if (grip) {
+    grip.setAttribute("aria-valuenow", String(bounded));
+    grip.setAttribute("aria-valuemax", String(Math.round(locaInfoMax())));
+  }
+  if (persist) { try { localStorage.setItem(LOCA_INFO_WIDTH_KEY, String(bounded)); } catch (e) {} }
+}
+(() => {
+  const host = $("locaInfo");
+  if (!host) return;
+  const grip = document.createElement("div");
+  grip.className = "locainforesize";
+  grip.id = "locaInfoResize";
+  grip.tabIndex = 0;
+  grip.setAttribute("role", "separator");
+  grip.setAttribute("aria-orientation", "vertical");
+  grip.setAttribute("aria-label", "Resize Loca info");
+  grip.setAttribute("aria-valuemin", String(LOCA_INFO_MIN));
+  host.prepend(grip);
+  let saved = 0;
+  try { saved = Number(localStorage.getItem(LOCA_INFO_WIDTH_KEY) || 0); } catch (e) {}
+  if (saved) setLocaInfoWidth(saved);
+  let startX = 0, startWidth = 0;
+  grip.onpointerdown = (e) => {
+    startX = e.clientX;
+    startWidth = host.getBoundingClientRect().width;
+    grip.setPointerCapture(e.pointerId);
+    grip.classList.add("dragging");
+  };
+  grip.onpointermove = (e) => {
+    if (!grip.hasPointerCapture(e.pointerId)) return;
+    setLocaInfoWidth(startWidth + startX - e.clientX);
+  };
+  grip.onpointerup = (e) => {
+    if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
+    grip.classList.remove("dragging");
+    setLocaInfoWidth(host.getBoundingClientRect().width, true);
+  };
+  grip.onkeydown = (event) => {
+    // The grip is on the panel's left edge: left widens, right narrows.
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const current = host.getBoundingClientRect().width;
+    if (event.key === "ArrowLeft") setLocaInfoWidth(current + 24, true);
+    else if (event.key === "ArrowRight") setLocaInfoWidth(current - 24, true);
+    else if (event.key === "Home") setLocaInfoWidth(LOCA_INFO_MIN, true);
+    else setLocaInfoWidth(locaInfoMax(), true);
+  };
+})();
+
 LOCA_INFO_WIDE.addEventListener("change", placeLocaInfo);
 new MutationObserver(placeLocaInfo).observe(document.documentElement, {
   attributes: true, attributeFilter: ["data-theme"],

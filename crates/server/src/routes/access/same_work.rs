@@ -217,7 +217,8 @@ fn gates(hub: &Hub) -> axum::Router {
             "extension_fence",
             "dm_fence",
             "group_fence",
-            "require_membership"
+            "require_membership",
+            "master_agent_fence"
         ],
         "router.rs changed its route layers; mirror them here"
     );
@@ -241,6 +242,10 @@ fn gates(hub: &Hub) -> axum::Router {
         .route_layer(axum::middleware::from_fn_with_state(
             hub.clone(),
             require_membership,
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            hub.clone(),
+            crate::routes::master_agent_fence,
         ))
         .with_state(hub.clone())
 }

@@ -77,6 +77,7 @@ impl Hub {
             lobby_tx,
             member_lifecycle: Arc::new(Mutex::new(())),
             name_claims: Arc::new(Mutex::new(())),
+            master_agent_admitting: Arc::new(Mutex::new(())),
             moderation_ranks: Arc::new(Mutex::new(HashMap::new())),
             lobby_online: Arc::new(Mutex::new(HashMap::new())),
             lobby_kits: Arc::new(Mutex::new(HashMap::new())),

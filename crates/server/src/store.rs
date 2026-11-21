@@ -24,6 +24,8 @@ pub use dm::Dm;
 pub use groups::{GroupLogEntry, GroupRecord};
 pub use identity::{AdminSessionRecord, InviteRecord, MemberRecord, SmasterRecord};
 pub use keys::KeyRecord;
+pub use master_agent_admissions::AdmissionClaim;
+pub use master_agents::{MasterAgentLimits, MasterAgentRecord, MasterAgentSetting, SettingChange};
 pub use notifications::{
     NotificationPage, NotificationRow, NotificationSend, SendLimit, SentNotificationRow,
 };
@@ -34,6 +36,9 @@ mod groups;
 mod identity;
 mod keys;
 pub(crate) mod loca_removal;
+mod master_agent_admissions;
+mod master_agent_locas;
+mod master_agents;
 mod memory;
 mod messages;
 mod migrations;
@@ -132,6 +137,9 @@ pub enum BuildingRole {
     Master,
     Smaster,
     Member,
+    /// An automation the Master appointed (`store/master_agents.rs`). It is
+    /// not a Building rank: `is_building_admin` stays false for it.
+    MasterAgent,
 }
 
 pub struct ModerationRecord {
@@ -472,6 +480,15 @@ impl Store {
         migrate_smaster_codes(&mut conn)?;
         migrate_admin_session_tokens(&mut conn)?;
         migrate_member_keys(&mut conn)?;
+        // The Master Agent rank: its registry and the journal of the
+        // Building setting, and an older `principals` widened once to hold
+        // the role.
+        master_agents::widen_principal_roles(&mut conn)?;
+        conn.execute_batch(master_agents::SCHEMA)?;
+        conn.execute_batch(master_agent_locas::SCHEMA)?;
+        conn.execute_batch(master_agent_admissions::SCHEMA)?;
+        // Built before the seat step was recorded: the column is added empty.
+        add_column(&conn, "master_agent_admissions", "seated_at INTEGER")?;
         conn.execute(
             "CREATE INDEX IF NOT EXISTS invites_member ON invites(member_id)",
             [],

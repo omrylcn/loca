@@ -35,7 +35,12 @@ pub(crate) async fn list_profiles(State(hub): State<Hub>, headers: HeaderMap) ->
     if !is_admin_req(&hub, &headers) {
         return (StatusCode::FORBIDDEN, "Building authority required").into_response();
     }
-    Json(with_cards_by_id(&hub.profiles(), &hub.profile_cards())).into_response()
+    // A Master Agent is the Master's alone: a Smaster never sees one.
+    let mut profiles = hub.profiles();
+    if !is_master_req(&hub, &headers) {
+        profiles.retain(|p| p.role != crate::store::BuildingRole::MasterAgent);
+    }
+    Json(with_cards_by_id(&profiles, &hub.profile_cards())).into_response()
 }
 
 /// Admit somebody to the building — the founding act, and the heavy one.

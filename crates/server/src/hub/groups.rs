@@ -189,6 +189,12 @@ pub struct GroupLogView {
     pub subject: Option<String>,
     pub by: String,
     pub at: u64,
+    /// The rank or role the change was made in, when the record names who.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_role: Option<&'static str>,
+    /// For a change a Master Agent made: which one, appointed by whom, when.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of: Option<super::master_agent::OnBehalfOf>,
 }
 
 /// A group a person belongs to, as shown on a profile.
@@ -444,11 +450,29 @@ impl Hub {
                     }
                     _ => e.subject,
                 };
+                let on_behalf_of = e.by.as_deref().and_then(|by| self.on_behalf_of(by));
+                let by_role = match &on_behalf_of {
+                    Some(_) => Some("master_agent"),
+                    None => e.by.as_deref().and_then(|by| {
+                        self.store.active_principal(by).map(|p| match p.role {
+                            BuildingRole::Master => "master",
+                            BuildingRole::Smaster => "smaster",
+                            BuildingRole::Member => "member",
+                            BuildingRole::MasterAgent => "master_agent",
+                        })
+                    }),
+                };
+                let by = match &on_behalf_of {
+                    Some(agent) => agent.master_agent.clone(),
+                    None => e.by.as_deref().map(name).unwrap_or_else(|| "Master".into()),
+                };
                 GroupLogView {
-                    by: e.by.as_deref().map(name).unwrap_or_else(|| "Master".into()),
+                    by,
                     action: e.action,
                     subject,
                     at: e.at,
+                    by_role,
+                    on_behalf_of,
                 }
             })
             .collect())
@@ -1232,6 +1256,41 @@ impl Hub {
         } else {
             Err(GroupError::NotOwner)
         }
+    }
+
+    /// Put the agent a Master Agent just admitted on the floor of the loca
+    /// it was admitted into, recorded as the Master Agent's change. The
+    /// caller has already decided that the Master Agent may (its own loca, a
+    /// floor still designated); nobody else reaches this.
+    pub(super) fn put_admitted_agent_on_floor(
+        &self,
+        group: &str,
+        principal: &str,
+        by: &str,
+    ) -> Result<(), GroupError> {
+        let _lifecycle = self.member_lifecycle.lock_or_recover();
+        let mut book = self.groups.lock_or_recover();
+        if book.live(group).is_none_or(|g| g.archived_at.is_some()) {
+            return Err(GroupError::Archived);
+        }
+        if !book.has_member(group, principal) {
+            self.store
+                .add_group_member(group, principal, Some(by), self.now())
+                .map_err(|_| GroupError::Storage)?;
+            book.members
+                .entry(group.to_string())
+                .or_default()
+                .insert(principal.to_string());
+        }
+        Ok(())
+    }
+
+    /// Is `id` a live floor that is not archived?
+    pub(super) fn is_open_floor(&self, id: &str) -> bool {
+        self.groups
+            .lock_or_recover()
+            .live(id)
+            .is_some_and(|g| g.archived_at.is_none())
     }
 
     /// Record a freshly created group loca in the mirror. Called by

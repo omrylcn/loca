@@ -87,6 +87,12 @@ test("inline attachment object URLs are revoked — no blob leak on load or repa
   // browser keeps the decoded bitmap), so no URL stays live.
   await expect.poll(() => page.evaluate(() => window.__u.created)).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => window.__u.live.size)).toBe(0);
+  // The image was drawn, not refused: the page's Content-Security-Policy
+  // must let an <img> load the blob: URL (it once allowed only 'self' and
+  // data:, and every preview showed its alt text).
+  await expect
+    .poll(() => page.locator("#feed img.attachimg").first().evaluate((img) => img.naturalWidth))
+    .toBeGreaterThan(0);
   expect(await page.evaluate(() => window.__u.revoked)).toBe(
     await page.evaluate(() => window.__u.created),
   );

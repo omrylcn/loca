@@ -272,13 +272,15 @@ function setSidebarView(view, focus = false) {
   syncLocaInfoButton();
 }
 
-/// The header's Info button: shown in a loca, pressed while This Loca is in
-/// view (always, beside the chat on a wide screen).
+/// The header's Info button: shown in a loca where This Loca is the
+/// sidebar's second tab, pressed while that tab is in view. Beside the chat
+/// on a wide screen This Loca is always in view, and the button had nothing
+/// to do: it is not shown there.
 function syncLocaInfoButton() {
   const button = $("locaInfoBtn");
   if (!button) return;
-  button.classList.toggle("hidden", !state.room || isDm(state.room));
   const beside = document.body.classList.contains("locainfo-on");
+  button.classList.toggle("hidden", !state.room || isDm(state.room) || beside);
   button.setAttribute("aria-pressed", String(beside || state.sidebarView === "loca"));
 }
 

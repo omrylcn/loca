@@ -271,11 +271,14 @@ pub(super) const CORE_SCHEMA: &str = r#"
             -- registry below.
             -- Identity v2 separates who someone is from how they authenticate.
             -- Roles belong to principals; credentials merely prove a principal.
+            -- An older table without 'master_agent' in the role CHECK is
+            -- rebuilt once by `master_agents::widen_principal_roles`.
             CREATE TABLE IF NOT EXISTS principals (
                 id TEXT PRIMARY KEY,
                 display_name TEXT NOT NULL,
                 kind TEXT NOT NULL CHECK (kind IN ('human', 'agent')),
-                building_role TEXT NOT NULL CHECK (building_role IN ('master', 'smaster', 'member')),
+                building_role TEXT NOT NULL
+                    CHECK (building_role IN ('master', 'smaster', 'member', 'master_agent')),
                 created_at INTEGER NOT NULL,
                 disabled_at INTEGER
             );

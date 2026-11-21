@@ -1,9 +1,9 @@
 //! Opening, archiving and deleting locas.
 
 use super::{
-    extensions, identity, loca_name, map_loca_operator_error, ChatMode, CreateLocaError,
-    DeleteReject, GroupError, Hub, IdentityEdit, LocaOperatorAssignment, OperatorAssignmentError,
-    RecoverMutex, RequestAuthority, Room, SenderType, ServerFrame,
+    extensions, identity, loca_name, map_loca_operator_error, master_agent::MasterAgentError,
+    ChatMode, CreateLocaError, DeleteReject, GroupError, Hub, IdentityEdit, LocaOperatorAssignment,
+    OperatorAssignmentError, RecoverMutex, RequestAuthority, Room, SenderType, ServerFrame,
 };
 
 impl Hub {
@@ -119,7 +119,8 @@ impl Hub {
                 CreateLocaError::Operator(error) => error,
                 CreateLocaError::Group(_)
                 | CreateLocaError::Identity(_)
-                | CreateLocaError::Name(_) => OperatorAssignmentError::AuthorityRequired,
+                | CreateLocaError::Name(_)
+                | CreateLocaError::MasterAgent(_) => OperatorAssignmentError::AuthorityRequired,
             })
     }
 
@@ -149,7 +150,15 @@ impl Hub {
         group: Option<&str>,
         identity: &IdentityEdit,
     ) -> Result<Option<LocaOperatorAssignment>, CreateLocaError> {
-        if !actor.is_building_admin() {
+        // A Master Agent opens a loca only on a floor the Master designated,
+        // and is given no Operator seat (an explicit Operator is a human).
+        let master_agent = Self::is_master_agent(actor);
+        if master_agent {
+            let floor = group.ok_or(MasterAgentError::FloorNotDesignated);
+            floor
+                .and_then(|floor| self.master_agent_may_open_in(floor, actor))
+                .map_err(CreateLocaError::MasterAgent)?;
+        } else if !actor.is_building_admin() {
             return Err(OperatorAssignmentError::AuthorityRequired.into());
         }
         let numbers = self.seat_numbers();
@@ -165,8 +174,14 @@ impl Hub {
             if self.is_reserved_room(room) || room == self.home_room() {
                 return Err(CreateLocaError::Group(GroupError::Excluded));
             }
-            self.may_create_in_group(group, actor)
-                .map_err(CreateLocaError::Group)?;
+            if master_agent {
+                // Asked again under the turn: the floor may have just closed.
+                self.master_agent_may_open_in(group, actor)
+                    .map_err(CreateLocaError::MasterAgent)?;
+            } else {
+                self.may_create_in_group(group, actor)
+                    .map_err(CreateLocaError::Group)?;
+            }
         }
         let mut settings = self.default_settings.clone();
         settings.extensions = extensions.clone();
@@ -178,7 +193,20 @@ impl Hub {
         }
         loca_name::check_new(room, rooms.keys().map(String::as_str))
             .map_err(CreateLocaError::Name)?;
-        let assignment = if self.store.is_persistent() && !self.admin_open() {
+        let assignment = if let (true, Some(group)) = (master_agent, group) {
+            let opener = actor
+                .principal_id
+                .as_deref()
+                .ok_or(OperatorAssignmentError::AuthorityRequired)?;
+            if !self
+                .store
+                .create_master_agent_loca(room, &settings, opener, group, self.now())
+                .map_err(|_| OperatorAssignmentError::Storage)?
+            {
+                return Err(OperatorAssignmentError::Conflict.into());
+            }
+            None
+        } else if self.store.is_persistent() && !self.admin_open() {
             let founder = actor
                 .principal_id
                 .as_deref()
