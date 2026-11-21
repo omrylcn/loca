@@ -334,7 +334,7 @@
 #boardPanel #taskCreate[open] summary { background: var(--panel); color: var(--txt); border: 1px solid var(--line); }
 #boardPanel #taskCreate .newnote { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 18px; padding: 14px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
-#boardPanel #taskCreate .newnote input { flex: 1 1 220px; width: auto; margin: 0; }
+#boardPanel #taskCreate .newnote input, #boardPanel #taskCreate .newnote select { flex: 1 1 220px; width: auto; margin: 0; }
 #boardPanel #tkCreate { height: 40px; }
 
 #taskList .taskboard { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; align-items: start; }

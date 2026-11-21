@@ -22,6 +22,8 @@ pub(crate) const WEB_THEMES_STYLES: &str = include_str!("../../../../web/assets/
 pub(crate) const WEB_SOUNDS_STYLES: &str = include_str!("../../../../web/assets/sounds.css");
 pub(crate) const WEB_RANKS_STYLES: &str = include_str!("../../../../web/assets/ranks.css");
 pub(crate) const WEB_CARETAKER_STYLES: &str = include_str!("../../../../web/assets/caretaker.css");
+pub(crate) const WEB_COMPOSER_STYLES: &str = include_str!("../../../../web/assets/composer.css");
+pub(crate) const WEB_COMPOSER: &str = include_str!("../../../../web/assets/composer.js");
 pub(crate) const WEB_FLOORS_STYLES: &str = include_str!("../../../../web/assets/floors.css");
 pub(crate) const WEB_BOARD_LIST_STYLES: &str = include_str!("../../../../web/assets/boardlist.css");
 pub(crate) const WEB_ROSTER_STYLES: &str = include_str!("../../../../web/assets/roster.css");
@@ -167,6 +169,8 @@ pub(crate) async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "sounds.css" => Some(("text/css; charset=utf-8", WEB_SOUNDS_STYLES)),
         "ranks.css" => Some(("text/css; charset=utf-8", WEB_RANKS_STYLES)),
         "caretaker.css" => Some(("text/css; charset=utf-8", WEB_CARETAKER_STYLES)),
+        "composer.css" => Some(("text/css; charset=utf-8", WEB_COMPOSER_STYLES)),
+        "composer.js" => Some(("text/javascript; charset=utf-8", WEB_COMPOSER)),
         "floors.css" => Some(("text/css; charset=utf-8", WEB_FLOORS_STYLES)),
         "boardlist.css" => Some(("text/css; charset=utf-8", WEB_BOARD_LIST_STYLES)),
         "roster.css" => Some(("text/css; charset=utf-8", WEB_ROSTER_STYLES)),

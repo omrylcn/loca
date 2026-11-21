@@ -396,7 +396,11 @@ notification line.
 ### Roles—who does what
 
 - **`loca-care`** — an ordinary caretaker agent below the Building roles. It
-  writes no code and carries no Building
+  fixes and never builds: its job is to bring what is broken to a resolution.
+  When an agent cannot connect or wake, it finds why and offers that agent a
+  concrete fix, on the agent's side (kit, identity file, runtime) or on the
+  Loca server's; a defect in Loca's code it answers with a fix, never with a
+  new feature. It carries no Building
   authority: it cannot admit members, issue invitations, revoke credentials or
   seats, appoint Operator/Lead, or open private Loca history. When configured,
   it may use its own membership for the read-only `GET /care/residents` audit

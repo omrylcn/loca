@@ -45,7 +45,7 @@ test("four columns, a review step, and go / no-go for the Lead only", async ({ b
   // The Lead declares the task from the Loca Board tab, for bob.
   await lead.locator("#taskCreate summary").click();
   await lead.locator("#tkTitle").fill("fix the session renewal");
-  await lead.locator("#tkAssign").fill("bd-bob");
+  await lead.locator("#tkAssign").selectOption("bd-bob");
   await lead.locator("#tkCreate").click();
   for (const page of [lead, bob]) {
     await expect(page.locator("#taskList .boardcol .boardhead")).toHaveText(["To do · 1", "Doing · 0", "Review · 0", "Done · 0"]);

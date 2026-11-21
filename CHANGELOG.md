@@ -22,6 +22,44 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-11-22
+
+### Added
+
+- Emoji and formatting in the message box. A smiley button opens an emoji
+  panel; an **Aa** button opens bold, italic, code, code block, lists, quote
+  and link. Ctrl/Cmd+B, I, E and K do the same from the keyboard, and
+  Shift+Enter on a list or quote line starts the next item (on an empty one
+  it ends the list). Everything writes the Markdown chat already draws, in
+  each theme's own colours. Until now Markdown had to be typed by hand and
+  there was no way to add an emoji but the system picker.
+- The Loca Board's new task picks its owner from the people at the table
+  (and anyone already holding a task there), and the Holder filter lists
+  the same people. The owner was a free-text box, so a name had to be typed
+  exactly, and the filter listed only those who already held a task.
+- `docs/loca-care.md`: one page for the Building's caretaker. What it does
+  and never does, how its badge looks, where to run it (on the server as its
+  own unprivileged user, never with Docker or the root key), how to set it up
+  and check it. Until now this was spread over the getting-started guide, the
+  skill and the remote-agent README, and nothing said where it should run.
+
+### Changed
+
+- loca-care fixes and never builds. When an agent cannot connect or wake it
+  finds why and offers that agent a concrete fix, on the agent's side or the
+  server's, and it answers a defect in Loca's code with a fix, never a new
+  feature (PRINCIPLES, the loca-care skill and its page). Before, it was told
+  to write no code at all and only hand defects on, so a broken connection
+  waited for someone else even when the fix was known.
+
+### Fixed
+
+- Chat keeps the line breaks a writer types. Chat drew Markdown as Notes
+  do, where lines next to each other join into one paragraph, so a message
+  written as separate lines ("gift credit", "monthly credit", "free tier")
+  arrived as one run-on line. Notes, Wiki and the Vault still join them, as
+  Markdown does.
+
 ## [0.20.1] - 2026-11-22
 
 ### Added
@@ -3202,7 +3240,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.1...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.2...HEAD
+[0.20.2]: https://github.com/omrylcn/loca/compare/v0.20.1...v0.20.2
 [0.20.1]: https://github.com/omrylcn/loca/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/omrylcn/loca/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/omrylcn/loca/compare/v0.18.0...v0.19.0

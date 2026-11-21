@@ -1,0 +1,41 @@
+/* ── The composer's writing tools (composer.js): emoji and formatting ─────
+   Two quiet buttons beside Attach open a panel above the composer. Colours
+   are the theme's own variables only, so every theme draws them in its own
+   colours. */
+.composer { position: relative; }
+.composertools { display: inline-flex; gap: 6px; align-items: center; }
+.composer button.tool { display: inline-grid; place-items: center; min-width: 30px; height: 30px; padding: 0 6px;
+  font: 600 12px var(--mono); line-height: 1; }
+.composer button.tool:hover, .composer button.tool[aria-expanded="true"] { color: var(--accent2); border-color: var(--accent); }
+
+/* Classic layout: at the end of Attach's column, just before Send. */
+.composer .composertools { grid-column: 2; grid-row: 2; justify-self: end; }
+/* The redesign's one line: after Attach, before the words. */
+:root:not([data-layout="classic"]) .composer .composertools { order: 2; }
+:root:not([data-layout="classic"]) .composer button.tool { border-color: transparent; background: none; }
+:root:not([data-layout="classic"]) .composer button.tool:hover,
+:root:not([data-layout="classic"]) .composer button.tool[aria-expanded="true"] { background: var(--panel2); }
+
+.composerpop { position: absolute; bottom: calc(100% + 6px); left: 8px; z-index: 30;
+  background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 40%, transparent); }
+.composerpop.hidden { display: none; }
+
+.emojipop { width: min(340px, calc(100vw - 32px)); max-height: 260px; overflow-y: auto; padding: 8px; }
+.emojigroup + .emojigroup { margin-top: 6px; }
+.emojihead { font: 600 10px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
+  padding: 2px 4px 4px; }
+.emojigrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 2px; }
+.emojichoice { background: none; border: 0; border-radius: 6px; height: 34px; font-size: 18px; line-height: 1;
+  cursor: pointer; }
+.emojichoice:hover, .emojichoice:focus-visible { background: var(--panel2); outline: none; }
+
+.formatpop { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px; max-width: calc(100vw - 32px); }
+.formatpop button { background: none; border: 1px solid transparent; border-radius: 8px; color: var(--muted);
+  font: 12px var(--mono); padding: 6px 9px; cursor: pointer; }
+.formatpop button:hover, .formatpop button:focus-visible { background: var(--panel2); color: var(--txt);
+  border-color: var(--line); outline: none; }
+
+@media (max-width: 760px) {
+  .composer .composertools { grid-column: 1 / -1; grid-row: 3; }
+}

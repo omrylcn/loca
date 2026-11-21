@@ -319,7 +319,7 @@ $("tabPeople").onclick = () => switchTab("people");
 $("tkCreate").onclick = async () => {
   const title = $("tkTitle").value.trim();
   if (!title) return;
-  if (await createTask(title, null, $("tkAssign").value.trim() || null)) {
+  if (await createTask(title, null, $("tkAssign").value || null)) {
     $("tkTitle").value = ""; $("tkAssign").value = "";
   }
 };

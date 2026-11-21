@@ -88,8 +88,13 @@ test("the Loca Board tab works without Focus: declare, start, review, go", async
     await expect(page.locator("#boardPanel")).toBeVisible();
   }
   await lead.locator("#taskCreate summary").click();
+  // The owner is picked from the people at this table, as the Holder
+  // filter lists them; nobody is the default.
+  await expect(lead.locator("#tkAssign")).toHaveValue("");
+  await expect(lead.locator("#tkAssign option", { hasText: "lb-bob" })).toHaveCount(1);
+  await expect(lead.locator("#boardHolder option", { hasText: "lb-bob" })).toHaveCount(1);
   await lead.locator("#tkTitle").fill("write the upgrade note");
-  await lead.locator("#tkAssign").fill("lb-bob");
+  await lead.locator("#tkAssign").selectOption("lb-bob");
   await lead.locator("#tkCreate").click();
   for (const page of [lead, bob]) {
     await expect(page.locator("#boardPanel .boardhead")).toHaveText(["To do · 1", "Doing · 0", "Review · 0", "Done · 0"]);

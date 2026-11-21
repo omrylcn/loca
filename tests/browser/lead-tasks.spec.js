@@ -53,7 +53,7 @@ test("the Lead sees and uses the task controls; a participant does not see them"
   // The Lead declares a task and gives it to the participant.
   await lead.locator("#taskCreate summary").click();
   await lead.locator("#tkTitle").fill("review the login fix");
-  await lead.locator("#tkAssign").fill("lt-bob");
+  await lead.locator("#tkAssign").selectOption("lt-bob");
   await lead.locator("#tkCreate").click();
   const row = page => page.locator("#taskList .task", { hasText: "review the login fix" });
   for (const page of [lead, other]) {
