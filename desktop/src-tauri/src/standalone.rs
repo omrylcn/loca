@@ -138,7 +138,7 @@ pub fn spawn(app: &tauri::App) -> Result<(Child, String), String> {
             std::env::var("LOCA_MASTER_NAME").unwrap_or_else(|_| "Master".into()),
         )
         // The bundled UI runs from the Tauri origin, not 127.0.0.1, so REST is
-        // cross-origin: allow the EXACT Tauri origins, never "*". (loca-dev to
+        // cross-origin: allow the EXACT Tauri origins, never "*". (the maintainer to
         // confirm the exact Origin the webview sends per target platform.)
         .env(
             "CORS_ALLOW_ORIGIN",

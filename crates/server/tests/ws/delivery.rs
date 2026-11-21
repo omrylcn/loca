@@ -1143,7 +1143,7 @@ async fn an_announcement_stays_an_announcement() {
         let m: Value = client
             .post(format!("{base}/rooms/general/messages"))
             .json(&serde_json::json!({
-                "sender": "loca-dev", "sender_type": "agent",
+                "sender": "care-two", "sender_type": "agent",
                 "text": "skill updated", "kind": "announce"
             }))
             .send()

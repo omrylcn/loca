@@ -176,7 +176,7 @@ impl BlobStore {
     }
 
     /// Publish `tmp` at `final_path` (an atomic rename on unix). Tolerates the
-    /// two cross-platform edge cases loca-dev flagged: a concurrent writer that
+    /// two cross-platform edge cases the reviewer flagged: a concurrent writer that
     /// published this exact blob first, and Windows `rename` refusing to replace
     /// an existing file. Windows atomicity is authoritatively verified by the
     /// Windows CI runner; here we keep the store consistent on all platforms.
@@ -285,7 +285,7 @@ impl BlobStore {
     /// Windows: open with `FILE_FLAG_OPEN_REPARSE_POINT` — the analogue of unix
     /// `O_NOFOLLOW` — so the handle is the reparse point ITSELF, never its
     /// target. If the opened entry is a reparse point we refuse; otherwise we
-    /// read from that same handle, so there is no metadata→read TOCTOU. loca-dev's
+    /// read from that same handle, so there is no metadata→read TOCTOU. the reviewer's
     /// windows-latest CI is the runtime authority for this path.
     #[cfg(windows)]
     fn read_no_follow(&self, path: &Path) -> io::Result<Vec<u8>> {

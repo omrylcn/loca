@@ -16,7 +16,7 @@ test.beforeEach(async ({ page, request }) => {
 // Phase 3 (desktop native notifications) event contract, tested at the shared-UI
 // layer: which WS frames call window.__LOCA_NOTIFY__ (and with what), driven
 // through the real onFrame dispatcher. The foreground-dedup and the actual OS
-// notification are desktop-shell behaviour and are checked in loca-dev's runtime
+// notification are desktop-shell behaviour and are checked in the reviewer's runtime
 // review — here we pin the classification the desktop relies on.
 test("native-notify events: only mentions, directed attention and reminders notify — no body leaks", async ({
   page,

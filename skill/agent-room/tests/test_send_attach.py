@@ -145,7 +145,7 @@ class SendAttachTest(unittest.TestCase):
             [hashlib.sha256(a).hexdigest(), hashlib.sha256(b).hexdigest()],
         )
 
-    # ---- client-side validation (loca-dev NO-GO): must fail BEFORE any upload ----
+    # ---- client-side validation (review NO-GO): must fail BEFORE any upload ----
 
     def test_dangling_attach_is_an_error(self):
         r = self._send(lambda tmp, o: ["text", "--attach"])

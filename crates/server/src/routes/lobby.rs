@@ -128,7 +128,7 @@ fn call_refused(error: hub::InviteError) -> axum::response::Response {
         }
         hub::InviteError::Reserved => (
             StatusCode::FORBIDDEN,
-            "iye is reserved for master, smaster, loca-dev and loca-care",
+            "iye is reserved for master, smaster and loca-care",
         )
             .into_response(),
         hub::InviteError::Storage => (

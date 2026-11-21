@@ -23,7 +23,7 @@
 //   keychain via the kc_set/kc_delete commands (async, for next launch); the
 //   plaintext never reaches the on-disk localStorage.
 //
-// BUILD NOTE for loca-dev: this targets the Tauri v2 builder API
+// BUILD NOTE for the maintainer: this targets the Tauri v2 builder API
 // (WebviewWindowBuilder + initialization_script) and keyring v3. Verify the
 // exact keyring feature flags for the Secret Service backend at build time.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]

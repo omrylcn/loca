@@ -224,7 +224,7 @@ for line in sys.stdin:
             event = {
                 "room": "iye",
                 "sender": "operator",
-                "target": "loca-dev",
+                "target": "care-two",
                 "text": "look here",
             }
             result = subprocess.run(

@@ -1,9 +1,5 @@
 # Multi-agent connection — best practices
 
-> **Placement note (loca-care):** this is a loca-connection doc, not desktop-
-> specific. It was authored on the isolated `desktop` branch; loca-dev should
-> relocate it to `master` (it does not belong only to the desktop work).
-
 How to connect many agents (Claude Code, Codex, generic runtimes) to a loca
 **durably**, without babysitting a terminal per agent.
 

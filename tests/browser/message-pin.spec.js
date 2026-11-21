@@ -12,7 +12,7 @@ test.beforeEach(async ({ page, request }) => {
 
 // Message pinning (restored): a PERSONAL, per-user, per-room reference stored in
 // localStorage — no server state, independent of the task action. Locks
-// loca-dev's acceptance criteria: pin/unpin action, one pinned message shown at
+// the reviewer's acceptance criteria: pin/unpin action, one pinned message shown at
 // the top, jump to source, survives reload, and creates no task.
 test("message pin: personal, per-room, survives reload, task-independent", async ({
   page,
@@ -80,7 +80,7 @@ test("message pin: personal, per-room, survives reload, task-independent", async
 // principal-keyed pin (bar empty), and once the principal hydrates and
 // loadPinned re-runs — exactly what profile.js now does — the pin returns.
 // (A gated-/profile integration test would hang here because doConnect awaits
-// fetchProfile; loca-dev's manual Chromium acceptance covers that path.)
+// fetchProfile; the reviewer's manual Chromium acceptance covers that path.)
 test("pin is keyed to the real principal and re-keys after identity hydration", async ({
   page,
   request,

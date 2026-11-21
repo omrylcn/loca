@@ -48,12 +48,13 @@
    gold row; the word gives way there, and only there. */
 #locaInfo #onlineList .omem .leadtag { display: none; }
 /* Beside the chat the name kept giving way until four letters were left and
-   a rank badge slid under "release". The name keeps nine characters; the
+   a rank badge slid under "release". The name keeps thirteen characters (an
+   agent's whole name, mostly); the
    badges give way after it inside their own box (clipped, never under an
    action); the gaps are tighter; and the panel is wider by default and can
    be widened from its left edge (page-chrome.css). */
 #locaInfo #onlineList .omem { gap: 6px; }
-#locaInfo #onlineList .omem .oname { min-width: 9ch; }
+#locaInfo #onlineList .omem .oname { min-width: 13ch; }
 #locaInfo #onlineList .omem .obadges { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap;
   text-overflow: ellipsis; }
 /* The banned list's unban, in the same quiet pill. */

@@ -213,6 +213,31 @@ class CredentialSelectionTests(unittest.TestCase):
                 any(p.startswith("loca.session.") for p in listen.room_protocols("beta"))
             )
 
+    def test_a_windows_listener_keeps_its_own_invite(self):
+        # Windows lists environment names upper-cased: the file's
+        # DAVET_omnelo_mobile comes back as DAVET_OMNELO_MOBILE. A seat list
+        # that names omnelo_mobile must keep it, and one that drops the loca
+        # must remove the file's line whatever its letter case.
+        with tempfile.TemporaryDirectory() as tmp, isolated_environment(tmp), \
+                mock.patch.object(credentials, "_CASE_INSENSITIVE_ENV", True), \
+                mock.patch.object(listen.sys, "stderr", io.StringIO()):
+            path = write_env(
+                tmp,
+                "worker.env",
+                ROOM_SERVER_URL="https://loca.example",
+                LOCA_NAME="worker",
+                DAVET_omnelo_mobile="dv_mobile",
+            )
+            os.environ["LOCA_ENV"] = str(path)
+            os.environ["DAVET_OMNELO_MOBILE"] = "dv_mobile"
+            self.assertEqual(listen.drop_unlisted_room_invites(["omnelo_mobile"]), [])
+            self.assertEqual(os.environ.get("DAVET_OMNELO_MOBILE"), "dv_mobile")
+            self.assertIn("DAVET_omnelo_mobile=", Path(path).read_text())
+
+            self.assertEqual(listen.drop_unlisted_room_invites([]), ["OMNELO_MOBILE"])
+            self.assertNotIn("DAVET_OMNELO_MOBILE", os.environ)
+            self.assertNotIn("DAVET_", Path(path).read_text().upper())
+
     def test_a_renewal_answered_after_the_invite_changed_is_discarded(self):
         # The invite is replaced, or the seat removed, while POST /sessions is
         # out. The answer is a session of the seat that is gone: it must not
@@ -322,7 +347,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 tmp,
                 "env",
                 ROOM_SERVER_URL="https://loca.example",
-                LOCA_NAME="loca-dev",
+                LOCA_NAME="care-two",
                 DAVET_general="wrong",
             )
             named = write_env(
@@ -353,7 +378,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 tmp,
                 "env",
                 ROOM_SERVER_URL="https://loca.example",
-                LOCA_NAME="loca-dev",
+                LOCA_NAME="care-two",
                 DAVET_general="wrong",
             )
             with self.assertRaises(credentials.CredentialError):
@@ -1040,7 +1065,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 tmp,
                 "env",
                 ROOM_SERVER_URL="http://127.0.0.1:9",
-                LOCA_NAME="loca-dev",
+                LOCA_NAME="care-two",
                 DAVET_sb_mobile="wrong-default",
             )
             write_env(
@@ -1079,7 +1104,7 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
                 tmp,
                 "env",
                 ROOM_SERVER_URL="http://127.0.0.1:9",
-                LOCA_NAME="loca-dev",
+                LOCA_NAME="care-two",
                 DAVET_sb_mobile="wrong-default",
             )
             result = subprocess.run(

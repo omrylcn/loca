@@ -190,7 +190,7 @@ the speaker from the credential it checked.
   rather than keep a name it would lose on restart. The name is display only:
   never an address, never read for authority.
 - **Loca product:** the ranks themselves. Master and Smaster (Building), the
-  appointed Operator and the Lead (one loca), `loca-care` and `loca-dev` are
+  appointed Operator and the Lead (one loca), `loca-care` are
   Loca governance, resolved server-side from principal and role tables
   (`/rooms/:id/operators`, `/rooms/:id/lead`, `/smasters`). Core needs only
   "authority is resolved server-side from the principal".

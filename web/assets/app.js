@@ -312,55 +312,6 @@ $("callList").onclick = (e) => {
   const cancel = e.target.closest("[data-call-cancel]");
   if (cancel) $("callList").classList.add("hidden");
 };
-$("lobbyList").onclick = (e) => {
-  const row = e.target.closest("[data-lobby-call]");
-  if (row) callIn(row.dataset.lobbyCall);
-};
-// Lobby is docked to the bottom, so increasing its height must happen upward.
-// Pointer events cover mouse, pen and touch; remember the operator's chosen
-// height on this browser.
-(() => {
-  const box = $("lobbyBox");
-  const grip = $("lobbyResize");
-  const saved = Number(localStorage.getItem("loca-lobby-height") || 66);
-  const setHeight = (height, persist = false) => {
-    const bounded = Math.max(48, Math.min(height, innerHeight * .55));
-    box.style.height = `${bounded}px`;
-    grip.setAttribute("aria-valuenow", String(Math.round(bounded)));
-    if (persist) localStorage.setItem("loca-lobby-height", String(Math.round(bounded)));
-  };
-  grip.setAttribute("aria-valuemin", "48");
-  grip.setAttribute("aria-valuemax", String(Math.round(innerHeight * .55)));
-  setHeight(saved);
-  let startY = 0, startHeight = 0;
-  grip.onpointerdown = (e) => {
-    startY = e.clientY;
-    startHeight = box.getBoundingClientRect().height;
-    grip.setPointerCapture(e.pointerId);
-  };
-  grip.onpointermove = (e) => {
-    if (!grip.hasPointerCapture(e.pointerId)) return;
-    const height = Math.max(48, Math.min(innerHeight * .55, startHeight + startY - e.clientY));
-    setHeight(height);
-  };
-  grip.onpointerup = (e) => {
-    if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
-    setHeight(box.getBoundingClientRect().height, true);
-  };
-  grip.ondblclick = () => {
-    const height = box.getBoundingClientRect().height > 80 ? 66 : Math.min(260, innerHeight * .4);
-    setHeight(height, true);
-  };
-  grip.onkeydown = (event) => {
-    if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    const current = box.getBoundingClientRect().height;
-    if (event.key === 'ArrowUp') setHeight(current + 24, true);
-    else if (event.key === 'ArrowDown') setHeight(current - 24, true);
-    else if (event.key === 'Home') setHeight(48, true);
-    else setHeight(innerHeight * .55, true);
-  };
-})();
 $("tabTasks").onclick = () => switchTab("tasks");
 $("tabBoard").onclick = () => switchTab("board");
 $("tabJournal").onclick = () => switchTab("journal");

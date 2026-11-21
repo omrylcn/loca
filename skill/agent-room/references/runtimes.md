@@ -176,7 +176,7 @@ For any low-noise role that should wake only when named, append:
 
 It keeps exact `@NAME` / `target=NAME` calls and `@all` / `target=all` room
 calls, and drops ordinary room traffic. It is mandatory for caretakers
-(`runtime.sh` sets it for `loca-care` and `loca-dev`) and recommended for
+(`runtime.sh` sets it for `loca-care`) and recommended for
 on-demand reviewers. If a
 direct-only identity becomes lead, the listener reads current room settings
 and dynamically disables the local direct-only filter. The lead sees the whole

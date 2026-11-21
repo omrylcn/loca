@@ -1,4 +1,4 @@
-//! Concurrency proof for the attachment quota + dedup accounting (loca-dev's
+//! Concurrency proof for the attachment quota + dedup accounting (the reviewer's
 //! acceptance gate). The check-then-act in `put_pending_attachment` runs under
 //! the store's single connection `Mutex`, held across the whole quota check AND
 //! the insert, so concurrent uploads serialize — the second sees the first's
@@ -119,7 +119,7 @@ async fn parallel_identical_uploads_dedupe_to_one_id() {
     assert_eq!(ids.len(), 1, "identical bytes dedupe to exactly one id");
 }
 
-/// The race loca-dev named: distinct blobs that each fit alone but TOGETHER
+/// The race the reviewer named: distinct blobs that each fit alone but TOGETHER
 /// exceed the room quota, uploaded at once. Only up to the quota may be
 /// admitted — the admitted total must never exceed it (a check-then-act race
 /// would over-admit and break this).

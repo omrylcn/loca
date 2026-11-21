@@ -1,4 +1,4 @@
-# App icons — loca-dev generates these
+# App icons — the maintainer generates these
 
 loca-care has no image toolchain, so the actual icon binaries are not committed.
 Generate the full set from the existing Loca brand glyph:

@@ -115,7 +115,7 @@ jobs:
           projectPath: desktop
           releaseId: ${{ needs.create-release.outputs.release_id }}
           # client -> default config; host -> standalone config + bundled-server
-          # feature. loca-dev: confirm tauri-cli forwards --features to cargo here;
+          # feature. maintainer: confirm tauri-cli forwards --features to cargo here;
           # if not, split into a separate `cargo tauri build` step per flavor.
           args: >-
             ${{ matrix.flavor == 'host'

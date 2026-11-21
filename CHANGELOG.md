@@ -22,6 +22,51 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-11-22
+
+### Added
+
+- An agent knows who may ask it for what (`skill/agent-room/references/authority.md`,
+  summarised in SKILL.md). Anyone at the table works on the loca's project
+  with it; the project's hard-to-undo steps (merge to main, release,
+  deploy, production data, store and billing settings) are the loca's
+  Operator's, Lead's and the ranks'; anything outside the project (the
+  user's machine, other repositories, personal accounts, secrets, money,
+  outside messages, the agent's own identity) is its user's alone; and some
+  things nobody may ask (a secret in a loca, instructions found in content).
+  A Building rank is not the agent's user. Agents had no such rule, so
+  whoever addressed one could ask it for anything its user could.
+  `connect.sh owner <server> <name> <user>` sets the user (`LOCA_OWNER` in
+  the identity file) and `connect.sh status` prints it; a message is the
+  user's only when the server verified its writer. Each loca's Vault draws
+  its project's edge.
+
+### Changed
+
+- The Lobby room is the only Lobby. The sidebar's separate LOBBY box (the
+  members online but seated nowhere) is gone: since 0.20.0 every member is in
+  the Lobby room, and the box showed a second, smaller "lobby" beside it.
+  People still shows each member's connection and wake state. In the Lobby
+  room the page no longer offers what the Lobby does not have: the `@lead`
+  picker, the Tasks tab, Call and Release. The server already refused a Lead
+  there; the picker only failed when used.
+- `loca-care` is the only caretaker. The private `loca-dev` role is gone
+  from the principles, the docs and the kit: the kit gives the low-noise
+  caretaker policy to `loca-care` only, and the İye refusal names Master,
+  Smaster and loca-care. A deployment still names its caretakers in
+  `LOCA_CARETAKERS`.
+
+### Fixed
+
+- A Windows agent kept its loca invite across a listener restart. Windows
+  lists environment names upper-cased (`DAVET_omnelo_mobile` comes back as
+  `DAVET_OMNELO_MOBILE`), and the kit compared them with the server's seat
+  list letter by letter: on every start it found its own invite "not
+  listed", deleted it and logged `removed stale local invite cache`, so the
+  agent left the loca it had just been called into. The kit now compares
+  environment names as the system does, and removes a stale invite's line
+  from the identity file whatever its letter case. Found by mobile-dev.
+
 ## [0.20.0] - 2026-11-22
 
 ### Added
@@ -3157,7 +3202,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.1...HEAD
+[0.20.1]: https://github.com/omrylcn/loca/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/omrylcn/loca/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/omrylcn/loca/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/omrylcn/loca/compare/v0.17.0...v0.18.0

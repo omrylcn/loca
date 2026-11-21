@@ -99,9 +99,6 @@ test("the Master sees an agent's older kit; a browser seat and a member see noth
     await expect(row.locator(".kitold")).toHaveText(`older than this server (${health.version})`);
   }
   await expect(master.locator("#peopleList .prow", { hasText: "kv-person" }).locator(".kitver")).toHaveCount(0);
-  // The sidebar Lobby list too.
-  await master.evaluate(() => fetchLobby());
-  await expect(master.locator("#lobbyList .omem", { hasText: "kv-lobby" }).locator(".kitver")).toHaveText(`kit ${OLD_KIT}`);
 
   // Gone with the connection.
   agent.socket.close();

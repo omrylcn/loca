@@ -45,6 +45,7 @@
 #   connect.sh session     <server> <name> [agent|user]           # get a session token (export LOCA_SESSION=...)
 #   connect.sh reconnect   <server> <name>                        # restart an existing managed runtime
 #   connect.sh doctor      [server] [--fix]                       # client health: leaked/duplicate listeners, port squatters
+#   connect.sh owner       <server> <name> [<user>|--clear]       # who this agent's user is (references/authority.md)
 #
 # <target>: "all" | "<username>" | "-" (plain wall post, no reply expected)
 # Env: ROOM_LOG (listen output path, default .agent-room/<room>.jsonl)
@@ -72,6 +73,15 @@ _credential_patch() {
   _credential_patch_file "$LOCA_ENV"
 }
 
+# This agent's user (LOCA_OWNER), as status and owner report it.
+_owner_line() {
+  if [ -n "${LOCA_OWNER:-}" ]; then
+    echo "OWNER: @${LOCA_OWNER} — only this person, verified by the server, asks for what is the user's own (references/authority.md, level 3)"
+  else
+    echo "OWNER: not set — level 3 requests come only from your terminal; set it with: connect.sh owner <server> <name> <user>"
+  fi
+}
+
 # Credential files are DATA, never shell programs.  Sourcing this file used to
 # let a crafted display name such as `$(command)` execute on the agent's host
 # the next time connect.sh ran.  Parse only the small credential vocabulary and
@@ -79,7 +89,7 @@ _credential_patch() {
 # interpretation.
 _credential_key_allowed() {
   case "$1" in
-    ROOM_SERVER_URL|LOCA_NAME|LOCA_SESSION|LOCA_LOBBY_SESSION|LOCA_MEMBERSHIP|ROOM_TOKEN) return 0 ;;
+    ROOM_SERVER_URL|LOCA_NAME|LOCA_SESSION|LOCA_LOBBY_SESSION|LOCA_MEMBERSHIP|ROOM_TOKEN|LOCA_OWNER) return 0 ;;
   esac
   [[ "$1" =~ ^DAVET_[A-Za-z0-9_]+$ ]]
 }
@@ -141,7 +151,7 @@ _load_credential_file() {
   [ -f "$file" ] || return 0
   # A named/pinned identity is authoritative.  Never inherit another agent's
   # credentials merely because both commands share one parent shell.
-  unset LOCA_NAME LOCA_SESSION LOCA_LOBBY_SESSION LOCA_MEMBERSHIP ROOM_SERVER_URL ROOM_TOKEN
+  unset LOCA_NAME LOCA_SESSION LOCA_LOBBY_SESSION LOCA_MEMBERSHIP ROOM_SERVER_URL ROOM_TOKEN LOCA_OWNER
   while IFS='=' read -r key _; do
     case "$key" in DAVET_[A-Za-z0-9_]*) unset "$key" ;; esac
   done < <(env)
@@ -194,7 +204,7 @@ case "${1:-}" in
   listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|replying|task-take|task-done|task-new|task-assign|task-go|task-nogo|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
-  session|status|reconnect|notifications)
+  session|status|reconnect|notifications|owner)
     _requested_identity="${3:-}"
     ;;
   tasks)
@@ -581,7 +591,7 @@ case "$cmd" in
       echo "not onboarded — no Building identity for '$requested_name'" >&2
       echo "file a join request for this exact name and wait for a Master to approve it: connect.sh request-join $server $requested_name" >&2
       echo "or, if the operator gave you a private membership (Lobby) or invite (one loca) for this exact name, run setup with it" >&2
-      echo "do not reuse another agent's env or ask loca-dev/loca-care to create the identity" >&2
+      echo "do not reuse another agent's env or ask loca-care to create the identity" >&2
       exit 3
     fi
     response=$(curl -sS -m 10 -H "x-room-token: $membership" -w $'\n%{http_code}' \
@@ -670,9 +680,44 @@ case "$cmd" in
     else
       echo "LOBBY — '$who' membership is valid; no loca invite is active. Start your listener so the Master's call can reach you over the Lobby socket."
     fi
+    _owner_line
     # runtime.sh status has said it already: no second /health request.
     [ -n "${LOCA_KIT_NOTICE_SHOWN:-}" ] \
       || _kit_notice "$(curl -sS -m 5 "$server/health" 2>/dev/null | _jq_raw '.version // empty' 2>/dev/null || true)"
+    ;;
+
+  owner)
+    # Who this agent's user is (references/authority.md): their exact Loca
+    # @name. Only that person, verified by the server, asks for what is the
+    # user's own (level 3); everyone at the table works on the loca's
+    # project. Shown, set, or cleared here; never a credential.
+    server="$1"; name="${2:?name required}"; user="${3:-}"
+    if [ ! -f "$LOCA_ENV" ] || [ "$(_credential_value "$LOCA_ENV" LOCA_NAME || true)" != "$name" ]; then
+      echo "no local identity for '$name' — set its user after setup or request-join" >&2
+      exit 3
+    fi
+    if [ -z "$user" ]; then
+      _owner_line
+      exit 0
+    fi
+    if [ "$user" = "--clear" ]; then
+      printf '%s\0%s\0' LOCA_OWNER "" | _credential_patch
+      LOCA_OWNER=""
+      _owner_line
+      exit 0
+    fi
+    user="${user#@}"
+    if ! [[ "$user" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+      echo "a user is a Loca @name: 1-64 ASCII letters, digits, dot, dash, or underscore, starting with a letter or digit" >&2
+      exit 2
+    fi
+    if [ "$user" = "$name" ]; then
+      echo "an agent is not its own user" >&2
+      exit 2
+    fi
+    printf '%s\0%s\0' LOCA_OWNER "$user" | _credential_patch
+    LOCA_OWNER="$user"
+    _owner_line
     ;;
 
   reconnect)

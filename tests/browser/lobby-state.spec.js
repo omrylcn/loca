@@ -33,17 +33,16 @@ test("lobby is a live location and shares connection and wake vocabulary", async
   }));
 
   await page.goto("/");
-  await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
-  await page.evaluate(() => fetchLobby());
-  await expect(page.locator("#lobbyCount")).toHaveText("3");
-  await expect(page.locator("#lobbyList")).not.toContainText("offline-agent");
-  await expect(page.locator("#lobbyList")).not.toContainText("seated-agent");
-  await expect(page.locator("#lobbyList .omem").filter({ hasText: "waiting-agent" }))
-    .toContainText("waitingconnectedunverified");
-  await expect(page.locator("#lobbyList .omem").filter({ hasText: "ready-agent" }))
-    .toContainText("waitingconnectedready");
-  await expect(page.locator("#lobbyList .omem").filter({ hasText: "waiting-human" }))
-    .toContainText("waitingconnectedn/a");
+  // Every member is in the Lobby room now; the separate "who waits" list
+  // is gone. People shows each member's connection and wake state.
+  await expect(page.locator("#lobbyBox")).toHaveCount(0);
+  await page.evaluate(() => switchTab("people"));
+  const row = (name) => page.locator("#peopleList .prow").filter({ hasText: name }).locator(".pstatuses");
+  await expect(row("offline-agent")).toHaveText("disconnectedunverified");
+  await expect(row("waiting-agent")).toHaveText("connectedunverified");
+  await expect(row("ready-agent")).toHaveText("connectedready");
+  await expect(row("waiting-human")).toHaveText("connectedn/a");
+  await expect(row("seated-agent")).toHaveText("connectedready");
 });
 
 test("building resident refresh updates the live lobby without a reload", async ({ page, request }) => {
@@ -67,13 +66,12 @@ test("building resident refresh updates the live lobby without a reload", async 
   await page.goto("/");
   await expect.poll(() => page.evaluate(() => state.authStatus)).toBe("authenticated");
   await page.evaluate(() => switchTab("people"));
-  await expect(page.locator("#lobbyCount")).toHaveText("0");
+  const late = page.locator("#peopleList .prow").filter({ hasText: "late-agent" }).locator(".pstatuses");
+  await expect(late).toHaveText("disconnectedunverified");
 
   online = true;
   await page.evaluate(() => refreshPeopleRuntime());
-  await expect(page.locator("#lobbyCount")).toHaveText("1");
-  await expect(page.locator("#lobbyList .omem").filter({ hasText: "late-agent" }))
-    .toContainText("waitingconnectedunverified");
+  await expect(late).toHaveText("connectedunverified");
 });
 
 test("a delayed Building load cannot overwrite a newer online lobby snapshot", async ({ page }) => {
@@ -97,10 +95,10 @@ test("a delayed Building load cannot overwrite a newer online lobby snapshot", a
   await page.evaluate(() => { window.oldPeopleLoad = fetchPeople(); });
   await expect.poll(() => joinReads).toBe(1);
   await page.evaluate(() => refreshPeopleRuntime());
-  await expect(page.locator("#lobbyCount")).toHaveText("1");
+  await expect.poll(() => page.evaluate(() => state.lobby.length)).toBe(1);
   release();
   await page.evaluate(() => window.oldPeopleLoad);
-  await expect(page.locator("#lobbyCount")).toHaveText("1");
+  expect(await page.evaluate(() => state.lobby.length)).toBe(1);
   expect(await page.evaluate(() => state.people[0].online)).toBe(true);
 });
 
@@ -126,6 +124,5 @@ test("a resident response from an ended admin session cannot repopulate the lobb
   });
   release();
   await page.evaluate(() => window.oldLobbyLoad);
-  await expect(page.locator("#lobbyCount")).toHaveText("0");
-  await expect(page.locator("#lobbyList")).not.toContainText("old-private-member");
+  expect(await page.evaluate(() => (state.lobby || []).map(p => p.name))).not.toContain("old-private-member");
 });
