@@ -11,14 +11,14 @@ async fn exact_cross_loca_caretaker_call_reaches_care_loca_without_opening_sourc
         &[
             ("LOCA_AGENT_ROOM", "iye".into()),
             ("RESERVED_LOCA", "iye".into()),
-            ("LOCA_CARETAKERS", "loca-dev,loca-care".into()),
+            ("LOCA_CARETAKERS", "care-two,loca-care".into()),
             ("DB_PATH", db),
         ],
     )
     .await;
     let base = format!("http://127.0.0.1:{port}");
     let url = format!(
-        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-dev&type=agent&filter=mentions&turn_max=1"
+        "ws://127.0.0.1:{port}/ws?room=iye&name=care-two&type=agent&filter=mentions&turn_max=1"
     );
     let (mut caretaker, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     let observer_url = format!("ws://127.0.0.1:{port}/ws?room=iye&name=loca-care&type=agent");
@@ -33,8 +33,8 @@ async fn exact_cross_loca_caretaker_call_reaches_care_loca_without_opening_sourc
         .json(&serde_json::json!({
             "sender": "operator",
             "sender_type": "user",
-            "target": "loca-dev",
-            "text": "@loca-dev look at the monitoring line"
+            "target": "care-two",
+            "text": "@care-two look at the monitoring line"
         }))
         .send()
         .await
@@ -45,7 +45,7 @@ async fn exact_cross_loca_caretaker_call_reaches_care_loca_without_opening_sourc
     let summoned = wait_for(&mut caretaker, |v| {
         v["t"] == "care"
             && v["signal"]["reason"] == "direct_summon"
-            && v["signal"]["context"][0]["text"] == "@loca-dev look at the monitoring line"
+            && v["signal"]["context"][0]["text"] == "@care-two look at the monitoring line"
     })
     .await;
     // The envelope is re-homed onto Care (the delivery socket's room); the true
@@ -53,7 +53,7 @@ async fn exact_cross_loca_caretaker_call_reaches_care_loca_without_opening_sourc
     // room is another loca.
     assert_eq!(summoned["signal"]["room"], "iye");
     assert_eq!(summoned["signal"]["source_room"], "reviewer");
-    assert_eq!(summoned["signal"]["owner"], "loca-dev");
+    assert_eq!(summoned["signal"]["owner"], "care-two");
     assert_eq!(summoned["signal"]["context"].as_array().unwrap().len(), 1);
     let leaked = tokio::time::timeout(Duration::from_millis(300), async {
         loop {
@@ -107,7 +107,7 @@ async fn exact_cross_loca_caretaker_call_reaches_care_loca_without_opening_sourc
     // No transport ACK: reconnect replays the exact durable summon.
     drop(caretaker);
     let replay_url = format!(
-        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-dev&type=agent&filter=mentions&turn_max=1"
+        "ws://127.0.0.1:{port}/ws?room=iye&name=care-two&type=agent&filter=mentions&turn_max=1"
     );
     let (mut caretaker, _) = tokio_tungstenite::connect_async(replay_url).await.unwrap();
     let replay = wait_for(&mut caretaker, |v| {
@@ -146,7 +146,7 @@ async fn operator_all_in_care_loca_reaches_every_caretaker_mentions_stream() {
         &[
             ("LOCA_AGENT_ROOM", "iye".into()),
             ("RESERVED_LOCA", "iye".into()),
-            ("LOCA_CARETAKERS", "loca-dev,loca-care".into()),
+            ("LOCA_CARETAKERS", "care-two,loca-care".into()),
             ("DB_PATH", db),
         ],
     )
@@ -157,7 +157,7 @@ async fn operator_all_in_care_loca_reaches_every_caretaker_mentions_stream() {
             "ws://127.0.0.1:{port}/ws?room=iye&name={name}&type=agent&filter=mentions&turn_max=1"
         ))
     };
-    let (mut dev, _) = open("loca-dev").await.unwrap();
+    let (mut dev, _) = open("care-two").await.unwrap();
     let (mut care, _) = open("loca-care").await.unwrap();
 
     // The HTTP upgrade can finish just before ws_session records the seat.
@@ -219,7 +219,7 @@ async fn care_for_one_room_is_not_delivered_to_a_socket_in_another_room() {
         &[
             ("LOCA_AGENT_ROOM", "iye".into()),
             ("RESERVED_LOCA", "iye".into()),
-            ("LOCA_CARETAKERS", "loca-dev,loca-care".into()),
+            ("LOCA_CARETAKERS", "care-two,loca-care".into()),
             ("DB_PATH", db),
         ],
     )
@@ -227,19 +227,19 @@ async fn care_for_one_room_is_not_delivered_to_a_socket_in_another_room() {
     let base = format!("http://127.0.0.1:{port}");
     // A socket bound to the home loca (iye).
     let url = format!(
-        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-dev&type=agent&filter=mentions&turn_max=1"
+        "ws://127.0.0.1:{port}/ws?room=iye&name=care-two&type=agent&filter=mentions&turn_max=1"
     );
     let (mut caretaker, _) = tokio_tungstenite::connect_async(url).await.unwrap();
     let client = reqwest::Client::new();
 
-    // Summon loca-dev from a DIFFERENT loca ("reviewer").
+    // Summon care-two from a DIFFERENT loca ("reviewer").
     client
         .post(format!("{base}/rooms/reviewer/messages"))
         .json(&serde_json::json!({
             "sender": "operator",
             "sender_type": "user",
-            "target": "loca-dev",
-            "text": "@loca-dev cross-room summon"
+            "target": "care-two",
+            "text": "@care-two cross-room summon"
         }))
         .send()
         .await
@@ -730,7 +730,7 @@ async fn loca_care_owns_the_signal_in_care_loca_when_no_live_lead_exists() {
         "bigmaster",
         &[
             ("LOCA_AGENT_ROOM", "iye".into()),
-            ("LOCA_CARETAKERS", "loca-dev,loca-care".into()),
+            ("LOCA_CARETAKERS", "care-two,loca-care".into()),
             ("DB_PATH", db),
         ],
     )
@@ -1575,24 +1575,24 @@ async fn a_reply_to_a_caretaker_summons_them_cross_loca() {
         &[
             ("LOCA_AGENT_ROOM", "iye".into()),
             ("RESERVED_LOCA", "iye".into()),
-            ("LOCA_CARETAKERS", "loca-dev,loca-care".into()),
+            ("LOCA_CARETAKERS", "care-two,loca-care".into()),
             ("DB_PATH", db),
         ],
     )
     .await;
     let base = format!("http://127.0.0.1:{port}");
     let (mut caretaker, _) = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-dev&type=agent&filter=mentions&turn_max=1"
+        "ws://127.0.0.1:{port}/ws?room=iye&name=care-two&type=agent&filter=mentions&turn_max=1"
     ))
     .await
     .unwrap();
     let client = reqwest::Client::new();
 
-    // loca-dev authored a message in the source loca `reviewer`.
+    // care-two authored a message in the source loca `reviewer`.
     let root: Value = client
         .post(format!("{base}/rooms/reviewer/messages"))
         .json(&serde_json::json!({
-            "sender": "loca-dev", "sender_type": "agent", "text": "the note"
+            "sender": "care-two", "sender_type": "agent", "text": "the note"
         }))
         .send()
         .await
@@ -1602,8 +1602,8 @@ async fn a_reply_to_a_caretaker_summons_them_cross_loca() {
         .unwrap();
     let root_id = root["id"].as_u64().unwrap();
 
-    // A reply to loca-dev's message with NO explicit target and NO @loca-dev in
-    // text. The reply author (loca-dev) is addressed via reply_to_sender, so the
+    // A reply to care-two's message with NO explicit target and NO @care-two in
+    // text. The reply author (care-two) is addressed via reply_to_sender, so the
     // cross-loca caretaker summon must still fire — exactly like an @mention.
     client
         .post(format!("{base}/rooms/reviewer/messages"))
@@ -1625,7 +1625,7 @@ async fn a_reply_to_a_caretaker_summons_them_cross_loca() {
     .await;
     assert_eq!(summoned["signal"]["room"], "iye");
     assert_eq!(summoned["signal"]["source_room"], "reviewer");
-    assert_eq!(summoned["signal"]["owner"], "loca-dev");
+    assert_eq!(summoned["signal"]["owner"], "care-two");
     assert_eq!(summoned["signal"]["context"].as_array().unwrap().len(), 1);
 }
 

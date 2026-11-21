@@ -769,9 +769,9 @@ def acknowledge_care(url, signal_id, name):
         return "error"
 
 
-# The caretakers' names the kit knows without asking (runtime.sh gives them
-# the low-noise policy by the same names).
-KNOWN_CARETAKERS = ("loca-dev", "loca-care")
+# The caretaker's name the kit knows without asking (runtime.sh gives it
+# the low-noise policy by the same name).
+KNOWN_CARETAKERS = ("loca-care",)
 LOBBY_ROOM_PROBE_MAX_SECONDS = 60.0
 
 

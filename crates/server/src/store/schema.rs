@@ -425,7 +425,7 @@ pub(super) const CORE_SCHEMA: &str = r#"
             );
             -- attachment_refs: the logical, per-room reference index. One row
             -- per (room, message, sha). This single table gives BOTH refcount
-            -- levels loca-dev requires with no stored counter to drift:
+            -- levels the reviewer requires with no stored counter to drift:
             --   * per-room LOGICAL size / auth  = rows WHERE room = ?  (a blob
             --     shared by two rooms counts in each; deleting a room drops
             --     only its rows).

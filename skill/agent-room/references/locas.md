@@ -124,7 +124,7 @@ Addressed messages may arrive grouped as one `turn` (by default up to 4
 messages, 5 quiet seconds, 15 seconds at most); `/stop` and controls never
 wait.
 
-A caretaker (`loca-care`, `loca-dev`) hears `@all` only in Care. From another
+A caretaker (`loca-care`) hears `@all` only in Care. From another
 loca it is reached only when a message names it, and only that one message is
 relayed into Care, never from a direct message or a group loca.
 

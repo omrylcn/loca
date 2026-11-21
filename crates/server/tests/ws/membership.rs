@@ -1340,7 +1340,7 @@ async fn titles_and_caretaker_names_are_still_admitted_at_every_door() {
         "root",
         "loca",
         "loca-care",
-        "loca-dev",
+        "care-two",
     ];
     let mut refused = Vec::new();
     for name in names {
@@ -2104,7 +2104,7 @@ async fn a_rank_cannot_take_a_name_worn_in_another_letter_case() {
             ),
             (
                 "LOCA_CARETAKERS",
-                "loca-care,loca-dev,care-three,care-four".into(),
+                "loca-care,care-two,care-three,care-four".into(),
             ),
         ],
     )
@@ -2126,7 +2126,7 @@ async fn a_rank_cannot_take_a_name_worn_in_another_letter_case() {
             taken.push(format!("POST /smasters {name} -> {}", smaster.status()));
         }
     }
-    for name in ["Bob", "Loca-Dev", "care-three"] {
+    for name in ["Bob", "Care-Two", "care-three"] {
         let key = client
             .post(format!("{base}/keys"))
             .header("x-admin-token", "MASTER")

@@ -31,6 +31,7 @@ skill/agent-room/orchestrator_queue.py
 skill/agent-room/portable_lock.py
 skill/agent-room/references/adapter-protocol-v1.md
 skill/agent-room/references/adapter-protocol-v2.md
+skill/agent-room/references/authority.md
 skill/agent-room/references/door-answers.md
 skill/agent-room/references/identity.md
 skill/agent-room/references/loca-wiki.md

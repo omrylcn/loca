@@ -1,6 +1,6 @@
 # Standalone crate (deliberately NOT a member of the root workspace) so this
 # desktop wrapper stays self-contained on the isolated `desktop` branch and
-# never perturbs dev/master's workspace. Tauri version is pinned by loca-dev at
+# never perturbs dev/master's workspace. Tauri version is pinned by the maintainer at
 # build time.
 #
 # The empty [workspace] table below is what actually ENFORCES that isolation: a
@@ -12,7 +12,7 @@
 
 [package]
 name = "loca-desktop"
-version = "0.20.0"
+version = "0.20.1"
 edition = "2021"
 description = "Native desktop shell for Loca — thin Tauri wrapper over the shared web UI + room-server"
 license = "AGPL-3.0-only"
@@ -39,7 +39,7 @@ serde_json = "1"
 tauri-plugin-notification = "2"
 # Phase 2 — OS-native credential store (macOS Keychain / Windows Credential
 # Manager / Linux Secret Service). Keeps the invite/session OUT of the webview's
-# on-disk localStorage. NOTE for loca-dev at build time: keyring v3 gates its
+# on-disk localStorage. NOTE for the maintainer at build time: keyring v3 gates its
 # platform backends behind features and the Secret Service backend needs an
 # encryption feature — verify these compile on the target and adjust if the
 # exact feature names moved between v3 minors.

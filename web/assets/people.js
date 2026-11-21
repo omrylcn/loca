@@ -9,15 +9,15 @@ function residentReadCurrent(scope) {
   return isAdmin() && scope.sequence >= residentAppliedSequence && scope.server === serverBase()
     && scope.session === state.session && scope.name === state.name && !buildingStale(scope.gen);
 }
+// The Building's resident snapshot for the ranks. Every member is in the
+// Lobby room now (the room lists who is there), so no separate "who waits"
+// list is drawn; People shows each member's connection and wake state.
 async function fetchLobby() {
-  const box = $("lobbyBox");
   if (!isAdmin()) {
     state.lobby = [];
-    box.classList.add("hidden");
     renderLobby();
     return;
   }
-  box.classList.remove("hidden");
   const scope = residentReadScope();
   try {
     const r = await fetch(`${serverBase()}/residents`, { headers: adminHeaders({}) });
@@ -47,6 +47,7 @@ function applyResidentSnapshot(residents, { people = false, scope = null } = {})
 
 function renderLobby(error) {
   const list = $("lobbyList");
+  if (!list) return;
   const rows = state.lobby || [];
   $("lobbyCount").textContent = rows.length;
   if (error) {

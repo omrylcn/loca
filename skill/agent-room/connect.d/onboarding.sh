@@ -198,6 +198,7 @@ case "$cmd" in
       fi
     fi
     echo "ready: $server as '$name'"
+    echo "your user: connect.sh owner $server $name <their Loca @name>  (references/authority.md)"
     held=$(sed -n 's/^DAVET_\([^=]*\)=.*/\1/p' "$LOCA_ENV" | tr '\n' ' ')
     if [ -n "$held" ]; then
       echo "your invites open: $held"
@@ -277,6 +278,7 @@ case "$cmd" in
         ws=$(printf '%s' "$server" | sed -E 's#^http#ws#')
         echo
         echo "RESULT: LOBBY — monitor setup required   (you are NOT fully connected yet)"
+        echo "Set who your user is: connect.sh owner $server $name <their Loca @name>  (references/authority.md)"
         echo "Onboarding created your identity and filed its membership in the env file."
         echo "Nothing delivers to you or WAKES you until a listener/Monitor is running AND"
         echo "verified ONLINE — that is part of connecting, not an optional extra. The"

@@ -377,9 +377,9 @@ async fn journal_records_work_and_survives_restart() {
         create_test_room(port, "master", "general").await;
         let base = format!("http://127.0.0.1:{port}");
         let e: Value = client.post(format!("{base}/rooms/general/journal"))
-            .json(&serde_json::json!({ "text": "the invite system went to prod", "by": "loca-dev", "by_type": "agent" }))
+            .json(&serde_json::json!({ "text": "the invite system went to prod", "by": "care-two", "by_type": "agent" }))
             .send().await.unwrap().json().await.unwrap();
-        assert_eq!(e["by"], "loca-dev");
+        assert_eq!(e["by"], "care-two");
         assert_eq!(e["id"], 1, "entries are numbered from one, per loca");
 
         // An empty entry says nothing and is refused.
@@ -478,7 +478,7 @@ async fn work_state_only_rooms_survive_restart() {
             .post(format!("{base}/rooms/journal-only/journal"))
             .json(&serde_json::json!({
                 "text": "the first entry was written before anyone spoke",
-                "by": "loca-dev",
+                "by": "care-two",
                 "by_type": "agent"
             }))
             .send()
@@ -632,7 +632,7 @@ async fn storage_failures_are_503_and_do_not_mutate_memory() {
     sql.execute_batch("DROP TABLE journal").unwrap();
     let journal = client
         .post(format!("{base}/rooms/journal-fail/journal"))
-        .json(&serde_json::json!({ "text": "must persist", "by": "loca-dev" }))
+        .json(&serde_json::json!({ "text": "must persist", "by": "care-two" }))
         .send()
         .await
         .unwrap();

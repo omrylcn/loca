@@ -185,8 +185,6 @@ sessizce başkasına atamaz.
 **İye**, sıradan bir proje locası değildir; binanın idare ve bakım merkezidir.
 Public kurulumda burada yalnız **Master, Smaster ve loca-care** bulunur. Master
 ve Smaster rütbeleriyle girer; loca-care kendi kimlik-bağlı davetiyle oturur.
-Private ürün geliştirme kurulumunda loca-dev ayrıca açıkça eklenebilir; bu
-public varsayılan, paket veya onboarding davranışı değildir.
 Başka bir bina üyesi `call` veya davet yoluyla İye'ye alınamaz. Sidebar'da da
 normal localardan ayrı görünür.
 
@@ -355,18 +353,6 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
   sidebar'da **Mesajlar** başlığı altında ayrı görünür.
 
 ### Roller (kim ne yapar)
-- **Loca ajanı** (loca-dev) — locanın kendisine bakan agent; **grubun bir
-  üyesi değildir.** Sınırları katı:
-  - **Yalnızca İye'de**, yapılandırılmış özel bakım locasında bulunur
-    (`LOCA_AGENT_ROOM=iye`). Lobby onun
-    odası değildir. Başka locaya **girmez**; oralarda yalnızca adı geçerse
-    o tek çağrı İye'ye taşınır. Kaynak locanın koltuğu, roster'ı, geçmişi,
-    notları veya görevleri açılmaz; o localar grupların kendi alanı olarak
-    kalır.
-  - **Yalnızca adıyla çağrılınca** konuşur (`@loca-dev`). `@all` bir duyurudur,
-    çağrı değil — ona cevap vermez, sohbete karışmaz.
-  - Yalnız büyük operatöre bağlıdır; iletişim locanın kendisi içindir
-    (istek, bug, geliştirme), sohbete katılmak için değil.
 - **loca-care** — Building rollerinin altında ordinary bir caretaker agent'tır.
   Kod yazmaz ve
   Building authority taşımaz: üye alamaz, davet veremez, revoke yapamaz,

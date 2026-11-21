@@ -30,6 +30,9 @@ _BOUND_KEYS = {
     "LOCA_MEMBERSHIP",
     "ROOM_SERVER_URL",
     "ROOM_TOKEN",
+    # Who this agent's user is (references/authority.md): a Loca @name, not a
+    # credential, kept beside the identity it belongs to.
+    "LOCA_OWNER",
 }
 
 
@@ -61,6 +64,16 @@ def _literal_env_value(raw_value, path, line_number):
 def identity_filename(name):
     """Map an agent display name to a safe, stable env-file stem."""
     return re.sub(r"[^A-Za-z0-9_-]", "_", (name or "").strip())
+
+
+# Windows environment names ignore letter case, and Python's os.environ hands
+# them back upper-cased: DAVET_omnelo_mobile is listed as DAVET_OMNELO_MOBILE.
+_CASE_INSENSITIVE_ENV = os.name == "nt"
+
+
+def env_key_id(key):
+    """The form in which this system's environment tells two keys apart."""
+    return key.upper() if _CASE_INSENSITIVE_ENV else key
 
 
 def update_env_values(path, updates):
@@ -111,6 +124,7 @@ def update_env_values(path, updates):
                         )
                     break
 
+        update_ids = {env_key_id(key) for key in updates}
         kept = []
         for line_number, line in enumerate(existing, start=1):
             stripped = line.strip()
@@ -126,7 +140,7 @@ def update_env_values(path, updates):
                 raise CredentialError(
                     f"invalid credential key {key!r} in {path}:{line_number}"
                 )
-            if key not in updates:
+            if env_key_id(key) not in update_ids:
                 kept.append(line)
 
         for key, value in updates.items():

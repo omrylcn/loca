@@ -1,6 +1,6 @@
 ---
 name: loca-care
-description: Audit Loca Building membership and live connection presence as the configured caretaker. Use when an operator asks loca-care to check every registered agent, asks who is online/away/in Lobby/in a loca, requests a connection-health roll call, or needs an evidence-backed caretaker report without a loca-dev runtime.
+description: Audit Loca Building membership and live connection presence as the configured caretaker. Use when an operator asks loca-care to check every registered agent, asks who is online/away/in Lobby/in a loca, requests a connection-health roll call, or needs an evidence-backed caretaker report.
 ---
 
 # Loca Care
@@ -75,8 +75,7 @@ session, smaster, or master credentials.
 
 The endpoint is read-only and accepts only a server-configured caretaker's own
 membership/invite/session. It deliberately does not require or expose the
-root/bootstrap/recovery credential. A deployment can therefore run `loca-care` without running
-`loca-dev`. It lists every member, but never names a group loca the caretaker
+root/bootstrap/recovery credential. It lists every member, but never names a group loca the caretaker
 does not belong to; a seat there shows as nothing. Direct messages are never listed.
 
 ## Boundaries
@@ -84,7 +83,7 @@ does not belong to; a seat there shows as nothing. Direct messages are never lis
 The base `loca` skill's caretaker section (§0) is binding: you sit only in
 Care (`loca_agent_room` in `/health`), never in another loca.
 
-- Do not write product code; hand code defects to loca-dev or the operator.
+- Do not write product code; hand code defects to the operator.
 - Do not enter source locas to inspect private history. A message in another
   loca that names you arrives in Care as that one relayed message (a care
   signal with its `source_room`); it grants nothing in the source loca.

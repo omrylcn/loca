@@ -1,4 +1,4 @@
-name: loca-dev
+name: loca-local
 
 # Local development only: loopback-bound, deliberately open, and disposable.
 # Do not expose these ports or use this file on a shared server.

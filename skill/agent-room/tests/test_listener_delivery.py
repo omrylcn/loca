@@ -657,11 +657,11 @@ class ListenerDeliveryTests(unittest.TestCase):
                     "signal": {
                         "id": "stale-delivery",
                         "room": "sb-dev",
-                        "owner": "loca-dev",
+                        "owner": "care-two",
                         "reason": "room_silence",
                     },
                 },
-                "loca-dev",
+                "care-two",
                 "https://loca.example",
             )
 

@@ -17,6 +17,11 @@ body:not(.locked) .side {
 /* Three columns on a wide screen: the sidebar is the board's 280px. Below
    that This Loca shares the sidebar, and its seats need the room. */
 body.locainfo-on { grid-template-columns: 280px minmax(0, 1fr) var(--locainfo-w, 360px); }
+/* The Lobby room takes no invite, Lead, call or extension (the server
+   refuses each there), so their controls are not drawn: no Lead picker, no
+   Focus tab, no "release" on a row and no "+ call". */
+body.in-lobbyroom #leadKey, body.in-lobbyroom #leadSelect, body.in-lobbyroom #tabTasks,
+body.in-lobbyroom #onlineList .omem .seatacts .release, body.in-lobbyroom #callBtn { display: none !important; }
 /* Its left edge is a grip: drag it (or use the arrow keys on it) to widen or
    narrow This Loca; the width is remembered on this browser (locainfo.js). */
 #locaInfo { position: relative; }

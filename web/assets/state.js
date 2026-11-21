@@ -234,6 +234,8 @@ function floorSaysFloor(floor) {
 
 function renderLobbyRoomLink() {
   document.querySelector("main.main")?.classList.toggle("lobbyroom", isLobbyRoom(state.room));
+  // This Loca can stand outside main (beside the chat): the page says it too.
+  document.body.classList.toggle("in-lobbyroom", isLobbyRoom(state.room));
   const link = $("lobbyRoomLink");
   if (!link) return;
   const lobby = state.lobbyRoom;
@@ -246,12 +248,6 @@ function renderLobbyRoomLink() {
   link.setAttribute("aria-current", active ? "page" : "false");
   const unread = Number(state.unread[LOBBY_ROOM] || 0);
   link.classList.toggle("has-unread", !!unread);
-  // Who waits in the Lobby (and the ranks' "call") is read in the Lobby room,
-  // beside its talk, not at the foot of the sidebar.
-  const box = $("lobbyBox");
-  const home = active ? $("sideLocaView") : $("sideBuildingView");
-  if (box && home && box.parentElement !== home) home.appendChild(box);
-  document.body.classList.add("lobby-in-room");
 }
 
 function renderRooms() {

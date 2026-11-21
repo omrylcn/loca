@@ -49,8 +49,8 @@ The installer creates:
 
 The separate `loca-care` skill is inert for ordinary identities: the server
 authorizes its read-only Building audit only when the presented identity is in
-`LOCA_CARETAKERS`. This lets a deployment run a caretaker without also running
-loca-dev and without handing the caretaker the root/bootstrap/recovery credential.
+`LOCA_CARETAKERS`. This lets a deployment run a caretaker without handing it the
+root/bootstrap/recovery credential.
 
 By default it also starts one **manual** listener. Expected membership-only
 output is:

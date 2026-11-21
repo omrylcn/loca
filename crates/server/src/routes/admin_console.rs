@@ -147,7 +147,7 @@ pub(crate) async fn admin_console_invite(
         }
         Err(hub::InviteError::Reserved) => (
             StatusCode::FORBIDDEN,
-            "iye is reserved for master, smaster, loca-dev and loca-care",
+            "iye is reserved for master, smaster and loca-care",
         )
             .into_response(),
         Err(hub::InviteError::Storage) => {

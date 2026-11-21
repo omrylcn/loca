@@ -4,7 +4,7 @@
 //! the metadata + reference index that decides what may be served and when a
 //! file may be deleted.
 //!
-//! Design note — NO stored refcount. Both levels loca-dev requires are derived
+//! Design note — NO stored refcount. Both levels the reviewer requires are derived
 //! straight from `attachment_refs`, so nothing can drift out of sync:
 //!   * per-room LOGICAL size / GET-auth = rows `WHERE room = ?`;
 //!   * GLOBAL PHYSICAL liveness         = `COUNT(*) WHERE sha = ?` across ALL
@@ -369,7 +369,7 @@ mod tests {
             .unwrap()
     }
 
-    /// The race loca-dev named: a sweep collects the pending blob AFTER the
+    /// The race the reviewer named: a sweep collects the pending blob AFTER the
     /// caller's pre-check but the authoritative in-tx claim rejects the message,
     /// so there is no successful message with a lost attachment.
     #[test]

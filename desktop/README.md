@@ -52,8 +52,8 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
   opens already connected instead of showing an empty box. The compile-time
   `LOCA_DEFAULT_SERVER` (see `main.rs`) seeds the `#server` field when nothing is
   saved; `#server` becomes an advanced override rather than a first-run chore.
-- **Phase 2 — Credential storage (SECURITY-CRITICAL, loca-dev review gate):**
-  *code written, pending loca-dev build/review.* The two credential-bearing
+- **Phase 2 — Credential storage (SECURITY-CRITICAL, the maintainer review gate):**
+  *code written, pending the maintainer build/review.* The two credential-bearing
   localStorage keys the web UI actually uses — `loca-seat` (invite/roomToken) and
   `loca-admin-session` (token) — are moved into the **OS keychain** (macOS
   Keychain / Windows Credential Manager / Linux Secret Service via `keyring`),
@@ -66,7 +66,7 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
   possibly absent on a headless CI/build box, where a keychain read just returns
   empty and the user re-enters the seat once (the app still launches).
 - **Phase 3 — Native notifications:** *code written, cargo-checked both flavors +
-  a Playwright event spec; pending loca-dev runtime/privacy review.* Native OS
+  a Playwright event spec; pending the maintainer runtime/privacy review.* Native OS
   notifications for the three notifiable events only — a **mention** (message
   addressed to me), a **directed attention**, and an **actionable reminder**;
   reactions and ordinary messages never notify. Boundary-respecting wiring: the
@@ -89,9 +89,9 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
   directly with an action handler (Linux-only today) or a future plugin
   capability — deferred and revisited with the per-OS work in Phase 4; the payload
   already carries `loca`/`id` so it can be wired later.
-  *Runtime-pending (loca-dev):* the actual notification display/permission
+  *Runtime-pending (maintainer):* the actual notification display/permission
   (Linux works without a prompt; macOS needs one).
-- **Phase 5 — Standalone flavor (option 3), CLOSED-door:** ✅ **Linux GO** (loca-dev
+- **Phase 5 — Standalone flavor (option 3), CLOSED-door:** ✅ **Linux GO** (the maintainer
   run-review, 2026-08-24): the Host opened, auto-connected to its private `iye` loca as `you`,
   booted its sidecar on a dynamic `127.0.0.1` port (no `0.0.0.0`), used separate
   standalone app-data/SQLite, and cleaned up the child process + port on close —
@@ -99,7 +99,7 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
   Windows/macOS builds + signing still pending. The
   `bundled-server` Cargo feature boots a local `room-server` at launch and points
   the UI at it, all behind `#[cfg(feature = "bundled-server")]` so the client
-  flavor stays byte-for-byte unchanged. It is **closed by default** (loca-dev's
+  flavor stays byte-for-byte unchanged. It is **closed by default** (the maintainer's
   Phase 5a review correctly rejected the earlier open-mode plan):
   - **Dynamic port** — bind `127.0.0.1:0` for a free port; never a fixed,
     occupiable one (so the UI can't be pointed at a stranger's service).
@@ -116,7 +116,7 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
     because the bundled UI runs from the Tauri origin, not `127.0.0.1`.
   - **Bound to `127.0.0.1` only, never `0.0.0.0`.** Persistent SQLite under the
     app data dir. Child stopped on app exit.
-  - **loca-dev build:** first build the server (`cargo build -p server --release`
+  - **the maintainer build:** first build the server (`cargo build -p server --release`
     from the repo root), then **stage the binary** into
     `desktop/src-tauri/binaries/` (its native name — `room-server` or, on Windows,
     `room-server.exe`; that dir is gitignored), then
@@ -153,7 +153,7 @@ Tauri window  ──loads──▶  web/ (the same web UI, bundled)
   `Loca Host.app/Contents/MacOS/loca-host` on macOS and `loca-host.exe` in its
   install folder on Windows.
 
-## Build (loca-dev)
+## Build
 
 **Linux / Ubuntu prerequisites** (this is the environment we're demoing on —
 `cargo tauri dev` fails without these WebKitGTK libs + the CLI):
@@ -190,7 +190,7 @@ Notes for the first Linux run:
 - Icons are only needed for `cargo tauri build` (bundling). Generate them once
   via `icons/GENERATE.md` before producing installers.
 
-Version specifics (Tauri v1 vs v2 config keys) are for loca-dev to pin at build
+Version specifics (Tauri v1 vs v2 config keys) are for the maintainer to pin at build
 time; this scaffold targets Tauri v2 and marks anything build-sensitive.
 
 ## Security notes (loca-care's gate on this branch)

@@ -12,7 +12,7 @@ test.beforeEach(async ({ page, request }) => {
   });
 });
 
-// Object-URL lifecycle (loca-dev NO-GO): an inline attachment image creates a
+// Object-URL lifecycle (review NO-GO): an inline attachment image creates a
 // blob object URL; it must be revoked — on image load, and swept on feed
 // repaint / room change — so blob memory never accumulates for the life of the
 // (Desktop) process. This spies on URL.createObjectURL/revokeObjectURL and

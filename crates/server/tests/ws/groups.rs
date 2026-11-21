@@ -146,7 +146,7 @@ async fn closed_building(db: &std::path::Path) -> (u16, ServerGuard) {
             ("REQUIRE_INVITE", "1".into()),
             ("LOCA_AGENT_ROOM", "iye".into()),
             ("RESERVED_LOCA", "iye".into()),
-            ("LOCA_CARETAKERS", "loca-dev,loca-care".into()),
+            ("LOCA_CARETAKERS", "care-two,loca-care".into()),
         ],
     )
     .await
@@ -588,18 +588,18 @@ async fn a_group_loca_is_never_copied_into_care_loca() {
     let (port, _guard) = closed_building(&db).await;
     let base = format!("http://127.0.0.1:{port}");
     let (_, lead) = smaster(&base, "kaan").await;
-    member(&base, "loca-dev", "agent").await;
+    member(&base, "care-two", "agent").await;
     let (status, care_loca_invite) = send(
         reqwest::Method::POST,
         format!("{base}/rooms/iye/invites"),
         &[("x-admin-token", MASTER)],
-        Some(serde_json::json!({"name": "loca-dev"})),
+        Some(serde_json::json!({"name": "care-two"})),
     )
     .await;
     assert_eq!(status, 200, "{care_loca_invite}");
     let care_loca_invite = care_loca_invite["token"].as_str().unwrap().to_string();
     let (mut caretaker, _) = tokio_tungstenite::connect_async(format!(
-        "ws://127.0.0.1:{port}/ws?room=iye&name=loca-dev&type=agent&filter=mentions&turn_max=1&token={care_loca_invite}"
+        "ws://127.0.0.1:{port}/ws?room=iye&name=care-two&type=agent&filter=mentions&turn_max=1&token={care_loca_invite}"
     ))
     .await
     .unwrap();
@@ -626,8 +626,8 @@ async fn a_group_loca_is_never_copied_into_care_loca() {
             format!("{base}/rooms/{room}/messages"),
             &lead,
             serde_json::json!({
-                "sender": "x", "sender_type": "user", "target": "loca-dev",
-                "text": format!("@loca-dev look at {room}")
+                "sender": "x", "sender_type": "user", "target": "care-two",
+                "text": format!("@care-two look at {room}")
             }),
         )
         .await;

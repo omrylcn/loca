@@ -1151,7 +1151,7 @@ fn a_reply_to_a_caretaker_is_addressed_once() {
             require_invite: false,
             home_room: "iye".into(),
             reserved_room: "iye".into(),
-            caretakers: HashSet::from(["loca-dev".into()]),
+            caretakers: HashSet::from(["care-two".into()]),
         },
         store,
         RoomSettings::default(),
@@ -1167,7 +1167,7 @@ fn a_reply_to_a_caretaker_is_addressed_once() {
         text: "answering".into(),
         kind: protocol::MessageKind::Say,
         reply_to: Some(1),
-        reply_to_sender: Some("loca-dev".into()),
+        reply_to_sender: Some("care-two".into()),
         sender_principal: None,
         ts: 1,
         attachments: Vec::new(),
@@ -1177,19 +1177,19 @@ fn a_reply_to_a_caretaker_is_addressed_once() {
     // explicit target and no @mention.
     assert_eq!(
         hub.addressed_caretakers(&base),
-        vec!["loca-dev".to_string()]
+        vec!["care-two".to_string()]
     );
 
     // When the same caretaker is ALSO the target and @mentioned, sort+dedup keep
     // exactly one summon (never three).
     let triple = protocol::Message {
-        target: Some("loca-dev".into()),
-        text: "@loca-dev answering".into(),
+        target: Some("care-two".into()),
+        text: "@care-two answering".into(),
         ..base.clone()
     };
     assert_eq!(
         hub.addressed_caretakers(&triple),
-        vec!["loca-dev".to_string()]
+        vec!["care-two".to_string()]
     );
 
     // A non-caretaker reply author addresses nobody.

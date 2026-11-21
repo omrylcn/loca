@@ -415,3 +415,36 @@ async fn building_search_is_bounded_and_rate_limited() {
         200
     );
 }
+
+/// The Lobby is where everyone waits, not a loca at work: it has no Lead.
+#[tokio::test]
+async fn the_lobby_room_has_no_lead() {
+    let (port, _guard) = spawn_server_env(MASTER, &[("REQUIRE_INVITE", "1".into())]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let key = admit_key(&base, "waiter", "agent").await;
+    let session = session_with(&base, ("x-room-token", &key), "waiter", None).await;
+    let mut ws = connect_ws(port, "lobby", &format!("waiter&session={session}"), "agent").await;
+    wait_for(&mut ws, |f| f["t"] == "history").await;
+    let c = reqwest::Client::new();
+    let named = c
+        .post(format!("{base}/rooms/lobby/lead"))
+        .header("x-admin-token", MASTER)
+        .json(&serde_json::json!({ "lead": "waiter" }))
+        .send()
+        .await
+        .unwrap();
+    let status = named.status();
+    let why = named.text().await.unwrap();
+    assert_eq!(status, 403, "{why}");
+    assert!(why.contains("only messages"), "{why}");
+    let settings: Value = c
+        .get(format!("{base}/rooms/lobby/settings"))
+        .header("x-admin-token", MASTER)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(settings["lead"].is_null(), "{settings}");
+}

@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 from credentials import (
     LOBBY_ROOM,
     CredentialError,
+    env_key_id,
     update_env_values,
     validate_server_scope,
 )
@@ -239,10 +240,12 @@ def reconcile_room_invite_snapshot(invites):
             current[room_env_key(room)] = token
 
         local_keys = {key for key in os.environ if key.startswith("DAVET_")}
-        updates = {key: None for key in local_keys - set(current)}
+        current_ids = {env_key_id(key) for key in current}
+        gone = {key for key in local_keys if env_key_id(key) not in current_ids}
+        updates = {key: None for key in gone}
         updates.update(current)
         changed = any(os.environ.get(key) != value for key, value in current.items())
-        changed = changed or bool(local_keys - set(current))
+        changed = changed or bool(gone)
         if not changed:
             return []
         updates["LOCA_SESSION"] = None
@@ -250,7 +253,7 @@ def reconcile_room_invite_snapshot(invites):
             os.path.expanduser("~"), ".loca", "env"
         )
         update_env_values(path, updates)
-        for key in local_keys - set(current):
+        for key in gone:
             os.environ.pop(key, None)
             ROOM_SESSIONS.pop(key, None)
         for key, value in current.items():
@@ -258,7 +261,7 @@ def reconcile_room_invite_snapshot(invites):
                 ROOM_SESSIONS.pop(key, None)
         os.environ.update(current)
         os.environ.pop("LOCA_SESSION", None)
-        return [key.removeprefix("DAVET_") for key in sorted(local_keys - set(current))]
+        return [key.removeprefix("DAVET_") for key in sorted(gone)]
 
 
 def fetch_member_locas(url, membership):
@@ -302,11 +305,11 @@ def drop_unlisted_room_invites(rooms):
     ``/whoami`` member snapshot) may be passed here.
     """
     with CREDENTIAL_LOCK:
-        active = {room_env_key(str(room)) for room in rooms}
+        active = {env_key_id(room_env_key(str(room))) for room in rooms}
         stale = sorted(
             key
             for key in list(os.environ)
-            if key.startswith("DAVET_") and key not in active
+            if key.startswith("DAVET_") and env_key_id(key) not in active
         )
         if not stale:
             return []

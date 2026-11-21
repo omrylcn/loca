@@ -191,7 +191,7 @@ start_runtime() {
   unit_file="$unit_dir/$unit"
   launcher="$run_dir/$safe-service.sh"
   delivery=mentions
-  case "$name" in loca-dev|loca-care) only_direct=true ;; esac
+  case "$name" in loca-care) only_direct=true ;; esac
   [ "$only_direct" = false ] || delivery=direct
 
   if user_systemd_available && systemctl --user is-active --quiet "$unit"; then

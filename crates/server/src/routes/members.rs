@@ -195,9 +195,8 @@ pub(crate) async fn list_residents(
 
 /// The caretaker's least-privilege Building presence view.
 ///
-/// A configured caretaker must be able to answer "who is connected?" even in
-/// deployments that have no loca-dev runtime. Giving that runtime the master
-/// key would also let it admit/revoke members and change every loca, which is
+/// A configured caretaker must be able to answer "who is connected?".
+/// Giving it the master key would also let it admit/revoke members and change every loca, which is
 /// far broader than the job. Its own membership, invite, or live session is
 /// therefore enough for this read-only endpoint, and the configured caretaker
 /// name remains the authority boundary.

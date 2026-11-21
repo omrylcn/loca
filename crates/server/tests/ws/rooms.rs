@@ -1643,7 +1643,7 @@ async fn care_loca_migration_preserves_history_and_reserves_the_loca() {
             .unwrap()
             .error_for_status()
             .unwrap();
-        invite_for(&base, "MASTER", "general", "loca-dev").await;
+        invite_for(&base, "MASTER", "general", "care-two").await;
         invite_for(&base, "MASTER", "general", "cyber").await;
     }
 
@@ -1654,7 +1654,7 @@ async fn care_loca_migration_preserves_history_and_reserves_the_loca() {
             ("ROOM_RENAME", "general:iye".into()),
             ("LOCA_AGENT_ROOM", "iye".into()),
             ("RESERVED_LOCA", "iye".into()),
-            ("LOCA_CARETAKERS", "loca-dev,loca-care".into()),
+            ("LOCA_CARETAKERS", "care-two,loca-care".into()),
         ],
     )
     .await;
@@ -1693,7 +1693,7 @@ async fn care_loca_migration_preserves_history_and_reserves_the_loca() {
         .json()
         .await
         .unwrap();
-    assert!(invites.iter().any(|i| i["name"] == "loca-dev"));
+    assert!(invites.iter().any(|i| i["name"] == "care-two"));
     assert!(
         !invites.iter().any(|i| i["name"] == "cyber"),
         "ordinary legacy seats are not carried into iye"

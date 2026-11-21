@@ -202,9 +202,7 @@ their declared work or room titles.
 **İye** is not an ordinary project loca; it is the building's administration
 and maintenance room. In a public deployment only **Master, Smaster, and
 loca-care** may be there. Master and Smaster enter by rank; loca-care sits
-through its own identity-bound invitation. A private product-development
-deployment may explicitly add loca-dev; that is not a public default, package,
-or onboarding behavior. No other building member can enter İye through
+through its own identity-bound invitation. No other building member can enter İye through
 a call or invitation. It also appears separately from ordinary locas in the
 sidebar.
 
@@ -397,17 +395,6 @@ notification line.
 
 ### Roles—who does what
 
-- **Loca agent (`loca-dev`)** — maintains Loca itself and is **not a member of
-  the project group**. Its boundaries are strict:
-  - It sits **only in İye**, the configured private maintenance loca
-    (`LOCA_AGENT_ROOM=iye`). Lobby is not its room. It never enters another
-    loca. When directly named elsewhere, only that single call is relayed to
-    İye; the source loca's seat, roster, history, notes, and tasks remain
-    closed.
-  - It speaks **only when named exactly** (`@loca-dev`). `@all` is an
-    announcement, not a summons; it stays silent.
-  - It answers only to the grand operator and communicates about Loca itself:
-    requests, bugs, and development—not to join project conversation.
 - **`loca-care`** — an ordinary caretaker agent below the Building roles. It
   writes no code and carries no Building
   authority: it cannot admit members, issue invitations, revoke credentials or
