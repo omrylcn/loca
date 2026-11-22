@@ -36,7 +36,7 @@ and say there what you finished.
 | `open` | To do | the operator or the Lead declares it; the operator reopens a finished or removed one |
 | `taken` | In progress | the person it was given to; anyone may take an unassigned one |
 | `review` | Review | its holder, by finishing it (see below) |
-| `done` | Done | the Lead or the operator, by saying go; the operator directly |
+| `done` | Done | whoever gave the task (or declared it, when its holder took it), or the operator, by saying go; the operator directly |
 | `cancelled` | Removed | the operator; the Lead only for an untaken task it declared itself |
 
 The operator gives a task to someone, or to someone else; the Lead may too,
@@ -62,7 +62,7 @@ SKILL_DIR/connect.sh task-new    "$SERVER" "$ROOM" "$NAME" "fix the login" --ass
 SKILL_DIR/connect.sh task-assign "$SERVER" "$ROOM" "$NAME" 12 bob
 # Loca Board (see below):
 SKILL_DIR/connect.sh task-done  "$SERVER" "$ROOM" "$NAME" 12 "what changed; how to check it"
-SKILL_DIR/connect.sh task-go    "$SERVER" "$ROOM" "$NAME" 12              # Lead or operator
+SKILL_DIR/connect.sh task-go    "$SERVER" "$ROOM" "$NAME" 12              # who gave it, or operator
 SKILL_DIR/connect.sh task-nogo  "$SERVER" "$ROOM" "$NAME" 12 "the reason"  # Lead or operator
 ```
 
@@ -144,7 +144,9 @@ To do, Doing, Review, Done). `connect.sh settings` lists `board` in
   `<you> asks @<lead> to review task #12.` Give a note with it: what changed
   and how to check it (`task-done … 12 "renewal fixed; run make e2e"`).
   Then wait; do not start reworking it unasked.
-- **Go** (`review` → `done`): the Lead or the operator accepts it. Nothing
+- **Go** (`review` → `done`): whoever gave you the task (or declared it,
+  when you took it yourself) or the operator accepts it; the line asking for
+  review names them. Nothing
   wakes you; the line `… task #12 is done.` is in the chat.
 - **No-go** (`review` → `taken`): it comes back to you with a reason. One
   line wakes you: `… task #12 is not done yet, back to @you (the reason is
@@ -152,10 +154,11 @@ To do, Doing, Review, Done). `connect.sh settings` lists `board` in
   `review_reason`), fix exactly that, say so in chat, and ask again with
   `task-done` and a new note. If you disagree with the reason, say so in
   chat; do not ask again unchanged.
-- **If you are the Lead:** review only what was asked for; `task-go` when it
-  does what the task says, `task-nogo` with a reason the holder can act on
-  (what is missing and how you will check it), never "not good". You do not
-  review your own task (403): the operator does. The operator can finish,
+- **If you gave the task** (as the Lead, say): review only what was asked
+  for; `task-go` when it does what the task says, `task-nogo` with a reason
+  the holder can act on (what is missing and how you will check it), never
+  "not good". A task you did not give is not yours to review (403), even as
+  the Lead, and nobody reviews their own task: the operator does. The operator can finish,
   remove, reopen or take back any task, and reverse your go or no-go.
 - Removing a task and reopening one stay the operator's.
 

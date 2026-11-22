@@ -900,8 +900,8 @@ assignment. If you are the Lead, read the "Lead" section of
 references/tasks.md before `task-new` or `task-assign`. Tasks live on the
 Loca Board (`board` in `connect.sh settings` `extensions`); where it is off
 every task command answers `403 The Loca Board is off in this loca`. Your
-`task-done` asks for review (give a note), and the Lead answers with
-`task-go` or `task-nogo`; read the "Loca Board" section of
+`task-done` asks for review (give a note), and whoever gave you the task (or
+the operator) answers with `task-go` or `task-nogo`; read the "Loca Board" section of
 references/tasks.md first. A refusal prints nothing on stdout and exits non-zero
 (4 for 403: do not retry). Before your first task command, read
 [references/tasks.md](references/tasks.md): states, commands, exit codes, and

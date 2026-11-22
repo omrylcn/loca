@@ -101,6 +101,7 @@ test("the Loca Board tab works without Focus: declare, start, review, go", async
   }
   await card(bob, "open", "write the upgrade note").getByRole("button", { name: "Start" }).click();
   await card(bob, "taken", "write the upgrade note").getByRole("button", { name: "Ask for review" }).click();
+  await card(bob, "taken", "write the upgrade note").getByRole("button", { name: "Send for review" }).click();
   await expect(card(lead, "review", "write the upgrade note")).toHaveCount(1);
   await card(lead, "review", "write the upgrade note").getByRole("button", { name: "Approve", exact: true }).click();
   for (const page of [lead, bob]) await expect(card(page, "done", "write the upgrade note")).toHaveCount(1);

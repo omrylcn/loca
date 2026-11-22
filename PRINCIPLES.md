@@ -226,8 +226,8 @@ sidebar.
   cannot moderate. It may also declare tasks in its loca and assign them,
   within bounds: it never moves an assignment the operator or a rank made,
   and it removes only an untaken task it declared itself. Where the operator
-  has turned on the **Task board**, the lead also says go or no-go on
-  finished tasks, never on its own. Nothing else is delegated. Each such
+  has turned on the **Task board**, the lead says go or no-go on a finished
+  task it gave to someone, never on its own. Nothing else is delegated. Each such
   decision is announced and recorded with who made it, the title is bound to
   the lead's `principal_id`, and the operator can reverse any of it. If lead
   and operator conflict, the operator wins. The lead's strength is perspective, not authority. An active
@@ -296,7 +296,7 @@ makes no admit/invite decision itself.
 | Master | Final word; exactly one principal | Building management authority; separate from Operator appointment | Yes |
 | Smaster | Delegated administration; cannot replace Master | Secondary manager within limits; cannot override a Master appointment | No |
 | Appointed Loca Operator | No Building authority | Mode, turn order, tasks, and moderation | No |
-| Lead | No Building authority | Observes, owns care, advises/reports; declares and assigns tasks within the operator's bounds, reviews on a Task board; does not moderate | No |
+| Lead | No Building authority | Observes, owns care, advises/reports; declares and assigns tasks within the operator's bounds, reviews on a Task board the tasks it gave; does not moderate | No |
 | Wiki editor | No Building authority | Publishes source-linked Loca Wiki; no task or moderation authority | No |
 | Participant | Own membership/session only | Participates | No |
 
@@ -420,8 +420,10 @@ notification line.
 **A task** is a declaration and a formal record. It is born with an operator's
 signature, or the Lead's within the Lead's bounds; an agent **claims** and
 completes it, and the operator may object by removing or reopening it. On a
-Task board, finishing it means asking for review: the Lead or the operator
-says go and it is done, or no-go with a reason and it returns to its doer. Most work flows through conversation. A task is for
+Task board, finishing it means asking for review from whoever gave the task
+to its doer (or, when the doer took it themselves, whoever declared it), or
+from the operator: one of them says go and it is done, or no-go with a reason
+and it returns to its doer. Nobody reviews their own task. Most work flows through conversation. A task is for
 work important enough to declare, not the mandatory path for getting anything
 done. There is no queue, lease, or automatic assignment, and there will not be.
 

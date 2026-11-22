@@ -113,7 +113,7 @@ function renderReminderHistory() {
     list.appendChild(row);
   }
 }
-const TLABEL = { open: "To do", taken: "In progress", review: "Review", done: "Done", cancelled: "Removed" };
+const TLABEL = { open: "To do", taken: "Doing", review: "Review", done: "Done", cancelled: "Removed" };
 
 // The number of the unfinished task a person holds, worn beside their name in
 // the roster and on their lines. A task belongs to the principal the server
@@ -233,14 +233,21 @@ function renderTasks() {
   if (typeof refreshHome === "function") refreshHome();   // Home lists the open loca's tasks given to this person
 }
 
-async function taskAct(act, id) {
+// `from`: the button or card it came from, where a form opens; `text`: the
+// note or reason that form gave. On the Loca Board, asking for review takes
+// an optional note and a no-go a reason, both on the card itself.
+async function taskAct(act, id, from = null, text = null) {
   const t = state.tasks[id];
+  if (text === null && (act === "nogo" || (act === "done" && extensionOn("board")))) {
+    openTaskForm(act, id, from);
+    return;
+  }
   const body = { by: state.name };
   if (act === "take") { body.status = "taken"; if (!t.assigned_to) body.assigned_to = state.name; }
-  if (act === "done") body.status = "done";
+  if (act === "done") { body.status = "done"; if (text) body.note = text; }
   if (act === "cancel") body.status = "cancelled";
   if (act === "reopen") body.status = "open";
-  if (act === "go" || act === "nogo") return boardReview(act, id);
+  if (act === "go" || act === "nogo") return boardReview(act, id, text);
   const r = await fetch(`${serverBase()}/rooms/${encodeURIComponent(state.room)}/tasks/${id}`, {
     method: "PATCH", headers: adminHeaders({ "content-type": "application/json" }), body: JSON.stringify(body),
   });

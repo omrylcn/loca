@@ -295,3 +295,45 @@ async fn board_lines_wake_who_must_act_and_a_go_wakes_nobody() {
         }
     }
 }
+
+/// The review belongs to whoever gave the task: a task the Operator gave
+/// asks the Operator for review, and the Lead, who did not give it, cannot
+/// say go or no-go on it. The Operator can.
+#[tokio::test]
+async fn whoever_gave_the_task_reviews_it_not_any_lead() {
+    let (loca, ada, bob, _carol) = Loca::with_board().await;
+    let (status, task) = loca.declare(None, "rotate the key", Some("bob")).await;
+    assert_eq!(status, 201, "{task}");
+    let id = id_of(&task);
+    let given_by = task["assigned_by"]
+        .as_str()
+        .expect("assigned_by")
+        .to_string();
+    let (_, asked) = loca
+        .status(Some(&bob), id, serde_json::json!({"status": "done"}))
+        .await;
+    assert_eq!(asked["status"], "review");
+    for reason in [None, Some("not like this")] {
+        let mut body = serde_json::json!({"status": "taken"});
+        if let Some(reason) = reason {
+            body["reason"] = reason.into();
+        }
+        let (status, _) = loca.status(Some(&ada), id, body).await;
+        assert_eq!(status, 403, "the Lead reviewed a task it did not give");
+    }
+    let (status, _) = loca
+        .status(Some(&ada), id, serde_json::json!({"status": "done"}))
+        .await;
+    assert_eq!(status, 403, "the Lead approved a task it did not give");
+    let (status, done) = loca
+        .status(None, id, serde_json::json!({"status": "done"}))
+        .await;
+    assert_eq!(status, 200, "{done}");
+    assert_eq!(done["status"], "done");
+    let lines = loca.announcements().await;
+    let asks = format!("bob asks @{given_by} to review task #{id}.");
+    assert!(
+        lines.contains(&(given_by.clone(), asks.clone())),
+        "missing {asks:?}: {lines:?}"
+    );
+}

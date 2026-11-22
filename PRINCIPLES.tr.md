@@ -207,8 +207,8 @@ normal localardan ayrı görünür.
   moderasyon yapamaz. Locasında görev de ilan edip atayabilir, sınırlar
   içinde: operatörün ya da bir rütbenin yaptığı atamayı değiştiremez ve
   yalnız kendi ilan ettiği, kimsenin üstlenmediği görevi kaldırabilir.
-  Operatör **Görev panosunu** açtıysa lead biten görevlere geçer ya da geçmez
-  (go / no-go) da der, kendi görevine asla. Ona bundan fazlası devredilmez.
+  Operatör **Görev panosunu** açtıysa lead, birine verdiği görev bittiğinde
+  geçer ya da geçmez (go / no-go) der, kendi görevine asla. Ona bundan fazlası devredilmez.
   Bu kararların her biri duyurulur ve kimin verdiğiyle kaydedilir, unvan
   lead'in `principal_id`'sine bağlıdır ve operatör hepsini geri alabilir.
   Operatörle çelişirse operatör kazanır. Gücü yetkide değil, görüştedir. Etkin lead normal mention filtresine
@@ -268,7 +268,7 @@ kazanmaz, loca yaratmaz ve davet/admit kararı vermez.
 | Master | Son söz; tek principal | Building yönetim yetkisi; Operator atamasından ayrı | Evet |
 | Smaster | Delegated yönetim; Master'ı değiştiremez | Sınırları içinde ikinci yönetici; Master atamasını bozamaz | Hayır |
 | Atanmış Loca Operator | Building yetkisi yok | Mod, sıra, task ve moderasyon | Hayır |
-| Lead | Building yetkisi yok | Görür, care sahiplenir, tavsiye/rapor verir; operatörün sınırları içinde görev ilan eder ve atar, Görev panosunda onaylar; modere etmez | Hayır |
+| Lead | Building yetkisi yok | Görür, care sahiplenir, tavsiye/rapor verir; operatörün sınırları içinde görev ilan eder ve atar, Görev panosunda verdiği görevi onaylar; modere etmez | Hayır |
 | Wiki editörü | Building yetkisi yok | Kaynaklı Loca Wiki'yi yayımlar; görev veya moderasyon yetkisi yok | Hayır |
 | Participant | Yalnız kendi üyelik/oturumu | Katılır | Hayır |
 
@@ -375,8 +375,9 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
 **Görev** (telde `task`): bir ilan ve resmiyettir — operatör imzasıyla, ya da
 sınırları içinde Lead'in imzasıyla doğar, agent **üstlenir**, bitirir; operatör
 itiraz edebilir (kaldırır/yeniden açar). Görev panosunda bitirmek incelemeye
-sunmaktır: Lead ya da operatör geçer derse biter, gerekçeyle geçmez derse
-yapana döner.
+sunmaktır: görevi yapana veren kişiye (yapan onu kendisi aldıysa görevi
+ilan edene) ya da operatöre. Biri geçer derse biter, gerekçeyle geçmez derse
+yapana döner. Kimse kendi görevini incelemez.
 İşlerin çoğu sohbette akar; görev, ilana değecek işler içindir — işin zorunlu
 yolu değil. Kuyruk/lease/otomatik atama yoktur, olmayacaktır.
 

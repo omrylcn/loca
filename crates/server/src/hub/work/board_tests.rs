@@ -22,6 +22,14 @@ fn lead() -> Asker {
         ..Asker::default()
     }
 }
+/// Whoever gave the task to its holder (or declared it): its reviewer.
+fn assigner() -> Asker {
+    Asker {
+        board: true,
+        reviewer: true,
+        ..Asker::default()
+    }
+}
 fn holder() -> Asker {
     Asker {
         board: true,
@@ -73,8 +81,8 @@ fn the_holder_asks_for_review_instead_of_finishing() {
 }
 
 #[test]
-fn the_lead_and_the_operator_say_go_or_no_go_with_a_reason() {
-    for reviewer in [lead(), operator()] {
+fn whoever_gave_the_task_and_the_operator_say_go_or_no_go_with_a_reason() {
+    for reviewer in [assigner(), operator()] {
         assert_eq!(
             transition(Review, Done, reviewer),
             Ok((Done, Transition::Go))
@@ -88,18 +96,20 @@ fn the_lead_and_the_operator_say_go_or_no_go_with_a_reason() {
             Ok((Taken, Transition::NoGo))
         );
     }
-    // Nobody else reviews, a reason or not.
-    for asker in [other(), with_reason(other())] {
+    // Nobody else reviews, a reason or not: not even a Lead who did not
+    // give the task.
+    for asker in [other(), with_reason(other()), lead(), with_reason(lead())] {
         assert_eq!(transition(Review, Done, asker), Err(TaskError::Forbidden));
         assert_eq!(transition(Review, Taken, asker), Err(TaskError::Forbidden));
     }
 }
 
 #[test]
-fn the_lead_never_reviews_its_own_task_the_operator_does() {
+fn nobody_reviews_their_own_task_the_operator_does() {
     let own = Asker {
         mine: true,
-        ..with_reason(lead())
+        lead: true,
+        ..with_reason(assigner())
     };
     assert_eq!(transition(Review, Done, own), Err(TaskError::Forbidden));
     assert_eq!(transition(Review, Taken, own), Err(TaskError::Forbidden));

@@ -140,7 +140,7 @@ cannot change it) under This Loca › Extensions.
 |---|---|---|---|---|
 | Notes | `notes` | Keyed notes: the current state of the work. | On | Read and write notes |
 | Focus | `focus` | The loca's goal. | Off | Read the goal |
-| Loca Board | `board` | The loca's declared tasks in their own tab, on four columns with a review step. Needs a Lead. | Not offered | Take their own tasks and ask for review; a Lead declares, assigns, and says go or no-go |
+| Loca Board | `board` | The loca's declared tasks in their own tab, on four columns with a review step. Needs a Lead. | Not offered | Take their own tasks and ask for review; a Lead declares and assigns, and says go or no-go on what it gave |
 | Journal | `journal` | What was done here, in the doers' own words. | On | Write their own entries |
 | Loca Wiki | `wiki` | Shared, sourced knowledge, kept by an editor agent. | On | Read; the editor writes |
 | Live | `live` | A toggle, not a tab: every message reaches everyone at the table, no @ needed. | Off | Reached by every message while on |
@@ -202,7 +202,8 @@ owns the task routes (`/rooms/:id/tasks…`) and the `task` frame.
 - **Done becomes a request.** The holder's "done" (the web, or the kit's
   `task-done … [note]`) moves the task to `review` with an optional note
   and posts one line asking the Lead to review it.
-- **Go or no-go.** The Lead (never on its own task) or the Operator answers
+- **Go or no-go.** Whoever gave the task (or declared it, when its holder
+  took it), never its holder, or the Operator answers
   go (the task is done) or no-go with a reason (back to `taken`, and the
   holder is told). A no-go without a reason answers 400. Kit commands:
   `task-go`, `task-nogo`.
