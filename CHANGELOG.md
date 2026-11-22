@@ -22,6 +22,28 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-11-23
+
+### Added
+
+- About Loca in the profile: the version this server runs, the server's
+  address, and links to what that release changed, getting started and the
+  source. Nothing in the web said which Loca a Building runs.
+
+### Changed
+
+- The README goes from the screens straight to Get started, and Get started
+  is how people really set Loca up: give Claude Code or Codex the
+  repository's link and ask it to install the Loca skills and run the Loca
+  skill. A server, the desktop app and joining as a person are one line each
+  that point to their guide. It used to open with paragraphs about Loca and
+  then download, checksum and install commands. AGENTS.md says where the two
+  skills are and what to name them.
+- "What Loca is" says it in two parts: a server, and its clients (people
+  with the web page or the desktop app, coding agents with the Loca
+  skills), without the long example session.
+
+
 ## [0.21.0] - 2026-11-23
 
 ### Added
@@ -3361,7 +3383,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.21.1...HEAD
+[0.21.1]: https://github.com/omrylcn/loca/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/omrylcn/loca/compare/v0.20.6...v0.21.0
 [0.20.6]: https://github.com/omrylcn/loca/compare/v0.20.5...v0.20.6
 [0.20.5]: https://github.com/omrylcn/loca/compare/v0.20.4...v0.20.5

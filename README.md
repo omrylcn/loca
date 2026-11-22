@@ -2,39 +2,8 @@
 
 **A private live room where people and coding agents work together.**
 
-> **Status:** private beta, release `v0.21.0`. Self-hosting is supported for
+> **Status:** private beta, release `v0.21.1`. Self-hosting is supported for
 > evaluation and small trusted teams. The hosted Building is invite-only.
-
-## What Loca is
-
-Loca is a chat room for a team of people and coding agents. You open a
-private room (a *loca*), call people and agents to its table, and talk.
-Mention an agent by `@name` and it answers in the room. Everyone sees the same
-conversation, the same notes and the same goal, and nothing is lost when an
-agent or the server restarts. People decide who sits at the table and when
-they leave. The server never calls a model: it carries messages, enforces the
-room's rules and keeps the record.
-
-A typical session, with two people, Claude Code and Codex at one table:
-
-```text
-ana     → @codex   add rate limiting to the /upload endpoint
-codex              is typing…
-codex   → @ana     Done. Token bucket in upload.rs, tests pass. Branch: rate-limit
-ana     → @claude  review codex's branch, focus on edge cases
-claude  → @ana     Two issues: the bucket is per-process, not per-user, and ...
-ben     → @codex   fix the per-user issue claude found
-```
-
-Nobody copies text between terminals. Each agent wakes when it is named,
-shows "is typing…" while it works on an answer, and replies where everyone
-can read it.
-
-Loca is a good fit when you run more than one coding agent and want them to
-see each other's work, when you want one place where the decisions of a piece
-of work live, and when you want a person in the loop rather than an
-autonomous pipeline. It is **not** a job queue, a CI system or an agent
-framework.
 
 ## Screens
 
@@ -58,74 +27,27 @@ choice is saved on the server and follows you to every device.
 
 ## Get started
 
-Loca runs as a **Building**: one workspace with its people, its agents and
-their rooms. Its owner is the **Master**. Join a Building that exists, or
-start your own.
+The Loca skills are the client a coding agent uses to connect to a Loca
+server. Open Claude Code or Codex in a terminal and tell it to install them:
 
-### The short way: ask your agent
+> Install the Loca skills from https://github.com/omrylcn/loca
 
-Loca is made to be set up by a coding agent. In Claude Code or Codex, say
-what you want in your own words, for example:
+- **No Building yet?** Set one up on a server: [self-hosting guide](docs/self-host.md).
+- **Want the desktop app?** See [Desktop app](#desktop-app).
+- **Joining as a person?** Open the Building's address and click **Ask to join**.
 
-> Read AGENTS.md in https://github.com/omrylcn/loca and connect yourself to
-> the Loca Building at https://loca.example.com as `reviewer`.
+## What Loca is
 
-> Read AGENTS.md in https://github.com/omrylcn/loca and set up a private Loca
-> Building on this server, for https://loca.example.com.
+Loca has two parts, a server and its clients.
 
-The agent follows [AGENTS.md](AGENTS.md): it installs what is needed, asks
-the Building to let it in and waits for the Master's approval. It never asks
-you for a key in chat. The sections below are the same steps, for when you
-would rather run them yourself.
+- **The server** (a *Building*) holds the rooms (*locas*), who is in them and
+  the record of what was said and decided. It never calls a model.
+- **The clients** connect to it: people with the web page or the desktop app,
+  coding agents (Claude Code, Codex and others) with the Loca skills.
 
-### Join a Building
-
-Open its address, click **Ask to join** and enter your name. When the Master
-approves your request you are in the **Lobby**, the room everyone in the
-Building shares. From there, open a loca (a private room) in the sidebar, or
-wait to be called to one.
-
-### Connect your coding agent
-
-On the machine where your Claude Code or Codex runs, install the agent kit
-and ask the Building to let the agent in:
-
-```bash
-LOCA_VERSION=0.21.0
-curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
-curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
-sha256sum -c --ignore-missing SHA256SUMS && unzip -q "loca-remote-agent-${LOCA_VERSION}.zip"
-./loca-remote-agent/install.sh --name reviewer --server https://loca.example.com --join
-```
-
-The installer waits until the Master approves `reviewer` under **People →
-Join requests**, then finishes by itself. Once it has, run `/loca` in Claude
-Code or `$loca` in Codex, so that a message naming `@reviewer` wakes the
-agent. Each runtime in detail:
-[Claude Code](docs/getting-started.md#claude-code) ·
-[Codex](docs/getting-started.md#codex) ·
-[any other model or script](adapters/generic-command/README.md).
-
-If the Master gave you a membership (`mb_...`) or an invitation (`dv_...`)
-instead, leave out `--join`: the installer asks for it through a hidden
-prompt. Run only one listener per agent name.
-
-### Start your own Building
-
-To try Loca on your laptop (open, in memory, reachable from this machine
-only; it wakes no real agent):
-
-```bash
-git clone https://github.com/omrylcn/loca.git && cd loca
-docker compose -f compose.dev.yml up --build     # or: cargo run -p server
-```
-
-Then open <http://127.0.0.1:8787> and create a loca from the sidebar.
-
-To host a Building for others, follow the
-[self-hosting guide](docs/self-host.md) with the
-[`v0.21.0` release](https://github.com/omrylcn/loca/releases/tag/v0.21.0).
-In Turkish: [Loca'ya giriş](docs/giris.md).
+In a room, people and agents sit at one table. Name an agent with `@name` and
+it answers there, where everyone reads it; nobody copies text between
+terminals. Loca is not a job queue, a CI system or an agent framework.
 
 ## Work together
 
