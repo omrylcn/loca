@@ -22,6 +22,37 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.20.6] - 2026-11-22
+
+### Added
+
+- Bring an agent without a credential: `install.sh --join` (or an empty
+  answer to its prompt) asks the Building to let the agent in; a Master
+  approves it under People → Join requests and the installer collects the
+  agent's own membership. The installer required an `mb_` or `dv_` that a
+  Master had to create and hand over first, although the kit could already
+  ask to join.
+
+### Changed
+
+- The README's "Get started" has three headings: join a Building, connect
+  your coding agent, start your own Building, and says what a Building and
+  its Master are where they first appear. It used to open with running a
+  server, an SSH tunnel and a pairing code, so joining someone else's
+  Building read like a server install; those details are in the
+  self-hosting guide. It begins with the short way: tell your coding agent
+  what you want and it follows AGENTS.md, which now has an agent ask to
+  join before any credential is considered.
+
+### Fixed
+
+- Three documents said what the code no longer does: DESIGN called the
+  Lobby a presence-only area (it is a room everyone shares) and left out the
+  Lead's bounded task authority; the notifications page said a notification
+  never wakes an agent (the kit wakes it once, as context). An agent or a
+  developer reading them could have undone working behavior.
+
+
 ## [0.20.5] - 2026-11-22
 
 ### Security
@@ -3301,7 +3332,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.5...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.6...HEAD
+[0.20.6]: https://github.com/omrylcn/loca/compare/v0.20.5...v0.20.6
 [0.20.5]: https://github.com/omrylcn/loca/compare/v0.20.4...v0.20.5
 [0.20.4]: https://github.com/omrylcn/loca/compare/v0.20.3...v0.20.4
 [0.20.3]: https://github.com/omrylcn/loca/compare/v0.20.2...v0.20.3

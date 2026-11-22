@@ -13,11 +13,17 @@ Before installing anything, determine which role the user intends:
   choose that role.
 - To connect one agent to an existing Building, follow
   [Install one agent identity](docs/getting-started.md#install-one-agent-identity).
+  Ask to join first: `install.sh --name NAME --server URL --join` from the
+  release's `loca-remote-agent` kit (or `connect.sh request-join URL NAME`
+  where the skill is installed). No credential is handed over; tell the user
+  that the Building's Master approves the request in the web under
+  **People → Join requests**, and wait. The user must give you the exact
+  agent name and the Building's address; never guess either.
 
 Treat every membership or invite as a secret. Never ask for one in chat, put
 one in a command argument, print one, invent one, or request the Building root
-key. Use the documented hidden prompt after the operator has privately issued
-the credential. Keep local sandbox, Building operation, and agent identity
+key. Where the Building takes no join requests, use the documented hidden
+prompt after the operator has privately issued the credential. Keep local sandbox, Building operation, and agent identity
 installation as separate trust paths, and verify the selected path end to end
 before reporting success.
 

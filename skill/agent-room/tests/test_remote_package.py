@@ -185,6 +185,39 @@ class RemotePackageTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_installer_asks_to_join_when_there_is_no_credential(self):
+        # No membership or invite to hand over: an empty prompt (or --join)
+        # files a join request; once a Master approves it, the kit collects
+        # this identity's own membership. Nothing secret is printed.
+        from test_join_onboarding import hermetic_env, start_server
+
+        server, base = start_server()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                kit = self._extract_release_kit(root)
+                for how, args, given in (("prompt", [], "\n"), ("flag", ["--join"], "")):
+                    home = root / how
+                    home.mkdir()
+                    env = hermetic_env(home, LOCA_JOIN_POLL_TIMEOUT="8")
+                    name = "joiner-" + how
+                    result = subprocess.run(
+                        ["bash", str(kit / "install.sh"), "--name", name, "--server", base,
+                         "--target", "claude", "--no-start", *args],
+                        input=given, env=env, capture_output=True, text=True, timeout=60,
+                    )
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("Join requests", result.stderr)
+                    self.assertIn("LOBBY", result.stdout)
+                    self.assertNotIn("mb_", result.stdout + result.stderr)
+                    identity = home / ".loca" / (name + ".env")
+                    self.assertEqual(identity.stat().st_mode & 0o777, 0o600)
+                    self.assertIn("LOCA_NAME=" + name, identity.read_text())
+                    self.assertTrue((home / ".claude/skills/loca/SKILL.md").is_file())
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_incomplete_onboarding_package_refused_before_replacing_skills(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp) / "home"
