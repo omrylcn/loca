@@ -15,8 +15,6 @@ on:
 
 permissions:
   contents: read
-  checks: write
-  issues: write
 
 jobs:
   rustsec:
@@ -24,6 +22,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # cargo-audit at a fixed version, built from its own lockfile. Built
+      # unlocked, it took the newest releases of its dependencies; on
+      # 2026-11-22 those required a newer Rust than this repository's
+      # toolchain and the audit failed to compile, so no release could be
+      # tagged. The audit itself is unchanged: a vulnerability fails it.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --version 0.23.0 --locked
+      - name: Audit Cargo.lock
+        run: cargo audit
