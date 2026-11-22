@@ -87,7 +87,7 @@ document.addEventListener("dragstart", (e) => {
   if (!card) return;
   const task = state.tasks[Number(card.dataset.tid)];
   if (!task) return;
-  const moves = boardMoves(task).filter(m => m.to);
+  const moves = boardMoves(task).filter(m => m.to.length);
   boardDrag = { id: task.id, moves, card };
   e.dataTransfer.effectAllowed = "move";
   e.dataTransfer.setData("text/plain", `#${task.id}`);
@@ -95,7 +95,7 @@ document.addEventListener("dragstart", (e) => {
   const home = card.closest(".boardcol");
   for (const col of boardDropColumns()) {
     if (col === home) continue;
-    const ok = moves.some(m => m.to === col.dataset.column);
+    const ok = !!boardMoveTo(moves, col.dataset.column);
     col.classList.add(ok ? "dropok" : "dropno");
     if (!ok) col.title = "This task cannot move here for you";
   }
@@ -119,7 +119,7 @@ document.addEventListener("drop", (e) => {
   if (!col) return;
   e.preventDefault();
   const { id, moves, card } = boardDrag;
-  const move = moves.find(m => m.to === col.dataset.column);
+  const move = boardMoveTo(moves, col.dataset.column);
   endBoardDrag();
   if (move) taskAct(move.act, id, card);
 });

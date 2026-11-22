@@ -22,6 +22,28 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.20.5] - 2026-11-22
+
+### Security
+
+- Update `url` to 2.5.9 (RUSTSEC-2026-0592, published 2026-11-20): in 2.5.8
+  `Url::origin()` on a URL with many nested `blob:` prefixes recursed until
+  the stack overflowed and the process aborted. Loca's own code never calls
+  `Url::origin()`; the update closes the path through any dependency that
+  does. The public repository's audit refused 0.20.5 until it was updated.
+
+### Fixed
+
+- The Operator and the ranks can drag any task on the Loca Board to any
+  stage, as the server already allowed: a card someone else held had no
+  move for them but Remove, so it could not be picked up at all and the
+  Master could not change its stage. Finishing this way skips the review; a
+  drop back to Doing from Review still asks its reason, and finished work
+  does not go back to Review.
+- The holder can drop a card on Done as well as on Review: both ask for
+  review. Dropping on Done did nothing.
+
+
 ## [0.20.4] - 2026-11-22
 
 ### Fixed
@@ -3279,7 +3301,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.4...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.5...HEAD
+[0.20.5]: https://github.com/omrylcn/loca/compare/v0.20.4...v0.20.5
 [0.20.4]: https://github.com/omrylcn/loca/compare/v0.20.3...v0.20.4
 [0.20.3]: https://github.com/omrylcn/loca/compare/v0.20.2...v0.20.3
 [0.20.2]: https://github.com/omrylcn/loca/compare/v0.20.1...v0.20.2

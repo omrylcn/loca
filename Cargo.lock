@@ -513,9 +513,9 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "form_urlencoded"
-version = "1.2.2"
+version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
@@ -1018,7 +1018,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "loca-admin"
-version = "0.20.4"
+version = "0.20.5"
 dependencies = [
  "crossterm",
  "protocol",
@@ -1267,7 +1267,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.20.4"
+version = "0.20.5"
 dependencies = [
  "serde",
 ]
@@ -1636,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.20.4"
+version = "0.20.5"
 dependencies = [
  "axum",
  "futures-util",
@@ -1736,7 +1736,7 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
 name = "skill-bundles"
-version = "0.20.4"
+version = "0.20.5"
 dependencies = [
  "serde_json",
  "sha2",
@@ -2221,9 +2221,9 @@ dependencies = [
 
 [[package]]
 name = "url"
-version = "2.5.8"
+version = "2.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+checksum = "f00cd2407bb42c0ef17be88d4cf020f5cceffd121665bac9b8b9493a369b3b1a"
 dependencies = [
  "form_urlencoded",
  "idna",
