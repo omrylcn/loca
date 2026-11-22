@@ -26,6 +26,8 @@ pub(crate) const WEB_COMPOSER_STYLES: &str = include_str!("../../../../web/asset
 pub(crate) const WEB_COMPOSER: &str = include_str!("../../../../web/assets/composer.js");
 pub(crate) const WEB_FLOORS_STYLES: &str = include_str!("../../../../web/assets/floors.css");
 pub(crate) const WEB_BOARD_LIST_STYLES: &str = include_str!("../../../../web/assets/boardlist.css");
+pub(crate) const WEB_BOARD_MOVE_STYLES: &str = include_str!("../../../../web/assets/boardmove.css");
+pub(crate) const WEB_BOARD_MOVE: &str = include_str!("../../../../web/assets/boardmove.js");
 pub(crate) const WEB_ROSTER_STYLES: &str = include_str!("../../../../web/assets/roster.css");
 pub(crate) const WEB_CALL_DIALOG_STYLES: &str =
     include_str!("../../../../web/assets/calldialog.css");
@@ -173,6 +175,8 @@ pub(crate) async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "composer.js" => Some(("text/javascript; charset=utf-8", WEB_COMPOSER)),
         "floors.css" => Some(("text/css; charset=utf-8", WEB_FLOORS_STYLES)),
         "boardlist.css" => Some(("text/css; charset=utf-8", WEB_BOARD_LIST_STYLES)),
+        "boardmove.css" => Some(("text/css; charset=utf-8", WEB_BOARD_MOVE_STYLES)),
+        "boardmove.js" => Some(("text/javascript; charset=utf-8", WEB_BOARD_MOVE)),
         "roster.css" => Some(("text/css; charset=utf-8", WEB_ROSTER_STYLES)),
         "calldialog.css" => Some(("text/css; charset=utf-8", WEB_CALL_DIALOG_STYLES)),
         "avatar.js" => Some(("text/javascript; charset=utf-8", WEB_AVATAR)),

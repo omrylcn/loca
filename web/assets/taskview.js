@@ -149,7 +149,7 @@ $("taskViewBody").addEventListener("click", (e) => {
   const g = e.target.closest("[data-goto]");
   if (g) { e.preventDefault(); closeTaskView(); switchTab("chat"); gotoMsg(g.dataset.goto); return; }
   const b = e.target.closest("[data-tact]");
-  if (b) taskAct(b.dataset.tact, Number(b.dataset.tid));
+  if (b) taskAct(b.dataset.tact, Number(b.dataset.tid), b);
 });
 $("taskViewBody").addEventListener("submit", async (e) => {
   if (e.target.id !== "taskReassign" || !taskViewOpen) return;

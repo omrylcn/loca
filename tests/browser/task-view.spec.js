@@ -72,7 +72,7 @@ test("a card opens the task's view, with its facts, its address and a copyable l
   expect(await bob.evaluate(() => navigator.clipboard.readText())).toMatch(new RegExp(`#board/${room}/${id}$`));
   // An action in the view moves the task, and the view follows.
   await bob.locator("#taskViewBody .taskviewacts").getByRole("button", { name: "Start" }).click();
-  await expect(facts).toContainText("In progress");
+  await expect(facts).toContainText("Doing");
   await bob.locator("#taskViewClose").click();
   await expect(view(bob)).toBeHidden();
   expect(await bob.evaluate(() => location.hash)).toBe("");

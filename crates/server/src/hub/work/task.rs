@@ -180,6 +180,7 @@ impl Hub {
                 operator: is_operator,
                 lead: is_lead,
                 mine,
+                reviewer: self.asks_as_reviewer(&out, &req.by, by_principal),
                 lead_declared_untaken: is_lead && self.lead_may_cancel(&out, &req.by, by_principal),
                 has_reason: reason.is_some(),
             };
@@ -238,14 +239,7 @@ impl Hub {
             self.announce_assignment(r, room, id, &assigner_label(&req.by, made_as), assignee);
         }
         if moved != board::Transition::Plain {
-            self.announce_board_move(
-                r,
-                room,
-                id,
-                moved,
-                &assigner_label(&req.by, actor),
-                out.assigned_to.as_deref(),
-            );
+            self.announce_board_move(r, room, &out, moved, &assigner_label(&req.by, actor));
         }
         if let Some(goal) = linked_goal {
             r.care_marks.remove(&format!("goal:{}", goal.id));

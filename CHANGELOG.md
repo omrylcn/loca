@@ -22,6 +22,35 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.20.3] - 2026-11-22
+
+### Added
+
+- Drag a Loca Board card to move it. A card its person may move can be
+  picked up; while it is held, the columns of the moves they may make open
+  and the others go quiet, and a drop does exactly what that move's button
+  does (Start, Ask for review, Approve, Request changes, Reopen). The board
+  looked like a kanban but nothing could be dragged, and a person with no
+  move on a card saw no reason why. The buttons stay, for the keyboard and
+  for phones.
+
+### Changed
+
+- A finished task is reviewed by whoever gave it (or declared it, when its
+  holder took it), or by the Operator; never by its holder. Before, the Lead
+  reviewed every task, including ones the Operator had given, and the line
+  asking for review always called the Lead. Now it calls the reviewer.
+  PRINCIPLES (both languages), the kit and the docs say so.
+- Asking for review and requesting changes use a small form on the card: an
+  optional note for the reviewer, a reason for a no-go. The reason was asked
+  in the browser's own prompt box, and the review note could only be given
+  from the kit.
+- The Doing column and a task's stage say the same word, Doing (it was
+  "In progress" on the task and in Focus). On the board a card no longer
+  repeats its column's stage, except a removed task, which sits with the
+  finished ones.
+
+
 ## [0.20.2] - 2026-11-22
 
 ### Added
@@ -3240,7 +3269,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.2...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.3...HEAD
+[0.20.3]: https://github.com/omrylcn/loca/compare/v0.20.2...v0.20.3
 [0.20.2]: https://github.com/omrylcn/loca/compare/v0.20.1...v0.20.2
 [0.20.1]: https://github.com/omrylcn/loca/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/omrylcn/loca/compare/v0.19.0...v0.20.0

@@ -530,10 +530,12 @@ viewer may take) and an address, `#board/<loca>/<n>`, with Copy link;
 browser remembers its view; a phone starts on the List, and its Board
 shows one stage at a time. The Operator or the Lead declares and
 assigns a task there; the holder's "done" is a request for review with an
-optional note, and the Lead (never on its own task) or the Operator says go
-(it is done) or no-go with a reason (it goes back to its holder). Removing
+optional note, and whoever gave the task (or declared it, when its holder
+took it), never its holder, or the Operator says go (it is done) or no-go
+with a reason (it goes back to its holder). On the Board a card is dragged
+to the column of a move its person may make. Removing
 and reopening stay the Operator's. It owns the task routes and the `task`
-frame. It needs a Lead, its reviewer, and not Focus: turning it on without a
+frame. It needs a Lead, not Focus: turning it on without a
 Lead, or clearing the Lead while it is on, answers 409, and a new loca
 cannot be opened with it, since it has no Lead yet. Removing Focus leaves
 it. Off by default.

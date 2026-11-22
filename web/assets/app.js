@@ -397,7 +397,7 @@ $("taskList").addEventListener("click", (e) => {
   const g = e.target.closest("[data-goto]");
   if (g) { e.preventDefault(); switchTab("chat"); gotoMsg(g.dataset.goto); return; }
   const b = e.target.closest("[data-tact]");
-  if (b) taskAct(b.dataset.tact, Number(b.dataset.tid));
+  if (b) taskAct(b.dataset.tact, Number(b.dataset.tid), b);
 });
 $("feed").addEventListener("click", (e) => {
   // The hover "♡ react" and the "+" after the chips open the same picker.

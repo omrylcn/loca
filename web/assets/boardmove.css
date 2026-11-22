@@ -1,0 +1,20 @@
+/* ── Moving a task on the Loca Board (boardmove.js) ──────────────────────
+   A card that can move is picked up; while it is held, the columns it may
+   go to open (dashed, in the accent) and the others go quiet. The card's
+   own form takes a review note or a no-go reason. Theme variables only. */
+.taskboard .task[draggable="true"] { cursor: grab; }
+.taskboard .task.dragging { opacity: .5; cursor: grabbing; }
+.taskboard .boardcol { border-radius: 10px; transition: background-color .12s ease, opacity .12s ease; }
+.taskboard .boardcol.dropok { outline: 2px dashed color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+.taskboard .boardcol.dropover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.taskboard .boardcol.dropno { opacity: .45; }
+/* On the board the column already says the stage; a removed task, which
+   sits with the finished ones, still says so. */
+.taskboard .task .tchip:not(.cancelled) { display: none; }
+
+.tform { flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.tform label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
+.tform textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 44px; padding: 6px 8px;
+  background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 8px; font: 12px/1.4 var(--sans, inherit); }
+.tform textarea:focus { outline: none; border-color: var(--accent); }
+.tformacts { display: flex; gap: 6px; justify-content: flex-end; }

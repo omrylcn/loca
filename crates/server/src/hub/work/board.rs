@@ -3,7 +3,8 @@
 //!
 //! The board owns the task routes (`protocol::EXTENSIONS`), so with it off
 //! they are refused and every stored task is kept. The holder's "done" is a
-//! request for review, and the Lead (never on its own task) or the Operator
+//! request for review, and whoever gave the task to its holder (or, when the
+//! holder took it, whoever declared it), never the holder, or the Operator
 //! says go (`review` → `done`) or no-go with a reason (`review` → `taken`).
 //! Removing a task and reopening one stay the Operator's. `transition` keeps
 //! the house rule for a board that is off, which only a caller inside the
@@ -40,6 +41,9 @@ pub(super) struct Asker {
     pub lead: bool,
     /// The task's holder.
     pub mine: bool,
+    /// The task's reviewer (`Hub::task_reviewer`): who gave it to its
+    /// holder, or who declared it.
+    pub reviewer: bool,
     /// The Lead declared this task itself and nobody has taken it.
     pub lead_declared_untaken: bool,
     /// The request carries a non-empty reason.
@@ -71,8 +75,9 @@ pub(super) fn transition(
             Review => Err(TaskError::BoardOff),
         };
     }
-    // The Lead never reviews its own task; that review is the Operator's.
-    let reviewer = who.operator || (who.lead && !who.mine);
+    // Whoever gave the task reviews it, never its holder; the Operator
+    // always may.
+    let reviewer = who.operator || (who.reviewer && !who.mine);
     match (from, asked) {
         (Review, Done) => allow(reviewer, Done, Transition::Go),
         (Review, Taken) if reviewer && !who.has_reason => Err(TaskError::ReasonRequired),
@@ -176,17 +181,19 @@ impl Hub {
         &self,
         r: &mut Room,
         room: &str,
-        id: u64,
+        task: &Task,
         kind: Transition,
         by_label: &str,
-        holder: Option<&str>,
     ) {
+        let id = task.id;
+        let holder = task.assigned_to.as_deref();
+        let reviewer = task_reviewer(task);
         match kind {
             Transition::Plain => {}
             Transition::ReviewAsked => {
-                let lead = r.settings.lead.clone().unwrap_or_else(|| "all".into());
-                let text = format!("{by_label} asks @{lead} to review task #{id}.");
-                self.announce_task_line(r, room, id, &lead, text);
+                let reviewer = reviewer.map(str::to_string).unwrap_or_else(|| "all".into());
+                let text = format!("{by_label} asks @{reviewer} to review task #{id}.");
+                self.announce_task_line(r, room, id, &reviewer, text);
             }
             Transition::Go => {
                 let text = format!("{by_label}: task #{id} is done.");
@@ -203,7 +210,7 @@ impl Hub {
     }
 }
 
-/// The Loca Board needs a Lead, its reviewer. `enabled` is the set a change
+/// The Loca Board needs a Lead. `enabled` is the set a change
 /// asks for, `before` the set it replaces: turning the board on without a
 /// Lead is refused. It does not need Focus, and removing Focus leaves it.
 pub(in crate::hub) fn settle_board(
@@ -216,4 +223,39 @@ pub(in crate::hub) fn settle_board(
         return Err(ExtensionError::BoardNeedsLead);
     }
     Ok(enabled)
+}
+
+/// Whose review a task waits for: who gave it to its holder, or, where the
+/// holder took it themselves (or nobody holds it), who declared it. Never
+/// the holder: then only the Operator reviews it.
+pub(super) fn task_reviewer(task: &Task) -> Option<&str> {
+    let holder = task.assigned_to.as_deref();
+    let reviewer = match task.assigned_by.as_deref() {
+        Some(by) if Some(by) != holder => by,
+        _ => task.created_by.as_str(),
+    };
+    (Some(reviewer) != holder).then_some(reviewer)
+}
+
+impl Hub {
+    /// Whether the one asking is the task's reviewer (`task_reviewer`),
+    /// checked by principal: the declarer's recorded one, else the one the
+    /// name stands for; by name only where names stand for principals.
+    pub(super) fn asks_as_reviewer(
+        &self,
+        task: &Task,
+        by: &str,
+        by_principal: Option<&str>,
+    ) -> bool {
+        let Some(name) = task_reviewer(task) else {
+            return false;
+        };
+        let recorded = (name == task.created_by && task.assigned_by.as_deref() != Some(name))
+            .then(|| task.created_principal.clone())
+            .flatten();
+        match recorded.or_else(|| self.principal_named(name)) {
+            Some(principal) => by_principal == Some(principal.as_str()),
+            None => self.names_stand_for_principals() && name == by,
+        }
+    }
 }

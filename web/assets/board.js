@@ -20,9 +20,9 @@ function mayDeclareTasks() {
 
 // ---- the Loca Board (the `board` extension) ----
 // Four columns over the same task list. The holder's "done" is a request for
-// review; the Lead (never on its own task) or the Operator approves it or
-// requests changes (the server's go and no-go).
-// The server enforces every rule; these buttons only follow them.
+// review; whoever gave the task (never its holder) or the Operator approves
+// it or requests changes (the server's go and no-go).
+// The server enforces every rule; these buttons and drops only follow them.
 
 const BOARD_COLUMNS = [["open", "To do"], ["taken", "Doing"], ["review", "Review"], ["done", "Done"]];
 
@@ -33,27 +33,46 @@ function holdsTask(task) {
   return !!task.assigned_to && task.assigned_to === state.name;
 }
 
-function boardActions(task) {
+// Whose review a task waits for (the server's `task_reviewer`): who gave it
+// to its holder, or, when the holder took it, who declared it. Never the
+// holder.
+function taskReviewerName(task) {
+  const holder = task.assigned_to || null;
+  const by = task.assigned_by && task.assigned_by !== holder ? task.assigned_by : task.created_by;
+  return by && by !== holder ? by : null;
+}
+
+// What this page's person may do with a task: each move's button, and the
+// column a card may be dropped on for it (none for Remove).
+function boardMoves(task) {
   const mine = holdsTask(task);
-  const reviewer = isLocaOperator() || (isLocaLead() && !mine);
-  let acts = "";
-  if (task.status === "open" && (mine || !task.assigned_to)) acts += `<button data-tact="take" data-tid="${task.id}">Start</button>`;
-  if (task.status === "taken" && mine) acts += `<button data-tact="done" data-tid="${task.id}">Ask for review</button>`;
+  const operator = isLocaOperator();
+  const reviewer = operator || (!mine && taskReviewerName(task) === state.name);
+  const moves = [];
+  if (task.status === "open" && (mine || !task.assigned_to)) moves.push({ act: "take", to: "taken", label: "Start" });
+  if (task.status === "taken" && mine) moves.push({ act: "done", to: "review", label: "Ask for review" });
   if (task.status === "review" && reviewer) {
-    acts += `<button data-tact="go" data-tid="${task.id}">Approve</button>`;
-    acts += `<button data-tact="nogo" data-tid="${task.id}">Request changes</button>`;
+    moves.push({ act: "go", to: "done", label: "Approve" });
+    moves.push({ act: "nogo", to: "taken", label: "Request changes" });
   }
-  if (isLocaOperator()) {
-    if (["open", "taken", "review"].includes(task.status)) acts += `<button data-tact="cancel" data-tid="${task.id}">Remove</button>`;
-    if (task.status === "done" || task.status === "cancelled") acts += `<button data-tact="reopen" data-tid="${task.id}">Reopen</button>`;
+  if (operator) {
+    if (["open", "taken", "review"].includes(task.status)) moves.push({ act: "cancel", to: null, label: "Remove" });
+    if (task.status === "done" || task.status === "cancelled") moves.push({ act: "reopen", to: "open", label: "Reopen" });
   }
-  return acts;
+  return moves;
+}
+
+function boardActions(task) {
+  return boardMoves(task)
+    .map(m => `<button data-tact="${m.act}" data-tid="${task.id}">${m.label}</button>`).join("");
 }
 
 function boardCard(task) {
   const el = document.createElement("div");
   el.className = "task";
   el.dataset.tid = String(task.id);
+  // A card that can move is picked up and dropped on a column (boardmove.js).
+  if (boardMoves(task).some(m => m.to)) el.draggable = true;
   const who = task.assigned_to ? ` · ${esc(task.assigned_to)}` : "";
   const note = task.status === "review" && task.review_note ? `<span class="tmeta">Note: ${esc(task.review_note)}</span>` : "";
   const reason = task.status === "taken" && task.review_reason ? `<span class="tmeta">Not yet: ${esc(task.review_reason)}</span>` : "";
@@ -62,7 +81,7 @@ function boardCard(task) {
       <span class="tmeta">Added by ${esc(task.created_by)}${who}</span>${note}${reason}
     </span>
     <span class="tchip ${esc(task.status)}">${esc(TLABEL[task.status] || task.status)}</span>
-    <span class="tacts">${boardActions(task)}</span>`;
+    <span class="tacts">${boardActions(task)}</span>${typeof taskFormFor === "function" ? taskFormFor(task) : ""}`;
   return el;
 }
 
@@ -100,11 +119,10 @@ function renderBoard(box, tasks = Object.values(state.tasks), onlyStage = null) 
 }
 
 // Approve (go: review -> done) or request changes with a reason (no-go:
-// review -> taken).
-async function boardReview(act, id) {
+// review -> taken). The reason comes from the card's own form (boardmove.js).
+async function boardReview(act, id, reason = null) {
   const body = { by: state.name, status: act === "go" ? "done" : "taken" };
   if (act === "nogo") {
-    const reason = (window.prompt(`What should change in task #${id}? The holder reads this.`) || "").trim();
     if (!reason) return;
     body.reason = reason;
   }
