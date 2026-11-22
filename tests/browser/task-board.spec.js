@@ -138,3 +138,45 @@ test("a card is dragged to the column of a move its person may make; the others 
   await expect(card(lead, "review", "from the operator")).not.toHaveAttribute("draggable", "true");
   for (const page of [lead, bob]) await page.close();
 });
+
+test("the Master drags anyone's card to any stage; a no-go still asks its reason", async ({ browser, request }) => {
+  const room = "task-board-master";
+  await provisionRooms(request, [room]);
+  const bob = await memberPage(browser, request, "ms-bob", room);
+  expect((await request.post(`/rooms/${room}/lead`, { headers: MASTER, data: { lead: "ms-bob" } })).ok()).toBeTruthy();
+  const on = await request.put(`/rooms/${room}/extensions/board`, { headers: MASTER });
+  expect(on.ok(), await on.text()).toBeTruthy();
+  const { pairing_code } = await (await request.post("/pairings?ttl_hours=1", { headers: MASTER })).json();
+  const session = await (await request.post("/sessions", { headers: { "x-pairing-code": pairing_code }, data: { name: "operator", kind: "user" } })).json();
+  const made = await request.post(`/rooms/${room}/tasks`, {
+    headers: { "x-session-token": session.session_token }, data: { title: "bob's to do", by: "x", assigned_to: "ms-bob" },
+  });
+  expect(made.ok(), await made.text()).toBeTruthy();
+
+  const master = await browser.newPage();
+  await master.addInitScript(({ token, expiresAt }) => {
+    localStorage.setItem("loca-gs-seen", "1");
+    localStorage.setItem("loca-admin-session", JSON.stringify({ token, expiresAt, name: "operator" }));
+  }, { token: session.session_token, expiresAt: session.expires_at });
+  await master.goto("/");
+  await master.evaluate(room => joinRoom(room), room);
+  await expect.poll(() => master.evaluate(() => extensionOn("board"))).toBe(true);
+  await master.evaluate(() => switchTab("board"));
+
+  // Bob holds it, yet the Master can move it: every other column opens.
+  const held = card(master, "open", "bob's to do");
+  await expect(held).toHaveAttribute("draggable", "true");
+  await held.dragTo(column(master, "taken"));
+  await expect(card(bob, "taken", "bob's to do")).toHaveCount(1);
+  await card(master, "taken", "bob's to do").dragTo(column(master, "review"));
+  await expect(card(master, "review", "bob's to do")).toHaveCount(1);
+  // Back to Doing from review is a no-go: the card asks why first.
+  await card(master, "review", "bob's to do").dragTo(column(master, "taken"));
+  await card(master, "review", "bob's to do").locator(".tform textarea").fill("one more check");
+  await card(master, "review", "bob's to do").getByRole("button", { name: "Send back" }).click();
+  await expect(card(bob, "taken", "bob's to do")).toContainText("Not yet: one more check");
+  // Finished straight from Doing: the Operator's veto.
+  await card(master, "taken", "bob's to do").dragTo(column(master, "done"));
+  await expect(card(bob, "done", "bob's to do")).toHaveCount(1);
+  for (const page of [master, bob]) await page.close();
+});

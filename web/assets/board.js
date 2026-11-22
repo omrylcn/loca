@@ -42,28 +42,45 @@ function taskReviewerName(task) {
   return by && by !== holder ? by : null;
 }
 
-// What this page's person may do with a task: each move's button, and the
-// column a card may be dropped on for it (none for Remove).
+// What this page's person may do with a task: each move's button (unless
+// `button` is false: a drop only), and the columns a card may be dropped on
+// for it (none for Remove).
 function boardMoves(task) {
   const mine = holdsTask(task);
   const operator = isLocaOperator();
   const reviewer = operator || (!mine && taskReviewerName(task) === state.name);
   const moves = [];
-  if (task.status === "open" && (mine || !task.assigned_to)) moves.push({ act: "take", to: "taken", label: "Start" });
-  if (task.status === "taken" && mine) moves.push({ act: "done", to: "review", label: "Ask for review" });
+  if (task.status === "open" && (mine || !task.assigned_to)) moves.push({ act: "take", to: ["taken"], label: "Start" });
+  // The holder's "done" is a request for review, dropped on Review or Done.
+  if (task.status === "taken" && mine) moves.push({ act: "done", to: ["review", "done"], label: "Ask for review" });
   if (task.status === "review" && reviewer) {
-    moves.push({ act: "go", to: "done", label: "Approve" });
-    moves.push({ act: "nogo", to: "taken", label: "Request changes" });
+    moves.push({ act: "go", to: ["done"], label: "Approve" });
+    moves.push({ act: "nogo", to: ["taken"], label: "Request changes" });
   }
   if (operator) {
-    if (["open", "taken", "review"].includes(task.status)) moves.push({ act: "cancel", to: null, label: "Remove" });
-    if (task.status === "done" || task.status === "cancelled") moves.push({ act: "reopen", to: "open", label: "Reopen" });
+    if (["open", "taken", "review"].includes(task.status)) moves.push({ act: "cancel", to: [], label: "Remove" });
+    if (task.status === "done" || task.status === "cancelled") moves.push({ act: "reopen", to: ["open"], label: "Reopen" });
+    // The Operator may set any stage (the server's veto): a drop on a column
+    // no move above already takes sets that stage. Finishing this way skips
+    // the review; a no-go still asks its reason.
+    const here = task.status === "cancelled" ? "done" : task.status;
+    for (const column of BOARD_COLUMNS.map(([status]) => status)) {
+      if (column === here || moves.some(m => m.to.includes(column))) continue;
+      // Finished work does not go back to review (the server refuses it).
+      if (here === "done" && column === "review") continue;
+      moves.push({ act: `set-${column}`, to: [column], label: column, button: false });
+    }
   }
   return moves;
 }
 
+// The column a move drops a card on, if it has one.
+function boardMoveTo(moves, column) {
+  return moves.find(m => m.to.includes(column)) || null;
+}
+
 function boardActions(task) {
-  return boardMoves(task)
+  return boardMoves(task).filter(m => m.button !== false)
     .map(m => `<button data-tact="${m.act}" data-tid="${task.id}">${m.label}</button>`).join("");
 }
 
@@ -72,7 +89,7 @@ function boardCard(task) {
   el.className = "task";
   el.dataset.tid = String(task.id);
   // A card that can move is picked up and dropped on a column (boardmove.js).
-  if (boardMoves(task).some(m => m.to)) el.draggable = true;
+  if (boardMoves(task).some(m => m.to.length)) el.draggable = true;
   const who = task.assigned_to ? ` · ${esc(task.assigned_to)}` : "";
   const note = task.status === "review" && task.review_note ? `<span class="tmeta">Note: ${esc(task.review_note)}</span>` : "";
   const reason = task.status === "taken" && task.review_reason ? `<span class="tmeta">Not yet: ${esc(task.review_reason)}</span>` : "";

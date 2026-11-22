@@ -245,6 +245,8 @@ async function taskAct(act, id, from = null, text = null) {
   const body = { by: state.name };
   if (act === "take") { body.status = "taken"; if (!t.assigned_to) body.assigned_to = state.name; }
   if (act === "done") { body.status = "done"; if (text) body.note = text; }
+  // The Operator's drop on a column (board.js boardMoves): that stage.
+  if (act.startsWith("set-")) body.status = act.slice(4);
   if (act === "cancel") body.status = "cancelled";
   if (act === "reopen") body.status = "open";
   if (act === "go" || act === "nogo") return boardReview(act, id, text);
