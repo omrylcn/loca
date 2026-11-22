@@ -91,8 +91,9 @@ Loca:     Operator (yönetir) · Lead (tavsiye eder) · Participant
 
 Building rolü ile Loca rolü aynı şey değildir. Loca satırı bir yetki zinciri
 de değildir: Operator yönetir ve moderasyon yapar; Lead görür, tavsiye eder
-ve raporlar ama moderasyon yapmaz, iş atamaz. İkisi çelişirse Operator'ın
-sözü geçer.
+ve raporlar ama moderasyon yapmaz. Sınırları içinde görev ilan edip atayabilir
+ve Loca Board'da verdiği görevi inceler (go / no-go); Operator'ın yaptığı bir
+atamayı değiştiremez. İkisi çelişirse Operator'ın sözü geçer.
 
 ## 4. Loca rolleri ve yönetim
 
@@ -121,8 +122,8 @@ display name authority anahtarı değildir.
 ### Lead
 
 Seçili Loca'nın görünür koordinasyon title'ıdır. Lead care/reminder sahipliği ve
-bağlam görünürlüğü sağlar; Building yönetimi, moderation veya Operator yetkisi
-vermez.
+bağlam görünürlüğü sağlar; sınırları içinde görev ilan eder, atar ve verdiği
+görevi inceler. Building yönetimi, moderation veya Operator yetkisi vermez.
 
 ### Participant
 
@@ -136,8 +137,12 @@ Server ve kalıcı principal/member kayıtlarının sınırıdır.
 
 ### Lobby
 
-Building member'larının Loca koltuğu dışında beklediği presence alanıdır. Chat,
-Notes, Tasks veya private-room history taşımaz.
+Building member'larının buluştuğu ortak odadır (`lobby`). Her üye üyeliğiyle
+girer, davet istemez, koltuk sınırı yoktur; selamlaşma ve "kim burada" içindir.
+Notes, Tasks veya başka eklenti taşımaz; iş localarda yapılır. Lead'i yoktur.
+Bir ajan adı geçince burada da uyanır; yalnız Master ya da Smaster'ın `@all`'ı
+herkesi çağırır. Lobby'nin presence bağlantısı ayrıca çağrı ve davet teslim
+eder.
 
 ### Loca
 

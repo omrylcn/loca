@@ -9,6 +9,7 @@ INSTALL_DEPS=0
 START_AFTER=1
 HOSTED=0
 MODE=install
+JOIN=0
 
 usage() {
   cat <<'EOF'
@@ -23,11 +24,14 @@ Options:
   --upgrade-only     Upgrade skill files; keep identities and listeners intact
   --rollback         Restore the most recent skill backup
   --install-deps     Install missing python3/curl/jq with the system package manager
+  --join             No membership or invite: ask the Building to let NAME in;
+                     a Master approves it in the web (People > Join requests)
   --no-start         Install and onboard, but do not start the lobby listener
   -h, --help         Show this help
 
 The membership/invite is read from a hidden prompt; it is never accepted as a
-command-line argument. Choose exactly one of --server or --hosted; the
+command-line argument. Leave the prompt empty (or pass --join) to ask to join
+instead. Choose exactly one of --server or --hosted; the
 installer never contacts a remote host by default. Upgrade and rollback are
 local-only and never ask for or change credentials.
 EOF
@@ -71,6 +75,7 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --install-deps) INSTALL_DEPS=1; shift ;;
+    --join) JOIN=1; shift ;;
     --no-start) START_AFTER=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -285,18 +290,27 @@ if [ -n "$missing" ]; then
   fi
 fi
 
-printf 'membership or invite for %s (input hidden): ' "$SERVER" >&2
-IFS= read -r -s BOOTSTRAP_TOKEN
-printf '\n' >&2
-case "$BOOTSTRAP_TOKEN" in mb_*|dv_*) ;; *)
-  echo "expected an mb_... membership or dv_... invite; nothing was changed" >&2
-  exit 2
-esac
+BOOTSTRAP_TOKEN=""
+if [ "$JOIN" -eq 0 ]; then
+  printf 'membership or invite for %s (input hidden; leave empty to ask to join): ' "$SERVER" >&2
+  IFS= read -r -s BOOTSTRAP_TOKEN || true
+  printf '\n' >&2
+  if [ -z "$BOOTSTRAP_TOKEN" ]; then
+    JOIN=1
+  fi
+fi
+if [ "$JOIN" -eq 0 ]; then
+  case "$BOOTSTRAP_TOKEN" in mb_*|dv_*) ;; *)
+    echo "expected an mb_... membership or dv_... invite; nothing was changed" >&2
+    exit 2
+  esac
+fi
 if ! curl -fsS -m 10 "$SERVER/health" >/dev/null; then
   echo "cannot reach $SERVER; nothing was changed" >&2
   exit 1
 fi
-credential_kind=$(
+credential_kind="join"
+[ "$JOIN" -eq 1 ] || credential_kind=$(
   curl -fsS -m 10 -H "x-room-token: $BOOTSTRAP_TOKEN" "$SERVER/whoami" |
     jq -r '.kind // empty'
 ) || true
@@ -321,8 +335,15 @@ SKILL_DIR="$HOME/.claude/skills/loca"
 if [ "$TARGET" = "codex" ]; then
   SKILL_DIR="$HOME/.codex/skills/loca"
 fi
-printf '%s\n' "$BOOTSTRAP_TOKEN" |
-  LOCA_ENV="$ENV_FILE" "$SKILL_DIR/connect.sh" setup "$SERVER" "$NAME"
+if [ "$JOIN" -eq 1 ]; then
+  # No credential to hand over: the Building is asked, a Master approves in
+  # the web, and the kit collects this identity's own membership.
+  echo "asking $SERVER to let '$NAME' in; a Master approves it in the web (People > Join requests)" >&2
+  LOCA_ENV="$ENV_FILE" "$SKILL_DIR/connect.sh" request-join "$SERVER" "$NAME"
+else
+  printf '%s\n' "$BOOTSTRAP_TOKEN" |
+    LOCA_ENV="$ENV_FILE" "$SKILL_DIR/connect.sh" setup "$SERVER" "$NAME"
+fi
 unset BOOTSTRAP_TOKEN
 
 if [ "$START_AFTER" -eq 1 ]; then

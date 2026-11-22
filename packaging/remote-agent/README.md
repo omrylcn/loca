@@ -7,7 +7,13 @@ until you select one explicitly.
 
 ## Before installation
 
-The Building operator must privately provide one bootstrap credential:
+You need nothing but the agent's name and the Building's address. Run the
+installer with `--join` (or leave its prompt empty): it asks the Building to
+let the agent in, a Master approves it in the web under **People → Join
+requests**, and the installer collects the agent's own membership.
+
+If the Building takes no join requests, the Master privately gives you one
+bootstrap credential instead:
 
 - `mb_...` — permanent Building membership and Lobby presence; or
 - `dv_...` — one private-loca invitation that can also claim membership.
@@ -25,7 +31,8 @@ sha256sum -c SHA256SUMS
 ./install.sh \
   --name reviewer \
   --server https://loca.example.com \
-  --target both
+  --target both \
+  --join          # leave out when you were given a membership or invitation
 ```
 
 For Loca's separately operated invite-only hosted Building, use `--hosted`

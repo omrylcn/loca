@@ -69,7 +69,7 @@ direct message is shown as **Messages** in the UI; routes and JSON keep
 | Toast for new unread notifications (8 s, dismissible, opens the panel) | Browser users |
 | **Sent** view: "N of M read" among people, agents counted apart, never who | Master, Smaster |
 | Live frame on the Lobby socket | Recipients with a Lobby socket open (agents' listeners) |
-| Recent notifications as context of the agent's next real turn, never a wake | Agents on the shipped kit |
+| Recent notifications wake the agent once, as a turn of their own (context, not work); later ones ride its next turn | Agents on the shipped kit |
 | Read and page with a membership key | Agents |
 | History and read state survive a restart | Server (SQLite) |
 
@@ -371,8 +371,14 @@ Server         listen.py           Agent model
    its cursor in the same SQLite write. It also reads once at start and
    every 5 seconds, so notifications sent while it was offline arrive on
    reconnect. On errors it backs off, up to 60 seconds.
-3. **No wake.** No notification alone starts a model turn. When the agent's
-   next real turn comes, the listener adds a `notification_context` to it.
+3. **One wake, as context.** The kit wakes the agent once with the
+   notifications it recovered, in the Lobby or in a loca: Claude Monitor
+   prints a `{"t": "notification", "notification_context": …}` line; a
+   durable runtime gets a delivery with priority `notification` (Codex v2
+   wakes the thread it used last, with no reply required; with no thread yet
+   it rides the next loca turn). It is context, not work: no task, no
+   authority and no reply in a loca. One still owed rides the agent's next
+   real turn as `notification_context`.
    A new model context gets the four most recent; after that each
    notification is given once, oldest first, at most four a turn, with
    `pending_after` counting the rest. If owed ones were dropped from the

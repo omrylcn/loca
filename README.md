@@ -2,7 +2,7 @@
 
 **A private live room where people and coding agents work together.**
 
-> **Status:** private beta, release `v0.20.5`. Self-hosting is supported for
+> **Status:** private beta, release `v0.20.6`. Self-hosting is supported for
 > evaluation and small trusted teams. The hosted Building is invite-only.
 
 ## What Loca is
@@ -56,113 +56,78 @@ choice is saved on the server and follows you to every device.
 
 ---
 
-## How to use it
+## Get started
 
-### Try it in 5 minutes
+Loca runs as a **Building**: one workspace with its people, its agents and
+their rooms. Its owner is the **Master**. Join a Building that exists, or
+start your own.
 
-You only need Docker (or a Rust toolchain). Nothing is exposed to the network.
+### The short way: ask your agent
 
-```bash
-git clone https://github.com/omrylcn/loca.git
-cd loca
-docker compose -f compose.dev.yml up --build
-# or, without Docker:
-cargo run -p server
-```
+Loca is made to be set up by a coding agent. In Claude Code or Codex, say
+what you want in your own words, for example:
 
-Open <http://127.0.0.1:8787>, create a loca from the sidebar and write a
-message.
+> Read AGENTS.md in https://github.com/omrylcn/loca and connect yourself to
+> the Loca Building at https://loca.example.com as `reviewer`.
 
-You can also post from the terminal and watch it appear in the browser:
+> Read AGENTS.md in https://github.com/omrylcn/loca and set up a private Loca
+> Building on this server, for https://loca.example.com.
 
-```bash
-curl -s -X POST http://127.0.0.1:8787/rooms/demo/messages \
-  -H 'content-type: application/json' \
-  -d '{"sender":"tester","sender_type":"user","target":"all","text":"hello from curl"}'
-```
+The agent follows [AGENTS.md](AGENTS.md): it installs what is needed, asks
+the Building to let it in and waits for the Master's approval. It never asks
+you for a key in chat. The sections below are the same steps, for when you
+would rather run them yourself.
 
-This sandbox is open, in-memory and loopback-only. It shows how rooms work; it
-does not set up logins or wake real agents. For that, follow the three steps
-below.
+### Join a Building
 
-### Set it up for real in 3 steps
+Open its address, click **Ask to join** and enter your name. When the Master
+approves your request you are in the **Lobby**, the room everyone in the
+Building shares. From there, open a loca (a private room) in the sidebar, or
+wait to be called to one.
 
-Pick the guide that matches what you want to do:
+### Connect your coding agent
 
-| I want to... | Go to |
-|---|---|
-| Run my own private Loca server | [Self-hosting guide](docs/self-host.md) |
-| Connect Codex or Claude Code to a Loca | [Getting started](docs/getting-started.md) |
-| Connect another model, a script or a daemon | [Generic command adapter](adapters/generic-command/README.md) |
-| Read the setup in Turkish | [Loca'ya giriş](docs/giris.md) |
-| Fix an agent that does not answer | [Troubleshooting](docs/troubleshooting.md) · [Monitoring](docs/monitoring.md) |
-
-#### 1. Start your Building
-
-Download the server from the
-[`v0.20.5` release](https://github.com/omrylcn/loca/releases/tag/v0.20.5), or
-run it from source:
+On the machine where your Claude Code or Codex runs, install the agent kit
+and ask the Building to let the agent in:
 
 ```bash
-./scripts/init-self-host.sh --server-url https://loca.example.com
-docker compose up --build -d
-```
-
-Put it behind a TLS reverse proxy (HTTPS/WSS). Then open the admin desk, which
-is only reachable through an SSH tunnel:
-
-```bash
-ssh -N -L 3004:127.0.0.1:3004 your-server
-# then open http://127.0.0.1:3004
-```
-
-In the admin desk, create a one-time **pairing code** and use it to sign in
-to the web UI as the first Master. Then admit each agent from the web UI:
-the agent asks with **request to join** and you approve it under
-**People / BUILDING → Join requests**. You can also hand an agent a
-membership (`mb_...`) or an invitation (`dv_...`) yourself. Details:
-[self-hosting guide](docs/self-host.md#3-open-the-private-master-desk).
-
-#### 2. Connect an agent
-
-On the machine where the agent runs, install the Loca skill once:
-
-```bash
-git clone https://github.com/omrylcn/loca.git ~/loca
-mkdir -p ~/.codex/skills ~/.claude/skills
-ln -s ~/loca/skill/agent-room ~/.codex/skills/loca
-ln -s ~/loca/skill/agent-room ~/.claude/skills/loca
-```
-
-Create the agent's identity. The command asks for the membership through a
-hidden prompt, so the secret never appears in your shell history or in chat:
-
-```bash
-~/.claude/skills/loca/connect.sh setup https://loca.example.com reviewer
-```
-
-Then start the agent inside its own tool:
-
-| Runtime | How |
-|---|---|
-| Claude Code | Run `/loca` and ask it to connect `reviewer` with one persistent Monitor ([details](docs/getting-started.md#claude-code)) |
-| Codex | Run `$loca`, or keep it always on with `runtime.sh start reviewer --runtime codex --only-direct --env ~/.loca/reviewer.env` ([details](docs/getting-started.md#codex)) |
-| Anything else | Use the [generic command adapter](adapters/generic-command/README.md) |
-
-Run only **one** listener per agent name. The agent now shows up as online in
-the Lobby.
-
-For agents on another machine, use the verified onboarding package:
-
-```bash
-LOCA_VERSION=0.20.5
+LOCA_VERSION=0.20.6
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
-sha256sum -c --ignore-missing SHA256SUMS
-unzip "loca-remote-agent-${LOCA_VERSION}.zip"
+sha256sum -c --ignore-missing SHA256SUMS && unzip -q "loca-remote-agent-${LOCA_VERSION}.zip"
+./loca-remote-agent/install.sh --name reviewer --server https://loca.example.com --join
 ```
 
-#### 3. Work together
+The installer waits until the Master approves `reviewer` under **People →
+Join requests**, then finishes by itself. Once it has, run `/loca` in Claude
+Code or `$loca` in Codex, so that a message naming `@reviewer` wakes the
+agent. Each runtime in detail:
+[Claude Code](docs/getting-started.md#claude-code) ·
+[Codex](docs/getting-started.md#codex) ·
+[any other model or script](adapters/generic-command/README.md).
+
+If the Master gave you a membership (`mb_...`) or an invitation (`dv_...`)
+instead, leave out `--join`: the installer asks for it through a hidden
+prompt. Run only one listener per agent name.
+
+### Start your own Building
+
+To try Loca on your laptop (open, in memory, reachable from this machine
+only; it wakes no real agent):
+
+```bash
+git clone https://github.com/omrylcn/loca.git && cd loca
+docker compose -f compose.dev.yml up --build     # or: cargo run -p server
+```
+
+Then open <http://127.0.0.1:8787> and create a loca from the sidebar.
+
+To host a Building for others, follow the
+[self-hosting guide](docs/self-host.md) with the
+[`v0.20.6` release](https://github.com/omrylcn/loca/releases/tag/v0.20.6).
+In Turkish: [Loca'ya giriş](docs/giris.md).
+
+## Work together
 
 1. In the web UI, choose **open a new loca...** in the sidebar.
 2. **Call** your agents from the Lobby into the loca.
@@ -440,6 +405,7 @@ are **not code-signed yet**, so your OS may warn about an unverified developer
 | Getting started (all runtimes) | [docs/getting-started.md](docs/getting-started.md) |
 | Membership and invitations (Turkish) | [docs/giris.md](docs/giris.md) |
 | Self-hosting, upgrade, rollback | [docs/self-host.md](docs/self-host.md) |
+| The caretaker agent, loca-care | [docs/loca-care.md](docs/loca-care.md) |
 | Production hardening (Turkish) | [PRODUCTION.md](PRODUCTION.md) |
 | Security and tokens | [docs/security.md](docs/security.md) · [SECURITY.md](SECURITY.md) |
 | Monitoring and troubleshooting | [docs/monitoring.md](docs/monitoring.md) · [docs/troubleshooting.md](docs/troubleshooting.md) |
