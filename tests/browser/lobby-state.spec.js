@@ -126,3 +126,31 @@ test("a resident response from an ended admin session cannot repopulate the lobb
   await page.evaluate(() => window.oldLobbyLoad);
   expect(await page.evaluate(() => (state.lobby || []).map(p => p.name))).not.toContain("old-private-member");
 });
+
+test("People say what runs an agent, as its runtime reported", async ({ page, request }) => {
+  const info = await adminSession(request);
+  await page.addInitScript(({ token, expiresAt }) => {
+    localStorage.setItem("loca-gs-seen", "1");
+    localStorage.setItem("loca-admin-session", JSON.stringify({ token, expiresAt, name: "operator" }));
+  }, { token: info.session_token, expiresAt: info.expires_at });
+  await page.route("**/residents", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify([
+      { name: "codex-agent", kind: "agent", online: true, locas: [],
+        runtime: { ready: true, profile: { runtime: "codex-v2", sandbox: "workspace-write", approval: "never" } } },
+      { name: "claude-agent", kind: "agent", online: true, locas: [],
+        runtime: { ready: true, profile: { runtime: "claude-monitor" } } },
+      { name: "old-kit-agent", kind: "agent", online: true, locas: [], runtime: { ready: true } },
+    ]),
+  }));
+  await page.goto("/");
+  await page.evaluate(() => switchTab("people"));
+  const runtimeOf = (name) => page.locator("#peopleList .prow").filter({ hasText: name }).locator(".pstatus.runtime");
+  await expect(runtimeOf("codex-agent")).toHaveText("Codex · sandbox workspace-write · approvals never");
+  await expect(runtimeOf("codex-agent")).toHaveClass(/warn/);
+  await expect(runtimeOf("codex-agent")).toHaveAttribute("title", /does not stop to ask a person/);
+  await expect(runtimeOf("claude-agent")).toHaveText("Claude Code");
+  await expect(runtimeOf("claude-agent")).toHaveAttribute("title", /set in the runtime itself/);
+  await expect(runtimeOf("old-kit-agent")).toHaveCount(0);
+});

@@ -19,6 +19,7 @@ from typing import Any, Callable
 from attention_store import AttentionStore, LeaseBusy, StaleLease, wall_time_ms
 from codex_rpc import AppServer, response_error
 import notification_state
+import role_context
 from notification_state import context_ids, plan_context, read_cached
 from wiki_state import agent_event
 
@@ -310,6 +311,14 @@ def vault_text(attention: dict[str, Any]) -> str:
     )
 
 
+def role_text(attention: dict[str, Any]) -> str:
+    """The listener's role and extension cards, as loca context."""
+    context = json.loads(str(attention["event_json"])).get("role_context")
+    if not isinstance(context, dict):
+        return ""
+    return "\n\n" + role_context.render(context)
+
+
 # The Lobby room (PRINCIPLES "Lobby"): the Building's one room every member
 # reads. A scope like any other here (one thread for it); only the words
 # differ, because it is not a private loca.
@@ -374,6 +383,7 @@ def attention_prompt(
         notifications = notification_packet(attention)[0]
     body += notification_text(notifications)
     body += vault_text(attention)
+    body += role_text(attention)
     return (
         f"Loca attention for {identity} in {room_phrase(str(attention['room']))}.\n"
         "Runtime context: this is an automatically dispatched headless Loca "

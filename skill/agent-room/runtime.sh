@@ -281,8 +281,12 @@ start_runtime() {
     "--inbox" "$inbox_file"
     "--worker-cursor" "$worker_cursor_file"
     "--health-file" "$health_file"
+    "--profile-runtime" "$runtime"
   )
   if [ "$runtime" = codex-v2 ]; then
+    # What runs this agent, shown beside it in People: the Codex v2 adapter
+    # starts its turns with approvalPolicy "never".
+    supervisor_args+=("--profile-sandbox" "$codex_sandbox" "--profile-approval" "never")
     supervisor_args+=("--persistent-exec" "$hook" "--persistent-ready-file" "$v2_health")
     if [ "$relay_mode" = live ]; then
       supervisor_args+=(

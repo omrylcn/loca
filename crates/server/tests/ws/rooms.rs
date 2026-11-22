@@ -2122,12 +2122,19 @@ async fn lead_endpoint_announces() {
         .contains("set @lead debug"));
 
     // Naming one lead must not burn a turn for every other filtered agent.
-    assert!(
-        tokio::time::timeout(Duration::from_millis(150), other.next())
-            .await
-            .is_err(),
-        "an unrelated agent was woken by the lead assignment"
-    );
+    // It may hear the state change (the settings frame: its listener keeps
+    // it, no model turn), but no message or turn.
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(300);
+    while let Ok(Some(Ok(frame))) = tokio::time::timeout_at(deadline, other.next()).await {
+        let WsMessage::Text(text) = frame else {
+            continue;
+        };
+        let value: Value = serde_json::from_str(&text).unwrap();
+        assert!(
+            !matches!(value["t"].as_str(), Some("msg" | "turn")),
+            "an unrelated agent was woken by the lead assignment: {value}"
+        );
+    }
 }
 
 /// Reconnect recovery reads the durable archive rather than the Hub's

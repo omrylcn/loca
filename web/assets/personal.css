@@ -51,6 +51,10 @@
 .memoryownertag { background: color-mix(in srgb, var(--accent) 14%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 52%, transparent); }
 .omem.is-memory-owner:not(.is-lead) { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), color-mix(in srgb, var(--accent) 3%, transparent) 82%); }
 .pstatus.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+/* What runs an agent (people.js runtimeProfileHtml): a plain fact, in the
+   warning colour when it acts without asking anyone. */
+.pstatus.runtime { color: var(--muted); }
+.pstatus.runtime.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .pstage.relay { color: var(--warn); }
 .callrow:hover { background: var(--panel2, color-mix(in srgb, var(--txt) 4%, transparent)); }
 .row.announce .bub { background: color-mix(in srgb, var(--warn) 10%, transparent); }

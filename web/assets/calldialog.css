@@ -46,6 +46,10 @@
 .callpresence::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
 .callpresence.on { color: var(--human); }
 .callpresence.on::before { background: var(--human); }
+/* Whether a call will wake the agent's model, beside its presence. */
+.callwake { flex: 0 0 auto; font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.callwake.ok { color: var(--human); border-color: color-mix(in srgb, var(--human) 45%, transparent); }
+.callwake.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
 .callmeta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0;
   color: var(--muted); font-size: 13px; }
 .callwhere { display: inline-flex; align-items: baseline; gap: 4px; min-width: 0; max-width: 100%; }

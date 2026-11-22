@@ -577,6 +577,12 @@ pub(crate) async fn ws_session(
                                 // text. It never enters a turn; the agent's
                                 // listener reads the rules when it needs them.
                                 | ServerFrame::Vault { .. }
+                                // The loca's settings changed (its Lead,
+                                // its extensions): state, not speech. It
+                                // never enters a turn; the agent's listener
+                                // tells its model what changed on the next
+                                // real turn (the kit's role cards).
+                                | ServerFrame::Settings { .. }
                         )
                             || matches!(&frame, ServerFrame::Reaction { reaction } if reaction.owner == name)
                             || (filter == WsFilter::Mentions

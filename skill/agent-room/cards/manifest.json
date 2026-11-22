@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "cards": [
+    {"id": "lead", "title": "You are this loca's Lead", "when": {"role": "lead"}, "file": "lead.md",
+     "lost": "You are no longer this loca's Lead: you hear only the messages that address you, and declaring or giving tasks answers 403."},
+    {"id": "lead-board", "title": "Lead: the Loca Board's task commands", "when": {"role": "lead", "extension": "board"}, "file": "lead-board.md",
+     "lost": "The Lead's task commands no longer apply to you here."},
+    {"id": "board", "title": "Loca Board", "when": {"extension": "board"}, "file": "board.md",
+     "lost": "The Loca Board was turned off here: task commands answer 403 until it is on again. Stored tasks are kept."},
+    {"id": "vault", "title": "Vault", "when": {"extension": "vault"}, "file": "vault.md",
+     "lost": "The Vault was turned off here: its rules are not this loca's agreement while it is off."},
+    {"id": "notes", "title": "Notes", "when": {"extension": "notes"}, "file": "notes.md",
+     "lost": "Notes were turned off here: note commands answer 403."},
+    {"id": "focus", "title": "Focus", "when": {"extension": "focus"}, "file": "focus.md",
+     "lost": "Focus was turned off here: this loca has no Goal to read."},
+    {"id": "journal", "title": "Journal", "when": {"extension": "journal"}, "file": "journal.md",
+     "lost": "The Journal was turned off here: say what landed in chat instead."},
+    {"id": "wiki", "title": "Loca Wiki", "when": {"extension": "wiki"}, "file": "wiki.md",
+     "lost": "Loca Wiki was turned off here: there is no Wiki to read."},
+    {"id": "live", "title": "Live", "when": {"extension": "live"}, "file": "live.md",
+     "lost": "Live was turned off here: you wake only when a message addresses you."}
+  ]
+}

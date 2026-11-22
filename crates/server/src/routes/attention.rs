@@ -7,7 +7,7 @@ use crate::{
 pub(crate) async fn report_runtime_health(
     State(hub): State<Hub>,
     headers: HeaderMap,
-    Json(body): Json<protocol::RuntimeHealthUpdate>,
+    Json(body): Json<protocol::RuntimeHealthReport>,
 ) -> impl IntoResponse {
     let Some(token) = member_token_of(&headers) else {
         return (StatusCode::UNAUTHORIZED, "membership required").into_response();
@@ -15,7 +15,7 @@ pub(crate) async fn report_runtime_health(
     let Some(member) = hub.member_for_credential(Some(token)) else {
         return (StatusCode::UNAUTHORIZED, "valid membership required").into_response();
     };
-    match hub.report_runtime_health(&member.name, body) {
+    match hub.report_runtime(&member.name, body.update, body.profile) {
         Some(health) => Json(health).into_response(),
         None => (StatusCode::BAD_REQUEST, "invalid runtime health").into_response(),
     }

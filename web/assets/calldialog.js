@@ -88,6 +88,15 @@ function callWhereHtml(p) {
   return `<span class="callwhere" title="${esc(`seated in\n${all}`)}">in <span class="callloca">#${esc(locaName(locas[0]))}</span>${more}</span>`;
 }
 
+// An agent's wake state, as People shows it: a live socket says the listener
+// is connected, not that a call will wake the model.
+function callWakeHtml(p) {
+  if (p.kind !== "agent" || !p.online) return "";
+  if (p.runtime?.ready) return `<span class="callwake ok" title="its runtime answered a wake: a call reaches the model">ready</span>`;
+  if (p.runtime) return `<span class="callwake bad" title="its runtime reports, but wake or reply is degraded">degraded</span>`;
+  return `<span class="callwake unknown" title="connected, but no runtime has shown that it wakes: it may not answer a call">unverified</span>`;
+}
+
 function callCandidateHtml(p, i) {
   const agent = p.kind === "agent";
   const owner = agent ? callOwnerText(callDialog.owners.get(p.name)) : "";
@@ -96,7 +105,7 @@ function callCandidateHtml(p, i) {
   return `<label class="callcand" data-name="${esc(p.name)}" data-search="${esc(search)}">`
     + `<input type="checkbox" value="${esc(p.name)}"${picked ? " checked" : ""} aria-labelledby="callName${i}" aria-describedby="callMeta${i}">`
     + `<span class="callwho"><span class="callname" id="callName${i}">${kindMark(agent ? "agent" : "human")}${personLabelHtml(p.name, cardOf(p))}</span>`
-    + `<span class="callpresence ${p.online ? "on" : "off"}">${p.online ? "online" : "away"}</span></span>`
+    + `<span class="callpresence ${p.online ? "on" : "off"}">${p.online ? "online" : "away"}</span>${callWakeHtml(p)}</span>`
     + `<span class="callmeta" id="callMeta${i}">${callWhereHtml(p)}<span class="callfloors">${groupChipsHtml(p.name)}</span>`
     + (owner ? `<span class="callowner">${esc(owner)}</span>` : "")
     + `</span></label>`;

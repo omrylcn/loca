@@ -34,13 +34,40 @@ impl Hub {
             seen_at: record.seen_at,
             progress_at: record.progress_at,
             ready: self.runtime_record_ready(&record),
+            profile: record.profile.clone(),
         })
     }
+    /// A runtime profile worth keeping: each value one short lowercase word.
+    /// Anything else is dropped, never shown.
+    fn runtime_profile_valid(profile: &protocol::RuntimeProfile) -> bool {
+        let word = |value: &str| {
+            (1..=32).contains(&value.len())
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        };
+        word(&profile.runtime)
+            && profile.sandbox.as_deref().is_none_or(word)
+            && profile.approval.as_deref().is_none_or(word)
+    }
+    /// A heartbeat without a profile (the hub's own tests).
+    #[cfg(test)]
     pub fn report_runtime_health(
         &self,
         name: &str,
         update: protocol::RuntimeHealthUpdate,
     ) -> Option<protocol::RuntimeHealth> {
+        self.report_runtime(name, update, None)
+    }
+    /// `report_runtime_health` with the runtime's profile beside it; an
+    /// invalid profile is dropped and the heartbeat still counts.
+    pub fn report_runtime(
+        &self,
+        name: &str,
+        update: protocol::RuntimeHealthUpdate,
+        profile: Option<protocol::RuntimeProfile>,
+    ) -> Option<protocol::RuntimeHealth> {
+        let profile = profile.filter(Self::runtime_profile_valid);
         const STATES: &[&str] = &[
             "IDLE",
             "RUNNING",
@@ -93,6 +120,7 @@ impl Hub {
             turn_completed: update.turn_completed,
             seen_at: now,
             progress_at,
+            profile,
         };
         health.insert(name.to_string(), record.clone());
         drop(health);

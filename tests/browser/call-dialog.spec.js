@@ -95,6 +95,35 @@ test("+ call opens the call dialog: a search, Agents and People, and who each on
   await page.close();
 });
 
+test("an online agent says whether a call will wake it: ready, degraded or unverified", async ({ browser, request }) => {
+  const tag = tagOf();
+  const b = await building(request, tag);
+  const page = await openAsMaster(browser, b.m, b.room);
+  // What the server reports for each: a live socket alone is not a wake.
+  const [ready, degraded, unverified] = b.agents;
+  await page.route("**/residents", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify([
+      { name: ready, kind: "agent", online: true, locas: [], runtime: { ready: true } },
+      { name: degraded, kind: "agent", online: true, locas: [], runtime: { ready: false } },
+      { name: unverified, kind: "agent", online: true, locas: [], runtime: null },
+      { name: `${tag}-away`, kind: "agent", online: false, locas: [], runtime: null },
+      { name: b.person, kind: "user", online: true, locas: [], runtime: null },
+    ]),
+  }));
+  await page.locator("#callBtn").click();
+  await expect(dialog(page)).toBeVisible();
+  await expect(row(page, ready).locator(".callwake")).toHaveText("ready");
+  await expect(row(page, degraded).locator(".callwake")).toHaveText("degraded");
+  await expect(row(page, unverified).locator(".callwake")).toHaveText("unverified");
+  await expect(row(page, unverified).locator(".callpresence")).toHaveText("online");
+  // An agent that is away, and a person, have no wake to speak of.
+  await expect(row(page, `${tag}-away`).locator(".callwake")).toHaveCount(0);
+  await expect(row(page, b.person).locator(".callwake")).toHaveCount(0);
+  await page.close();
+});
+
 test("the search narrows the list; ticks are kept while it does", async ({ browser, request }) => {
   const tag = tagOf();
   const b = await building(request, tag);
