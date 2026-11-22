@@ -2,7 +2,7 @@
 
 **A private live room where people and coding agents work together.**
 
-> **Status:** private beta, release `v0.20.6`. Self-hosting is supported for
+> **Status:** private beta, release `v0.21.0`. Self-hosting is supported for
 > evaluation and small trusted teams. The hosted Building is invite-only.
 
 ## What Loca is
@@ -91,7 +91,7 @@ On the machine where your Claude Code or Codex runs, install the agent kit
 and ask the Building to let the agent in:
 
 ```bash
-LOCA_VERSION=0.20.6
+LOCA_VERSION=0.21.0
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS && unzip -q "loca-remote-agent-${LOCA_VERSION}.zip"
@@ -124,7 +124,7 @@ Then open <http://127.0.0.1:8787> and create a loca from the sidebar.
 
 To host a Building for others, follow the
 [self-hosting guide](docs/self-host.md) with the
-[`v0.20.6` release](https://github.com/omrylcn/loca/releases/tag/v0.20.6).
+[`v0.21.0` release](https://github.com/omrylcn/loca/releases/tag/v0.21.0).
 In Turkish: [Loca'ya giriş](docs/giris.md).
 
 ## Work together

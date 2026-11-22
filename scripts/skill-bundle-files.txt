@@ -9,6 +9,17 @@ skill/agent-room/agents/openai.yaml
 skill/agent-room/attention_schema.py
 skill/agent-room/attention_store.py
 skill/agent-room/bot.py
+skill/agent-room/brief.py
+skill/agent-room/cards/board.md
+skill/agent-room/cards/focus.md
+skill/agent-room/cards/journal.md
+skill/agent-room/cards/lead-board.md
+skill/agent-room/cards/lead.md
+skill/agent-room/cards/live.md
+skill/agent-room/cards/manifest.json
+skill/agent-room/cards/notes.md
+skill/agent-room/cards/vault.md
+skill/agent-room/cards/wiki.md
 skill/agent-room/codex_adapter_v2.py
 skill/agent-room/codex_rpc.py
 skill/agent-room/connect.d/content.sh
@@ -39,6 +50,7 @@ skill/agent-room/references/locas.md
 skill/agent-room/references/runtimes.md
 skill/agent-room/references/tasks.md
 skill/agent-room/references/vault.md
+skill/agent-room/role_context.py
 skill/agent-room/runtime.sh
 skill/agent-room/runtime_agent.py
 skill/agent-room/runtime_consumer.py

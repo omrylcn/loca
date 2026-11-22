@@ -1661,6 +1661,35 @@ pub struct RuntimeHealth {
     pub seen_at: u64,
     pub progress_at: u64,
     pub ready: bool,
+    /// What runs the agent, as its supervisor last said; absent where it
+    /// said nothing (an older kit).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<RuntimeProfile>,
+}
+
+/// What runs an agent, as its supervisor reports it with its heartbeat:
+/// the runtime (`codex-v2`, `claude-monitor`, `hook`, `manual`), and where
+/// it knows them its sandbox and its approval policy. Shown beside the agent
+/// so nobody assumes a safeguard it does not have. A report, not a guarantee:
+/// the runtime's own configuration is what applies. Each value is one short
+/// lowercase word (letters, digits, `-`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuntimeProfile {
+    pub runtime: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval: Option<String>,
+}
+
+/// A heartbeat with the runtime's profile beside it, as `POST
+/// /runtime/health` reads it. An older kit sends no profile.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RuntimeHealthReport {
+    #[serde(flatten)]
+    pub update: RuntimeHealthUpdate,
+    #[serde(default)]
+    pub profile: Option<RuntimeProfile>,
 }
 
 /// Heartbeat submitted by a supervised runtime. Identity is derived from the

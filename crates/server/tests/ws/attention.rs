@@ -2183,3 +2183,64 @@ async fn everyone_reminder_separates_two_same_named_principals_over_websockets()
 
     let _ = std::fs::remove_file(&db);
 }
+
+/// A runtime says what it is with its heartbeat: People shows it beside the
+/// agent, so nobody assumes a safeguard it lacks. A value that is not one
+/// short lowercase word is dropped and the heartbeat still counts; an older
+/// kit that sends no profile shows none.
+#[tokio::test]
+async fn a_runtime_reports_what_it_is_and_people_show_it() {
+    let (port, _guard) = spawn_server_env("bigmaster", &[]).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let client = reqwest::Client::new();
+    let token = report_ready_runtime(&client, &base, "bigmaster", "coder").await;
+    let profile_of = |residents: &[Value]| {
+        residents
+            .iter()
+            .find(|r| r["name"] == "coder")
+            .map(|r| r["runtime"]["profile"].clone())
+            .unwrap()
+    };
+    let residents = |client: reqwest::Client, base: String| async move {
+        client
+            .get(format!("{base}/residents"))
+            .header("x-admin-token", "bigmaster")
+            .send()
+            .await
+            .unwrap()
+            .json::<Vec<Value>>()
+            .await
+            .unwrap()
+    };
+    assert!(profile_of(&residents(client.clone(), base.clone()).await).is_null());
+
+    let report = |profile: Value| {
+        client
+            .post(format!("{base}/runtime/health"))
+            .header("x-room-token", &token)
+            .json(&serde_json::json!({ "wake": "IDLE", "ack": "IDLE", "profile": profile }))
+            .send()
+    };
+    let ok = report(serde_json::json!({
+        "runtime": "codex-v2", "sandbox": "workspace-write", "approval": "never"
+    }))
+    .await
+    .unwrap();
+    assert_eq!(ok.status(), 200);
+    assert_eq!(
+        profile_of(&residents(client.clone(), base.clone()).await),
+        serde_json::json!({ "runtime": "codex-v2", "sandbox": "workspace-write", "approval": "never" })
+    );
+
+    // Not a short lowercase word: dropped, the heartbeat still counts.
+    let odd = report(serde_json::json!({ "runtime": "Codex <b>v2</b>" }))
+        .await
+        .unwrap();
+    assert_eq!(odd.status(), 200);
+    let now = residents(client.clone(), base.clone()).await;
+    assert!(profile_of(&now).is_null());
+    assert_eq!(
+        now.iter().find(|r| r["name"] == "coder").unwrap()["runtime"]["ready"],
+        true
+    );
+}

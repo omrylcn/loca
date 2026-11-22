@@ -81,6 +81,17 @@ case "$cmd" in
     fi
     ;;
 
+  context)
+    # context <server> <room> <name> -> your role in this loca and what is
+    # switched on there, as the kit's cards (role_context.py): the same ones
+    # the listener adds to a turn when something changed. Read it when you
+    # enter a loca and after a context compaction.
+    server="$1"; room="$2"; name="$3"
+    use_loca "$room"
+    settings=$(curl_get "$server/rooms/$(_room_path "$room")/settings") || exit $?
+    printf '%s' "$settings" | python3 "$SCRIPT_DIR/role_context.py" show "$room" "$name"
+    ;;
+
   vault)
     # vault <server> <room> <name> -> the loca's rules (Vault), framed as
     # loca context. A refusal prints nothing on stdout and exits like every

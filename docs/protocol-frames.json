@@ -75,7 +75,7 @@
       "layer": "core",
       "source": "ServerFrame::Settings",
       "fields": { "settings": "RoomSettings" },
-      "when": "Room settings changed, including the enabled extension set and the loca's identity (title, description, seats, icon, color, labels). filter=all only. Only settings.extensions and the identity fields are core; the other settings are Loca product."
+      "when": "Room settings changed, including the enabled extension set and the loca's identity (title, description, seats, icon, color, labels). Every filter: an agent's listener reads its role (the Lead) and the extensions from it without a model turn. Only settings.extensions and the identity fields are core; the other settings are Loca product."
     },
     "memory": {
       "socket": "loca",

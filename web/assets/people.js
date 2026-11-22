@@ -78,7 +78,23 @@ function residentStatusBadges(p) {
     : p?.runtime
       ? `<span class="pstatus wake bad" title="runtime heartbeat exists but wake is degraded">degraded</span>`
       : `<span class="pstatus wake unknown" title="no runtime heartbeat has been observed">unverified</span>`;
-  return connection + wake;
+  return connection + wake + runtimeProfileHtml(p);
+}
+
+// What runs an agent, as its supervisor reported (RuntimeProfile): so nobody
+// assumes a safeguard it does not have. Nothing where it reported nothing.
+const RUNTIME_NAMES = { "codex-v2": "Codex", "claude-monitor": "Claude Code", hook: "hook", manual: "manual" };
+function runtimeProfileHtml(p) {
+  const profile = p?.kind === "agent" ? p?.runtime?.profile : null;
+  if (!profile?.runtime) return "";
+  const parts = [RUNTIME_NAMES[profile.runtime] || profile.runtime];
+  if (profile.sandbox) parts.push(`sandbox ${profile.sandbox}`);
+  if (profile.approval) parts.push(`approvals ${profile.approval}`);
+  const why = profile.approval === "never"
+    ? " It does not stop to ask a person before it runs a command or edits a file; Loca's rooms decide who may talk to it, not what it may do on its machine."
+    : profile.approval ? "" : " Its sandbox and approvals are set in the runtime itself; the kit cannot read them.";
+  const title = `What runs this agent, as its runtime reported.${why}`;
+  return `<span class="pstatus runtime${profile.approval === "never" ? " warn" : ""}" title="${esc(title)}">${esc(parts.join(" · "))}</span>`;
 }
 
 /// Seat a member in this loca. They belong to the building already, so nothing

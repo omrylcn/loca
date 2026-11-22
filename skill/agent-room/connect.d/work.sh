@@ -145,6 +145,23 @@ print(json.dumps(tasks, ensure_ascii=False))' "$mine"
     curl_json -X POST "$server/rooms/$(_room_path "$room")/attentions/$encoded_id/resolve" -d "$payload"
     ;;
 
+  brief)
+    # brief <server> <room> -> the loca's state in a few lines, for its Lead
+    # or operator to report from: the Goal, what waits for a decision, what
+    # is in progress, who is blocked on whom, what landed. A section whose
+    # extension is off says so; nothing here changes anything.
+    server="$1"; room="$2"
+    use_loca "$room"
+    brief_dir=$(mktemp -d)
+    trap 'rm -rf "${brief_dir:?}"' EXIT
+    for part in tasks waits goals journal; do
+      curl_get "$server/rooms/$(_room_path "$room")/$part" >"$brief_dir/$part.json" 2>/dev/null \
+        || : >"$brief_dir/$part.json"
+    done
+    python3 "$SCRIPT_DIR/brief.py" "$room" "$brief_dir/tasks.json" "$brief_dir/waits.json" \
+      "$brief_dir/goals.json" "$brief_dir/journal.json"
+    ;;
+
   waits)
     server="$1"; room="$2"
     use_loca "$room"

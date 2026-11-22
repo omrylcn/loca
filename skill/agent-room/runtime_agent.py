@@ -43,7 +43,23 @@ def update_health(path: Path | None, **values: object) -> None:
     os.replace(temp, path)
 
 
-def report_runtime_health(path: Path | None, automatic: bool) -> None:
+def runtime_profile(args: argparse.Namespace) -> dict[str, str] | None:
+    """What runs this agent, for the heartbeat (protocol RuntimeProfile).
+    runtime.sh passes it; a supervisor started by hand reports none."""
+    runtime = getattr(args, "profile_runtime", None)
+    if not runtime:
+        return None
+    profile = {"runtime": runtime}
+    for key in ("sandbox", "approval"):
+        value = getattr(args, f"profile_{key}", None)
+        if value:
+            profile[key] = value
+    return profile
+
+
+def report_runtime_health(
+    path: Path | None, automatic: bool, profile: dict[str, str] | None = None
+) -> None:
     server = os.environ.get("ROOM_SERVER_URL", "").rstrip("/")
     membership = os.environ.get("LOCA_MEMBERSHIP", "")
     if not server or not membership:
@@ -68,6 +84,7 @@ def report_runtime_health(path: Path | None, automatic: bool) -> None:
             "first_response": bool(state.get("first_response", False)),
             "final_response": bool(state.get("final_response", False)),
             "turn_completed": bool(state.get("turn_completed", False)),
+            **({"profile": profile} if profile else {}),
         }
     ).encode()
     request = urllib.request.Request(
@@ -155,6 +172,10 @@ def main() -> int:
     parser.add_argument("--wiki-runtime", choices=("codex","claude"))
     parser.add_argument("--wiki-rooms", help="explicit opt-in authorized Wiki room scope")
     parser.add_argument("--wiki-journal", type=Path)
+    # What runs this agent, reported with the heartbeat (runtime.sh sets it).
+    parser.add_argument("--profile-runtime")
+    parser.add_argument("--profile-sandbox")
+    parser.add_argument("--profile-approval")
     parser.add_argument("listener", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.command and args.persistent_command:
@@ -394,6 +415,7 @@ def main() -> int:
                             or args.persistent_command
                             or args.shadow_persistent_command
                         ),
+                        runtime_profile(args),
                     )
                     report_error = ""
                 except Exception as error:

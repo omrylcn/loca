@@ -76,6 +76,7 @@ from listen_frames import (  # noqa: F401 — re-exported: `listen.X` names the 
     LOCA_FRAMES,
     LOBBY_FRAMES,
 )
+import role_context
 from listen_state import (  # noqa: F401 — re-exported: `listen.X` names the same object
     load_cursor_state,
     save_cursor_state,
@@ -482,6 +483,9 @@ class NativeRuntimeHealthLease:
                 "first_response": False,
                 "final_response": False,
                 "turn_completed": False,
+                # A Claude Code Monitor: its sandbox and approvals are the
+                # session's own settings, which the kit cannot read.
+                "profile": {"runtime": "claude-monitor"},
             }
         ).encode()
         request = urllib.request.Request(
@@ -915,6 +919,12 @@ def main():
     # notice owed to the agent's next turn there (see VAULT_CHANGED).
     vault_known = {}
     vault_owed = {}
+    # What the agent's role and the loca's extensions are per loca
+    # (role_context.room_state), and what its model has been told of them.
+    # A difference is owed to its next real turn there, as cards. The Lobby
+    # room has no extensions and no Lead: it is never given cards.
+    role_known = {}
+    role_told = {}
     # Claude Monitor only (stdout is the session): which rooms hear
     # "replying", and each live room socket with its send lock.
     replying = ReplyingPulse() if sink is None else None
@@ -1041,6 +1051,16 @@ def main():
         owed_vault = vault_owed.get(room)
         if owed_vault is not None:
             event = {**event, "vault_context": owed_vault}
+        # Role and extension cards, once per change (role_context.py).
+        role_now = role_known.get(room)
+        if role_now is not None and role_told.get(room) != role_now:
+            try:
+                owed_role = role_context.packet(room, role_told.get(room), role_now)
+            except (OSError, ValueError, KeyError) as error:
+                owed_role = None
+                sys.stderr.write(f"[{room}] role context unavailable: {error}\n")
+            if owed_role is not None:
+                event = {**event, "role_context": owed_role}
         delivery = make_delivery(
             room,
             event,
@@ -1080,6 +1100,9 @@ def main():
             if owed_vault is not None and vault_owed.get(room) is owed_vault:
                 # Delivered with this turn; a newer change stays owed.
                 del vault_owed[room]
+            if role_now is not None:
+                # Told as of this turn; a later change is owed again.
+                role_told[room] = role_now
             mid = max((m.get("id") or 0) for m in messages)
             # Cursor failure is not cosmetic. Reconnect and replay the stable
             # delivery id instead of claiming a checkpoint that was never
@@ -1166,6 +1189,8 @@ def main():
                     current_lead = str(settings.get("lead") or "").casefold() == (
                         requested_name.casefold()
                     )
+                    if not in_lobby:
+                        role_known[room] = role_context.room_state(settings, requested_name)
                     turn_limit = runtime_turn_max(wurl, settings)
                     # A change made while this listener was away is owed
                     # too; the first connect only learns the revision.
@@ -1216,6 +1241,17 @@ def main():
                     if t in ("memory", "memoryversion"):
                         # Wire/storage compatibility only. A retired knowledge
                         # role must neither wake a model nor be injected.
+                        continue
+                    if t == "settings":
+                        # The loca's settings changed (its Lead, its
+                        # extensions). State only: no model turn now; the
+                        # next real turn here carries the cards that changed.
+                        changed = f.get("settings")
+                        if isinstance(changed, dict):
+                            state_now = role_context.room_state(changed, requested_name)
+                            if not in_lobby:
+                                role_known[room] = state_now
+                            current_lead = state_now["lead"]
                         continue
                     if t == "vault":
                         # The rules changed. State only: no model turn now;
@@ -1346,9 +1382,13 @@ def main():
                             for message in incoming
                         ):
                             try:
-                                current_lead = (
-                                    fetch_room_lead(wurl) or ""
-                                ).casefold() == requested_name.casefold()
+                                refreshed = fetch_room_settings(wurl)
+                                refreshed_state = role_context.room_state(
+                                    refreshed, requested_name
+                                )
+                                if not in_lobby:
+                                    role_known[room] = refreshed_state
+                                current_lead = refreshed_state["lead"]
                             except Exception as lead_error:
                                 sys.stderr.write(
                                     f"[{room}] lead refresh failed: {lead_error}\n"

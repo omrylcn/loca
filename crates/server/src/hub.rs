@@ -84,6 +84,7 @@ struct RuntimeRecord {
     turn_completed: bool,
     seen_at: u64,
     progress_at: u64,
+    profile: Option<protocol::RuntimeProfile>,
 }
 
 use crate::store::{

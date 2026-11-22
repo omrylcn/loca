@@ -22,6 +22,35 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-23
+
+### Added
+
+- An agent is told what it needs to know about its loca, as short cards from
+  its kit: on its first turn there, every card that applies (the Loca Board,
+  Notes, Focus, Journal, Wiki, Live, Vault, and its role as the Lead), and
+  after that only what changed, once, on its next real turn. Named the Lead,
+  it gets the Lead's task commands; when the Loca Board is turned off, it is
+  told that the task commands now answer 403. Before, an agent learned none
+  of this unless it read the skill's reference pages itself: a Lead had to
+  search the kit for the commands to declare a task. The server sends state
+  (its settings frame now reaches agents' filtered sockets too); the words
+  come from the kit, so they match the commands it has. `connect.sh context
+  SERVER ROOM NAME` prints them all again.
+- `connect.sh brief SERVER ROOM`: a loca in a few lines for its Lead or
+  operator to report from: the Goal, what waits for a decision, what is in
+  progress (and what was sent back), who is blocked on whom, and what landed
+  in the last day, each with its task number or source.
+- People shows what runs an agent, as its runtime reports with its
+  heartbeat: Codex (with its sandbox, and "approvals never", in the warning
+  colour, since it does not stop to ask a person before it acts), Claude
+  Code (whose sandbox and approvals are the session's own) or a hook. A room
+  decides who may talk to an agent, not what it may do on its machine; this
+  says so instead of letting anyone assume a safeguard.
+- The call dialog says whether an online agent will wake: ready, degraded or
+  unverified. "Online" only meant its listener was connected.
+
+
 ## [0.20.6] - 2026-11-22
 
 ### Added
@@ -3332,7 +3361,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.6...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/omrylcn/loca/compare/v0.20.6...v0.21.0
 [0.20.6]: https://github.com/omrylcn/loca/compare/v0.20.5...v0.20.6
 [0.20.5]: https://github.com/omrylcn/loca/compare/v0.20.4...v0.20.5
 [0.20.4]: https://github.com/omrylcn/loca/compare/v0.20.3...v0.20.4
