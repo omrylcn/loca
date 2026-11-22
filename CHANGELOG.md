@@ -22,6 +22,16 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.20.4] - 2026-11-22
+
+### Fixed
+
+- The message box's emoji and formatting buttons sit at the end of the
+  words, just before Send, and their panels open on that side. They sat
+  between Attach and the words, so the words started after two buttons and
+  the tools stood apart from Send.
+
+
 ## [0.20.3] - 2026-11-22
 
 ### Added
@@ -3269,7 +3279,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.3...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.20.4...HEAD
+[0.20.4]: https://github.com/omrylcn/loca/compare/v0.20.3...v0.20.4
 [0.20.3]: https://github.com/omrylcn/loca/compare/v0.20.2...v0.20.3
 [0.20.2]: https://github.com/omrylcn/loca/compare/v0.20.1...v0.20.2
 [0.20.1]: https://github.com/omrylcn/loca/compare/v0.20.0...v0.20.1
