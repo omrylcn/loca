@@ -24,6 +24,14 @@ went wrong or who noticed:
 
 ## [0.20.5] - 2026-11-22
 
+### Security
+
+- Update `url` to 2.5.9 (RUSTSEC-2026-0592, published 2026-11-20): in 2.5.8
+  `Url::origin()` on a URL with many nested `blob:` prefixes recursed until
+  the stack overflowed and the process aborted. Loca's own code never calls
+  `Url::origin()`; the update closes the path through any dependency that
+  does. The public repository's audit refused 0.20.5 until it was updated.
+
 ### Fixed
 
 - The Operator and the ranks can drag any task on the Loca Board to any
