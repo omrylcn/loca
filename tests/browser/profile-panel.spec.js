@@ -302,3 +302,16 @@ test("the panel is a sheet that fits a phone, and Escape closes it (guard)", asy
   await expect(page.locator("#whoami details.profilemenu")).not.toHaveAttribute("open", "");
   await context.close();
 });
+
+test("About Loca names the version this server runs and where to read what it changed", async ({ browser, request }) => {
+  const { context, page } = await newPage(browser);
+  await signInAsMaster(page, request);
+  await openPanel(page);
+  const { version } = await (await request.get("/health")).json();
+  const about = section(page, "profileSecAbout");
+  await expect(about.locator("h3")).toHaveText("About Loca");
+  await expect(about.locator("#aboutVersion")).toHaveText(version);
+  await expect(about.locator("#aboutNotes")).toHaveAttribute("href", `https://github.com/omrylcn/loca/releases/tag/v${version}`);
+  await expect(page.locator('#whoami [data-profile-jump="profileSecAbout"]')).toHaveText("About");
+  await context.close();
+});

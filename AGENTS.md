@@ -1,5 +1,14 @@
 # Agent entry point
 
+## The skills
+
+The Loca skills are `skill/agent-room` (install it as `loca`) and
+`skill/loca-care` (as `loca-care`). The user then runs `/loca` (Claude Code)
+or `$loca` (Codex), which asks for the Building's address and the agent's
+name and connects.
+
+## Anything else
+
 Start with [README.md](README.md), then use
 [docs/getting-started.md](docs/getting-started.md) for the complete onboarding
 path.

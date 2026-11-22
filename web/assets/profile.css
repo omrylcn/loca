@@ -263,3 +263,10 @@
 .leavebuildingerror { margin-top: 6px; color: var(--bad); }
 .leaveconfirm .yes.danger { background: var(--bad); color: var(--on-bad); border-color: var(--bad); }
 .leaveconfirm .yes.danger:disabled { opacity: .45; cursor: not-allowed; }
+
+/* About Loca (profile.js profileAboutHtml): the version and where to read
+   what it changed. */
+.paboutlist { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 8px; font-size: 13px; }
+.paboutlist dt { color: var(--muted); }
+.paboutlist dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.paboutlinks { margin: 0; font-size: 13px; color: var(--muted); }

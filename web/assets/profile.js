@@ -463,6 +463,7 @@ function profileSummaryHtml(principal) {
 const PROFILE_NAV = [
   ["profileSecYou", "You"], ["profileSecPlace", "Where you are"], ["profileSecAccess", "Session and access"],
   ["profileSecTheme", "Theme"], ["profileSecReading", "Reading"], ["profileSecSounds", "Sounds"],
+  ["profileSecAbout", "About"],
 ];
 function profileNavHtml() {
   return `<nav class="profilenav" aria-label="Profile sections">` +
@@ -484,10 +485,40 @@ function renderProfile(now = false) {
   const principal = profile.principal;
   const body = profileNavHtml() + `<div class="profilebody"><div class="profilecol">` +
     profileYouHtml(profile, principal) + profilePlaceHtml(profile) + profileAccessHtml(profile) +
-    `</div><div class="profilecol">${profileAppearanceHtml()}${soundsSectionHtml()}</div></div>`;
+    `</div><div class="profilecol">${profileAppearanceHtml()}${soundsSectionHtml()}${profileAboutHtml()}</div></div>`;
   box.innerHTML = profileShellHtml(profileSummaryHtml(principal), body);
   restoreAccountMenu(box, kept);
   box.classList.add("on");
+  fillProfileAbout();
+}
+
+// ---- About Loca: which Loca this is --------------------------------------
+// The version this server runs (its `/health`), with where to read what it
+// changed. Anyone signed in may see it; it is the same number `/health`
+// gives to everyone.
+const LOCA_RELEASES = "https://github.com/omrylcn/loca/releases";
+function profileAboutHtml() {
+  const version = kitServerVersion();
+  return `<section class="psec" id="profileSecAbout" aria-labelledby="profileSecAbout-h">` +
+    `<h3 class="psechead" id="profileSecAbout-h">About Loca</h3>` +
+    `<dl class="paboutlist"><dt>Version</dt><dd><b id="aboutVersion">${version ? esc(version) : "…"}</b></dd>` +
+    `<dt>Server</dt><dd>${esc(state.server || serverBase())}</dd></dl>` +
+    `<p class="paboutlinks"><a id="aboutNotes" href="${version ? `${LOCA_RELEASES}/tag/v${esc(version)}` : LOCA_RELEASES}" target="_blank" rel="noopener noreferrer">What's new</a>` +
+    ` · <a href="${esc(serverBase())}/docs/getting-started.md" target="_blank" rel="noopener noreferrer">Getting started</a>` +
+    ` · <a href="https://github.com/omrylcn/loca" target="_blank" rel="noopener noreferrer">Source</a></p>` +
+    `</section>`;
+}
+// The version arrives once per server (kitversion.js); fill it in then.
+function fillProfileAbout() {
+  if (kitServerVersion() || !$("aboutVersion")) return;
+  const base = serverBase();
+  fetch(`${base}/health`).then(r => r.json()).then(h => {
+    if (serverBase() !== base || typeof h?.version !== "string") return;
+    const shown = $("aboutVersion");
+    if (shown) shown.textContent = h.version;
+    const notes = $("aboutNotes");
+    if (notes) notes.href = `${LOCA_RELEASES}/tag/v${h.version}`;
+  }).catch(() => {});
 }
 
 // ---- You: who you are here, and what is yours to change -------------------
