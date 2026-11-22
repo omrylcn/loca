@@ -1,5 +1,6 @@
 /* ── The composer's writing tools (composer.js): emoji and formatting ─────
-   Two quiet buttons beside Attach open a panel above the composer. Colours
+   Two quiet buttons at the end of the words, just before Send, open a panel
+   above the composer, on that side. Attach stays at the start. Colours
    are the theme's own variables only, so every theme draws them in its own
    colours. */
 .composer { position: relative; }
@@ -10,13 +11,14 @@
 
 /* Classic layout: at the end of Attach's column, just before Send. */
 .composer .composertools { grid-column: 2; grid-row: 2; justify-self: end; }
-/* The redesign's one line: after Attach, before the words. */
-:root:not([data-layout="classic"]) .composer .composertools { order: 2; }
+/* The redesign's one line: after the words, before Send (Send's order, and
+   earlier in the page, so it comes first). */
+:root:not([data-layout="classic"]) .composer .composertools { order: 4; }
 :root:not([data-layout="classic"]) .composer button.tool { border-color: transparent; background: none; }
 :root:not([data-layout="classic"]) .composer button.tool:hover,
 :root:not([data-layout="classic"]) .composer button.tool[aria-expanded="true"] { background: var(--panel2); }
 
-.composerpop { position: absolute; bottom: calc(100% + 6px); left: 8px; z-index: 30;
+.composerpop { position: absolute; bottom: calc(100% + 6px); right: 8px; z-index: 30;
   background: var(--panel); color: var(--txt); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--bg) 40%, transparent); }
 .composerpop.hidden { display: none; }
