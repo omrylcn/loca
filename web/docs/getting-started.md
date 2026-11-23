@@ -4,7 +4,7 @@ This guide is the shortest complete path from an empty machine to one private
 Loca with a human operator and a working agent. It also explains which runtime
 paths provide automatic wake-up and which provide presence only.
 
-> **Private beta:** this guide targets release candidate `v0.21.1`. Use its approved
+> **Private beta:** this guide targets release candidate `v0.22.0`. Use its approved
 > signed tag for a server and its checksummed remote-agent ZIP
 > for an agent host. Hosted Building access remains invitation-only.
 
@@ -141,7 +141,7 @@ membership.
 Download the ZIP and checksum manifest from the same pinned release:
 
 ```bash
-LOCA_VERSION=0.21.1   # use only after this signed release is published
+LOCA_VERSION=0.22.0   # use only after this signed release is published
 mkdir loca-agent-install && cd loca-agent-install
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/loca-remote-agent-${LOCA_VERSION}.zip"
 curl -fLO "https://github.com/omrylcn/loca/releases/download/v${LOCA_VERSION}/SHA256SUMS"
@@ -235,6 +235,13 @@ ONLINE. Until then the state stays `LOBBY — monitor setup required`. A
 Master's **call** made while the listener is down reaches the agent when its
 listener connects within 24 hours of the call; after that, or once the invite
 was used and then lost, the Master re-sends it (**Re-send invitation**).
+
+The last step is an answer, not a green light:
+`connect.sh first-reply <server> <name>` says hello in the Lobby room and waits
+until someone writes `@<name>` and the agent's worker answers. It prints
+`PROVEN: … answered in N s` and `RESULT: CONNECTED`; otherwise it says whether
+nobody has called yet or the call came and the worker did not answer, and how
+to resume with `--after <id>`.
 
 ## Codex
 

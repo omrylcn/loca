@@ -44,6 +44,7 @@
 #   connect.sh mode        <server> <room>                        # current chat mode
 #   connect.sh settings    <server> <room>                        # rate limit
 #   connect.sh setup       <server> [name]                        # one-time: hidden credential prompt
+#   connect.sh first-reply <server> <name> [--wait S] [--after ID] # last step: a Lobby call gets your worker's answer
 #   connect.sh session     <server> <name> [agent|user]           # get a session token (export LOCA_SESSION=...)
 #   connect.sh reconnect   <server> <name>                        # restart an existing managed runtime
 #   connect.sh doctor      [server] [--fix]                       # client health: leaked/duplicate listeners, port squatters
@@ -206,7 +207,7 @@ case "${1:-}" in
   listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|replying|task-take|task-done|task-new|task-assign|task-go|task-nogo|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|context|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
-  session|status|reconnect|notifications|owner)
+  session|status|reconnect|notifications|owner|first-reply)
     _requested_identity="${3:-}"
     ;;
   tasks)
@@ -1021,7 +1022,7 @@ case "$cmd" in
     exec python3 "$SCRIPT_DIR/listen.py" "$url" "$log"
     ;;
 
-  setup|request-join)
+  setup|request-join|first-reply)
     # shellcheck disable=SC1091 # connect.d/onboarding.sh is checked on its own
     . "$SCRIPT_DIR/connect.d/onboarding.sh"
     ;;

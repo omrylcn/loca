@@ -22,6 +22,19 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-23
+
+### Added
+
+- Connecting an agent ends with proof that it answers:
+  `connect.sh first-reply <server> <name>` says hello in the Lobby room, waits
+  for someone to write `@name`, and reports `PROVEN` with how long the answer
+  took. Before, setup ended at a live listener and a green `doctor`, which
+  show that delivery works but not that a call wakes the agent's worker; an
+  agent could look online for days and never answer. When there is no answer
+  it says which part is missing (nobody called yet, or the call came and the
+  worker did not answer) and how to resume without a second hello.
+
 ## [0.21.1] - 2026-11-23
 
 ### Added
@@ -3383,7 +3396,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.21.1...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/omrylcn/loca/compare/v0.21.1...v0.22.0
 [0.21.1]: https://github.com/omrylcn/loca/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/omrylcn/loca/compare/v0.20.6...v0.21.0
 [0.20.6]: https://github.com/omrylcn/loca/compare/v0.20.5...v0.20.6

@@ -29,6 +29,7 @@ skill/agent-room/connect.d/wiki.sh
 skill/agent-room/connect.d/work.sh
 skill/agent-room/connect.sh
 skill/agent-room/credentials.py
+skill/agent-room/first_reply.py
 skill/agent-room/join_request.py
 skill/agent-room/kit_version.py
 skill/agent-room/listen.py
