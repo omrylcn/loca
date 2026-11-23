@@ -43,6 +43,12 @@ went wrong or who noticed:
   clickable (a PR, a commit). Before, the note disappeared from view once the
   task was approved, and finding the work meant reading the review history.
 
+### Security
+
+- `cookie` 0.18.3 (RUSTSEC-2026-0594, published on the release day): private
+  cookie nonces could repeat in processes that fork. The dependency audit of
+  the public repository turned red on 0.18.2.
+
 ## [0.22.0] - 2026-11-23
 
 ### Added
