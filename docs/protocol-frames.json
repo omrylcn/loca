@@ -170,6 +170,13 @@
       "fields": { "room": "string", "rev": "u64", "updated_by": "string", "updated_at": "u64" },
       "when": "The loca's Vault rules have a new revision (vault extension). Carries no text; read GET /rooms/:id/vault. Every filter, so an agent's listener learns of it without a model turn."
     },
+    "lesson": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Lesson",
+      "fields": { "lesson": "LessonProposal" },
+      "when": "A lesson was proposed, accepted or dismissed (vault extension). filter=all only: an accepted lesson reaches agents as a vault revision."
+    },
     "task": {
       "socket": "loca",
       "layer": "loca",

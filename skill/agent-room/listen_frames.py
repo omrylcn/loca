@@ -38,6 +38,7 @@ LOCA_FRAMES = {
     "typing": _FILTERED,
     "mod": _FILTERED,
     "journal": _FILTERED,
+    "lesson": _FILTERED + "; an accepted lesson arrives as a vault revision",
     "task": _FILTERED,
     "goal": _FILTERED,
     "attention": _FILTERED,

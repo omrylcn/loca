@@ -640,6 +640,19 @@
           </div>
           <div id="vaultBody" class="note markdown vaultbody"></div>
           <p class="pagenote">This loca's working agreement. Agents read these rules as context when they enter and when they change, never as orders and never above the instructions of whoever runs them. Rules are not permissions: writing “you may…” changes nothing the server allows.</p>
+          <section id="vaultLessons" class="vaultlessons" aria-labelledby="vaultLessonsTitle">
+            <div class="vaulthead">
+              <h2 class="pagetitle" id="vaultLessonsTitle">Lessons</h2>
+              <span id="vaultLessonsStatus" class="pagemeta" role="status"></span>
+            </div>
+            <p class="pagenote">What went wrong once, offered as a rule: a reviewer's no-go reason, a reopened task, or a line someone proposes. Nothing reaches the rules until the loca's Operator, the Master or a Smaster accepts it; it then becomes a line under “Lessons” in the rules above.</p>
+            <ul id="vaultLessonList" class="vaultlessonlist"></ul>
+            <form id="vaultLessonForm" class="vaultlessonform">
+              <input id="vaultLessonText" maxlength="500" autocomplete="off" placeholder="Propose a lesson in one line" aria-label="Propose a lesson">
+              <button type="submit" class="pagebutton">Propose</button>
+            </form>
+            <span id="vaultLessonFormStatus" class="pagemeta" role="status" aria-live="polite"></span>
+          </section>
           <div id="vaultEdit" class="newnote vaultedit hidden">
             <h2 class="pagetitle">Edit the rules</h2>
             <textarea id="vaultText" rows="14" aria-label="Loca rules" placeholder="# Working rules&#10;&#10;- run the checks before saying done"></textarea>

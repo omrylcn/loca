@@ -5,7 +5,7 @@ use crate::routes::{
     master_agent_fence, put_master_agent_setting, revoke_master_agent_route,
 };
 use crate::{
-    ack_care, ack_join_request_route, ack_membership_claim_route, add_extension,
+    accept_lesson, ack_care, ack_join_request_route, ack_membership_claim_route, add_extension,
     add_group_member_route, admit_member, append_long_memory, appoint_loca_operator_route,
     approve_join_request_route, bootstrap_join_request_route, call_into_loca, caretaker_memory,
     caretaker_residents, claim_attention, claim_membership, claim_wiki_review, clear_wait,
@@ -13,22 +13,22 @@ use crate::{
     create_group_route, create_invite, create_join_request_route, create_loca_route, create_note,
     create_pairing_route, create_profile_credential_route, create_session_route, create_smaster,
     create_task, delete_group_route, delete_loca_records, delete_note, delete_room,
-    delete_session_route, deny_join_request_route, dm_candidates_route, dm_close_route, dm_fence,
-    dm_master_route, dm_overview_route, dm_seal_route, dm_witness_route, download_skill_bundle,
-    edit_wiki_page, extension_catalog, extension_fence, finish_wiki_review, get,
-    get_admission_stock_route, get_attachment, get_building_settings, get_extensions, get_group,
-    get_join_request_route, get_journal, get_loca_memory, get_loca_memory_snapshot,
-    get_loca_operator, get_members, get_messages, get_mod, get_mode, get_note, get_notes,
-    get_profile_preferences, get_reactions, get_settings, get_task, get_vault, get_vault_history,
-    get_wiki, get_wiki_page, getting_started_doc, group_fence, group_log_route, health, hub, index,
-    issue_key, leave_building_route, list_attentions, list_building_bans, list_building_ranks,
-    list_goals, list_groups, list_invites, list_join_requests_route, list_keys,
-    list_long_memory_entries, list_members, list_my_dms, list_notifications,
+    delete_session_route, deny_join_request_route, dismiss_lesson, dm_candidates_route,
+    dm_close_route, dm_fence, dm_master_route, dm_overview_route, dm_seal_route, dm_witness_route,
+    download_skill_bundle, edit_wiki_page, extension_catalog, extension_fence, finish_wiki_review,
+    get, get_admission_stock_route, get_attachment, get_building_settings, get_extensions,
+    get_group, get_join_request_route, get_journal, get_lessons, get_loca_memory,
+    get_loca_memory_snapshot, get_loca_operator, get_members, get_messages, get_mod, get_mode,
+    get_note, get_notes, get_profile_preferences, get_reactions, get_settings, get_task, get_vault,
+    get_vault_history, get_wiki, get_wiki_page, getting_started_doc, group_fence, group_log_route,
+    health, hub, index, issue_key, leave_building_route, list_attentions, list_building_bans,
+    list_building_ranks, list_goals, list_groups, list_invites, list_join_requests_route,
+    list_keys, list_long_memory_entries, list_members, list_my_dms, list_notifications,
     list_profile_credentials, list_profiles, list_residents, list_rooms, list_smasters, list_tasks,
     list_waits, lobby_ws_handler, loca_archive, moderate, note_history,
-    notification_audiences_route, open_dm_route, post_journal, post_message, post_typing,
-    preview_loca_group_route, principles_en, principles_tr, profile_view, put_building_settings,
-    put_extensions, put_profile_card, put_profile_preferences, put_vault,
+    notification_audiences_route, open_dm_route, post_journal, post_lesson, post_message,
+    post_typing, preview_loca_group_route, principles_en, principles_tr, profile_view,
+    put_building_settings, put_extensions, put_profile_card, put_profile_preferences, put_vault,
     read_all_notifications_route, read_notification_route, release_self_from_loca,
     remove_extension, remove_group_member_route, remove_wiki_page, rename_profile_route,
     rename_smaster_route, renew_wiki_review, report_runtime_health, require_membership,
@@ -258,6 +258,18 @@ pub(crate) fn router(hub: Hub) -> Router {
         .route("/rooms/{id}/notes", get(get_notes).post(create_note))
         .route("/rooms/{id}/vault", get(get_vault).put(put_vault))
         .route("/rooms/{id}/vault/history", get(get_vault_history))
+        .route(
+            "/rooms/{id}/vault/lessons",
+            get(get_lessons).post(post_lesson),
+        )
+        .route(
+            "/rooms/{id}/vault/lessons/{lid}/accept",
+            axum::routing::post(accept_lesson),
+        )
+        .route(
+            "/rooms/{id}/vault/lessons/{lid}/dismiss",
+            axum::routing::post(dismiss_lesson),
+        )
         .route("/rooms/{id}/wiki", get(get_wiki))
         .route(
             "/rooms/{id}/wiki/pages/{slug}",

@@ -69,7 +69,9 @@ function renderTaskView(task) {
   ];
   if (task.closed_at) rows.push(["Closed", time(task.closed_at)]);
   if (task.from_message) rows.push(["Source", `<a href="#" data-goto="${Number(task.from_message)}">the message it grew from</a>`]);
-  if (task.status === "review" && task.review_note) rows.push(["Note for review", esc(task.review_note)]);
+  if (task.status === "review" && task.review_note) rows.push(["Note for review", noteWithLinks(task.review_note)]);
+  const delivered = deliveredNote(task);
+  if (delivered) rows.push(["Delivered", noteWithLinks(delivered)]);
   if (task.status === "taken" && task.review_reason) rows.push(["Not done yet", esc(task.review_reason)]);
   const reassign = mayReassign(task)
     ? `<form class="taskreassign" id="taskReassign"><label>Give it to <input id="taskReassignName" autocomplete="off" placeholder="name"></label>` +

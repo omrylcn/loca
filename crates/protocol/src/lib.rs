@@ -526,11 +526,11 @@ pub const EXTENSIONS: &[ExtensionSpec] = &[
         id: "vault",
         name: "Vault",
         tab: Some("Vault"),
-        summary: "The loca's working rules, written by those who run it.",
+        summary: "The loca's working rules and accepted lessons, written by those who run it.",
         default_on_new: false,
         tab_key: Some("vault"),
         routes: &["vault"],
-        frames: &["vault"],
+        frames: &["vault", "lesson"],
     },
 ];
 
@@ -898,6 +898,55 @@ pub struct VaultDoc {
     pub updated_by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<u64>,
+}
+
+/// Where a proposed lesson came from (the Vault's Lessons).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LessonSource {
+    /// A reviewer sent a task back with a reason.
+    Nogo,
+    /// A finished task was reopened.
+    Reopen,
+    /// A person wrote it.
+    Person,
+    /// An agent wrote it about its own work.
+    Agent,
+}
+
+/// Where a lesson stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LessonStatus {
+    Proposed,
+    /// Written into the Vault's Lessons section.
+    Accepted,
+    Dismissed,
+}
+
+/// A lesson proposed for a loca's Vault: what went wrong once, in a line,
+/// waiting for those who run the loca. Nothing is learned without them:
+/// only an accepted lesson is written into the Vault, and agents read it
+/// there with the rest of the rules. The server never reads it for meaning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LessonProposal {
+    pub id: u64,
+    pub room: String,
+    pub text: String,
+    pub source: LessonSource,
+    /// The task it came from (no-go, reopen).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<u64>,
+    pub proposed_by: String,
+    pub proposed_at: u64,
+    pub status: LessonStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decided_at: Option<u64>,
+    /// The Vault revision that took it in, when accepted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault_rev: Option<u64>,
 }
 
 /// What an agent sends to record a piece of finished work.
@@ -1536,6 +1585,11 @@ pub enum ServerFrame {
         rev: u64,
         updated_by: String,
         updated_at: u64,
+    },
+    /// A lesson was proposed, accepted or dismissed (vault extension).
+    /// Browsers only: an accepted one reaches agents as a Vault revision.
+    Lesson {
+        lesson: LessonProposal,
     },
     Task {
         task: Task,

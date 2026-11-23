@@ -112,4 +112,44 @@ case "$cmd" in
         "----- end loca rules -----"
       end'
     ;;
+  lessons)
+    # lessons <server> <room> -> the lessons proposed for this loca's Vault:
+    # the waiting ones and the accepted ones. Accepted lessons are also in
+    # the rules (connect.sh vault), under "Lessons".
+    server="$1"; room="$2"
+    use_loca "$room"
+    view=$(curl_get "$server/rooms/$(_room_path "$room")/vault/lessons") || exit $?
+    # $waiting and $accepted below are jq's variables, not the shell's.
+    # shellcheck disable=SC2016
+    printf '%s' "$view" | _jq_raw '
+      def origin: if .source == "nogo" then "from the no-go on task #\(.task)"
+        elif .source == "reopen" then "from reopened task #\(.task)"
+        else "proposed by \(.proposed_by)" end;
+      (.lessons // []) as $all
+      | ($all | map(select(.status == "proposed"))) as $waiting
+      | ($all | map(select(.status == "accepted"))) as $accepted
+      | "Lessons of \(.room): \($waiting | length) waiting, \($accepted | length) accepted",
+        ($waiting[] | "  waiting #\(.id): \(.text) (\(origin))"),
+        ($accepted[] | "  accepted #\(.id): \(.text) (\(origin), by \(.decided_by))")'
+    ;;
+
+  lesson-propose)
+    # lesson-propose <server> <room> <name> <text> -> propose a lesson for
+    # this loca's Vault, in one line, about your own work: what to do
+    # differently next time. Only those who run the loca accept it; until
+    # then it is a proposal, not a rule.
+    server="$1"; room="$2"; name="$3"; shift 3
+    text="$*"
+    use_loca "$room" write
+    payload=$(jq -n --arg t "$text" '{text:$t}')
+    resp=$(curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" -w $'\n%{http_code}' \
+      -X POST "$server/rooms/$(_room_path "$room")/vault/lessons" -d "$payload")
+    code=$(printf '%s' "$resp" | tail -n1)
+    body=$(printf '%s' "$resp" | sed '$d')
+    if [ "$code" != "201" ]; then
+      echo >&2 "NOT PROPOSED (HTTP $code): ${body:0:300}"
+      case "$code" in 401) exit 7 ;; 403) exit 4 ;; 429) exit 5 ;; *) exit 8 ;; esac
+    fi
+    printf '%s' "$body" | _jq_raw '"proposed lesson #\(.id): \(.text)"'
+    ;;
 esac

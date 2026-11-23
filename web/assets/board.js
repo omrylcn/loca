@@ -84,6 +84,33 @@ function boardActions(task) {
     .map(m => `<button data-tact="${m.act}" data-tid="${task.id}">${m.label}</button>`).join("");
 }
 
+// What a finished task delivered: the note its holder last asked for review
+// with, kept in the review history. Shown on the card and in the task view,
+// so the go points at the work (a PR, a commit, a file) after the review.
+function deliveredNote(task) {
+  if (task.status !== "done") return "";
+  const asked = (task.reviews || []).filter(review => review.kind === "asked" && review.text);
+  return asked.length ? asked[asked.length - 1].text : "";
+}
+
+// A note with its http(s) addresses as links, everything else escaped.
+// Trailing punctuation stays outside the link.
+function noteWithLinks(text) {
+  const out = [];
+  const pattern = /\bhttps?:\/\/[^\s<>"']+/g;
+  let last = 0;
+  let match;
+  while ((match = pattern.exec(text))) {
+    const url = match[0].replace(/[.,;:!?)\]]+$/, "");
+    out.push(esc(text.slice(last, match.index)));
+    out.push(`<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`);
+    last = match.index + url.length;
+    pattern.lastIndex = last;
+  }
+  out.push(esc(text.slice(last)));
+  return out.join("");
+}
+
 function boardCard(task) {
   const el = document.createElement("div");
   el.className = "task";
@@ -91,11 +118,13 @@ function boardCard(task) {
   // A card that can move is picked up and dropped on a column (boardmove.js).
   if (boardMoves(task).some(m => m.to.length)) el.draggable = true;
   const who = task.assigned_to ? ` · ${esc(task.assigned_to)}` : "";
-  const note = task.status === "review" && task.review_note ? `<span class="tmeta">Note: ${esc(task.review_note)}</span>` : "";
+  const note = task.status === "review" && task.review_note ? `<span class="tmeta">Note: ${noteWithLinks(task.review_note)}</span>` : "";
+  const delivered = deliveredNote(task);
+  const deliveredLine = delivered ? `<span class="tmeta tdelivered">Delivered: ${noteWithLinks(delivered)}</span>` : "";
   const reason = task.status === "taken" && task.review_reason ? `<span class="tmeta">Not yet: ${esc(task.review_reason)}</span>` : "";
   el.innerHTML = `<span class="tid">#${task.id}</span>
     <span class="ttitle">${esc(task.title)}
-      <span class="tmeta">Added by ${esc(task.created_by)}${who}</span>${note}${reason}
+      <span class="tmeta">Added by ${esc(task.created_by)}${who}</span>${note}${reason}${deliveredLine}
     </span>
     <span class="tchip ${esc(task.status)}">${esc(TLABEL[task.status] || task.status)}</span>
     <span class="tacts">${boardActions(task)}</span>${typeof taskFormFor === "function" ? taskFormFor(task) : ""}`;

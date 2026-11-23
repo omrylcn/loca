@@ -118,6 +118,11 @@ server_frames! {
     Vault => ServerFrame::Vault {
         room: "proto-room".into(), rev: 2, updated_by: "proto-ayse".into(), updated_at: NOW_MS,
     },
+    Lesson => ServerFrame::Lesson {
+        lesson: de(json!({"id": 1, "room": "proto-room", "text": "run the tests",
+            "source": "nogo", "task": 3, "proposed_by": "proto-ayse", "proposed_at": NOW_MS,
+            "status": "proposed"})),
+    },
     Task => ServerFrame::Task {
         task: de(json!({"id": 1, "room": "proto-room", "title": "t", "created_by": "proto-ayse",
             "status": "open", "created_at": NOW_MS})),

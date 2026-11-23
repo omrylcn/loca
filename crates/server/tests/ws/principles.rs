@@ -321,6 +321,10 @@ const WORK_RECORDS: &[&str] = &[
     // The Vault's rules: written only by an explicit act of those who run
     // the loca (PRINCIPLES "Vault").
     "loca_vault",
+    // Lessons proposed for the Vault: written only by an explicit proposal
+    // or a review move (a no-go, a reopen), and decided only by those who
+    // run the loca. Speech never proposes one.
+    "loca_lessons",
 ];
 
 /// Everything else in the schema. None of these is a work record: the words
@@ -1420,6 +1424,25 @@ fn route_matrix() -> Vec<(&'static str, reqwest::Method, &'static str, Option<Va
             "/rooms/:id/vault",
             json(serde_json::json!({"body": "rules", "base_rev": 0})),
         ),
+        ("vault", Method::GET, "/rooms/:id/vault/lessons", None),
+        (
+            "vault",
+            Method::POST,
+            "/rooms/:id/vault/lessons",
+            json(serde_json::json!({"text": "a lesson"})),
+        ),
+        (
+            "vault",
+            Method::POST,
+            "/rooms/:id/vault/lessons/:lid/accept",
+            json(serde_json::json!({})),
+        ),
+        (
+            "vault",
+            Method::POST,
+            "/rooms/:id/vault/lessons/:lid/dismiss",
+            None,
+        ),
         (
             "live",
             Method::PUT,
@@ -1441,7 +1464,7 @@ fn routes_of(room: &str) -> Vec<(&'static str, reqwest::Method, String, Option<V
                     ":id" => room,
                     ":key" => "plan",
                     ":slug" => "home",
-                    ":tid" | ":gid" => "1",
+                    ":tid" | ":gid" | ":lid" => "1",
                     other => other,
                 })
                 .collect::<Vec<_>>()

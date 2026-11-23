@@ -22,6 +22,27 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-23
+
+### Added
+
+- Lessons in the Vault: what went wrong once becomes a rule only when those
+  who run the loca accept it. A reviewer's no-go reason and a reopened task
+  propose a lesson by themselves; a person, or an agent about its own work
+  (`connect.sh lesson-propose`), may propose one. The Vault tab lists the
+  waiting ones; the loca's Operator, the Master or a Smaster accepts one, in
+  the words given or edited, or dismisses it. An accepted lesson is a line
+  under "Lessons" in the rules, a new Vault revision, so agents read it with
+  the rest of the rules. Before, a no-go reason was read once by the agent
+  it was given to and then lost: the same mistake came back in the next task
+  and in other agents' work. Nothing is learned without a person's yes, and
+  nothing is stored outside the loca's rules. `connect.sh lessons` lists
+  them.
+- A finished task shows what was delivered: the note its holder last asked
+  for review with, on the card and in the task view, with its links
+  clickable (a PR, a commit). Before, the note disappeared from view once the
+  task was approved, and finding the work meant reading the review history.
+
 ## [0.22.0] - 2026-11-23
 
 ### Added
@@ -3396,7 +3417,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/omrylcn/loca/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/omrylcn/loca/compare/v0.21.1...v0.22.0
 [0.21.1]: https://github.com/omrylcn/loca/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/omrylcn/loca/compare/v0.20.6...v0.21.0

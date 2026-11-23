@@ -35,6 +35,7 @@ mod content;
 mod groups;
 mod identity;
 mod keys;
+mod lessons;
 pub(crate) mod loca_removal;
 mod master_agent_admissions;
 mod master_agent_locas;
@@ -54,6 +55,7 @@ mod wiki;
 mod wiki_context;
 mod wiki_maintenance;
 mod work;
+pub use lessons::LessonDecision;
 use migrations::{
     add_column, add_invite_delivery_columns, attribute_messages_once, expire_delivery_copies,
     expire_invite_copies, migrate_admin_session_tokens, migrate_member_keys, migrate_smaster_codes,
@@ -257,6 +259,8 @@ impl Store {
         conn.execute_batch(notifications::SCHEMA)?;
         // The Vault's rules (PRINCIPLES "Vault"): a new table only.
         conn.execute_batch(vault::SCHEMA)?;
+        // Lessons proposed for the Vault: a new table only.
+        conn.execute_batch(lessons::SCHEMA)?;
         // A task's review history (the Loca Board): a new table only.
         conn.execute_batch(task_reviews::SCHEMA)?;
         // The Building's own settings (its name): a new table only.
