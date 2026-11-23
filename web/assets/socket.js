@@ -430,6 +430,7 @@ const WEB_FRAME_HANDLING = {
   task: "handled", goal: "handled", attention: "handled", wait: "handled",
   care: "handled", journal: "handled", mod: "handled", kicked: "handled", evicted: "handled",
   vault: "handled",
+  lesson: "handled",
   memoryversion: "ignored: a freshness checkpoint for runtimes that inject memory into a model",
   turn: "ignored: sent only on filter=mentions; the browser opens filter=all",
   caretaker: "ignored: never on the wire; the server delivers it as msg",
@@ -585,6 +586,7 @@ function onFrame(f, from) {
   if (state.tab === "people") fetchPeople(); else $("journalDot").classList.add("on");
   }
   else if (f.t === "vault") { onVaultFrame(f); }
+  else if (f.t === "lesson") { onLessonFrame(f); }
   else if (f.t === "mod") { state.mod = f.state; renderMembers(); }
   else if (f.t === "evicted") { onEvicted(f, from); }
   else if (f.t === "kicked") {

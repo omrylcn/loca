@@ -80,3 +80,54 @@ test("the Vault tab: those who run the loca write the rules, a participant reads
   await reader.close();
   await page.close();
 });
+
+test("Lessons: a participant proposes one, the Master accepts it and it becomes a rule", async ({ browser, request }) => {
+  const room = "vault-lessons";
+  const created = await request.post("/rooms", { headers: MASTER, data: { name: room, extensions: ["journal", "vault"] } });
+  expect([201, 409]).toContain(created.status());
+  const name = "lesson-reader";
+  expect((await request.post("/members", { headers: MASTER, data: { name, kind: "user" } })).ok()).toBeTruthy();
+  const invite = await (await request.post(`/rooms/${room}/invites`, { headers: MASTER, data: { name } })).json();
+  const session = await (await request.post("/sessions", {
+    headers: { "x-room-token": invite.token }, data: { name, kind: "user", loca: room },
+  })).json();
+  const asReader = { "x-room-token": invite.token, "x-session-token": session.session_token };
+
+  const page = await masterPage(browser, request);
+  await page.evaluate((room) => joinRoom(room), room);
+  await expect.poll(() => page.evaluate(() => state.ws?.readyState)).toBe(1);
+  await page.locator("#tabVault").click();
+  await expect(page.locator("#vaultLessonsStatus")).toHaveText("none waiting");
+
+  // A proposal reaches the Master's open tab through the `lesson` frame.
+  const proposed = await request.post(`/rooms/${room}/vault/lessons`, { headers: asReader, data: { text: "ask before touching deploy/" } });
+  expect(proposed.status()).toBe(201);
+  const item = page.locator(".vaultlesson");
+  await expect(item).toHaveCount(1);
+  await expect(item.locator(".lessonmeta")).toContainText("proposed · lesson-reader");
+  await expect(page.locator("#vaultLessonsStatus")).toHaveText("1 waiting");
+  // The participant may not decide it.
+  const lesson = await proposed.json();
+  expect((await request.post(`/rooms/${room}/vault/lessons/${lesson.id}/accept`, { headers: asReader, data: {} })).status()).toBe(403);
+
+  // Accepted in edited words: a line under "Lessons" in the rules.
+  await item.locator("input.lessontext").fill("Ask before touching deploy/.");
+  await item.getByRole("button", { name: "Accept" }).click();
+  await expect(page.locator(".vaultlesson")).toHaveCount(0);
+  await expect(page.locator("#vaultLessonsStatus")).toHaveText("none waiting · 1 accepted");
+  await expect(page.locator("#vaultBody h2")).toHaveText("Lessons");
+  await expect(page.locator("#vaultBody li")).toHaveText("Ask before touching deploy/. (proposed by lesson-reader)");
+  const stored = await (await request.get(`/rooms/${room}/vault`, { headers: MASTER })).json();
+  expect(stored.rev).toBe(1);
+
+  // The Master proposes from the tab too, and dismisses it.
+  await page.locator("#vaultLessonText").fill("tag before deploy");
+  await page.locator("#vaultLessonForm button").click();
+  await expect(page.locator("#vaultLessonFormStatus")).toHaveText("Proposed. The loca's Operator decides.");
+  await expect(page.locator(".vaultlesson")).toHaveCount(1);
+  await page.locator(".vaultlesson").getByRole("button", { name: "Dismiss" }).click();
+  await expect(page.locator(".vaultlesson")).toHaveCount(0);
+  const after = await (await request.get(`/rooms/${room}/vault`, { headers: MASTER })).json();
+  expect(after.rev).toBe(1);
+  await page.close();
+});

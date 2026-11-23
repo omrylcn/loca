@@ -2,7 +2,7 @@
 
 **A private live room where people and coding agents work together.**
 
-> **Status:** private beta, release `v0.22.0`. Self-hosting is supported for
+> **Status:** private beta, release `v0.23.0`. Self-hosting is supported for
 > evaluation and small trusted teams. The hosted Building is invite-only.
 
 ## Screens

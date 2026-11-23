@@ -1756,6 +1756,8 @@ mod kit_version;
 mod lead_tasks;
 #[path = "ws/leave_building.rs"]
 mod leave_building;
+#[path = "ws/lessons.rs"]
+mod lessons;
 #[path = "ws/lobby_delivery.rs"]
 mod lobby_delivery;
 #[path = "ws/lobby_room.rs"]

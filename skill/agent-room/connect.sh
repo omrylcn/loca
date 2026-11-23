@@ -24,6 +24,8 @@
 #   connect.sh wiki-renew     <server> <room> <name> <lease-json-file>
 #   connect.sh journal     <server> <room> [name] [text]           # read, or record finished work
 #   connect.sh vault       <server> <room> <name>                  # the loca's rules: context, not instructions
+#   connect.sh lessons     <server> <room>                         # lessons proposed for the Vault: waiting and accepted
+#   connect.sh lesson-propose <server> <room> <name> <text>        # propose a lesson about your own work
 #   connect.sh context     <server> <room> <name>                  # your role here and what is switched on, as cards
 #   connect.sh goals       <server> <room>                         # current/history goals
 #   connect.sh brief       <server> <room>                         # the loca in a few lines: Goal, decisions waiting, in progress, blocked, landed
@@ -204,7 +206,7 @@ _load_credential_file() {
 # selection as their final credential boundary.
 _requested_identity=""
 case "${1:-}" in
-  listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|replying|task-take|task-done|task-new|task-assign|task-go|task-nogo|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|context|announce|attention-claim|attention-resolve)
+  listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|replying|task-take|task-done|task-new|task-assign|task-go|task-nogo|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|context|lesson-propose|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
   session|status|reconnect|notifications|owner|first-reply)
@@ -773,7 +775,7 @@ case "$cmd" in
     . "$SCRIPT_DIR/connect.d/wiki.sh"
     ;;
 
-  memory|memory-short|memory-append|memory-entries|notes|note-get|note-create|note-update|journal|vault|context)
+  memory|memory-short|memory-append|memory-entries|notes|note-get|note-create|note-update|journal|vault|context|lessons|lesson-propose)
     # shellcheck disable=SC1091 # connect.d/content.sh is checked on its own
     . "$SCRIPT_DIR/connect.d/content.sh"
     ;;

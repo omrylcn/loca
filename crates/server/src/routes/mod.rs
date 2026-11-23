@@ -118,7 +118,10 @@ pub(crate) use search::search_building;
 pub(crate) use sessions::{
     create_pairing_route, create_session_route, delete_session_route, pairing_ttl_ms,
 };
-pub(crate) use vault::{get_vault, get_vault_history, put_vault};
+pub(crate) use vault::{
+    accept_lesson, dismiss_lesson, get_lessons, get_vault, get_vault_history, post_lesson,
+    put_vault,
+};
 pub(crate) use work::{
     clear_wait, create_goal, create_task, get_task, list_goals, list_tasks, list_waits, set_wait,
     update_goal, update_task,

@@ -1,7 +1,7 @@
 use super::super::{CreateTask, Hub, Room, ServerFrame, Task, TaskError, TaskStatus, UpdateTask};
 use super::board;
 use crate::sync::RecoverMutex;
-use protocol::TaskActor;
+use protocol::{LessonSource, TaskActor};
 
 /// The longest review note or no-go reason, in characters.
 const TASK_NOTE_MAX: usize = 2000;
@@ -172,6 +172,7 @@ impl Hub {
             }
             out.assigned_to = Some(assignee);
         }
+        let was = out.status;
         let mut moved = board::Transition::Plain;
         if let Some(asked) = req.status {
             let mine = is_assignee(&out);
@@ -234,6 +235,24 @@ impl Hub {
         }
         r.tasks.insert(id, out.clone());
         let _ = r.tx.send(ServerFrame::Task { task: out.clone() });
+        // What went wrong once is offered as a lesson for the Vault: a
+        // reviewer's no-go reason, or a finished task taken back. Only those
+        // who run the loca turn a proposal into a rule.
+        if moved == board::Transition::NoGo {
+            if let Some(reason) = reason.as_deref() {
+                self.propose_task_lesson(r, room, reason, LessonSource::Nogo, id, &req.by);
+            }
+        } else if was == TaskStatus::Done
+            && !matches!(out.status, TaskStatus::Done | TaskStatus::Cancelled)
+        {
+            let text = reason.clone().unwrap_or_else(|| {
+                format!(
+                    "Task #{id} \"{}\" was reopened after it was done.",
+                    out.title
+                )
+            });
+            self.propose_task_lesson(r, room, &text, LessonSource::Reopen, id, &req.by);
+        }
         if let Some(assignee) = newly_assigned.as_deref() {
             let made_as = out.assigned_as.unwrap_or(TaskActor::Operator);
             self.announce_assignment(r, room, id, &assigner_label(&req.by, made_as), assignee);

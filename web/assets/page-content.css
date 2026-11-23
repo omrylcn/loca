@@ -193,6 +193,16 @@
 #vaultPanel .vaultcard { padding: 16px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: var(--txt); }
 #vaultPanel .vaultcard .pagetitle { font-size: 15px; }
 #vaultPanel .vaulthistory { display: flex; flex-direction: column; gap: 8px; }
+#vaultPanel .vaultlessons { display: flex; flex-direction: column; gap: 10px; margin-top: 6px; }
+#vaultPanel .vaultlessonlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#vaultPanel .vaultlesson { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+#vaultPanel .vaultlesson .lessontext { font-size: 15px; line-height: 1.5; color: var(--txt); overflow-wrap: anywhere; }
+#vaultPanel .vaultlesson input.lessontext { width: 100%; height: 36px; padding: 0 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font-family: inherit; }
+#vaultPanel .vaultlesson .lessonmeta { font-size: 12px; color: var(--dim); }
+#vaultPanel .vaultlesson .lessonactions { display: flex; gap: 8px; flex-wrap: wrap; }
+#vaultPanel .vaultlessonform { display: flex; gap: 8px; }
+#vaultPanel .vaultlessonform input { flex: 1 1 auto; min-width: 0; height: 36px; padding: 0 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; color: var(--txt); font-family: inherit; font-size: 14px; }
+#vaultPanel .vaultlessonlist:empty { display: none; }
 
 /* ── narrow windows ── */
 @media (max-width: 760px) {

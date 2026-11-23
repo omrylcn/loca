@@ -38,6 +38,7 @@ function renderVault() {
   if (!doc) {
     body.replaceChildren(); $("vaultEdit").classList.add("hidden"); $("vaultEditJump").classList.add("hidden");
     renderVaultHistory();
+    renderLessons();
     return;
   }
   $("vaultStatus").textContent = doc.rev
@@ -72,6 +73,7 @@ async function fetchVault() {
     vaultDoc = doc;
     renderVault();
     fetchVaultHistory(room, sequence);
+    fetchLessons(room);
   } catch (error) {
     if (room === state.room && !buildingStale(gen)) $("vaultStatus").textContent = String(error.message || error);
   }
@@ -118,3 +120,105 @@ $("vaultEditJump").addEventListener("click", () => {
   if (typeof text.scrollIntoView === "function") text.scrollIntoView({ block: "center", behavior: "smooth" });
   text.focus();
 });
+
+// Lessons (under the rules): what went wrong once, proposed as a line. The
+// waiting ones are listed; those who may decide (`can_decide`) accept one,
+// in the words in its box, or dismiss it. An accepted lesson becomes a line
+// under "Lessons" in the rules and arrives as a new Vault revision.
+let vaultLessons = null;
+
+function lessonOrigin(lesson) {
+  if (lesson.source === "nogo" && lesson.task) return `from the no-go on task #${lesson.task}`;
+  if (lesson.source === "reopen" && lesson.task) return `from reopened task #${lesson.task}`;
+  return "proposed";
+}
+
+function renderLessons() {
+  const view = vaultLessons && vaultLessons.room === state.room ? vaultLessons : null;
+  const list = $("vaultLessonList");
+  const lessons = view ? view.lessons : [];
+  const waiting = lessons.filter((lesson) => lesson.status === "proposed");
+  const accepted = lessons.filter((lesson) => lesson.status === "accepted").length;
+  $("vaultLessonsStatus").textContent = view
+    ? [waiting.length ? `${waiting.length} waiting` : "none waiting", accepted ? `${accepted} accepted` : ""].filter(Boolean).join(" · ")
+    : "";
+  list.innerHTML = waiting.map((lesson) => {
+    const meta = [lessonOrigin(lesson), lesson.proposed_by, lesson.proposed_at ? dayInLine(lesson.proposed_at) : ""].filter(Boolean).join(" · ");
+    const text = view.can_decide
+      ? `<input class="lessontext" maxlength="500" value="${esc(lesson.text)}" aria-label="Lesson ${lesson.id}, as it will be written">`
+      : `<span class="lessontext">${esc(lesson.text)}</span>`;
+    const actions = view.can_decide
+      ? `<div class="lessonactions"><button type="button" class="pagebutton" data-lesson-accept="${lesson.id}">Accept</button><button type="button" class="pagebutton" data-lesson-dismiss="${lesson.id}">Dismiss</button></div>`
+      : "";
+    return `<li class="vaultlesson" data-lesson="${lesson.id}">${text}<span class="lessonmeta">${esc(meta)}</span>${actions}</li>`;
+  }).join("");
+}
+
+async function fetchLessons(room) {
+  try {
+    const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/vault/lessons`, { headers: adminHeaders({}) });
+    if (!response.ok) return;
+    const answer = await response.json();
+    if (room !== state.room) return;
+    vaultLessons = { room, lessons: Array.isArray(answer.lessons) ? answer.lessons : [], can_decide: answer.can_decide === true };
+    renderLessons();
+  } catch (error) { /* the rules still show; the list comes with the next frame */ }
+}
+
+async function lessonRequest(room, path, body) {
+  const response = await fetch(`${serverBase()}/rooms/${encodeURIComponent(room)}/vault/lessons${path}`, {
+    method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify(body || {}),
+  });
+  if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+  return response.json();
+}
+
+$("vaultLessonList").addEventListener("click", async (event) => {
+  const accept = event.target.closest("[data-lesson-accept]");
+  const dismiss = event.target.closest("[data-lesson-dismiss]");
+  if (!accept && !dismiss) return;
+  const room = state.room;
+  const item = event.target.closest("[data-lesson]");
+  const id = item.dataset.lesson;
+  const status = $("vaultLessonFormStatus");
+  item.querySelectorAll("button").forEach((button) => { button.disabled = true; });
+  try {
+    if (accept) {
+      const text = item.querySelector("input.lessontext")?.value || "";
+      await lessonRequest(room, `/${id}/accept`, { text });
+      status.textContent = "Accepted: it is in the rules now.";
+    } else {
+      await lessonRequest(room, `/${id}/dismiss`);
+      status.textContent = "Dismissed.";
+    }
+    if (room === state.room) fetchLessons(room);
+  } catch (error) {
+    if (room === state.room) status.textContent = String(error.message || error);
+    item.querySelectorAll("button").forEach((button) => { button.disabled = false; });
+  }
+});
+
+$("vaultLessonForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const room = state.room;
+  const input = $("vaultLessonText");
+  const text = input.value.trim();
+  if (!room || !text) return;
+  const status = $("vaultLessonFormStatus");
+  try {
+    await lessonRequest(room, "", { text });
+    input.value = "";
+    status.textContent = "Proposed. The loca's Operator decides.";
+    if (room === state.room) fetchLessons(room);
+  } catch (error) {
+    if (room === state.room) status.textContent = String(error.message || error);
+  }
+});
+
+/// A `lesson` frame: one was proposed, accepted or dismissed.
+function onLessonFrame(frame) {
+  if (!frame.lesson || frame.lesson.room !== state.room) return;
+  if (state.tab === "vault") fetchLessons(state.room);
+  else vaultLessons = null;
+}

@@ -11,11 +11,12 @@ use super::rooms::ROOM_KEYED_TABLES;
 use super::{params, Store};
 
 /// Loca tables an archive leaves out: credentials and secrets (invites, the
-/// vault), and runtime bookkeeping that means nothing outside the server.
+/// vault and the lessons proposed for it), and runtime bookkeeping that means nothing outside the server.
 /// Everything else in `ROOM_KEYED_TABLES` is archived as it is stored.
 pub(crate) const NOT_ARCHIVED: &[&str] = &[
     "invites",
     "loca_vault",
+    "loca_lessons",
     "attentions",
     "care_marks",
     "attachment_pending",

@@ -142,8 +142,13 @@ To do, Doing, Review, Done). `connect.sh settings` lists `board` in
 - **Done means "please check".** Your `task-done` moves the task to
   `review`, not to `done`, and the server addresses one line to the Lead:
   `<you> asks @<lead> to review task #12.` Give a note with it: what changed
-  and how to check it (`task-done … 12 "renewal fixed; run make e2e"`).
-  Then wait; do not start reworking it unasked.
+  and how to check it, with the link to what you delivered (`task-done … 12
+  "renewal fixed; run make e2e; https://github.com/org/repo/pull/34"`). Once
+  the task is done, that note is shown on it as what was delivered, its link
+  clickable. Then wait; do not start reworking it unasked.
+- **No-go reasons can become lessons.** Where the Vault is on, a no-go
+  reason (and a reopened task) is proposed as a lesson for the loca's rules;
+  the Operator decides. See [vault.md](vault.md#lessons).
 - **Go** (`review` → `done`): whoever gave you the task (or declared it,
   when you took it yourself) or the operator accepts it; the line asking for
   review names them. Nothing

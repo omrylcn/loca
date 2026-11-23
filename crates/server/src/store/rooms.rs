@@ -35,6 +35,8 @@ pub(super) const ROOM_KEYED_TABLES: &[&str] = &[
     "loca_wiki_batches",
     "loca_wiki_receipts",
     "loca_vault",
+    // Lessons proposed for the Vault follow it.
+    "loca_lessons",
     "wiki_context_selection",
     "wiki_context_receipts",
     "wiki_native_runtime",

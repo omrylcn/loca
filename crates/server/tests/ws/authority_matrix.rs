@@ -1034,6 +1034,23 @@ const ROWS: &[Row] = &[
     row("GET /rooms/:id/vault", Rule::Feature, &[]),
     row("GET /rooms/:id/vault/history", Rule::Feature, &[]),
     row("PUT /rooms/:id/vault", Rule::Manage, &[]).merits(),
+    // Lessons for the Vault: whoever may enter reads and proposes them (a
+    // proposal is not a rule); only those who write the Vault accept or
+    // dismiss one. A lesson already decided is a refusal on merits (409).
+    row("GET /rooms/:id/vault/lessons", Rule::Feature, &[]),
+    row("POST /rooms/:id/vault/lessons", Rule::Feature, &[]).merits(),
+    row(
+        "POST /rooms/:id/vault/lessons/:lid/accept",
+        Rule::Manage,
+        &[],
+    )
+    .merits(),
+    row(
+        "POST /rooms/:id/vault/lessons/:lid/dismiss",
+        Rule::Manage,
+        &[],
+    )
+    .merits(),
     row("POST /rooms/:id/wiki/context", Rule::Feature, &[])
         .current()
         .merits(),
@@ -1908,6 +1925,14 @@ impl World {
             // meet the door and the management check, not the fence.
             w.seed(Who::Master, "PUT", &at("/extensions/vault"), Body::None)
                 .await;
+            // Lesson 1 of every loca, for the accept and dismiss rows.
+            w.seed(
+                Who::Master,
+                "POST",
+                &at("/vault/lessons"),
+                Body::Json(serde_json::json!({"text": "seed lesson"})),
+            )
+            .await;
             w.seed(
                 author,
                 "POST",
@@ -2178,6 +2203,7 @@ fn concrete_path(w: &World, route: &str, kind: Option<Kind>, ghost: bool) -> Str
             ":message_id" => w.messages[&k].to_string(),
             ":ext" => "notes".into(),
             ":slug" | ":key" => "seed".into(),
+            ":lid" => "1".into(),
             ":tid" => w.tasks.get(&k).copied().unwrap_or(1).to_string(),
             ":gid" => w.goals.get(&k).copied().unwrap_or(1).to_string(),
             ":attention_id" => w
@@ -2264,6 +2290,8 @@ fn body_for(route: &str, w: &World, who: Who, kind: Option<Kind>) -> Body {
         "PUT /rooms/:id/vault" => j(serde_json::json!({
             "body": format!("rules by {t}"), "base_rev": 0
         })),
+        "POST /rooms/:id/vault/lessons" => j(serde_json::json!({"text": format!("lesson by {t}")})),
+        "POST /rooms/:id/vault/lessons/:lid/accept" => j(serde_json::json!({})),
         "POST /rooms/:id/moderate" => j(serde_json::json!({"action": "mute", "name": "quarry"})),
         "POST /rooms/:id/notes" => j(serde_json::json!({
             "key": format!("probe-{t}"), "title": "p", "body": "p", "by": "x"
