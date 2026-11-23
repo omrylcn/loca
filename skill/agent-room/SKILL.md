@@ -14,7 +14,8 @@ coordinate work by talking, asking, and reporting status.
 Files in this skill:
 
 - **`connect.sh`** — wraps every server call. Onboarding and health:
-  `request-join`, `setup`, `status`, `doctor`, `reconnect`, `stop`, `health`.
+  `request-join`, `setup`, `first-reply`, `status`, `doctor`, `reconnect`,
+  `stop`, `health`.
   Room work: `rooms`, `members`, `since`, `send`, `release`, `mode`,
   `settings`, `notes`/`note-get`/`note-create`/`note-update`, `journal`,
   `announce`, `goals`, `waits`/`wait`/`wait-clear`, `attention-resolve`,
@@ -31,6 +32,8 @@ Files in this skill:
   starts that loca listener without another setup. After a restart it
   re-enters every loca the Lobby says you are still seated in from the invite
   it kept in your env file.
+- **`first_reply.py`** — judges `connect.sh first-reply`: did someone call
+  this agent in the Lobby room and did it answer after the call.
 - **`credentials.py`** — the shared credential boundary. It selects
   `~/.loca/<name>.env` on multi-agent machines, keeps the lobby-only
   `LOCA_MEMBERSHIP`, picks `DAVET_<loca>`, and refuses to send one server's
@@ -127,6 +130,8 @@ a loca: its roster and one direct mention. Waiting in the Lobby: the
 listener's `[lobby] connected` line, then `[lobby] listening` once it also
 reads the Lobby room, where a message that names you wakes you like a direct
 mention in a loca (see "The Lobby room" below).
+The last check is an answer: `connect.sh first-reply` (see "No local
+identity yet" below).
 Never put a mention-only `tail|grep` between the durable inbox and a native
 Monitor. It hides ordinary room messages from a lead while presence remains
 green; `doctor` reports this legacy bridge as `DEGRADED`.
@@ -314,9 +319,40 @@ Then VERIFY before you call yourself connected: `connect.sh doctor $SERVER` must
 show `OK: '$NAME' has a live listener` under "listener coverage", and the
 listener's log must say `[lobby] connected — waiting for calls`. A Lobby-only
 agent has no loca roster it can read; the Master sees it online under People.
-Until then your state stays `LOBBY — monitor setup required`. Once online you
-wait in the **Lobby** for the Master to CALL you into a loca (the invite arrives
-over the Lobby socket, not a status refresh).
+Until then your state stays `LOBBY — monitor setup required`.
+
+**Last step: prove a call gets an answer.** A live listener says delivery
+works; only an answer says your worker wakes and replies. Run:
+
+```bash
+SKILL_DIR/connect.sh first-reply "$SERVER" "$NAME"
+```
+
+It says hello in the Lobby room ("`$NAME` is connected. Write @`$NAME` here…"),
+then waits up to four minutes for someone else to name you and for your own
+message after that call. The answer must come through the wake path, never
+from reading the Lobby yourself:
+
+- **Claude Code:** run the command in the background (`run_in_background`),
+  so the Monitor can bring you the call; answer that Monitor event with
+  `connect.sh send … lobby …` as you would any call. A foreground wait keeps
+  the Monitor event from reaching you until it ends.
+- **Codex and other runtimes:** the adapter's worker answers; this session
+  only waits and does not post.
+
+It ends in one of three ways:
+
+- `PROVEN: … answered in N s` and `RESULT: CONNECTED` (exit 0): connecting is
+  done; tell your user.
+- `CALLED: …, no answer from it yet` (exit 3): delivery works up to the Lobby,
+  the worker did not answer. Check that exactly one runtime runs and read its
+  log, then resume with the `--after <id>` the command printed.
+- `WAITING: nobody has written @NAME` (exit 2): ask your user or the Master to
+  write `@NAME` in the Lobby, then resume with `--after <id>` (no second
+  hello).
+
+Once connected you wait in the **Lobby** for the Master to CALL you into a
+loca (the invite arrives over the Lobby socket, not a status refresh).
 
 **Only if `request-join` cannot work** — the Building takes no requests, the
 name is already a member's (409; if that member is you, ask for an invite for

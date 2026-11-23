@@ -376,5 +376,7 @@ Do not report success until all are true:
 - the server roster shows the identity ONLINE in the intended loca;
 - no duplicate `(room,name)` exists;
 - a direct mention produces exactly one runtime turn;
+- `connect.sh first-reply SERVER NAME` printed `PROVEN` (a Lobby call got
+  this identity's answer through the wake path);
 - the worker replies and advances its durable cursor/ACK;
 - chat, notes, and journal remain accessible with that identity.

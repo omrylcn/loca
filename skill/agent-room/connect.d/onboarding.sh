@@ -298,9 +298,15 @@ case "$cmd" in
         echo "    expect the line \"OK: '$name' has a live listener\", and the listener's log"
         echo "    line \"[lobby] connected — waiting for calls\". (A Lobby agent has no roster"
         echo "    it can read; the Master sees you in the People view.)"
-        echo "Until both show, your state stays 'LOBBY — monitor setup required'. Only then"
-        echo "can the Master CALL you into a loca (the invite then arrives over the Lobby"
-        echo "socket, not a status refresh)."
+        echo "Until both show, your state stays 'LOBBY — monitor setup required'."
+        echo
+        echo "  LAST STEP — prove a call gets an answer (this ends connecting):"
+        echo "      connect.sh first-reply $server $name"
+        echo "    it says hello in the Lobby room and waits until someone writes @$name"
+        echo "    and the answer comes through your wake path (Claude Code: run it in the"
+        echo "    background and answer the Monitor event; Codex: the worker answers)."
+        echo "    Then the Master can CALL you into a loca (the invite arrives over the"
+        echo "    Lobby socket)."
         if [ "$env_path" != "$HOME/.loca/env" ]; then
           echo
           echo "this identity lives in a side file, so every command must point at it:"
@@ -333,5 +339,63 @@ case "$cmd" in
         exit "$rc"
         ;;
     esac
+    ;;
+  first-reply)
+    # first-reply <server> <name> [--wait SECONDS] [--after MESSAGE_ID]
+    # The last step of connecting: a call in the Lobby room gets this agent's
+    # answer. Says hello there (unless --after resumes an earlier one), then
+    # reads the Lobby until someone else names the agent and the agent posts
+    # after that call. The answer must come through the wake path (the
+    # Monitor event, or the adapter's worker), never from reading the Lobby.
+    # Exit 0 PROVEN, 3 called but not answered yet, 2 nobody called yet.
+    server="${1:-}"; name="${2:-}"; shift 2 || true
+    wait_s=240; hello_id=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --wait) wait_s="${2:-}"; shift 2 ;;
+        --after) hello_id="${2:-}"; shift 2 ;;
+        *) echo "first-reply: unknown argument $1" >&2; exit 64 ;;
+      esac
+    done
+    if [ -z "$server" ] || [ -z "$name" ]; then
+      echo "usage: connect.sh first-reply <server> <name> [--wait SECONDS] [--after MESSAGE_ID]" >&2
+      exit 64
+    fi
+    if ! [[ "$wait_s" =~ ^[0-9]+$ ]] || { [ -n "$hello_id" ] && ! [[ "$hello_id" =~ ^[0-9]+$ ]]; }; then
+      echo "first-reply: --wait and --after take whole numbers" >&2
+      exit 64
+    fi
+    export LOCA_ENV
+    if [ -z "$hello_id" ]; then
+      hello="$name is connected. Write @$name here to check that I answer."
+      hello_resp=$("$SCRIPT_DIR/connect.sh" send "$server" lobby "$name" - "$hello") || {
+        echo "first-reply: could not say hello in the Lobby room; nothing to prove yet" >&2
+        exit 8
+      }
+      hello_id=$(printf '%s' "$hello_resp" | _jq_raw '.id // empty' 2>/dev/null || true)
+      [[ "$hello_id" =~ ^[0-9]+$ ]] || { echo "first-reply: the hello was not confirmed" >&2; exit 8; }
+      echo "said hello in the Lobby (message $hello_id); waiting for someone to write @$name"
+      echo "(ask the Master if nobody is there; resume later with --after $hello_id)"
+    fi
+    deadline=$(( $(date +%s) + wait_s ))
+    rc=2
+    verdict=""
+    while :; do
+      page=$("$SCRIPT_DIR/connect.sh" since "$server" lobby "$hello_id" 2>/dev/null) || page="[]"
+      rc=0
+      verdict=$(printf '%s' "$page" | python3 "$SCRIPT_DIR/first_reply.py" "$name" "$hello_id") || rc=$?
+      [ "$rc" = 0 ] && break
+      [ "$(date +%s)" -ge "$deadline" ] && break
+      sleep 3
+    done
+    echo "$verdict"
+    case "$rc" in
+      0) echo "RESULT: CONNECTED — '$name' answers a call. Connecting is done." ;;
+      3) echo "the call reached the Lobby but your worker has not answered: check that ONE runtime runs"
+         echo "(runtime.sh status / the Monitor), read its log, then resume: connect.sh first-reply $server $name --after $hello_id" ;;
+      *) echo "nobody has called yet; ask the Master to write @$name in the Lobby, then resume:"
+         echo "  connect.sh first-reply $server $name --after $hello_id" ;;
+    esac
+    exit "$rc"
     ;;
 esac
