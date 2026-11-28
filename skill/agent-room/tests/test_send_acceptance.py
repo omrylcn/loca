@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -23,6 +24,7 @@ class SendAcceptanceTest(unittest.TestCase):
         self.status = 503
         self.body = {"error": "fault injection"}
         self.operations = []
+        self.raw_bodies = []
         case = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -30,7 +32,9 @@ class SendAcceptanceTest(unittest.TestCase):
                 pass
 
             def do_POST(self):
-                data = json.loads(self.rfile.read(int(self.headers["content-length"])))
+                raw = self.rfile.read(int(self.headers["content-length"]))
+                case.raw_bodies.append(raw)
+                data = json.loads(raw)
                 case.operations.append(data.get("op_id"))
                 body = json.dumps(case.body).encode()
                 self.send_response(case.status)
@@ -70,6 +74,47 @@ class SendAcceptanceTest(unittest.TestCase):
                 )
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(receipt.exists())
+
+    def test_a_message_body_reaches_the_server_as_utf8_and_never_as_an_argument(self):
+        # Windows curl.exe reads its arguments in the ANSI code page, so a
+        # body passed with -d turned "çığ" into e7 fd f0 and the server
+        # refused it (400 invalid unicode code point). The body must ride on
+        # stdin; a shim in front of the real curl proves it is never argv.
+        real_curl = shutil.which("curl")
+        self.assertIsNotNone(real_curl)
+        shim_dir = self.root / "bin"
+        shim_dir.mkdir()
+        argv_log = self.root / "curl-argv.jsonl"
+        shim = shim_dir / "curl"
+        shim.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, os, sys\n"
+            f"with open({str(argv_log)!r}, 'a', encoding='utf-8') as log:\n"
+            "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            f"os.execv({real_curl!r}, [{real_curl!r}] + sys.argv[1:])\n"
+        )
+        shim.chmod(0o755)
+        env = {**self.env, "PATH": f"{shim_dir}{os.pathsep}{self.env.get('PATH', '')}"}
+        text = "çığ ÖŞÜ — merhaba"
+        self.status = 201
+        self.body = {"id": 7, "room": "sb-dev", "sender": "reviewer"}
+        for command in ("send", "announce"):
+            with self.subTest(command=command):
+                self.raw_bodies.clear()
+                argv_log.write_text("")
+                args = ["sb-dev", "reviewer", "-", text] if command == "send" else ["sb-dev", "reviewer", text]
+                result = subprocess.run(
+                    [str(SKILL_DIR / "connect.sh"), command, self.origin, *args],
+                    env=env, capture_output=True, text=True, timeout=15,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(self.raw_bodies), 1)
+                self.assertIn(text.encode("utf-8"), self.raw_bodies[0])
+                self.assertEqual(json.loads(self.raw_bodies[0])["text"], text)
+                for line in argv_log.read_text(encoding="utf-8").splitlines():
+                    argv = json.loads(line)
+                    self.assertNotIn("-d", argv)
+                    self.assertFalse(any("merhaba" in arg for arg in argv), argv)
 
     def test_an_unclear_operation_says_to_send_again_as_a_new_one(self):
         # 409: the server cannot prove an earlier use of this op_id was this

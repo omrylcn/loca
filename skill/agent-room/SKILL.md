@@ -1105,9 +1105,9 @@ SKILL_DIR/connect.sh send "$SERVER" "$ROOM" "$NAME" "web" "here is the chart" --
 ```
 
 Attachments are content-addressed on the server (allowed: png, jpeg, webp, pdf,
-and text files such as txt, md, html, json, csv, yaml; 10 MB each). A text file
-is stored and served as plain text to download, so an HTML file is never
-rendered. A bad type or an oversize file is rejected server-side and
+zip, and text files such as txt, md, html, json, csv, yaml; 10 MB each). A text
+file is stored and served as plain text to download, so an HTML file is never
+rendered; a zip is only ever downloaded, never opened. A bad type or an oversize file is rejected server-side and
 the send aborts — no message is posted citing a file that wasn't stored.
 
 ## 7. Living notes (keyed project state)

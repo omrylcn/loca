@@ -30,7 +30,9 @@ values = json.loads(p.read_text())
 reply = values.pop(0)
 p.write_text(json.dumps(values))
 with open(os.environ['WIKI_CALLS'], 'a') as out:
-    out.write(json.dumps(sys.argv[1:]) + '\\n')
+    # A request body arrives on stdin (--data-binary @-); keep it last.
+    body = [sys.stdin.read()] if '@-' in sys.argv[1:] else []
+    out.write(json.dumps(sys.argv[1:] + body) + '\\n')
 print(reply['body'], end='\\n' + str(reply['status']))
 """)
             fake.chmod(0o755)

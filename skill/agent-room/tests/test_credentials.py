@@ -1142,9 +1142,8 @@ printf '{"kind":"member","name":"worker","locas":[]}\n200'
             curl.write_text(
                 """#!/bin/sh
 while [ "$#" -gt 0 ]; do
-  if [ "$1" = "-d" ]; then
-    shift
-    printf '%s' "$1" > "$CAPTURE"
+  if [ "$1" = "--data-binary" ] && [ "${2:-}" = "@-" ]; then
+    cat > "$CAPTURE"
   fi
   shift
 done

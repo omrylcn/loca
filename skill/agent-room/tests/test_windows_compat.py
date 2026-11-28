@@ -45,6 +45,28 @@ class WindowsCompatibilityTests(unittest.TestCase):
         self.assertIn("process inspection unavailable (pgrep/ps missing)", script)
         self.assertIn("listener coverage could not be inspected", script)
 
+    def test_no_request_body_rides_on_the_curl_command_line(self):
+        # Windows curl.exe decodes argv in the ANSI code page and mangles a
+        # UTF-8 body; every body goes through _curl, which pipes it on stdin.
+        import re
+
+        offenders = []
+        for path in [SKILL_DIR / "connect.sh", *sorted((SKILL_DIR / "connect.d").glob("*.sh")),
+                     SKILL_DIR / "runtime.sh"]:
+            joined = path.read_text(encoding="utf-8").replace("\\\n", " ")
+            for line in joined.splitlines():
+                code = line.strip()
+                if code.startswith("#"):
+                    continue
+                if re.search(r"\bcurl\b", code) and re.search(
+                    r"(^|\s)(-d|--data|--data-raw|--data-ascii|--data-urlencode)\s", code
+                ):
+                    offenders.append(f"{path.name}: {code[:120]}")
+        self.assertEqual(offenders, [])
+        script = (SKILL_DIR / "connect.sh").read_text(encoding="utf-8")
+        self.assertIn("printf '%s' \"$body\" | curl \"${args[@]}\"", script)
+        self.assertIn("args+=(--data-binary @-)", script)
+
     def test_runtime_docs_use_platform_neutral_stdout_sink(self):
         docs = (SKILL_DIR / "references" / "runtimes.md").read_text(encoding="utf-8")
         self.assertIn("+ '- --skip-own NAME '", docs)

@@ -405,7 +405,34 @@ _keep_session() {
   fi
 }
 
-curl_json() { curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" "$@"; }
+# A request body never rides on curl's command line. Windows curl.exe reads
+# its arguments in the system ANSI code page (Windows-1254 on a Turkish
+# system), so a UTF-8 body sent with `-d "$body"` reached the server as
+# e7 fd f0 for "çığ" and was refused as invalid UTF-8. `_curl` takes the same
+# arguments as curl and hands the one `-d BODY` to it on stdin
+# (`--data-binary @-`), which carries the bytes unchanged on every platform.
+# Each call pipes the body again, so a caller's retry loop resends it intact.
+_curl() {
+  local args=() body="" has_body=0
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = -d ] && [ "$#" -ge 2 ]; then
+      [ "$has_body" = 0 ] || { echo "_curl: one request body per call" >&2; return 2; }
+      body="$2" has_body=1
+      args+=(--data-binary @-)
+      shift 2
+    else
+      args+=("$1")
+      shift
+    fi
+  done
+  if [ "$has_body" = 1 ]; then
+    printf '%s' "$body" | curl "${args[@]}"
+  else
+    curl "${args[@]}"
+  fi
+}
+
+curl_json() { _curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" "$@"; }
 # Reading is as private as writing — every GET carries the key as well.
 # Only an accepted read reaches stdout. A refusal leaves stdout empty, says the
 # server's own sentence on stderr and exits with the code `send` uses for the
@@ -447,6 +474,7 @@ _mime_for() {
     *.jpg|*.jpeg)   printf 'image/jpeg' ;;
     *.webp)         printf 'image/webp' ;;
     *.pdf)          printf 'application/pdf' ;;
+    *.zip)          printf 'application/zip' ;;
     *.txt)          printf 'text/plain' ;;
     *.md|*.markdown) printf 'text/markdown' ;;
     *.html|*.htm)   printf 'text/html' ;;
@@ -467,7 +495,7 @@ _renew_session() {
   local room="$1" who="$2" key resp code body new
   key=$(invite_for "$room")
   [ -z "$key" ] && return 1
-  resp=$(curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $key" \
+  resp=$(_curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $key" \
     -w $'\n%{http_code}' -X POST "$server/sessions" \
     -d "$(_session_request "$who" "$room")") || return 1
   code=$(printf '%s' "$resp" | tail -n1)
@@ -492,7 +520,7 @@ _task_write() {
   [ -n "${LOCA_SESSION:-}" ] || _renew_session "$room" "$name" || true
   for attempt in 1 2; do
     rc=0
-    response=$(curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" \
+    response=$(_curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" \
       -w $'\n%{http_code}' "$@") || rc=$?
     if [ "$rc" -ne 0 ]; then
       echo "TASK NOT CHANGED: no answer from the server (curl exit $rc)" >&2
@@ -534,7 +562,7 @@ _task_by_id() {
 _wiki_request() {
   local response code body attempt
   for attempt in 1 2; do
-    response=$(curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" \
+    response=$(_curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" \
       -w $'\n%{http_code}' "$@") || {
         echo "Wiki transport unavailable; acceptance unverified" >&2; return 1;
       }
@@ -562,7 +590,9 @@ _wiki_request() {
 _upload_attachment() {
   local room="$1" file="$2" who="$3" mime resp code id
   [ -f "$file" ] || { echo >&2 "attach: no such file: $file"; return 1; }
-  local hdr=(-H "x-filename: $(basename -- "$file")")
+  # Percent-encoded: a header cannot carry a name like "çalışma.md" as text.
+  # shellcheck disable=SC2016 # $f is jq's variable, not the shell's
+  local hdr=(-H "x-filename: $(_jq_raw -n --arg f "$(basename -- "$file")" '$f|@uri')")
   mime=$(_mime_for "$file")
   if [ -n "$mime" ]; then hdr+=(-H "content-type: $mime"); else hdr+=(-H "content-type:"); fi
   resp=$(curl -sS -m 30 "${tok_args[@]}" "${hdr[@]}" -w $'\n%{http_code}' \
@@ -803,7 +833,7 @@ case "$cmd" in
       *) echo >&2 "replying: the last argument is on or off"; exit 2 ;;
     esac
     use_loca "$room" write
-    code=$(curl -sS -m 5 -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
+    code=$(_curl -sS -m 5 -o /dev/null -w '%{http_code}' -H 'content-type: application/json' \
       "${tok_args[@]}" -X POST "$server/rooms/$(_room_path "$room")/typing" -d "{\"on\":$on}") || code=000
     printf '%s\n' "$code"
     [[ "$code" =~ ^2[0-9][0-9]$ ]] || exit 8
@@ -906,7 +936,7 @@ case "$cmd" in
         '. + {reply_to:$reply_to}')
     fi
     # Append the HTTP status so the caller sees a 403 (mode-gated) rejection.
-    resp=$(curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" -w $'\n%{http_code}' \
+    resp=$(_curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" -w $'\n%{http_code}' \
       -X POST "$server/rooms/$(_room_path "$room")/messages" -d "$body")
     code=$(printf '%s' "$resp" | tail -n1)
     # Sessions live in the server's memory: a restart invalidates them. A lobby
@@ -922,7 +952,7 @@ case "$cmd" in
       # one silently mints a session under their name.
       renew_as="${LOCA_NAME:-$name}"
       [ -n "$name" ] && renew_as="$name"
-      renew_resp=$(curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $renew_key" \
+      renew_resp=$(_curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $renew_key" \
         -w $'\n%{http_code}' \
         -X POST "$server/sessions" -d "$(_session_request "$renew_as" "$room")" \
       )
@@ -942,7 +972,7 @@ case "$cmd" in
         # same key, a restart, a first post after a call); do not guess which.
         echo >&2 "session renewed"
         tok_args=(-H "x-room-token: $renew_key" -H "x-session-token: $new")
-        resp=$(curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" -w $'\n%{http_code}' \
+        resp=$(_curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" -w $'\n%{http_code}' \
           -X POST "$server/rooms/$(_room_path "$room")/messages" -d "$body")
         code=$(printf '%s' "$resp" | tail -n1)
       fi
