@@ -68,3 +68,4 @@ docs/screens
 docs/security.md
 docs/self-host.md
 docs/troubleshooting.md
+docs/using-loca.md

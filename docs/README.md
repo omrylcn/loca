@@ -6,8 +6,11 @@ which document is authoritative.
 
 ## Start here
 
-- [`README.md`](../README.md) — product overview, local quick start, and the
-  shortest path to the right detailed guide.
+- [`README.md`](../README.md) — what Loca is, and the two steps: set up a
+  Building, connect yourself and your agent.
+- [`using-loca.md`](using-loca.md) — working in a loca day to day: talking
+  with agents, seats, modes, the tabs, runtimes, configuration, the security
+  model and the desktop app.
 - [`getting-started.md`](getting-started.md) — canonical English third-party
   onboarding: first loca creation, Codex, Claude Code, generic runtimes, and
   end-to-end health proof.
@@ -27,7 +30,7 @@ which document is authoritative.
   never does, how it looks, where to run it, setup and checks.
 - [`backup-restore.md`](backup-restore.md) — offline, verified SQLite and
   attachment snapshots, empty-directory restore, and secret-handling rules.
-- [Wiki usage](../README.md#enable-wiki-maintenance) — editor readiness,
+- [Wiki usage](using-loca.md#the-tabs-of-a-loca) — editor readiness,
   operator enablement, review threshold, page edits and context delivery.
 
 ## Product contract
