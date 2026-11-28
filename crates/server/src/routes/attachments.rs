@@ -78,7 +78,7 @@ pub(crate) async fn upload_attachment(
         None => {
             return (
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                "unsupported file type (allowed: png, jpeg, webp, pdf, txt, md)",
+                "unsupported file type (allowed: png, jpeg, webp, pdf, and text files such as txt, md, html, json, csv)",
             )
                 .into_response();
         }
@@ -188,9 +188,14 @@ fn sniff_mime(bytes: &[u8]) -> Option<&'static str> {
     None
 }
 
-/// The claimed content-type (minus params) must match the sniffed type. Text
-/// accepts either text/plain or a markdown label, since bytes can't distinguish
-/// them; everything else is exact.
+/// The claimed content-type (minus params) must match the sniffed type.
+/// Everything but text is exact. Text bytes cannot say which text format they
+/// are, and a browser labels a file by its extension (`text/html`,
+/// `application/json`, `text/csv`), so any text label is accepted, and so are
+/// the few `application/*` labels that name plain-text formats. The blob is
+/// still stored and served as `text/plain` with `nosniff` and an attachment
+/// disposition, so an uploaded HTML page is offered as text to download and
+/// never rendered or run.
 fn mime_matches(claimed: &str, sniffed: &str) -> bool {
     let c = claimed
         .split(';')
@@ -199,14 +204,26 @@ fn mime_matches(claimed: &str, sniffed: &str) -> bool {
         .trim()
         .to_ascii_lowercase();
     if sniffed == "text/plain" {
-        matches!(
-            c.as_str(),
-            "text/plain" | "text/markdown" | "text/x-markdown"
-        )
+        c.starts_with("text/") || TEXT_APPLICATION_TYPES.contains(&c.as_str())
     } else {
         c == sniffed
     }
 }
+
+/// `application/*` labels a browser or the kit gives to plain-text formats.
+const TEXT_APPLICATION_TYPES: &[&str] = &[
+    "application/json",
+    "application/ld+json",
+    "application/x-ndjson",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
+    "application/toml",
+    "application/x-sh",
+    "application/javascript",
+    "application/x-javascript",
+    "application/sql",
+];
 
 /// Sanitize `x-filename` into display metadata: strip control chars and header
 /// injection, never a path component, cap at 255 UTF-8 bytes. Empty → a default
@@ -287,9 +304,18 @@ mod tests {
         assert!(!mime_matches("image/png", "application/pdf"));
         // A script claimed as png must fail against a text sniff.
         assert!(!mime_matches("image/png", "text/plain"));
-        // Text accepts either label.
+        // Text accepts any text label and the plain-text application labels.
         assert!(mime_matches("text/markdown", "text/plain"));
         assert!(mime_matches("text/plain", "text/plain"));
+        assert!(mime_matches("text/html", "text/plain"));
+        assert!(mime_matches("text/csv; charset=utf-8", "text/plain"));
+        assert!(mime_matches("application/json", "text/plain"));
+        assert!(mime_matches("application/x-yaml", "text/plain"));
+        // A text label never covers binary bytes, and a binary label never
+        // covers text.
+        assert!(!mime_matches("text/html", "image/png"));
+        assert!(!mime_matches("application/octet-stream", "text/plain"));
+        assert!(!mime_matches("application/pdf", "text/plain"));
     }
 
     #[test]

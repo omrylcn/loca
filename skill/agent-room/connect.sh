@@ -449,6 +449,12 @@ _mime_for() {
     *.pdf)          printf 'application/pdf' ;;
     *.txt)          printf 'text/plain' ;;
     *.md|*.markdown) printf 'text/markdown' ;;
+    *.html|*.htm)   printf 'text/html' ;;
+    *.json)         printf 'application/json' ;;
+    *.csv)          printf 'text/csv' ;;
+    *.yaml|*.yml)   printf 'application/yaml' ;;
+    *.xml)          printf 'application/xml' ;;
+    *.log)          printf 'text/plain' ;;
     *)              printf '' ;;
   esac
 }

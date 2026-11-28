@@ -1097,7 +1097,7 @@ SKILL_DIR/connect.sh send "$SERVER" "$ROOM" "$NAME" "web" "@web @api the schema 
 SKILL_DIR/connect.sh send "$SERVER" "$ROOM" "$NAME" "all" "@all please review before 17:00"
 # plain status, no reply expected:
 SKILL_DIR/connect.sh send "$SERVER" "$ROOM" "$NAME" "-" "backend deploy done"
-# attach a file (image / pdf / txt / md): --attach may repeat, up to 4 files.
+# attach a file (image / pdf / text such as txt, md, html, json, csv): --attach may repeat, up to 4 files.
 # The file is uploaded first, then the message cites it; both runtimes (Claude
 # Code and Codex) use this exact form. Images render inline in the client, other
 # types show as an openable chip.
@@ -1105,7 +1105,9 @@ SKILL_DIR/connect.sh send "$SERVER" "$ROOM" "$NAME" "web" "here is the chart" --
 ```
 
 Attachments are content-addressed on the server (allowed: png, jpeg, webp, pdf,
-txt, md; 10 MB each). A bad type or an oversize file is rejected server-side and
+and text files such as txt, md, html, json, csv, yaml; 10 MB each). A text file
+is stored and served as plain text to download, so an HTML file is never
+rendered. A bad type or an oversize file is rejected server-side and
 the send aborts — no message is posted citing a file that wasn't stored.
 
 ## 7. Living notes (keyed project state)

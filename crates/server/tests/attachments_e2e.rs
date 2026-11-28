@@ -300,6 +300,86 @@ async fn upload_cite_fetch_roundtrip_and_room_isolation() {
     );
 }
 
+/// A browser labels an HTML or JSON file by its extension. The bytes are text,
+/// so the upload is accepted, and the blob is stored and served as plain text
+/// with `nosniff` and an attachment disposition: an uploaded page is never
+/// rendered or run in the browser.
+#[tokio::test]
+async fn html_and_json_files_upload_as_plain_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("att.sqlite3");
+    let (base, _g) = spawn(&db.to_string_lossy()).await;
+    let client = reqwest::Client::new();
+
+    let page = b"<!doctype html><script>alert(1)</script><p>report</p>\n".to_vec();
+    let up = upload(
+        &client,
+        &base,
+        "alpha",
+        page.clone(),
+        "text/html",
+        "report.html",
+    )
+    .await;
+    assert_eq!(up.status(), 201, "an HTML file is a text file");
+    let html_ref: Value = up.json().await.unwrap();
+    assert_eq!(html_ref["mime"].as_str().unwrap(), "text/plain");
+    assert_eq!(html_ref["name"].as_str().unwrap(), "report.html");
+
+    let data = b"{\"ok\": true, \"items\": [1, 2]}\n".to_vec();
+    let up = upload(
+        &client,
+        &base,
+        "alpha",
+        data,
+        "application/json",
+        "data.json",
+    )
+    .await;
+    assert_eq!(up.status(), 201, "a JSON file is a text file");
+    let json_ref: Value = up.json().await.unwrap();
+    assert_eq!(json_ref["mime"].as_str().unwrap(), "text/plain");
+
+    let html_id = html_ref["id"].as_str().unwrap().to_string();
+    let json_id = json_ref["id"].as_str().unwrap().to_string();
+    let msg = send_msg(&client, &base, "alpha", "two files", &[&html_id, &json_id]).await;
+    assert_eq!(msg.status(), 201, "a message may cite both");
+
+    let got = client
+        .get(format!("{base}/rooms/alpha/attachments/{html_id}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(got.status(), 200);
+    assert_eq!(got.headers().get("content-type").unwrap(), "text/plain");
+    assert_eq!(
+        got.headers().get("x-content-type-options").unwrap(),
+        "nosniff"
+    );
+    assert!(
+        got.headers()
+            .get("content-disposition")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("attachment;"),
+        "an HTML file is offered as a download, never rendered"
+    );
+    assert_eq!(got.bytes().await.unwrap().to_vec(), page);
+
+    // A binary body claimed as JSON is still refused.
+    let fake = upload(
+        &client,
+        &base,
+        "alpha",
+        vec![0x00, 0x01, 0x02, 0x03],
+        "application/json",
+        "fake.json",
+    )
+    .await;
+    assert_eq!(fake.status(), 415, "binary bytes are not a JSON file");
+}
+
 #[tokio::test]
 async fn rejects_type_mismatch_and_bad_citations() {
     let dir = tempfile::tempdir().unwrap();

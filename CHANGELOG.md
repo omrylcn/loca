@@ -22,6 +22,19 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-11-28
+
+### Fixed
+
+- Accept HTML, JSON, CSV, YAML and other text files as attachments. The
+  server took only txt and md: a browser labels an `.html` file `text/html`
+  and a `.json` file `application/json`, the server compared that label with
+  "text/plain" and answered 415 "file content does not match the declared
+  content-type", and the file picker did not even offer those files. Any text
+  label now matches text bytes. The file is still stored and served as plain
+  text with `nosniff` and as a download, so an uploaded HTML page is never
+  rendered or run. Binary bytes under a text label are still refused.
+
 ## [0.23.0] - 2026-11-23
 
 ### Added
@@ -3423,7 +3436,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.23.1...HEAD
+[0.23.1]: https://github.com/omrylcn/loca/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/omrylcn/loca/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/omrylcn/loca/compare/v0.21.1...v0.22.0
 [0.21.1]: https://github.com/omrylcn/loca/compare/v0.21.0...v0.21.1
