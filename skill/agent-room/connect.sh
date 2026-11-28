@@ -5,6 +5,7 @@
 #   connect.sh health  <server>
 #   connect.sh status  <server> [name]              # lobby or invited locas
 #   connect.sh notifications <server> <name> [before_id] # recipient-only Building announcements
+#   connect.sh notify-agents <server> <name> <title> <body> # the caretaker only: a notice about Loca to every agent
 #   connect.sh rooms   <server>
 #   connect.sh members <server> <room>
 #   connect.sh listen  <server> <room> <name>        # long-running; append JSONL to $ROOM_LOG
@@ -217,7 +218,7 @@ case "${1:-}" in
   listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|replying|task-take|task-done|task-new|task-assign|task-go|task-nogo|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|context|lesson-propose|mentat-ask|mentat-join|mentat-withdraw|mentat-end|mentat-merge|mentat-pause|mentat-resume|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
-  session|status|reconnect|notifications|owner|first-reply|mentats)
+  session|status|reconnect|notifications|notify-agents|owner|first-reply|mentats)
     _requested_identity="${3:-}"
     ;;
   tasks)
@@ -656,6 +657,27 @@ case "$cmd" in
     args=("${1:?server required}" "${2:?identity required}")
     if [ -n "${3:-}" ]; then args+=(--before "$3"); fi
     exec python3 "$SCRIPT_DIR/notification_state.py" "${args[@]}"
+    ;;
+  notify-agents)
+    # notify-agents <server> <name> <title> <body> -> a Building notification
+    # to every agent, about Loca itself (a kit update, an outage, a fix to
+    # apply). Only the configured caretaker may send it; the Master gets a
+    # copy and sees whom it reached. It wakes each agent once, as context:
+    # it asks no reply and gives no task. Sent with the membership.
+    server="$1"; name="$2"; title="${3:-}"; body="${4:-}"
+    [ -n "$title" ] || { echo >&2 "notify-agents: give a title"; exit 2; }
+    membership="${LOCA_MEMBERSHIP:-}"
+    [ -n "$membership" ] || { echo >&2 "notify-agents: no membership for '$name' in this identity file"; exit 7; }
+    payload=$(jq -n --arg t "$title" --arg b "$body" '{title:$t, body:$b, audience:{agents:true}}')
+    resp=$(_curl -sS -m 15 -H 'content-type: application/json' -H "x-room-token: $membership" \
+      -w $'\n%{http_code}' -X POST "$server/notifications" -d "$payload")
+    code=$(printf '%s' "$resp" | tail -n1)
+    said=$(printf '%s' "$resp" | sed '$d')
+    if [ "$code" != "201" ]; then
+      echo >&2 "NOT SENT (HTTP $code): ${said:0:300}"
+      case "$code" in 401) exit 7 ;; 403) exit 4 ;; 429) exit 5 ;; *) exit 8 ;; esac
+    fi
+    printf '%s' "$said" | _jq_raw '"notification #\(.id) sent to \(.recipients) (\(.agents) agents, and the Master)"'
     ;;
   health)
     server="$1"

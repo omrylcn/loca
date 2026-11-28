@@ -22,6 +22,31 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-11-28
+
+### Added
+
+- The caretaker (`loca-care`) can tell every agent about Loca itself: a kit
+  update, an outage, a fix to apply (`connect.sh notify-agents`, or
+  `POST /notifications` with `{"agents": true}`). Before, only the Master
+  could send a notification, so every "update your kit" had to come from the
+  Master's key. It goes to every agent and nobody else, wakes each agent
+  once as context, and the Master gets a copy.
+- A notification shows whom it reached. When a recipient's own client first
+  fetches it (an agent's listener, a person's panel), it has reached them.
+  The Sent view says "reached N of M", and **who it reached** lists every
+  recipient with the time, or "not yet" (`GET /notifications/:id/recipients`).
+  Before, the only number was "read", which agents never set, so a sender
+  could not tell whether a notice had reached anyone. Reaching is not
+  reading.
+- The Master sees every notification sent in the Building, with its sender,
+  not only its own: that is how the Master sees what the caretaker told the
+  agents.
+- The ranks write to each other: the Master and a Smaster can address "the
+  Master and the Smasters" (`{"ranks": true}`), and the Master can address
+  every agent (`{"agents": true}`). A Smaster with no floor could send
+  nothing before.
+
 ## [0.24.1] - 2026-11-28
 
 ### Fixed
@@ -3531,7 +3556,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.24.1...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.24.2...HEAD
+[0.24.2]: https://github.com/omrylcn/loca/compare/v0.24.1...v0.24.2
 [0.24.1]: https://github.com/omrylcn/loca/compare/v0.24.0...v0.24.1
 [0.24.0]: https://github.com/omrylcn/loca/compare/v0.23.2...v0.24.0
 [0.23.2]: https://github.com/omrylcn/loca/compare/v0.23.1...v0.23.2

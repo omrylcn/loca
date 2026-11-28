@@ -387,3 +387,9 @@
 @media (max-width: 760px) {
   #peoplePanel .prow .pacts:empty { display: none; }
 }
+#notifPanel .notifwho { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; font-size: 12px; }
+#notifPanel .notifwho li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+#notifPanel .notifwho small { color: var(--muted); }
+#notifPanel .notifreached { color: var(--ok, var(--fg)); }
+#notifPanel .notifwaiting { color: var(--muted); font-style: italic; }
+#notifPanel .notifcounts .linkbtn { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }

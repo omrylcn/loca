@@ -107,8 +107,9 @@ pub(crate) use mentat::{
     put_mentat, resume_mentat_line, withdraw_mentat_request,
 };
 pub(crate) use notifications::{
-    list_notifications, notification_audiences_route, read_all_notifications_route,
-    read_notification_route, send_notification_route, sent_notifications_route,
+    list_notifications, notification_audiences_route, notification_recipients_route,
+    read_all_notifications_route, read_notification_route, send_notification_route,
+    sent_notifications_route,
 };
 pub(crate) use profile::{
     create_profile_credential_route, get_profile_preferences, list_profile_credentials,

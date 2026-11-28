@@ -87,12 +87,15 @@ fn a_master_with_and_without_its_profile_shares_one_count() {
     }
     // Stored under the key each was sent with, as before.
     assert_eq!(
-        store.sent_notifications("master", None, 50).unwrap().len(),
+        store
+            .sent_notifications(Some("master"), None, 50)
+            .unwrap()
+            .len(),
         3
     );
     assert_eq!(
         store
-            .sent_notifications(&master_id, None, 50)
+            .sent_notifications(Some(master_id.as_str()), None, 50)
             .unwrap()
             .len(),
         3
