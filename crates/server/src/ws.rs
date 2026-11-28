@@ -656,6 +656,9 @@ pub(crate) async fn ws_session(
                                 && !msg_addresses(message, &name, accepts_all, !in_lobby)
                                 && !hub.is_live(&room)
                                 && !hub.is_lead(&room, &name)
+                                // In a mentat room the mentat and the askers
+                                // inside hear each other without `@`.
+                                && !hub.mentat_hears(&room, &name, message)
                             {
                                 continue;
                             }

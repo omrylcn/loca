@@ -150,6 +150,21 @@ impl Hub {
         group: Option<&str>,
         identity: &IdentityEdit,
     ) -> Result<Option<LocaOperatorAssignment>, CreateLocaError> {
+        self.open_loca(room, actor, extensions, group, identity, None)
+    }
+
+    /// Open a loca of either kind. An ordinary loca's human founder is given
+    /// its Operator seat in the same write. A mentat room (`mentat`) is born
+    /// with its record and no Operator: its mentat runs the line.
+    pub(in crate::hub) fn open_loca(
+        &self,
+        room: &str,
+        actor: &RequestAuthority,
+        extensions: Option<Vec<String>>,
+        group: Option<&str>,
+        identity: &IdentityEdit,
+        mentat: Option<protocol::MentatRoom>,
+    ) -> Result<Option<LocaOperatorAssignment>, CreateLocaError> {
         // A Master Agent opens a loca only on a floor the Master designated,
         // and is given no Operator seat (an explicit Operator is a human).
         let master_agent = Self::is_master_agent(actor);
@@ -159,6 +174,10 @@ impl Hub {
                 .and_then(|floor| self.master_agent_may_open_in(floor, actor))
                 .map_err(CreateLocaError::MasterAgent)?;
         } else if !actor.is_building_admin() {
+            return Err(OperatorAssignmentError::AuthorityRequired.into());
+        }
+        // Only the Master or a Smaster founds a mentat room.
+        if master_agent && mentat.is_some() {
             return Err(OperatorAssignmentError::AuthorityRequired.into());
         }
         let numbers = self.seat_numbers();
@@ -185,6 +204,8 @@ impl Hub {
         }
         let mut settings = self.default_settings.clone();
         settings.extensions = extensions.clone();
+        settings.mentat_room = mentat.is_some();
+        settings.mentat = mentat.as_ref().and_then(|record| record.mentat.clone());
         identity::apply(&mut settings, &identity);
         let opened_identity = identity::opened_line(&settings, numbers);
         let mut rooms = self.rooms.lock_or_recover();
@@ -201,6 +222,15 @@ impl Hub {
             if !self
                 .store
                 .create_master_agent_loca(room, &settings, opener, group, self.now())
+                .map_err(|_| OperatorAssignmentError::Storage)?
+            {
+                return Err(OperatorAssignmentError::Conflict.into());
+            }
+            None
+        } else if let Some(record) = mentat.as_ref() {
+            if !self
+                .store
+                .create_mentat_room(&settings, record, group, self.now())
                 .map_err(|_| OperatorAssignmentError::Storage)?
             {
                 return Err(OperatorAssignmentError::Conflict.into());
@@ -238,7 +268,9 @@ impl Hub {
                 .lock_or_recover()
                 .insert(room.to_string(), assignment.principal_id.clone());
         }
-        rooms.insert(room.to_string(), Room::with(ChatMode::Free, settings, 1));
+        let mut opened = Room::with(ChatMode::Free, settings, 1);
+        opened.mentat = mentat.map(|record| super::mentat::MentatLive::new(record, Vec::new(), 0));
+        rooms.insert(room.to_string(), opened);
         drop(rooms);
         drop(group_turn);
         if let Some(chosen) = extensions {

@@ -123,6 +123,14 @@ server_frames! {
             "source": "nogo", "task": 3, "proposed_by": "proto-ayse", "proposed_at": NOW_MS,
             "status": "proposed"})),
     },
+    Mentat => ServerFrame::Mentat {
+        state: de(json!({"mentat": {"room": "proto-room", "topic": "what proto-bot knows",
+            "mentat": "proto-bot",
+            "limits": {"session_secs": 600, "questions": 5, "idle_secs": 120, "call_secs": 120,
+                "wait_secs": 3600, "close_secs": 120},
+            "set_by": "proto-ayse", "set_at": NOW_MS},
+            "paused": false, "waiting": []})),
+    },
     Task => ServerFrame::Task {
         task: de(json!({"id": 1, "room": "proto-room", "title": "t", "created_by": "proto-ayse",
             "status": "open", "created_at": NOW_MS})),

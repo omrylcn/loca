@@ -1782,6 +1782,8 @@ mod master_agent_locas;
 mod member_keys;
 #[path = "ws/membership.rs"]
 mod membership;
+#[path = "ws/mentat.rs"]
+mod mentat;
 #[path = "ws/notifications.rs"]
 mod notifications;
 #[path = "ws/principles.rs"]

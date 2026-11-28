@@ -218,6 +218,7 @@ function canModerateSeat(m) {
 function renderMembers() {
   renderTopStatus();   // header subtitle shows online counts + mode
   renderLeadControl();
+  if (typeof renderMentatUI === "function") renderMentatUI();
   if (typeof renderWikiEditor === "function") renderWikiEditor();
   renderLocaSidebar();
 

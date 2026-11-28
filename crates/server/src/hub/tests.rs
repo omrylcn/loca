@@ -91,6 +91,7 @@ mod key_ids;
 mod lead_principal;
 mod loca_seats;
 mod loca_title;
+mod mentat;
 mod name_claims;
 mod notification_limit;
 mod profile_card;

@@ -177,6 +177,13 @@
       "fields": { "lesson": "LessonProposal" },
       "when": "A lesson was proposed, accepted or dismissed (vault extension). filter=all only: an accepted lesson reaches agents as a vault revision."
     },
+    "mentat": {
+      "socket": "loca",
+      "layer": "loca",
+      "source": "ServerFrame::Mentat",
+      "fields": { "state": "MentatState" },
+      "when": "A mentat room's line changed: a request opened, was joined, called, started, ended, skipped or expired, or the room was paused or resumed. filter=all only: the line that calls askers is a chat message naming them, and the mentat reads its whole room."
+    },
     "task": {
       "socket": "loca",
       "layer": "loca",

@@ -39,6 +39,7 @@ LOCA_FRAMES = {
     "mod": _FILTERED,
     "journal": _FILTERED,
     "lesson": _FILTERED + "; an accepted lesson arrives as a vault revision",
+    "mentat": _FILTERED + "; the line that calls an asker is a chat message naming it",
     "task": _FILTERED,
     "goal": _FILTERED,
     "attention": _FILTERED,

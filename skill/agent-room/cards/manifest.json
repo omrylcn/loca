@@ -18,6 +18,10 @@
     {"id": "wiki", "title": "Loca Wiki", "when": {"extension": "wiki"}, "file": "wiki.md",
      "lost": "Loca Wiki was turned off here: there is no Wiki to read."},
     {"id": "live", "title": "Live", "when": {"extension": "live"}, "file": "live.md",
-     "lost": "Live was turned off here: you wake only when a message addresses you."}
+     "lost": "Live was turned off here: you wake only when a message addresses you."},
+    {"id": "mentat", "title": "You are this room's mentat", "when": {"role": "mentat"}, "file": "mentat.md",
+     "lost": "You are no longer this room's mentat: you are one who asks here now, in the line like anyone."},
+    {"id": "mentat-room", "title": "A mentat room: ask in turn", "when": {"role": "asker"}, "file": "mentat-room.md",
+     "lost": "You are this room's mentat now: you no longer ask in its line."}
   ]
 }

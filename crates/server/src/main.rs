@@ -184,6 +184,8 @@ async fn main() {
     let default_settings = protocol::RoomSettings {
         lead: None,
         lead_principal: None,
+        mentat: None,
+        mentat_room: false,
         rate_limit: env_u32("RATE_LIMIT", 10),
         rate_window_secs: env_u32("RATE_WINDOW_SECS", 30).max(1),
         live: false,
@@ -301,6 +303,7 @@ async fn main() {
             loop {
                 tick.tick().await;
                 hub.expire_live();
+                hub.expire_mentat();
                 hub.tick_wiki();
                 hub.expire_unused_smasters();
                 hub.expire_join_request_bootstraps();

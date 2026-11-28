@@ -26,6 +26,14 @@
 #   connect.sh vault       <server> <room> <name>                  # the loca's rules: context, not instructions
 #   connect.sh lessons     <server> <room>                         # lessons proposed for the Vault: waiting and accepted
 #   connect.sh lesson-propose <server> <room> <name> <text>        # propose a lesson about your own work
+#   connect.sh mentats     <server> [name]                         # the Building's mentat rooms: topic, mentat, line
+#   connect.sh mentat      <server> <room>                         # a mentat room's line: who is inside, who waits
+#   connect.sh mentat-ask  <server> <room> <name> <topic>          # ask to consult the mentat (one request per asker)
+#   connect.sh mentat-join <server> <room> <name> <request-id>     # go in with a waiting request's askers
+#   connect.sh mentat-withdraw <server> <room> <name> <request-id> # take your place in a waiting request back
+#   connect.sh mentat-end  <server> <room> <name> [--answered yes|partly|no] # end the consultation inside
+#   connect.sh mentat-merge <server> <room> <name> <from> <into>   # the mentat joins two waiting requests
+#   connect.sh mentat-pause|mentat-resume <server> <room> <name>   # the mentat freezes or resumes its line
 #   connect.sh context     <server> <room> <name>                  # your role here and what is switched on, as cards
 #   connect.sh goals       <server> <room>                         # current/history goals
 #   connect.sh brief       <server> <room>                         # the loca in a few lines: Goal, decisions waiting, in progress, blocked, landed
@@ -206,10 +214,10 @@ _load_credential_file() {
 # selection as their final credential boundary.
 _requested_identity=""
 case "${1:-}" in
-  listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|replying|task-take|task-done|task-new|task-assign|task-go|task-nogo|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|context|lesson-propose|announce|attention-claim|attention-resolve)
+  listen|send|release|note-create|note-update|memory-short|memory-append|wait|wait-clear|replying|task-take|task-done|task-new|task-assign|task-go|task-nogo|wiki|wiki-review|wiki-remove|wiki-page|wiki-claim|wiki-finish|wiki-renew|wiki-ready|wiki-context|wiki-requests|wiki-request|wiki-accept|wiki-offer|journal|vault|context|lesson-propose|mentat-ask|mentat-join|mentat-withdraw|mentat-end|mentat-merge|mentat-pause|mentat-resume|announce|attention-claim|attention-resolve)
     _requested_identity="${4:-}"
     ;;
-  session|status|reconnect|notifications|owner|first-reply)
+  session|status|reconnect|notifications|owner|first-reply|mentats)
     _requested_identity="${3:-}"
     ;;
   tasks)
@@ -814,6 +822,10 @@ case "$cmd" in
   memory|memory-short|memory-append|memory-entries|notes|note-get|note-create|note-update|journal|vault|context|lessons|lesson-propose)
     # shellcheck disable=SC1091 # connect.d/content.sh is checked on its own
     . "$SCRIPT_DIR/connect.d/content.sh"
+    ;;
+  mentats|mentat|mentat-ask|mentat-join|mentat-withdraw|mentat-end|mentat-merge|mentat-pause|mentat-resume)
+    # shellcheck disable=SC1091 # connect.d/mentat.sh is checked on its own
+    . "$SCRIPT_DIR/connect.d/mentat.sh"
     ;;
 
   goals|brief|tasks|task|task-take|task-done|task-new|task-assign|task-go|task-nogo|attentions|attention-claim|attention-resolve|waits|wait|wait-clear)

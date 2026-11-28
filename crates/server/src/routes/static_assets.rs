@@ -43,6 +43,7 @@ pub(crate) const WEB_NOTES: &str = include_str!("../../../../web/assets/notes.js
 pub(crate) const WEB_MEMORY: &str = include_str!("../../../../web/assets/memory.js");
 pub(crate) const WEB_WIKI: &str = include_str!("../../../../web/assets/wiki.js");
 pub(crate) const WEB_VAULT: &str = include_str!("../../../../web/assets/vault.js");
+pub(crate) const WEB_MENTAT: &str = include_str!("../../../../web/assets/mentat.js");
 pub(crate) const WEB_BOARD: &str = include_str!("../../../../web/assets/board.js");
 pub(crate) const WEB_BOARD_LIST: &str = include_str!("../../../../web/assets/boardlist.js");
 pub(crate) const WEB_TASK_VIEW: &str = include_str!("../../../../web/assets/taskview.js");
@@ -196,6 +197,7 @@ pub(crate) async fn web_asset(Path(name): Path<String>) -> impl IntoResponse {
         "memory.js" => Some(("text/javascript; charset=utf-8", WEB_MEMORY)),
         "wiki.js" => Some(("text/javascript; charset=utf-8", WEB_WIKI)),
         "vault.js" => Some(("text/javascript; charset=utf-8", WEB_VAULT)),
+        "mentat.js" => Some(("text/javascript; charset=utf-8", WEB_MENTAT)),
         "profile.js" => Some(("text/javascript; charset=utf-8", WEB_PROFILE)),
         "theme.js" => Some(("text/javascript; charset=utf-8", WEB_THEME)),
         "sidebar.js" => Some(("text/javascript; charset=utf-8", WEB_SIDEBAR)),

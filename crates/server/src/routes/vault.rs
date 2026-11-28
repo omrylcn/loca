@@ -14,7 +14,7 @@
 //! - `POST /rooms/:id/vault/lessons/:lid/accept {"text"}` — write it into the
 //!   Vault's Lessons section, in the words given; `.../dismiss` — set it
 //!   aside. Only those who write the Vault.
-use super::extensions::{journal_actor, may_manage};
+use super::extensions::{journal_actor, known_actor, may_manage};
 use crate::{
     admin_token_of, hub, session_of, HeaderMap, Hub, IntoResponse, Json, Path, RoomAccess, State,
     StatusCode,
@@ -157,17 +157,6 @@ pub(crate) struct LessonText {
     text: Option<String>,
 }
 
-/// Who is proposing, by a name the server verified: a session or a rank.
-/// A request that names nobody proposes nothing.
-fn known_proposer(hub: &Hub, headers: &HeaderMap) -> Option<(String, SenderType)> {
-    let authority = hub.resolve_authority(admin_token_of(headers), session_of(headers));
-    if let Some(name) = authority.display_name {
-        return Some((name, authority.kind.unwrap_or(SenderType::User)));
-    }
-    hub.session_identity(session_of(headers))
-        .map(|identity| (identity.name, identity.kind))
-}
-
 /// `POST /rooms/:id/vault/lessons`.
 pub(crate) async fn post_lesson(
     State(hub): State<Hub>,
@@ -175,7 +164,7 @@ pub(crate) async fn post_lesson(
     headers: HeaderMap,
     Json(asked): Json<LessonText>,
 ) -> axum::response::Response {
-    let Some((by, by_type)) = known_proposer(&hub, &headers) else {
+    let Some((by, by_type)) = known_actor(&hub, &headers) else {
         return (
             StatusCode::UNAUTHORIZED,
             "a lesson is proposed under a name: take a session first",

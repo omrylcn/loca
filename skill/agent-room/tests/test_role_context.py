@@ -29,6 +29,26 @@ class RoleContextTests(unittest.TestCase):
             self.assertIn(f'id: "{extension}"', catalog)
             self.assertIn(extension, ids)
 
+    def test_a_mentat_room_waiting_for_its_mentat_gives_everyone_the_askers_card(self):
+        settings = {"extensions": [], "mentat_room": True}
+        state = role_context.room_state(settings, "ada")
+        self.assertEqual(state["mentat"], False)
+        self.assertEqual(state["asker"], True)
+        self.assertEqual(role_context.active_cards(state), ["mentat-room"])
+
+    def test_a_mentat_room_gives_the_mentat_and_its_askers_their_cards(self):
+        settings = {"extensions": [], "mentat": "Sage"}
+        mentat = role_context.room_state(settings, "sage")
+        asker = role_context.room_state(settings, "ada")
+        self.assertEqual(mentat, {"extensions": [], "lead": False, "mentat": True, "asker": False})
+        self.assertEqual(role_context.active_cards(mentat), ["mentat"])
+        self.assertEqual(role_context.active_cards(asker), ["mentat-room"])
+        # Appointed the mentat: the asker's card is taken back, with its line.
+        now_mentat = role_context.room_state({"extensions": [], "mentat": "ada"}, "ada")
+        gone = role_context.packet("r", asker, now_mentat)
+        self.assertEqual([entry["id"] for entry in gone["lost"]], ["mentat-room"])
+        self.assertIn("mentat now", gone["lost"][0]["text"])
+
     def test_state_reads_the_lead_by_name_and_the_legacy_extension_set(self):
         state = role_context.room_state({"lead": "Bob", "extensions": ["board", "notes"]}, "bob")
         self.assertEqual(state, {"extensions": ["board", "notes"], "lead": True})

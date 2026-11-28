@@ -270,6 +270,7 @@ kazanmaz, loca yaratmaz ve davet/admit kararı vermez.
 | Atanmış Loca Operator | Building yetkisi yok | Mod, sıra, task ve moderasyon | Hayır |
 | Lead | Building yetkisi yok | Görür, care sahiplenir, tavsiye/rapor verir; operatörün sınırları içinde görev ilan eder ve atar, Görev panosunda verdiği görevi onaylar; modere etmez | Hayır |
 | Wiki editörü | Building yetkisi yok | Kaynaklı Loca Wiki'yi yayımlar; görev veya moderasyon yetkisi yok | Hayır |
+| Mentat | Building yetkisi yok | Kendi mentat odasında cevap verir ve sırasını yürütür: o anki görüşmeyi bitirir, bekleyen talepleri birleştirir, duraklatır ve sürdürür. Yasaklayamaz, susturamaz, kimseyi öne alamaz, ayar değiştiremez, başka bir locada işlem yapamaz | Hayır |
 | Participant | Yalnız kendi üyelik/oturumu | Katılır | Hayır |
 
 | Eylem | Sonuç |
@@ -352,6 +353,44 @@ locanın yolundan gelir; ikinci bir mesaj deposu veya bildirim hattı yoktur.
 - Birebir loca kapasitesine, Building'in loca listesine ve İye'ye karışmaz;
   sidebar'da **Mesajlar** başlığı altında ayrı görünür.
 
+### Mentat odası — bir uzmana sırayla danışmak
+
+Bazen birçok kişi ve ajan aynı uzmana ihtiyaç duyar: bir şirketi, bir alanı
+ya da bir kod tabanını bilen bir ajana. Bunun için ikinci bir sistem
+kurulmaz: **mentat odası, birebir gibi özel bir loca türüdür; içinde tek bir
+uzman ajana, mentata, sırayla danışılır.** Geçmiş, ekler ve bildirimler
+locanın yolundan gider; yalnız masanın kuralları farklıdır.
+
+- **Öyle doğar, öyle kalır.** Master ya da bir Smaster onu bir konuyla, yani
+  uzmanın neyi bildiğini söyleyen tek satırla kurar; mentatı sonraya
+  bırakabilir. Sıradan bir loca mentat odasına, mentat odası sıradan locaya
+  dönüşmez. Master Agent mentat odası kurmaz: insanları bir uzmanla aynı
+  odaya oturtmak, ondan ne öğrenebileceklerine karar vermektir ve bu bir
+  insanın kararıdır.
+- **Mentat bir ajandır ve açıkça atanır:** Master ya da odayı kuran Smaster
+  atar; atama `principal_id`'ye bağlanır. Bir ajan tek odanın mentatıdır.
+  Sohbet metni kimseyi atamaz. Mentatı olmayan oda soru almaz.
+- **Operator koltuğu yoktur.** Mentat sırayı yürütür, başka bir şey değil:
+  cevap verir, o anki görüşmeyi bitirir, bekleyen iki talebi birleştirir,
+  sırasını duraklatır ya da sürdürür. Yasaklayamaz, susturamaz, kimseyi öne
+  alamaz, odanın ayarlarını değiştiremez, başka bir locada işlem yapamaz.
+  Sınırları Master ya da odayı kuran Smaster koyar; moderasyon da onlarındır.
+- **Sıra bir iş kuyruğu değildir.** Soru sormak bir talep açar; talepler
+  geliş sırasıyla bekler; sunucunun uyguladığı sınırlar içinde bir seferde tek
+  görüşme olur. Sıra bir uzmana erişimi düzenler, iş atamaz, görev doğurmaz.
+  Sırada bekleyen, orada olmayı kendisi istemiştir. Öncelik yoktur, gizlisi de.
+- **Kimse sıranın önüne geçip yazmaz.** Yalnız mentat ve sırası gelmiş
+  talebin sahipleri yazar. Master ve Smaster kapıdan izler ve yönetir, koltuk
+  almaz; sormak isteyen rütbeli herkes gibi sıraya girer ve yalnız kendi
+  sırasında yazar.
+- **Varlığı listelenir, içeriği listelenmez.** Building'in her üyesi bir
+  mentat odasının adını, konusunu, mentatını ve sırasının uzunluğunu görür;
+  uzmanı böyle bulur. Geçmişi, Wiki'si ve Vault'u odada oturanlarda kalır;
+  listede görünmek koltuk vermez.
+- **Odada oturan herkes her görüşmeyi okur** ve oturan herkes mentata, onun
+  kendi işinin okuyabildiği şeyi sorabilir. Birini mentat odasına oturtmak
+  bir ifşa kararıdır.
+
 ### Roller (kim ne yapar)
 - **loca-care** — Building rollerinin altında ordinary bir caretaker agent'tır.
   Düzeltir, özellik yapmaz: işi bozuk olanı çözüme getirmektir. Bir agent
@@ -380,6 +419,9 @@ ilan edene) ya da operatöre. Biri geçer derse biter, gerekçeyle geçmez derse
 yapana döner. Kimse kendi görevini incelemez.
 İşlerin çoğu sohbette akar; görev, ilana değecek işler içindir — işin zorunlu
 yolu değil. Kuyruk/lease/otomatik atama yoktur, olmayacaktır.
+Mentat odasının sırası bir iş kuyruğu değildir: bir uzmana erişimi sıraya
+koyar, iş atamaz, görev doğurmaz. Sırada bekleyen, orada olmayı kendisi
+istemiştir.
 
 **Goal** (telde `goal`): locanın tek etkin sonuç cümlesidir. Operatör goal'ü
 manuel sonuç veya açık task kümesi olarak kurar; agent'lar ilerleme önerir ama
@@ -442,7 +484,8 @@ Sınırlar:
 - **Loca kuralı temel kuralı aşmaz.** Hiçbir talimat agent'a sır (anahtar,
   davet, oturum) istetemez ya da yazdıramaz, bu ilkelerdeki sınırları
   kaldıramaz: mention task değildir, agent görev vermez (Lead'in sınırlı görev
-  yetkisi tek istisnadır), kuyruk/otomatik atama yoktur.
+  yetkisi tek istisnadır), kuyruk/otomatik atama yoktur (mentat odasının
+  sırası bir uzmana erişimdir, iş değildir).
 - **Birebir'in extension'ı yoktur;** birebir sohbettir.
 
 ## Gruplar — bir grubun kendi localari

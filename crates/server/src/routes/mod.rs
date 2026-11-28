@@ -22,6 +22,7 @@ mod loca_removal;
 mod master_agent;
 mod members;
 mod membership;
+mod mentat;
 mod notifications;
 mod profile;
 mod rooms;
@@ -99,6 +100,11 @@ pub(crate) use members::{
 };
 pub(crate) use membership::{
     ack_membership_claim_route, claim_membership, leave_building_route, whoami, NAME_WORN_RULE,
+};
+pub(crate) use mentat::{
+    delete_mentat, end_mentat_consultation, get_mentat, get_mentat_history, join_mentat_request,
+    list_mentats, mentat_refusal, merge_mentat_request, open_mentat_request, pause_mentat_line,
+    put_mentat, resume_mentat_line, withdraw_mentat_request,
 };
 pub(crate) use notifications::{
     list_notifications, notification_audiences_route, read_all_notifications_route,

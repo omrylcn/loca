@@ -138,14 +138,22 @@ impl Hub {
             }
         }
 
-        // ---- mode enforcement (admin bypasses) ----
-        if !is_admin {
+        // ---- mode enforcement (admin bypasses, except in a mentat room:
+        // there the line decides who writes, and a rank who wants to ask
+        // opens a request like anyone else) ----
+        let mentat_room = r.mentat.is_some();
+        if !is_admin || mentat_room {
             match &r.mode {
                 ChatMode::Free => {}
+                ChatMode::Paused if mentat_room => return Err(PostReject::MentatLine),
                 ChatMode::Paused => return Err(PostReject::Paused),
                 ChatMode::Restricted { allow } => {
                     if !allow.contains(&body.sender) {
-                        return Err(PostReject::NotAllowed);
+                        return Err(if mentat_room {
+                            PostReject::MentatLine
+                        } else {
+                            PostReject::NotAllowed
+                        });
                     }
                 }
                 ChatMode::RoundRobin { order, turn } => match order.get(*turn) {
@@ -423,6 +431,9 @@ impl Hub {
         let _ = r.tx.send(ServerFrame::Msg {
             message: msg.clone(),
         });
+        // In a mentat room the message may start, count toward or end the
+        // consultation inside.
+        self.mentat_after_post(r, room, &msg);
         // A caretaker sits only in the private maintenance loca, but an exact
         // cross-loca call must survive the caretaker being offline. Persist a
         // one-message, privacy-bounded care envelope in the existing ACKed

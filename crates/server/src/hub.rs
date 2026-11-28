@@ -30,6 +30,7 @@ mod locas;
 mod master_agent;
 mod master_agent_admissions;
 mod members;
+mod mentat;
 mod moderation;
 mod notes;
 mod notifications;
@@ -55,6 +56,7 @@ pub use loca_name::LocaNameError;
 pub use loca_removal::LocaRemovalError;
 pub use master_agent::MasterAgentError;
 pub use master_agent_admissions::AdmissionError;
+pub use mentat::{FoundMentatError, MentatError, MENTAT_NO_EXTENSIONS};
 pub use notifications::{NotificationAudience, NotificationError, NOTIFICATION_SEND_LIMIT};
 pub use vault::VaultError;
 pub use work::{BoardOff, GoalError, OpenTasks, TaskError, Unfinished, WaitError};
@@ -208,6 +210,8 @@ struct Room {
     care_marks: HashMap<String, CareMark>,
     /// Durable attention lifecycle; delivery ACK is not completion.
     attentions: HashMap<String, Attention>,
+    /// This loca as a mentat room, if it is one (`hub/mentat.rs`).
+    mentat: Option<mentat::MentatLive>,
 }
 
 impl Room {
@@ -238,6 +242,7 @@ impl Room {
             waits: HashMap::new(),
             care_marks: HashMap::new(),
             attentions: HashMap::new(),
+            mentat: None,
         }
     }
 
@@ -1087,6 +1092,8 @@ pub enum PostReject {
     Paused,
     /// Restricted mode and the sender is not on the allowlist.
     NotAllowed,
+    /// A mentat room, and it is not the sender's turn in the line.
+    MentatLine,
     /// Round-robin and it is someone else's turn.
     NotYourTurn { whose: Option<String> },
     /// Sliding-window rate limit hit; retry after this many seconds.
@@ -1136,6 +1143,13 @@ impl PostReject {
         match self {
             PostReject::Paused => "chat is paused by the admin".into(),
             PostReject::NotAllowed => "restricted mode: you are not on the allowlist".into(),
+            PostReject::MentatLine => {
+                "this is a mentat room: you write here only while your request is inside. Ask \
+                 first (connect.sh mentat-ask SERVER ROOM NAME \"topic\", or Ask in the line \
+                 bar) and wait for the line that names you; if your kit has no mentat-ask, \
+                 update it"
+                    .into()
+            }
             PostReject::NotYourTurn { whose } => match whose {
                 Some(w) => format!("round-robin: it is {w}'s turn"),
                 None => "round-robin: no turn available".into(),

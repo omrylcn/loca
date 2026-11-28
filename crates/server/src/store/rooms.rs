@@ -37,6 +37,9 @@ pub(super) const ROOM_KEYED_TABLES: &[&str] = &[
     "loca_vault",
     // Lessons proposed for the Vault follow it.
     "loca_lessons",
+    // A renamed mentat room stays one, with its line.
+    "loca_mentat",
+    "mentat_requests",
     "wiki_context_selection",
     "wiki_context_receipts",
     "wiki_native_runtime",

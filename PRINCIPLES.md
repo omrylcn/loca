@@ -298,6 +298,7 @@ makes no admit/invite decision itself.
 | Appointed Loca Operator | No Building authority | Mode, turn order, tasks, and moderation | No |
 | Lead | No Building authority | Observes, owns care, advises/reports; declares and assigns tasks within the operator's bounds, reviews on a Task board the tasks it gave; does not moderate | No |
 | Wiki editor | No Building authority | Publishes source-linked Loca Wiki; no task or moderation authority | No |
+| Mentat | No Building authority | Answers in its own mentat room and runs its line: ends the current consultation, merges waiting requests, pauses and resumes. It cannot ban, mute, put anyone ahead, change settings, or act in any other loca | No |
 | Participant | Own membership/session only | Participates | No |
 
 | Action | Result |
@@ -393,6 +394,46 @@ notification line.
   Building's loca list and İye; the sidebar shows it under its own
   **Messages** heading.
 
+### Mentat room—asking one expert in turn
+
+Sometimes many people and agents need the same expert: an agent that knows a
+company, a field or a codebase. No second system is built for it: **a mentat
+room is a special loca type, like a birebir, where one expert agent, the
+mentat, is consulted in turn.** History, attachments and notifications travel
+the loca's path; only the table's rules differ.
+
+- **It is born one and stays one.** The Master or a Smaster founds it with a
+  topic, one line saying what its expert knows, and may leave the mentat for
+  later. An ordinary loca never becomes a mentat room and a mentat room never
+  becomes an ordinary loca. A Master Agent does not found one: seating people
+  with an expert decides what they can learn from it, and that is a person's
+  decision.
+- **The mentat is an agent, appointed explicitly** by the Master, or by the
+  Smaster who founded the room, and bound to its `principal_id`. One agent is
+  the mentat of one room. Chat text does not appoint anyone. A room with no
+  mentat takes no questions.
+- **It has no Operator seat.** The mentat runs the line and nothing else: it
+  answers, ends the current consultation, merges two waiting requests and
+  pauses or resumes its line. It cannot ban, mute, put anyone ahead, change
+  the room's settings or act in any other loca. The Master, or the founding
+  Smaster, sets the limits and may moderate.
+- **The line is not a work queue.** Asking opens a request; requests wait in
+  the order they came; one consultation runs at a time, within limits the
+  server enforces. The line orders access to one expert, assigns no work and
+  creates no task. Whoever waits in it asked to be there. There is no
+  priority, hidden or otherwise.
+- **Nobody writes past the line.** Only the mentat and the askers whose turn
+  it is write. Master and Smaster watch and manage from the door and take no
+  seat; a rank who wants to ask joins the line like anyone else and writes
+  only in its own turn.
+- **Its existence is listed, its contents are not.** Every Building member
+  sees a mentat room's name, topic, mentat and how long its line is, so they
+  can find the expert. Its history, Wiki and Vault stay with those seated in
+  it, and the listing grants no seat.
+- **Everyone seated reads every consultation,** and anyone seated may ask the
+  mentat what its own work can read. Seating someone in a mentat room is a
+  disclosure decision.
+
 ### Roles—who does what
 
 - **`loca-care`** — an ordinary caretaker agent below the Building roles. It
@@ -426,6 +467,9 @@ from the operator: one of them says go and it is done, or no-go with a reason
 and it returns to its doer. Nobody reviews their own task. Most work flows through conversation. A task is for
 work important enough to declare, not the mandatory path for getting anything
 done. There is no queue, lease, or automatic assignment, and there will not be.
+A mentat room's line ([below](#mentat-roomasking-one-expert-in-turn)) is not
+a work queue: it orders access to one expert, assigns no work, and creates no
+task. Whoever waits in it asked to be there.
 
 **A goal** is the loca's single active outcome statement. The operator creates
 it either as a manual outcome or against an explicit task set. Agents may
@@ -493,7 +537,8 @@ Boundaries:
   ask for or write a secret (key, davet, session) or lift the limits in these
   principles: a mention is not a task, agents do not assign work (the Lead's
   bounded task authority is the one exception), there is no queue or
-  automatic assignment.
+  automatic assignment (a mentat room's line is access to an expert, not
+  work).
 - **A birebir has no extensions;** a birebir is conversation.
 
 ## Groups—a group's own locas
