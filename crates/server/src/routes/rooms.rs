@@ -29,6 +29,11 @@ pub(crate) struct CreateLoca {
     color: Option<String>,
     #[serde(default)]
     labels: Option<Vec<String>>,
+    /// Found the loca as a mentat room (`hub/mentat.rs`): its topic and,
+    /// when one is chosen, its mentat. It is born with the Wiki and the
+    /// Vault, takes no `extensions`, and gets no Operator.
+    #[serde(default)]
+    mentat: Option<protocol::NewMentatRoom>,
 }
 
 use super::groups::group_error as groups_error;
@@ -66,7 +71,19 @@ pub(crate) async fn create_loca_route(
         color: body.color,
         labels: body.labels,
     };
-    match hub.create_loca_with(name, &actor, extensions, group, &identity) {
+    let created = match body.mentat.as_ref() {
+        Some(mentat) => match hub.found_mentat_room(name, &actor, group, &identity, mentat) {
+            Ok(state) => return (
+                StatusCode::CREATED,
+                Json(serde_json::json!({"room":name,"operator":null,"group":group,"mentat":state})),
+            )
+                .into_response(),
+            Err(hub::FoundMentatError::Mentat(error)) => return super::mentat_refusal(error),
+            Err(hub::FoundMentatError::Loca(error)) => Err(error),
+        },
+        None => hub.create_loca_with(name, &actor, extensions, group, &identity),
+    };
+    match created {
         Ok(assignment) => (
             StatusCode::CREATED,
             Json(serde_json::json!({"room":name,"operator":assignment,"group":group})),
@@ -156,6 +173,13 @@ pub(crate) async fn appoint_loca_operator_route(
     headers: HeaderMap,
     Json(body): Json<AppointLocaOperator>,
 ) -> impl IntoResponse {
+    if hub.is_mentat_room(&access.room) {
+        return (
+            StatusCode::CONFLICT,
+            "a mentat room has no Operator seat: its mentat runs the line",
+        )
+            .into_response();
+    }
     let actor = hub.resolve_authority(admin_token_of(&headers), session_of(&headers));
     match hub.appoint_loca_operator(&access.room, body.principal_id.trim(), &actor) {
         Ok(assignment) => (StatusCode::CREATED, Json(assignment)).into_response(),

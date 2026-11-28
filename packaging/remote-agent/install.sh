@@ -95,7 +95,7 @@ fi
 
 # Validate the runtime before backing up/replacing any installed skill. A
 # readable SKILL.md alone does not make onboarding or monitoring usable.
-for required in connect.sh connect.d/content.sh connect.d/doctor.sh connect.d/onboarding.sh \
+for required in connect.sh connect.d/content.sh connect.d/doctor.sh connect.d/mentat.sh connect.d/onboarding.sh \
   connect.d/wiki.sh connect.d/work.sh credentials.py portable_lock.py join_request.py kit_version.py \
   listen.py listen_ws.py listen_state.py listen_addressing.py listen_frames.py \
   monitor_listener.py runtime.sh runtime_agent.py runtime_consumer.py \

@@ -431,6 +431,7 @@ const WEB_FRAME_HANDLING = {
   care: "handled", journal: "handled", mod: "handled", kicked: "handled", evicted: "handled",
   vault: "handled",
   lesson: "handled",
+  mentat: "handled",
   memoryversion: "ignored: a freshness checkpoint for runtimes that inject memory into a model",
   turn: "ignored: sent only on filter=mentions; the browser opens filter=all",
   caretaker: "ignored: never on the wire; the server delivers it as msg",
@@ -587,6 +588,7 @@ function onFrame(f, from) {
   }
   else if (f.t === "vault") { onVaultFrame(f); }
   else if (f.t === "lesson") { onLessonFrame(f); }
+  else if (f.t === "mentat") { onMentatFrame(f); }
   else if (f.t === "mod") { state.mod = f.state; renderMembers(); }
   else if (f.t === "evicted") { onEvicted(f, from); }
   else if (f.t === "kicked") {
@@ -651,9 +653,11 @@ async function setLead(name) {
 function renderLeadControl() {
   const select = $("leadSelect");
   if (!select) return;
-  $("leadKey").classList.toggle("hidden", !isLocaOperator() || !state.room);
-  select.classList.toggle("hidden", !isLocaOperator() || !state.room);
-  if (!isLocaOperator() || !state.room) return;
+  // A mentat room has no Lead: its mentat runs the line.
+  const show = isLocaOperator() && !!state.room && !state.settings?.mentat_room;
+  $("leadKey").classList.toggle("hidden", !show);
+  select.classList.toggle("hidden", !show);
+  if (!show) return;
 
   const current = state.settings?.lead || "";
   const names = [...new Set([

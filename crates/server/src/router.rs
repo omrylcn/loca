@@ -1,8 +1,11 @@
 //! The HTTP router: every public route, and the fences layered over them.
 
 use crate::routes::{
-    ack_admission, admit_into_loca, get_master_agent_setting, list_master_agents,
-    master_agent_fence, put_master_agent_setting, revoke_master_agent_route,
+    ack_admission, admit_into_loca, delete_mentat, end_mentat_consultation,
+    get_master_agent_setting, get_mentat, get_mentat_history, join_mentat_request,
+    list_master_agents, list_mentats, master_agent_fence, merge_mentat_request,
+    open_mentat_request, pause_mentat_line, put_master_agent_setting, put_mentat,
+    resume_mentat_line, revoke_master_agent_route, withdraw_mentat_request,
 };
 use crate::{
     accept_lesson, ack_care, ack_join_request_route, ack_membership_claim_route, add_extension,
@@ -208,6 +211,7 @@ pub(crate) fn router(hub: Hub) -> Router {
         .route("/rooms", get(list_rooms).post(create_loca_route))
         // Building-wide search: only the locas the caller may enter are read.
         .route("/search", get(search_building))
+        .route("/mentats", get(list_mentats))
         .route("/rooms/{id}/messages", get(get_messages).post(post_message))
         .route(
             "/rooms/{id}/attachments",
@@ -269,6 +273,39 @@ pub(crate) fn router(hub: Hub) -> Router {
         .route(
             "/rooms/{id}/vault/lessons/{lid}/dismiss",
             axum::routing::post(dismiss_lesson),
+        )
+        .route(
+            "/rooms/{id}/mentat",
+            get(get_mentat).put(put_mentat).delete(delete_mentat),
+        )
+        .route(
+            "/rooms/{id}/mentat/requests",
+            axum::routing::post(open_mentat_request),
+        )
+        .route(
+            "/rooms/{id}/mentat/requests/{rid}/join",
+            axum::routing::post(join_mentat_request),
+        )
+        .route(
+            "/rooms/{id}/mentat/requests/{rid}/withdraw",
+            axum::routing::post(withdraw_mentat_request),
+        )
+        .route(
+            "/rooms/{id}/mentat/requests/{rid}/merge",
+            axum::routing::post(merge_mentat_request),
+        )
+        .route("/rooms/{id}/mentat/history", get(get_mentat_history))
+        .route(
+            "/rooms/{id}/mentat/pause",
+            axum::routing::post(pause_mentat_line),
+        )
+        .route(
+            "/rooms/{id}/mentat/resume",
+            axum::routing::post(resume_mentat_line),
+        )
+        .route(
+            "/rooms/{id}/mentat/end",
+            axum::routing::post(end_mentat_consultation),
         )
         .route("/rooms/{id}/wiki", get(get_wiki))
         .route(

@@ -45,24 +45,35 @@ def load_manifest(cards_dir=CARDS_DIR):
 
 def room_state(settings, name):
     """The state the cards depend on, from a loca's settings: the extensions
-    that are on, and whether `name` is its Lead. Comparable with ==."""
+    that are on, whether `name` is its Lead, and, in a mentat room, whether
+    `name` is its mentat or one who asks it. Comparable with ==."""
     if not isinstance(settings, dict):
         return {"extensions": [], "lead": False}
     extensions = settings.get("extensions")
     if extensions is None:
         extensions = LEGACY_EXTENSIONS
+    me = str(name or "").casefold()
     lead = str(settings.get("lead") or "")
-    return {
+    state = {
         "extensions": sorted({str(item) for item in extensions if item}),
-        "lead": bool(lead) and lead.casefold() == str(name or "").casefold(),
+        "lead": bool(lead) and lead.casefold() == me,
     }
+    # A mentat room says so in its settings, and names its mentat once one
+    # is appointed; everybody else there asks. The keys appear only there,
+    # so an ordinary loca's state is unchanged.
+    mentat = str(settings.get("mentat") or "")
+    if settings.get("mentat_room") or mentat:
+        state["mentat"] = bool(mentat) and mentat.casefold() == me
+        state["asker"] = not state["mentat"]
+    return state
 
 
 def _holds(when, state):
     extension = when.get("extension")
     if extension and extension not in state["extensions"]:
         return False
-    if when.get("role") == "lead" and not state["lead"]:
+    role = when.get("role")
+    if role in ("lead", "mentat", "asker") and not state.get(role):
         return False
     return True
 

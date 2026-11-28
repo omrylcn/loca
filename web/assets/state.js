@@ -124,6 +124,9 @@ function isWatchingDoor() {
   if (state.adminSession !== true || !state.room) return false;
   // A direct message has no door: its two sit, and nobody else is let near it.
   if (isDm(state.room)) return false;
+  // A mentat room has no seat for a rank: it watches and manages from the
+  // door, and writes only in its own turn in the line (mentat.js).
+  if (state.settings?.mentat_room) return true;
   if (isRankHome(state.room)) return roomSet(DOOR_ROOMS_KEY).has(state.room);
   return !roomSet(SEATED_ROOMS_KEY).has(state.room);
 }

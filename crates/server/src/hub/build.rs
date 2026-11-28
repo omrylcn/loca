@@ -489,6 +489,7 @@ impl Hub {
             .into_iter()
             .collect();
         hub.load_groups();
+        hub.load_mentat_rooms();
         hub
     }
 }

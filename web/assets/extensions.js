@@ -341,11 +341,21 @@ async function submitCreateLoca(event) {
   const extensions = [...document.querySelectorAll("#extCreateDefault input:checked:not(:disabled), #extCreateAdd input:checked")]
     .map(input => input.value);
   const group = $("extCreateGroupField").classList.contains("hidden") ? "" : $("extCreateGroup").value;
+  const mentatRoom = createPreset() === "mentat";
+  const topic = $("mentatTopic").value.trim();
+  if (mentatRoom && topic.length < 10) {
+    $("extCreateError").textContent = "Say in one line what its expert knows (at least 10 characters).";
+    $("mentatTopic").focus();
+    return;
+  }
   $("extCreateSubmit").disabled = true;
   $("extCreateError").textContent = "";
   const gen = state.buildingGen;
   try {
-    const body = { ...(group ? { name, extensions, group } : { name, extensions }), ...identityCreateFields() };
+    const kind = mentatRoom
+      ? { mentat: { topic, ...($("mentatPick").value ? { mentat: $("mentatPick").value } : {}) } }
+      : { extensions };
+    const body = { name, ...(group ? { group } : {}), ...kind, ...identityCreateFields() };
     const response = await fetch(`${serverBase()}/rooms`, {
       method: "POST", headers: adminHeaders({ "content-type": "application/json" }),
       body: JSON.stringify(body),

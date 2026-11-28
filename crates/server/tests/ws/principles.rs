@@ -333,6 +333,11 @@ const WORK_RECORDS: &[&str] = &[
 /// audit, and Building or loca state that a post may legitimately touch
 /// (a round-robin turn lives in `rooms`). A post may write these.
 const NOT_WORK_RECORDS: &[&str] = &[
+    // A mentat room and its line: access to one expert, not work. A request
+    // assigns nothing and creates no task, and the askers' messages move it
+    // (start, count, end), so a post may write it.
+    "loca_mentat",
+    "mentat_requests",
     // The message, its reactions and its attachments.
     "messages",
     "message_reactions",
@@ -1522,6 +1527,9 @@ const CORE_LOCA_SEGMENTS: &[&str] = &[
     "lead",
     "members",
     "memory",
+    // A mentat room is a kind of loca, not an extension: its line orders
+    // access to one expert, whatever extensions the loca has.
+    "mentat",
     "messages",
     "mode",
     "moderate",

@@ -277,9 +277,13 @@ impl Hub {
         }
         let mut rooms = self.rooms.lock_or_recover();
         let r = Self::room_mut(&mut rooms, room, &self.default_settings);
+        // In a mentat room the line owns the mode: only a pause is taken as
+        // asked, and anything else resumes the line (`hub/mentat.rs`).
+        let mode = Self::mentat_mode_request(r, mode, (self.now_ms)());
         self.store.save_room(room, &mode, &r.settings)?;
         r.mode = mode.clone();
         let _ = r.tx.send(ServerFrame::Mode { mode: mode.clone() });
+        self.mentat_after_mode(r, room);
         Ok(mode)
     }
 
@@ -431,12 +435,14 @@ impl Hub {
 
     /// Rebroadcast an ephemeral typing signal (not persisted).
     pub fn typing(&self, room: &str, name: &str, on: bool) {
-        let rooms = self.rooms.lock_or_recover();
-        if let Some(r) = rooms.get(room) {
+        let mut rooms = self.rooms.lock_or_recover();
+        if let Some(r) = rooms.get_mut(room) {
             let _ = r.tx.send(ServerFrame::Typing {
                 name: name.to_string(),
                 on,
             });
+            // In a mentat room a reply under way is not silence.
+            self.mentat_typing(r, name, on);
         }
     }
 

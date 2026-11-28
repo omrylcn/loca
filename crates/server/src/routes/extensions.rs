@@ -115,6 +115,18 @@ pub(crate) struct SetExtensions {
     enabled: Vec<String>,
 }
 
+/// Who is acting, by a name the server verified: a session or a rank. A
+/// request that names nobody gets `None` (a lesson proposes nothing, a mentat
+/// request opens nothing).
+pub(crate) fn known_actor(hub: &Hub, headers: &HeaderMap) -> Option<(String, SenderType)> {
+    let authority = hub.resolve_authority(admin_token_of(headers), session_of(headers));
+    if let Some(name) = authority.display_name {
+        return Some((name, authority.kind.unwrap_or(SenderType::User)));
+    }
+    hub.session_identity(session_of(headers))
+        .map(|identity| (identity.name, identity.kind))
+}
+
 pub(crate) fn journal_actor(hub: &Hub, headers: &HeaderMap) -> (String, SenderType) {
     let authority = hub.resolve_authority(admin_token_of(headers), session_of(headers));
     if let Some(name) = authority.display_name {
@@ -170,6 +182,23 @@ fn apply(
         )
             .into_response();
     };
+    // A mentat room is a place to consult, not to hand out work.
+    let asked: Vec<&str> = match edit {
+        hub::ExtensionEdit::Replace(list) => list.iter().map(String::as_str).collect(),
+        hub::ExtensionEdit::Add(one) => vec![one],
+        hub::ExtensionEdit::Remove(_) => Vec::new(),
+    };
+    if hub.is_mentat_room(room)
+        && asked
+            .iter()
+            .any(|id| hub::MENTAT_NO_EXTENSIONS.contains(id))
+    {
+        return (
+            StatusCode::CONFLICT,
+            "a mentat room takes no Loca Board, Focus or Live: it is a place to consult",
+        )
+            .into_response();
+    }
     let (by, by_type) = journal_actor(hub, headers);
     let note = match hub.settle_board_off(room, edit, choice, &by) {
         Ok(note) => note,

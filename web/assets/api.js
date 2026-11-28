@@ -330,8 +330,11 @@ async function sendFrom(box) {
   const input = box?.input || $("msg"); const text = input.value.trim();
   const hasAttachments = !box && state.pendingAttachments.length > 0;
   if ((!text && !hasAttachments) || !state.room || sendInFlight) return;
-  if (isWatchingDoor()) {
-    addSys("you are watching from the door — take a seat to speak");
+  const mentatTurn = !!state.settings?.mentat_room && typeof mentatTurnIsMine === "function" && mentatTurnIsMine();
+  if (isWatchingDoor() && !mentatTurn) {
+    addSys(state.settings?.mentat_room
+      ? "a mentat room: ask in the line, and write when your turn comes"
+      : "you are watching from the door — take a seat to speak");
     return;
   }
   const leadCommand = parseLeadCommand(text);

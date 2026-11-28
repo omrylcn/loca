@@ -41,6 +41,7 @@ mod master_agent_admissions;
 mod master_agent_locas;
 mod master_agents;
 mod memory;
+mod mentat;
 mod messages;
 mod migrations;
 mod notifications;
@@ -261,6 +262,8 @@ impl Store {
         conn.execute_batch(vault::SCHEMA)?;
         // Lessons proposed for the Vault: a new table only.
         conn.execute_batch(lessons::SCHEMA)?;
+        // Mentat rooms and the requests to consult them: new tables only.
+        conn.execute_batch(mentat::SCHEMA)?;
         // A task's review history (the Loca Board): a new table only.
         conn.execute_batch(task_reviews::SCHEMA)?;
         // The Building's own settings (its name): a new table only.

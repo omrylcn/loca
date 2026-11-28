@@ -45,6 +45,31 @@ impl Loca {
         }
     }
 
+    /// The same Building, with `proj` founded as a mentat room about
+    /// `topic` and with no mentat yet (`hub/mentat.rs`).
+    pub(super) async fn open_mentat(topic: &str) -> Loca {
+        let dir = tempfile::tempdir().unwrap();
+        let db = dir.path().join("mentat.db");
+        let (port, guard) =
+            spawn_server_env(ROOT, &[("DB_PATH", db.to_str().unwrap().into())]).await;
+        let base = format!("http://127.0.0.1:{port}");
+        let client = reqwest::Client::new();
+        let founded = client
+            .post(format!("{base}/rooms"))
+            .header("x-admin-token", ROOT)
+            .json(&serde_json::json!({ "name": "proj", "mentat": { "topic": topic } }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(founded.status(), 201, "found the mentat room");
+        Loca {
+            base,
+            client,
+            _dir: dir,
+            _guard: guard,
+        }
+    }
+
     /// Admit `name` (a fresh membership every time) and seat it in `proj`.
     pub(super) async fn seat(&self, name: &str) -> Seat {
         let admitted = self

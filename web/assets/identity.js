@@ -68,6 +68,7 @@ let locaSeatCeiling = 32;
 const LOCA_PRESETS = {
   loca: { seats: () => locaSeatDefault, icon: "", hint: "One short paragraph. Agents read it when they enter." },
   lounge: { seats: () => locaSeatCeiling, icon: "chat", hint: "What people talk about here. Agents read it when they enter." },
+  mentat: { seats: () => locaSeatCeiling, icon: "book", hint: "Who should come here, and what to ask. Agents read it when they enter." },
 };
 
 function locaIconSvg(icon, size = 14) {
@@ -246,7 +247,8 @@ function fillIdentityFields(settings) {
 
 /// The preset chosen on the create panel: "loca" unless Lounge is picked.
 function createPreset() {
-  return document.querySelector("#locaPreset input:checked")?.value === "lounge" ? "lounge" : "loca";
+  const picked = document.querySelector("#locaPreset input:checked")?.value;
+  return LOCA_PRESETS[picked] ? picked : "loca";
 }
 
 /// Fill the fields from the chosen preset. Everything stays editable after.
@@ -256,6 +258,14 @@ function applyCreatePreset() {
   delete $("locaSeats").dataset.touched;
   setPicked("locaIcon", preset.icon);
   $("locaDesc").placeholder = preset.hint;
+  // A mentat room is born with the Wiki and the Vault: it asks for a topic
+  // and a mentat instead of extensions.
+  const mentat = createPreset() === "mentat";
+  $("mentatCreateFields").classList.toggle("hidden", !mentat);
+  $("extCreateExtensions").classList.toggle("hidden", mentat);
+  $("extCreateTabs").classList.toggle("hidden", mentat);
+  $("extCreateSubmit").textContent = mentat ? "Create mentat room" : "Create loca";
+  if (mentat && typeof loadMentatCandidates === "function") loadMentatCandidates($("mentatPick"), "");
   applyPresetExtensions();
 }
 
@@ -264,6 +274,9 @@ function resetCreatePreset() {
   const loca = document.querySelector("#locaPreset input[value=loca]");
   if (loca) loca.checked = true;
   $("locaDesc").placeholder = LOCA_PRESETS.loca.hint;
+  $("mentatCreateFields").classList.add("hidden");
+  $("mentatTopic").value = "";
+  $("extCreateSubmit").textContent = "Create loca";
 }
 
 function setIdentityFieldsDisabled(disabled) {

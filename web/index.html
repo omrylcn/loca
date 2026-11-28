@@ -213,6 +213,9 @@
         <select id="leadSelect" class="leadselect hidden" aria-label="Loca lead" data-tip="Loca lead" data-tip-detail="Name, transfer, or end this loca's lead.">
           <option value="">◇ no lead</option>
         </select>
+        <select id="mentatSelect" class="leadselect hidden" aria-label="Mentat of this room" data-tip="Mentat" data-tip-detail="Appoint this mentat room's expert, or take the appointment back. The Master, or the Smaster who founded the room.">
+          <option value="">✧ not a mentat room</option>
+        </select>
         <button id="liveToggle" class="livebtn hidden" type="button" aria-pressed="false" data-tip="Live mode is off" data-tip-detail="Turn on so every message reaches everyone, no @ needed.">◉ Live: off</button>
         <button class="iconbtn seattoggle hidden" id="seatToggle" type="button"></button>
         <button class="iconbtn admintoggle hidden" id="adminToggle" type="button" aria-expanded="false"
@@ -351,6 +354,7 @@
     <div class="mentionpop hidden" id="mentionPop"></div>
     <div class="attachstrip hidden" id="attachStrip" aria-label="Files staged to send"></div>
     <div class="dmbar hidden" id="dmBar" role="status"></div>
+    <div class="dmbar mentatbar hidden" id="mentatBar" role="status"></div>
     <div class="doorbar hidden" id="doorBar" role="status">
       <span><b>Watching from the door.</b> You are not at the table: not in the roster, and nothing you type reaches it.</span>
       <button id="doorTakeSeat" type="button">Take a seat</button>
@@ -737,10 +741,21 @@
           <span class="extrowtext"><b>Loca</b><small>For work: the usual extensions.</small></span></label>
         <label class="presetopt"><input type="radio" name="locaPreset" value="lounge">
           <span class="extrowtext"><b>Lounge</b><small>For talk: chat only, every seat.</small></span></label>
+        <label class="presetopt"><input type="radio" name="locaPreset" value="mentat">
+          <span class="extrowtext"><b>Mentat room</b><small>For asking one expert agent, in turn.</small></span></label>
       </div></fieldset>
       <label class="extfield" for="extCreateName"><span>Name</span>
         <input id="extCreateName" maxlength="128" autocomplete="off" placeholder="e.g. release-14" aria-describedby="extCreateNameHint" />
         <small class="identnote hidden" id="extCreateNameHint" aria-live="polite"></small></label>
+      <!-- A mentat room's topic and its mentat (mentat.js). Shown for that preset only. -->
+      <div class="identfields hidden" id="mentatCreateFields">
+        <label class="extfield" for="mentatTopic"><span>What does its expert know?</span>
+          <input id="mentatTopic" maxlength="200" autocomplete="off" placeholder="e.g. the payments service: its code, its releases, its incidents" />
+          <small class="identnote">One line, listed to the whole Building so people can find the expert.</small></label>
+        <label class="extfield" for="mentatPick"><span>Mentat</span>
+          <select id="mentatPick"><option value="">Choose later</option></select>
+          <small class="identnote">An agent from the Building. Everyone seated here can ask it what its own work can read: choosing who sits here decides who learns that.</small></label>
+      </div>
       <div class="identfields" id="locaIdentityFields">
         <label class="extfield hidden" for="locaTitle" id="locaTitleField"><span>Title</span>
           <input id="locaTitle" maxlength="64" autocomplete="off" aria-describedby="locaTitleNote"
@@ -1126,6 +1141,7 @@
 <script src="/assets/memory.js"></script>
 <script src="/assets/wiki.js"></script>
 <script src="/assets/vault.js"></script>
+<script src="/assets/mentat.js"></script>
 <script src="/assets/profile.js"></script>
 <script src="/assets/sounds.js"></script>
 <script src="/assets/sidebar.js"></script>

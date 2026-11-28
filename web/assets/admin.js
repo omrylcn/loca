@@ -74,6 +74,8 @@ $("modeRadios").addEventListener("change", (event) => {
 $("modeArg").addEventListener("input", () => { modeDraftDirty = true; });
 
 function canITalk() {
+  // In a mentat room the line decides, for a rank too.
+  if (state.settings?.mentat_room) return typeof mentatTurnIsMine === "function" && mentatTurnIsMine();
   if (isWatchingDoor()) return false;
   if (isAdmin()) return true;
   const m = state.mode || { mode: "free" };
@@ -173,10 +175,12 @@ const SEAT_ICON_CHAIR = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hi
 const SEAT_ICON_DOOR = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h8"/><path d="M15 12h6M18 9l3 3-3 3"/><circle cx="11" cy="12" r=".6" fill="currentColor"/></svg>';
 function renderDoor() {
   if (!$("doorBar") || !$("seatToggle")) return;
-  const rank = state.adminSession === true && !!state.room && !isDm(state.room);
+  const mentatRoom = !!state.settings?.mentat_room;
+  const rank = state.adminSession === true && !!state.room && !isDm(state.room) && !mentatRoom;
   const watching = isWatchingDoor();
+  const myTurn = mentatRoom && typeof mentatTurnIsMine === "function" && mentatTurnIsMine();
   const archived = !!(state.settings && state.settings.archived);
-  $("doorBar").classList.toggle("hidden", !watching);
+  $("doorBar").classList.toggle("hidden", !watching || mentatRoom);
   const toggle = $("seatToggle");
   toggle.classList.toggle("hidden", !rank);
   toggle.classList.toggle("watching", watching);
@@ -189,9 +193,11 @@ function renderDoor() {
   refreshTip(toggle);
   toggle.innerHTML = watching ? SEAT_ICON_CHAIR : SEAT_ICON_DOOR;
   $("composer").classList.toggle("gated", archived || !canITalk());
-  $("msg").disabled = archived || watching;
-  for (const id of ["sendBtn", "stopBtn", "attachBtn"]) $(id).disabled = watching;
-  if (watching && !archived) $("msg").placeholder = "watching from the door — take a seat to speak";
+  const gated = mentatRoom ? !myTurn && state.name !== state.settings?.mentat : watching;
+  $("msg").disabled = archived || gated;
+  for (const id of ["sendBtn", "stopBtn", "attachBtn"]) $(id).disabled = gated;
+  if (mentatRoom && gated && !archived) $("msg").placeholder = "a mentat room: ask in the line, and write when your turn comes";
+  else if (watching && !archived) $("msg").placeholder = "watching from the door — take a seat to speak";
   else if (!archived) $("msg").placeholder = "Message, @ to address someone";
   renderDmBar();
 }
@@ -425,6 +431,7 @@ function renderOperatorControls() {
   }
   if (!allowed) closeProperties();
   renderLeadControl();
+  if (typeof renderMentatUI === "function") renderMentatUI();
 }
 // The properties sheet's own close button: the same as clicking outside it.
 $("adminClose").addEventListener("click", () => closeProperties());

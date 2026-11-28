@@ -772,6 +772,9 @@ const ROWS: &[Row] = &[
     // caller may enter, with the list's own door, so any session may ask and
     // gets the words of its own locas (see ws/building_search.rs).
     row("GET /search", Rule::Holder, &[]),
+    // The Building's directory of mentat rooms: for its members, so they can
+    // find the expert; an invite to one loca does not show it.
+    row("GET /mentats", Rule::Profile, &[]),
     // PRINCIPLES "Loca layer": "Human Master/Smaster founders receive the
     // appointment atomically when explicitly creating a loca. Joining,
     // messaging or issuing an invitation cannot create a missing loca".
@@ -1051,6 +1054,37 @@ const ROWS: &[Row] = &[
         &[],
     )
     .merits(),
+    // Mentat rooms: a kind of loca, founded as one, not an extension. No
+    // loca of this world is one and none becomes one, so whoever passes the
+    // door is told so (404, not the answer for a loca that does not exist);
+    // the line itself, its founding and its managers are tested in
+    // `ws/mentat.rs` and the hub.
+    row("GET /rooms/:id/mentat", Rule::Feature, &[]).absent(),
+    row("GET /rooms/:id/mentat/history", Rule::Feature, &[]).absent(),
+    row("PUT /rooms/:id/mentat", Rule::Feature, &[]).absent(),
+    row("DELETE /rooms/:id/mentat", Rule::Feature, &[]).absent(),
+    row("POST /rooms/:id/mentat/requests", Rule::Feature, &[]).absent(),
+    row(
+        "POST /rooms/:id/mentat/requests/:rid/join",
+        Rule::Feature,
+        &[],
+    )
+    .absent(),
+    row(
+        "POST /rooms/:id/mentat/requests/:rid/withdraw",
+        Rule::Feature,
+        &[],
+    )
+    .absent(),
+    row(
+        "POST /rooms/:id/mentat/requests/:rid/merge",
+        Rule::Feature,
+        &[],
+    )
+    .absent(),
+    row("POST /rooms/:id/mentat/end", Rule::Feature, &[]).absent(),
+    row("POST /rooms/:id/mentat/pause", Rule::Feature, &[]).absent(),
+    row("POST /rooms/:id/mentat/resume", Rule::Feature, &[]).absent(),
     row("POST /rooms/:id/wiki/context", Rule::Feature, &[])
         .current()
         .merits(),
@@ -2203,7 +2237,7 @@ fn concrete_path(w: &World, route: &str, kind: Option<Kind>, ghost: bool) -> Str
             ":message_id" => w.messages[&k].to_string(),
             ":ext" => "notes".into(),
             ":slug" | ":key" => "seed".into(),
-            ":lid" => "1".into(),
+            ":lid" | ":rid" => "1".into(),
             ":tid" => w.tasks.get(&k).copied().unwrap_or(1).to_string(),
             ":gid" => w.goals.get(&k).copied().unwrap_or(1).to_string(),
             ":attention_id" => w
@@ -2291,6 +2325,11 @@ fn body_for(route: &str, w: &World, who: Who, kind: Option<Kind>) -> Body {
             "body": format!("rules by {t}"), "base_rev": 0
         })),
         "POST /rooms/:id/vault/lessons" => j(serde_json::json!({"text": format!("lesson by {t}")})),
+        "PUT /rooms/:id/mentat" => j(serde_json::json!({"mentat": "sage"})),
+        "POST /rooms/:id/mentat/requests" => {
+            j(serde_json::json!({"topic": format!("asked by {t}")}))
+        }
+        "POST /rooms/:id/mentat/requests/:rid/merge" => j(serde_json::json!({"into": 2})),
         "POST /rooms/:id/vault/lessons/:lid/accept" => j(serde_json::json!({})),
         "POST /rooms/:id/moderate" => j(serde_json::json!({"action": "mute", "name": "quarry"})),
         "POST /rooms/:id/notes" => j(serde_json::json!({

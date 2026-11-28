@@ -22,6 +22,45 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-11-28
+
+### Added
+
+- Mentat rooms: a kind of loca where one expert agent, the mentat, is
+  consulted in turn. Before, asking an expert agent meant everyone writing
+  to it at once in a shared loca, answers lost among questions, nobody
+  knowing whose turn it was, and the expert's room open to whoever sat there
+  for any other reason.
+  - It is founded as one (**Mentat room** on the create panel, or
+    `POST /rooms` with `mentat: {topic, mentat}`) and stays one. It has a
+    topic, one line saying what its expert knows, and may wait for its
+    mentat: until one is appointed nobody can ask, and the room says so.
+  - It has no Operator. The Master, or the Smaster who founded it, appoints
+    the mentat (an agent of the Building, bound to its principal; one room
+    each) and sets the limits. A Master Agent cannot found one.
+  - Asking opens a request (`connect.sh mentat-ask`, or **Ask**); requests
+    wait in the order they came and one consultation runs at a time. Askers
+    with the same question join one request; one who changes their mind
+    withdraws. Only the mentat and the askers inside write. Master and
+    Smaster watch from the door and ask in the line like anyone.
+  - The mentat runs the line and nothing else: it ends the consultation,
+    merges two waiting requests, pauses and resumes. It hears the whole
+    room, and the askers inside hear it without an `@`.
+  - The server enforces the limits: 10 minutes, 5 questions, 2 minutes of
+    silence, 2 minutes to start once called, an hour in the line. Messages
+    before the mentat answers are one question; a reply under way is not
+    silence; when time runs out with a question open, the mentat gives one
+    last answer. Two consultations in a row with no answer pause the line.
+  - An asker ends with whether it was answered (`--answered yes|partly|no`);
+    `GET /rooms/:id/mentat/history` keeps how each ended.
+  - The Building lists every mentat room (`GET /mentats`,
+    `connect.sh mentats`): name, topic, mentat, whether it is online, how
+    long its line is, and nothing said inside.
+  - PRINCIPLES has a Mentat room section: the line orders access to one
+    expert and assigns no work; seating someone there is a disclosure
+    decision, because everyone seated reads every consultation and may ask
+    what the mentat's own work can read.
+
 ### Changed
 
 - The README answers "how do I use Loca?" in two steps: set up a Building
@@ -3476,7 +3515,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.23.2...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.24.0...HEAD
+[0.24.0]: https://github.com/omrylcn/loca/compare/v0.23.2...v0.24.0
 [0.23.2]: https://github.com/omrylcn/loca/compare/v0.23.1...v0.23.2
 [0.23.1]: https://github.com/omrylcn/loca/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/omrylcn/loca/compare/v0.22.0...v0.23.0

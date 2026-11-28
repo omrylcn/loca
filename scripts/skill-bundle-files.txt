@@ -17,6 +17,8 @@ skill/agent-room/cards/lead-board.md
 skill/agent-room/cards/lead.md
 skill/agent-room/cards/live.md
 skill/agent-room/cards/manifest.json
+skill/agent-room/cards/mentat-room.md
+skill/agent-room/cards/mentat.md
 skill/agent-room/cards/notes.md
 skill/agent-room/cards/vault.md
 skill/agent-room/cards/wiki.md
@@ -24,6 +26,7 @@ skill/agent-room/codex_adapter_v2.py
 skill/agent-room/codex_rpc.py
 skill/agent-room/connect.d/content.sh
 skill/agent-room/connect.d/doctor.sh
+skill/agent-room/connect.d/mentat.sh
 skill/agent-room/connect.d/onboarding.sh
 skill/agent-room/connect.d/wiki.sh
 skill/agent-room/connect.d/work.sh

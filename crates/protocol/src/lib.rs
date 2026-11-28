@@ -289,6 +289,16 @@ pub struct RoomSettings {
     /// only by the server with `lead`; no client sets it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lead_principal: Option<String>,
+    /// The mentat of this loca, when it is a mentat room (`MentatRoom`). A
+    /// mirror the server keeps so readers of the settings (an agent's role
+    /// cards) know it; the mentat room's own record is the authority, and no
+    /// settings change sets it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mentat: Option<String>,
+    /// This loca is a mentat room, with or without a mentat. The same kind
+    /// of mirror as `mentat`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mentat_room: bool,
     /// Max messages a single sender may post within `rate_window_secs`.
     /// `0` disables rate limiting for the room.
     pub rate_limit: u32,
@@ -615,6 +625,8 @@ impl Default for RoomSettings {
         RoomSettings {
             lead: None,
             lead_principal: None,
+            mentat: None,
+            mentat_room: false,
             rate_limit: 10,
             rate_window_secs: 30,
             live: false,
@@ -947,6 +959,245 @@ pub struct LessonProposal {
     /// The Vault revision that took it in, when accepted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vault_rev: Option<u64>,
+}
+
+/// The bounds every consultation in a mentat room runs within. The server
+/// enforces them; the Master or the Smaster who founded the room sets them;
+/// a rank who asks waits and is bound like anyone else. Seconds and counts;
+/// a zero is taken as the default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MentatLimits {
+    /// How long one consultation may run, from its first question.
+    pub session_secs: u32,
+    /// How many questions one request may ask. Messages an asker writes
+    /// before the mentat answers are one question.
+    pub questions: u32,
+    /// Silence that ends a consultation. The clock stands still while the
+    /// mentat or an asker says it is replying.
+    pub idle_secs: u32,
+    /// How long a called request has to write its first message.
+    pub call_secs: u32,
+    /// How long a request may wait in the line.
+    pub wait_secs: u32,
+    /// Once time or questions are used up: how long the mentat has to give
+    /// its last answer.
+    pub close_secs: u32,
+}
+
+impl Default for MentatLimits {
+    fn default() -> Self {
+        Self {
+            session_secs: 600,
+            questions: 5,
+            idle_secs: 120,
+            call_secs: 120,
+            wait_secs: 3600,
+            close_secs: 120,
+        }
+    }
+}
+
+impl MentatLimits {
+    /// The limits with every zero replaced by its default.
+    pub fn filled(self) -> Self {
+        let d = Self::default();
+        let pick = |v: u32, dv: u32| if v == 0 { dv } else { v };
+        Self {
+            session_secs: pick(self.session_secs, d.session_secs),
+            questions: pick(self.questions, d.questions),
+            idle_secs: pick(self.idle_secs, d.idle_secs),
+            call_secs: pick(self.call_secs, d.call_secs),
+            wait_secs: pick(self.wait_secs, d.wait_secs),
+            close_secs: pick(self.close_secs, d.close_secs),
+        }
+    }
+}
+
+/// A mentat room: a loca born as the place where one expert agent is
+/// consulted in turn. It is a kind of loca, like a birebir: it never becomes
+/// an ordinary loca and an ordinary loca never becomes one. It has no
+/// Operator seat; its mentat runs the line.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MentatRoom {
+    pub room: String,
+    /// What this room's expert knows, in one line. Listed to the Building.
+    pub topic: String,
+    /// The expert's name, once one is appointed. A room may wait for one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mentat: Option<String>,
+    /// The principal the server verified for `mentat` when it was appointed.
+    /// Never sent to clients.
+    #[serde(default, skip_serializing)]
+    pub mentat_principal: Option<String>,
+    /// The principal who founded the room. A Smaster manages only the mentat
+    /// rooms it founded. Never sent to clients.
+    #[serde(default, skip_serializing)]
+    pub founder: Option<String>,
+    pub limits: MentatLimits,
+    pub set_by: String,
+    pub set_at: u64,
+}
+
+/// Where a request to consult the mentat stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MentatRequestStatus {
+    /// In the line.
+    Waiting,
+    /// Its turn came; its askers have not written yet.
+    Called,
+    /// The consultation is under way.
+    Active,
+    Ended,
+    /// Called, and nobody wrote in time.
+    Skipped,
+    /// Waited in the line too long.
+    Expired,
+    /// Its askers took it back before its turn.
+    Withdrawn,
+}
+
+/// Why a consultation ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MentatEndReason {
+    Asker,
+    Mentat,
+    Rank,
+    Time,
+    Questions,
+    Idle,
+    /// The room lost its mentat or was closed.
+    Closed,
+    /// The mentat joined it to another waiting request.
+    Merged,
+}
+
+/// What the asker says the consultation gave them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MentatAnswered {
+    Yes,
+    Partly,
+    No,
+}
+
+/// One request to consult a mentat room's expert. Requests wait in the order
+/// they came; one consultation runs at a time. Several askers who want the
+/// same thing share one request and go in together.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MentatRequest {
+    pub id: u64,
+    pub room: String,
+    pub topic: String,
+    /// The askers, in the order they joined.
+    pub owners: Vec<String>,
+    pub status: MentatRequestStatus,
+    pub opened_by: String,
+    pub opened_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub called_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<u64>,
+    /// Questions asked so far.
+    #[serde(default)]
+    pub questions: u32,
+    /// Messages the mentat wrote in this consultation.
+    #[serde(default)]
+    pub answers: u32,
+    /// An asker wrote and the mentat has not answered yet.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub awaiting: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_activity: Option<u64>,
+    /// Time or questions are used up: the askers may not write, and the
+    /// consultation ends with the mentat's next message or `close_secs`
+    /// after `closing_at`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closing: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closing_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_reason: Option<MentatEndReason>,
+    /// Said by an asker who ended it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answered: Option<MentatAnswered>,
+}
+
+/// A mentat room's line as everybody seated in it sees it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MentatState {
+    pub mentat: MentatRoom,
+    /// The line is frozen: nobody is called and no clock runs.
+    pub paused: bool,
+    /// The consultation called or under way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<MentatRequest>,
+    /// The line, oldest first.
+    pub waiting: Vec<MentatRequest>,
+}
+
+/// One mentat room as the Building's directory lists it: enough to find the
+/// expert, nothing of what is said inside.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MentatListing {
+    pub room: String,
+    pub topic: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mentat: Option<String>,
+    /// The mentat is connected to its room right now.
+    pub online: bool,
+    pub paused: bool,
+    /// A consultation is called or under way.
+    pub busy: bool,
+    /// Requests waiting in the line.
+    pub waiting: usize,
+}
+
+/// A new loca asked to be born a mentat room (`POST /rooms`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct NewMentatRoom {
+    pub topic: String,
+    /// The expert to appoint at once; a room may be founded without one.
+    #[serde(default)]
+    pub mentat: Option<String>,
+}
+
+/// `PUT /rooms/:id/mentat`: appoint the mentat, change the topic or the
+/// limits. Absent fields stay as they are.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetMentatRoom {
+    #[serde(default)]
+    pub mentat: Option<String>,
+    #[serde(default)]
+    pub topic: Option<String>,
+    #[serde(default)]
+    pub limits: Option<MentatLimits>,
+}
+
+/// `POST /rooms/:id/mentat/requests`: ask to consult the mentat.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OpenMentatRequest {
+    pub topic: String,
+}
+
+/// `POST /rooms/:id/mentat/end`: end the consultation inside.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct EndMentatConsultation {
+    #[serde(default)]
+    pub answered: Option<MentatAnswered>,
+}
+
+/// `POST /rooms/:id/mentat/requests/:rid/merge`: join waiting request `:rid`
+/// to waiting request `into`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MergeMentatRequest {
+    pub into: u64,
 }
 
 /// What an agent sends to record a piece of finished work.
@@ -1590,6 +1841,11 @@ pub enum ServerFrame {
     /// Browsers only: an accepted one reaches agents as a Vault revision.
     Lesson {
         lesson: LessonProposal,
+    },
+    /// A mentat room's line changed (browsers only: an asker is woken by
+    /// the line that calls it, the mentat by the messages in its room).
+    Mentat {
+        state: MentatState,
     },
     Task {
         task: Task,
