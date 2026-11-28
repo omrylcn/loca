@@ -78,7 +78,7 @@ pub(crate) async fn upload_attachment(
         None => {
             return (
                 StatusCode::UNSUPPORTED_MEDIA_TYPE,
-                "unsupported file type (allowed: png, jpeg, webp, pdf, and text files such as txt, md, html, json, csv)",
+                "unsupported file type (allowed: png, jpeg, webp, pdf, zip, and text files such as txt, md, html, json, csv)",
             )
                 .into_response();
         }
@@ -93,10 +93,10 @@ pub(crate) async fn upload_attachment(
         }
     }
 
-    let name = sanitize_filename(
-        headers.get("x-filename").and_then(|v| v.to_str().ok()),
-        sniffed,
-    );
+    let raw_name = headers
+        .get("x-filename")
+        .map(|v| filename_header(v.as_bytes()));
+    let name = sanitize_filename(raw_name.as_deref(), sniffed);
 
     match hub.put_pending_attachment(&access.room, &uploader, &name, sniffed, &body) {
         Ok(att) => (StatusCode::CREATED, Json(att)).into_response(),
@@ -155,7 +155,11 @@ pub(crate) async fn get_attachment(
         "X-Content-Type-Options",
         HeaderValue::from_static("nosniff"),
     );
-    let disposition = format!("attachment; filename=\"{}\"", disposition_safe(&serve.name));
+    let disposition = format!(
+        "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+        disposition_safe(&serve.name),
+        rfc5987_encode(&serve.name)
+    );
     out.insert(
         CONTENT_DISPOSITION,
         HeaderValue::from_str(&disposition)
@@ -179,6 +183,13 @@ fn sniff_mime(bytes: &[u8]) -> Option<&'static str> {
     }
     if bytes.starts_with(b"%PDF-") {
         return Some("application/pdf");
+    }
+    // A zip archive: a local file header, or the end record alone (an empty
+    // archive). It is stored and served as a download only, never opened in
+    // the page (`get_attachment` sends `attachment` + `nosniff`); its contents
+    // are not inspected. Office files and jars are zips too and pass as zip.
+    if bytes.starts_with(b"PK\x03\x04") || bytes.starts_with(b"PK\x05\x06") {
+        return Some("application/zip");
     }
     // Text last: valid UTF-8 with no NUL byte. A binary file with a stray magic
     // mismatch never slips through as text because the NUL/│UTF-8 check rejects it.
@@ -205,6 +216,13 @@ fn mime_matches(claimed: &str, sniffed: &str) -> bool {
         .to_ascii_lowercase();
     if sniffed == "text/plain" {
         c.starts_with("text/") || TEXT_APPLICATION_TYPES.contains(&c.as_str())
+    } else if sniffed == "application/zip" {
+        // Browsers label a .zip differently: Windows sends
+        // application/x-zip-compressed, others application/zip.
+        matches!(
+            c.as_str(),
+            "application/zip" | "application/x-zip-compressed" | "application/x-zip"
+        )
     } else {
         c == sniffed
     }
@@ -243,12 +261,77 @@ fn sanitize_filename(raw: Option<&str>, sniffed: &str) -> String {
     }
 }
 
-/// Escape a name for a quoted `Content-Disposition filename`. Control chars are
-/// already gone; here we neutralize the `"` and `\` that would break the quote.
+/// The ASCII fallback for a quoted `Content-Disposition filename`. Control
+/// chars are already gone; the `"` and `\` that would break the quote and every
+/// non-ASCII character (a header value cannot carry it) become `_`. The real
+/// name travels in `filename*`.
 fn disposition_safe(name: &str) -> String {
     name.chars()
-        .map(|c| if c == '"' || c == '\\' { '_' } else { c })
+        .map(|c| {
+            if c == '"' || c == '\\' || !c.is_ascii() {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect()
+}
+
+/// RFC 5987 `filename*` value: UTF-8, percent-encoded outside `attr-char`.
+/// Browsers show this name, so "kuş özeti.md" downloads under its own name.
+fn rfc5987_encode(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() * 3);
+    for b in name.bytes() {
+        let keep = b.is_ascii_alphanumeric()
+            || matches!(
+                b,
+                b'!' | b'#' | b'$' | b'&' | b'+' | b'-' | b'.' | b'^' | b'_' | b'`' | b'|' | b'~'
+            );
+        if keep {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// Read the `x-filename` header into a name. A header carries bytes, not
+/// text, so a name outside ASCII arrives in one of three shapes:
+/// - percent-encoded ASCII (the web client and the kit send this): decoded
+///   when every escape is valid and the result is UTF-8, kept as typed
+///   otherwise (`100%.txt`);
+/// - raw UTF-8 bytes (curl from an older kit): read as UTF-8;
+/// - Latin-1 bytes (a browser that sent `ö` unencoded): read as Latin-1.
+fn filename_header(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) if text.is_ascii() => percent_decode(text).unwrap_or_else(|| text.to_string()),
+        Ok(text) => text.to_string(),
+        Err(_) => bytes.iter().map(|&b| b as char).collect(),
+    }
+}
+
+/// Strict percent-decoding: `None` when an escape is malformed or the bytes
+/// are not UTF-8, so a name that merely contains `%` is kept as written.
+fn percent_decode(text: &str) -> Option<String> {
+    if !text.contains('%') {
+        return Some(text.to_string());
+    }
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = bytes.get(i + 1..i + 3)?;
+            let hex = std::str::from_utf8(hex).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 fn default_name(sniffed: &str) -> &'static str {
@@ -257,6 +340,7 @@ fn default_name(sniffed: &str) -> &'static str {
         "image/jpeg" => "attachment.jpg",
         "image/webp" => "attachment.webp",
         "application/pdf" => "attachment.pdf",
+        "application/zip" => "attachment.zip",
         _ => "attachment.txt",
     }
 }
@@ -290,11 +374,47 @@ mod tests {
         webp.extend_from_slice(b"WEBP");
         assert_eq!(sniff_mime(&webp), Some("image/webp"));
         assert_eq!(sniff_mime(b"%PDF-1.7\n"), Some("application/pdf"));
+        assert_eq!(sniff_mime(b"PK\x03\x04\x14\x00"), Some("application/zip"));
+        let mut empty_zip = b"PK\x05\x06".to_vec();
+        empty_zip.extend_from_slice(&[0; 18]);
+        assert_eq!(sniff_mime(&empty_zip), Some("application/zip"));
         assert_eq!(sniff_mime(b"just some text"), Some("text/plain"));
         // A NUL byte means not-text; with no magic match it is unsupported.
         assert_eq!(sniff_mime(&[0x00, 0x01, 0x02, 0x03]), None);
         // An ELF binary (script/executable) sent as bytes: rejected.
         assert_eq!(sniff_mime(&[0x7F, b'E', b'L', b'F', 0x00]), None);
+    }
+
+    #[test]
+    fn turkish_filenames_survive_the_header() {
+        // Percent-encoded, as the web client and the kit send it.
+        assert_eq!(
+            filename_header(b"ku%C5%9F%20%C3%B6zeti%20%C4%B0%C4%9Fd%C4%B1r.md"),
+            "kuş özeti İğdır.md"
+        );
+        // Raw UTF-8 from an older kit's curl.
+        assert_eq!(filename_header("çalışma.json".as_bytes()), "çalışma.json");
+        // Latin-1 bytes from a browser that sent `ö` unencoded.
+        assert_eq!(
+            filename_header(&[b'r', 0xF6, b'.', b't', b'x', b't']),
+            "rö.txt"
+        );
+        // A plain name with a literal percent stays as written.
+        assert_eq!(filename_header(b"100%.txt"), "100%.txt");
+        assert_eq!(filename_header(b"a%2"), "a%2");
+        assert_eq!(filename_header(b"report.html"), "report.html");
+    }
+
+    #[test]
+    fn disposition_carries_ascii_fallback_and_utf8_name() {
+        assert_eq!(disposition_safe("kuş \"x\".md"), "ku_ _x_.md");
+        assert_eq!(rfc5987_encode("kuş özeti.md"), "ku%C5%9F%20%C3%B6zeti.md");
+        let header = format!(
+            "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+            disposition_safe("ığ.md"),
+            rfc5987_encode("ığ.md")
+        );
+        assert!(HeaderValue::from_str(&header).is_ok(), "{header}");
     }
 
     #[test]
@@ -316,6 +436,15 @@ mod tests {
         assert!(!mime_matches("text/html", "image/png"));
         assert!(!mime_matches("application/octet-stream", "text/plain"));
         assert!(!mime_matches("application/pdf", "text/plain"));
+        // A zip accepts each browser's label for it, and nothing else.
+        assert!(mime_matches("application/zip", "application/zip"));
+        assert!(mime_matches(
+            "application/x-zip-compressed",
+            "application/zip"
+        ));
+        assert!(mime_matches("application/x-zip", "application/zip"));
+        assert!(!mime_matches("image/png", "application/zip"));
+        assert!(!mime_matches("application/zip", "text/plain"));
     }
 
     #[test]
@@ -327,6 +456,7 @@ mod tests {
         assert_eq!(sanitize_filename(Some("a\r\nb: c"), "text/plain"), "ab: c");
         assert_eq!(sanitize_filename(Some("  "), "image/png"), "attachment.png");
         assert_eq!(sanitize_filename(None, "application/pdf"), "attachment.pdf");
+        assert_eq!(sanitize_filename(None, "application/zip"), "attachment.zip");
         // A CRLF injection attempt loses the control chars.
         assert!(!sanitize_filename(Some("x\r\nSet-Cookie: y"), "text/plain").contains('\n'));
     }

@@ -22,6 +22,36 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-11-28
+
+### Added
+
+- Zip files can be attached to a message, from the web client and with
+  `connect.sh send --attach file.zip`. Before, only images, PDFs and text
+  were allowed, and a zip was refused with `415 unsupported file type`, so a
+  folder of logs or a build had to be sent some other way. The server
+  recognizes a zip by its signature, accepts the label each browser gives it
+  (Windows sends `application/x-zip-compressed`), does not look inside it,
+  and offers it only as a download, never opened in the page.
+
+### Fixed
+
+- Send every request body from the kit to curl on stdin, never as a
+  command-line argument. On Windows, `curl.exe` reads its arguments in the
+  system ANSI code page, so on a Turkish system `connect.sh send` turned
+  "çığ" into the bytes `e7 fd f0` and the server refused the message with
+  `400 invalid unicode code point`. Every `send` and `announce` with a
+  non-ASCII letter failed there, as did notes, journal lines, tasks, waits,
+  Wiki reviews and Vault lessons. A Windows agent found it and showed the
+  bytes with `curl --trace`. Linux and macOS behave as before.
+- Keep Turkish and other non-ASCII file names on attachments. The name
+  travelled in an HTTP header, which cannot carry "ş", "ğ" or "ı": the web
+  app's upload failed before it was sent, and a name with "ö", "ü" or "ç"
+  arrived as Latin-1 and the file was saved as "attachment.txt". The web app
+  and the kit now send the name percent-encoded, the server decodes it (and
+  still reads raw UTF-8 from older kits), and a download offers the real name
+  through `filename*` with an ASCII fallback.
+
 ## [0.23.1] - 2026-11-28
 
 ### Fixed
@@ -3436,7 +3466,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.23.1...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.23.2...HEAD
+[0.23.2]: https://github.com/omrylcn/loca/compare/v0.23.1...v0.23.2
 [0.23.1]: https://github.com/omrylcn/loca/compare/v0.23.0...v0.23.1
 [0.23.0]: https://github.com/omrylcn/loca/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/omrylcn/loca/compare/v0.21.1...v0.22.0

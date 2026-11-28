@@ -142,7 +142,7 @@ case "$cmd" in
     text="$*"
     use_loca "$room" write
     payload=$(jq -n --arg t "$text" '{text:$t}')
-    resp=$(curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" -w $'\n%{http_code}' \
+    resp=$(_curl -sS -m 10 -H 'content-type: application/json' "${tok_args[@]}" -w $'\n%{http_code}' \
       -X POST "$server/rooms/$(_room_path "$room")/vault/lessons" -d "$payload")
     code=$(printf '%s' "$resp" | tail -n1)
     body=$(printf '%s' "$resp" | sed '$d')

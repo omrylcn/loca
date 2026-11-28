@@ -190,7 +190,7 @@ case "$cmd" in
     # with a non-JSON 401, which aborted fresh installation after the identity
     # file had already been written.
     if [ "$who_kind" != "member" ]; then
-      sess=$(curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $token" \
+      sess=$(_curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $token" \
         -X POST "$server/sessions" -d "$(jq -n --arg n "$name" --arg l "${invite_loca:-}" '{name:$n, kind:"agent"} + (if $l == "" then {} else {loca:$l} end)')" | _jq_raw '.session_token // empty')
       if [ -n "$sess" ]; then
         printf 'LOCA_SESSION\0%s\0' "$sess" | _credential_patch

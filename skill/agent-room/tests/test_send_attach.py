@@ -131,6 +131,15 @@ class SendAttachTest(unittest.TestCase):
         self.assertEqual(msg["text"], "hello with a pic")
         self.assertEqual(msg["attachments"], [hashlib.sha256(data).hexdigest()])
 
+    def test_turkish_filename_travels_percent_encoded(self):
+        data = b"# not\n"
+        r = self._send(lambda tmp, o: ["notes", "--attach",
+                                       self._file(tmp, "çalışma notu.md", data)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        _room, filename, ct, body = AttachHandler.uploads[0]
+        self.assertEqual(filename, "%C3%A7al%C4%B1%C5%9Fma%20notu.md")
+        self.assertEqual((ct, body), ("text/markdown", data))
+
     def test_multiple_attachments_all_cited_in_order(self):
         a, b = PNG + b"a", b"%PDF-1.7\n" + b"b"
         r = self._send(lambda tmp, o: [
@@ -144,6 +153,17 @@ class SendAttachTest(unittest.TestCase):
             AttachHandler.messages[0]["attachments"],
             [hashlib.sha256(a).hexdigest(), hashlib.sha256(b).hexdigest()],
         )
+
+    def test_zip_attachment_declares_the_zip_type(self):
+        data = b"PK\x03\x04" + b"z" * 32
+        r = self._send(lambda tmp, o: ["the logs", "--attach",
+                                       self._file(tmp, "Logs.ZIP", data)])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        room, filename, content_type, body = AttachHandler.uploads[0]
+        self.assertEqual((room, filename, body), ("alpha", "Logs.ZIP", data))
+        self.assertEqual(content_type, "application/zip")
+        self.assertEqual(AttachHandler.messages[0]["attachments"],
+                         [hashlib.sha256(data).hexdigest()])
 
     # ---- client-side validation (review NO-GO): must fail BEFORE any upload ----
 

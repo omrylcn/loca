@@ -380,6 +380,116 @@ async fn html_and_json_files_upload_as_plain_text() {
     assert_eq!(fake.status(), 415, "binary bytes are not a JSON file");
 }
 
+/// A Turkish file name reaches the server percent-encoded (a header cannot
+/// carry "ş" as text), is stored as typed, and is served back with an ASCII
+/// fallback plus the real name in `filename*`.
+#[tokio::test]
+async fn turkish_file_name_round_trips() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("att.sqlite3");
+    let (base, _g) = spawn(&db.to_string_lossy()).await;
+    let client = reqwest::Client::new();
+
+    let up = upload(
+        &client,
+        &base,
+        "alpha",
+        b"rapor\n".to_vec(),
+        "text/markdown",
+        "ku%C5%9F%20%C3%B6zeti%20%C4%B1%C4%9F.md",
+    )
+    .await;
+    assert_eq!(up.status(), 201);
+    let att: Value = up.json().await.unwrap();
+    assert_eq!(att["name"].as_str().unwrap(), "kuş özeti ığ.md");
+    let id = att["id"].as_str().unwrap().to_string();
+    let msg = send_msg(&client, &base, "alpha", "rapor", &[&id]).await;
+    assert_eq!(msg.status(), 201);
+    let msg_obj: Value = msg.json().await.unwrap();
+    assert_eq!(
+        msg_obj["attachments"][0]["name"].as_str().unwrap(),
+        "kuş özeti ığ.md"
+    );
+
+    let got = client
+        .get(format!("{base}/rooms/alpha/attachments/{id}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(got.status(), 200);
+    let disposition = got
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        disposition,
+        "attachment; filename=\"ku_ _zeti __.md\"; filename*=UTF-8''ku%C5%9F%20%C3%B6zeti%20%C4%B1%C4%9F.md"
+    );
+}
+
+#[tokio::test]
+async fn zip_uploads_with_each_browser_label_and_is_served_as_a_download() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("att.sqlite3");
+    let (base, _g) = spawn(&db.to_string_lossy()).await;
+    let client = reqwest::Client::new();
+    // A local file header followed by some content: the sniff reads the
+    // signature only.
+    let mut zip = b"PK\x03\x04\x14\x00\x00\x00\x08\x00".to_vec();
+    zip.extend_from_slice(&[0x5A; 64]);
+
+    // Windows browsers label a .zip application/x-zip-compressed.
+    let up = upload(
+        &client,
+        &base,
+        "alpha",
+        zip.clone(),
+        "application/x-zip-compressed",
+        "logs.zip",
+    )
+    .await;
+    assert_eq!(up.status(), 201, "a zip upload is accepted");
+    let ref_obj: Value = up.json().await.unwrap();
+    assert_eq!(ref_obj["mime"].as_str().unwrap(), "application/zip");
+    assert_eq!(ref_obj["name"].as_str().unwrap(), "logs.zip");
+    let id = ref_obj["id"].as_str().unwrap().to_string();
+
+    let msg = send_msg(&client, &base, "alpha", "the logs", &[&id]).await;
+    assert_eq!(msg.status(), 201, "a message may cite a zip");
+
+    let got = client
+        .get(format!("{base}/rooms/alpha/attachments/{id}"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(got.status(), 200);
+    assert_eq!(got.headers()["content-type"], "application/zip");
+    assert_eq!(got.headers()["x-content-type-options"], "nosniff");
+    assert!(
+        got.headers()["content-disposition"]
+            .to_str()
+            .unwrap()
+            .starts_with("attachment;"),
+        "a zip is offered as a download, never inline"
+    );
+    assert_eq!(got.bytes().await.unwrap().to_vec(), zip);
+
+    // The other common label works too; a zip claimed as an image does not.
+    let mut other = zip.clone();
+    other.push(0x01);
+    let plain = upload(&client, &base, "alpha", other, "application/zip", "b.zip").await;
+    assert_eq!(plain.status(), 201);
+    let disguised = upload(&client, &base, "alpha", zip, "image/png", "pic.png").await;
+    assert_eq!(
+        disguised.status(),
+        415,
+        "zip bytes claimed as png are refused"
+    );
+}
+
 #[tokio::test]
 async fn rejects_type_mismatch_and_bad_citations() {
     let dir = tempfile::tempdir().unwrap();

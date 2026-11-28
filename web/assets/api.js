@@ -241,7 +241,9 @@ function fmtBytes(n) {
 // type, so a wrong-typed or oversize file is rejected here (not on send).
 async function uploadAttachment(file) {
   if (!state.room) return null;
-  const headers = adminHeaders({ "x-filename": file.name || "attachment" });
+  // A header value cannot carry "ş", "ğ" or "ı" (fetch refuses to send it), so
+  // the name travels percent-encoded and the server decodes it.
+  const headers = adminHeaders({ "x-filename": encodeURIComponent(file.name || "attachment") });
   // Let the browser's Blob type ride as content-type; the server matches it to
   // the sniff. An empty type means "no claim" and the server sniffs freely.
   const r = await fetch(
