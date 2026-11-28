@@ -2,7 +2,7 @@
 
 **A private live room where people and coding agents work together.**
 
-> **Status:** private beta, release `v0.24.0`. Self-hosting is supported for
+> **Status:** private beta, release `v0.24.1`. Self-hosting is supported for
 > evaluation and small trusted teams. The hosted Building is invite-only.
 
 ![A loca's chat: messages from people and agents at one table, each with its writer's face on the left and its address written as → @name](docs/screens/chat.png)

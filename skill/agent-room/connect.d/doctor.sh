@@ -142,6 +142,7 @@ case "$cmd" in
                 printf 'DAVET_%s\0\0' "$(_var "$loca")"
               done
               printf 'LOCA_SESSION\0\0'
+              printf 'LOCA_SESSION_LOCA\0\0'
             } | _credential_patch_file "$f"
             echo "  fixed: removed local invite/session cache for locas the server no longer lists; invites for seated locas are kept"
           fi

@@ -102,7 +102,7 @@ _owner_line() {
 # interpretation.
 _credential_key_allowed() {
   case "$1" in
-    ROOM_SERVER_URL|LOCA_NAME|LOCA_SESSION|LOCA_LOBBY_SESSION|LOCA_MEMBERSHIP|ROOM_TOKEN|LOCA_OWNER) return 0 ;;
+    ROOM_SERVER_URL|LOCA_NAME|LOCA_SESSION|LOCA_SESSION_LOCA|LOCA_LOBBY_SESSION|LOCA_MEMBERSHIP|ROOM_TOKEN|LOCA_OWNER) return 0 ;;
   esac
   [[ "$1" =~ ^DAVET_[A-Za-z0-9_]+$ ]]
 }
@@ -379,6 +379,25 @@ fi
 # opens a read by itself; only a write ($2 = write) carries the Building session
 # taken with that key. A loca's session is never presented there (it opens its
 # own loca only, and the Lobby's door would refuse it).
+# Does the kept loca session belong to loca $1? A session opens the one loca
+# it was taken for; presented at another loca's door it is refused, and the
+# server answers as if that loca did not exist (a floor loca's existence is
+# not told to a stranger). LOCA_SESSION_LOCA says which loca it is for. A file
+# from before it was kept says nothing: then the session is trusted only
+# while this identity holds no more than one loca invite.
+_session_fits() {
+  local loca="$1" var count=0
+  [ -n "${LOCA_SESSION:-}" ] || return 1
+  if [ -n "${LOCA_SESSION_LOCA:-}" ]; then
+    [ "$LOCA_SESSION_LOCA" = "$loca" ]
+    return
+  fi
+  while IFS= read -r var; do
+    [ -n "${!var:-}" ] && count=$((count + 1))
+  done < <(compgen -v DAVET_)
+  [ "$count" -le 1 ]
+}
+
 use_loca() {
   local d
   d=$(invite_for "$1")
@@ -387,8 +406,17 @@ use_loca() {
   if [ "$1" = "lobby" ]; then
     [ "${2:-}" = "write" ] && [ -n "${LOCA_LOBBY_SESSION:-}" ] \
       && tok_args+=(-H "x-session-token: $LOCA_LOBBY_SESSION")
+  elif _session_fits "$1"; then
+    tok_args+=(-H "x-session-token: $LOCA_SESSION")
   else
-    [ -n "${LOCA_SESSION:-}" ] && tok_args+=(-H "x-session-token: $LOCA_SESSION")
+    # Another loca's session, or none. A read needs none: this loca's invite
+    # opens it. A write takes a session from THIS loca's invite first, so
+    # every write path presents the right one, not only those that renew on
+    # a 401.
+    LOCA_SESSION=""
+    if [ "${2:-}" = "write" ] && [ -n "$d" ] && [ -n "${server:-}" ]; then
+      _renew_session "$1" "${name:-${LOCA_NAME:-}}" || true
+    fi
   fi
   ROOM_TOKEN="$d"   # so the session-renewal path below re-mints with it
 }
@@ -408,8 +436,12 @@ _keep_session() {
   local room="$1" new="$2" slot=LOCA_SESSION
   [ "$room" = "lobby" ] && slot=LOCA_LOBBY_SESSION
   export "$slot=$new"
+  [ "$room" = "lobby" ] || export LOCA_SESSION_LOCA="$room"
   if [ -f "$LOCA_ENV" ]; then
-    printf '%s\0%s\0' "$slot" "$new" | _credential_patch
+    {
+      printf '%s\0%s\0' "$slot" "$new"
+      [ "$room" = "lobby" ] || printf 'LOCA_SESSION_LOCA\0%s\0' "$room"
+    } | _credential_patch
   fi
 }
 
@@ -1052,9 +1084,10 @@ case "$cmd" in
       {
         printf 'DAVET_%s\0\0' "$(_var "$room")"
         printf 'LOCA_SESSION\0\0'
+        printf 'LOCA_SESSION_LOCA\0\0'
       } | _credential_patch
     fi
-    unset LOCA_SESSION
+    unset LOCA_SESSION LOCA_SESSION_LOCA
     printf "released '%s' from '%s'; building membership stays in lobby\n" "$name" "$room"
     ;;
 

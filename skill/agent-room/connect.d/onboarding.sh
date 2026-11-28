@@ -135,6 +135,7 @@ case "$cmd" in
       # Being in two locas means holding two invites, not replacing the first.
       {
         printf 'LOCA_SESSION\0\0'
+        printf 'LOCA_SESSION_LOCA\0\0'
         if [ "$who_kind" = "member" ]; then
           # A permanent building membership opens the lobby only. Storing it
           # as ROOM_TOKEN would make it look like a room invite.
@@ -193,7 +194,10 @@ case "$cmd" in
       sess=$(_curl -sS -m 10 -H 'content-type: application/json' -H "x-room-token: $token" \
         -X POST "$server/sessions" -d "$(jq -n --arg n "$name" --arg l "${invite_loca:-}" '{name:$n, kind:"agent"} + (if $l == "" then {} else {loca:$l} end)')" | _jq_raw '.session_token // empty')
       if [ -n "$sess" ]; then
-        printf 'LOCA_SESSION\0%s\0' "$sess" | _credential_patch
+        {
+          printf 'LOCA_SESSION\0%s\0' "$sess"
+          printf 'LOCA_SESSION_LOCA\0%s\0' "${invite_loca:-}"
+        } | _credential_patch
         echo "session bound for '$name' — identity is now server-derived"
       fi
     fi
