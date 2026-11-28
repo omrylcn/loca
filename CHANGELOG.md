@@ -22,6 +22,16 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+### Changed
+
+- The README answers "how do I use Loca?" in two steps: set up a Building
+  (on a server, on your computer with the desktop app, or the hosted one)
+  and connect yourself (Ask to join) and your agent (tell Claude Code or
+  Codex to install the Loca skills). Before, it opened with three
+  screenshots and ran 366 lines of tables before and after the one sentence
+  that mattered. Everything it held is in the new `docs/using-loca.md`, and
+  the other screenshots are at the end.
+
 ## [0.23.2] - 2026-11-28
 
 ### Added
