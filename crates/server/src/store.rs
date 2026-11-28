@@ -27,7 +27,8 @@ pub use keys::KeyRecord;
 pub use master_agent_admissions::AdmissionClaim;
 pub use master_agents::{MasterAgentLimits, MasterAgentRecord, MasterAgentSetting, SettingChange};
 pub use notifications::{
-    NotificationPage, NotificationRow, NotificationSend, SendLimit, SentNotificationRow,
+    NotificationPage, NotificationRecipientRow, NotificationRow, NotificationSend, SendLimit,
+    SentNotificationRow,
 };
 mod admission;
 mod claims;
@@ -323,6 +324,9 @@ impl Store {
         // Memory frames carry a durable monotonic revision. Existing rows begin
         // at zero and advance on every owner or body mutation.
         add_column(&conn, "loca_memory", "version INTEGER NOT NULL DEFAULT 0")?;
+        // When a recipient's own client first fetched a notification: it
+        // reached them. Not a read (PRINCIPLES, "Building notifications").
+        add_column(&conn, "notification_receipts", "delivered_at INTEGER")?;
         conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_operation
              ON messages(room, principal, op_id)

@@ -366,12 +366,17 @@ async fn the_master_notifies_everyone_and_reads_are_per_person() {
     )
     .await;
     assert_eq!(opts["can_send"], false);
+    // A Smaster with no group still writes to the ranks (the Master and
+    // every Smaster), and to nobody else.
     let (_, opts) = get(
         format!("{base}/notifications/audiences"),
         Who::Session(&kaan),
     )
     .await;
-    assert_eq!(opts["can_send"], false, "{opts}");
+    assert_eq!(opts["can_send"], true, "{opts}");
+    assert_eq!(opts["ranks"], true, "{opts}");
+    assert_eq!(opts["agents"], false, "{opts}");
+    assert_eq!(opts["everyone"], false, "{opts}");
     let (_, opts) = get(
         format!("{base}/notifications/audiences"),
         Who::Session(&master),
@@ -1130,4 +1135,215 @@ async fn the_count_is_set_at_start_up() {
             "{body}"
         );
     }
+}
+
+/// The caretaker tells every agent about Loca itself, and only them; the
+/// Master gets a copy and sees, recipient by recipient, whom it reached. A
+/// recipient's own client fetching the list is what records that it reached
+/// them, and that is not a read.
+#[tokio::test]
+async fn the_caretaker_notifies_every_agent_and_the_master_sees_whom_it_reached() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("ntf-care.db");
+    let (port, _guard) = spawn_server_env(
+        MASTER,
+        &[
+            ("DB_PATH", db.to_str().unwrap().into()),
+            ("REQUIRE_SESSIONS", "1".into()),
+            ("REQUIRE_INVITE", "1".into()),
+            ("LOCA_CARETAKERS", "loca-care".into()),
+        ],
+    )
+    .await;
+    let base = format!("http://127.0.0.1:{port}");
+    let master = master_session(&base).await;
+    let kaan = smaster(&base, "kaan").await;
+    let ali_key = member(&base, "ali", "user").await;
+    let care_key = member(&base, "loca-care", "agent").await;
+    let bot_key = member(&base, "bot", "agent").await;
+    let robo_key = member(&base, "robo", "agent").await;
+
+    // The caretaker may send to every agent and to nobody else.
+    let (_, opts) = get(
+        format!("{base}/notifications/audiences"),
+        Who::Key(&care_key),
+    )
+    .await;
+    assert_eq!(opts["can_send"], true, "{opts}");
+    assert_eq!(opts["agents"], true, "{opts}");
+    assert_eq!(opts["everyone"], false, "{opts}");
+    assert_eq!(opts["ranks"], false, "{opts}");
+    let (status, v) = notify(
+        &base,
+        Who::Key(&care_key),
+        "x",
+        serde_json::json!({ "all": true }),
+    )
+    .await;
+    assert_eq!(status, 403, "{v}");
+    let (status, _) = notify(
+        &base,
+        Who::Key(&care_key),
+        "x",
+        serde_json::json!({ "ranks": true }),
+    )
+    .await;
+    assert_eq!(status, 403);
+    // An ordinary agent sends nothing.
+    let (status, _) = notify(
+        &base,
+        Who::Key(&bot_key),
+        "x",
+        serde_json::json!({ "agents": true }),
+    )
+    .await;
+    assert_eq!(status, 403);
+
+    let (status, sent) = notify(
+        &base,
+        Who::Key(&care_key),
+        "Loca 0.24.2: update your kit",
+        serde_json::json!({ "agents": true }),
+    )
+    .await;
+    assert_eq!(status, 201, "{sent}");
+    let id = sent["id"].as_i64().unwrap();
+    assert_eq!(
+        sent["recipients"], 3,
+        "bot, robo and the Master's copy — not the sender"
+    );
+    assert_eq!(sent["from"], "loca-care");
+
+    // The agents and the Master have it; a person who is not the Master and
+    // a Smaster do not.
+    for who in [
+        Who::Key(&bot_key),
+        Who::Key(&robo_key),
+        Who::Session(&master),
+    ] {
+        let (titles, _) = inbox(&base, who).await;
+        assert_eq!(titles, vec!["Loca 0.24.2: update your kit".to_string()]);
+    }
+    for who in [Who::Key(&ali_key), Who::Session(&kaan)] {
+        let (titles, _) = inbox(&base, who).await;
+        assert!(titles.is_empty());
+    }
+
+    // The Master sees it among the sent, with who it reached: bot and the
+    // Master fetched their lists above, robo too; nobody read it.
+    let (_, list) = get(format!("{base}/notifications/sent"), Who::Session(&master)).await;
+    let entry = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == id)
+        .unwrap()
+        .clone();
+    assert_eq!(entry["from"], "loca-care");
+    assert_eq!(entry["delivered"], 3, "{entry}");
+    let (status, who) = get(
+        format!("{base}/notifications/{id}/recipients"),
+        Who::Session(&master),
+    )
+    .await;
+    assert_eq!(status, 200, "{who}");
+    let names: Vec<&str> = who["recipients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names.len(), 3, "{who}");
+    assert!(names.contains(&"bot") && names.contains(&"robo"), "{who}");
+    for r in who["recipients"].as_array().unwrap() {
+        assert!(r["delivered_at"].is_u64(), "{r}");
+        assert!(r["read_at"].is_null(), "{r}");
+    }
+    // A Smaster does not see another's recipients; the sender does.
+    let (status, _) = get(
+        format!("{base}/notifications/{id}/recipients"),
+        Who::Session(&kaan),
+    )
+    .await;
+    assert_eq!(status, 404);
+    let (status, _) = get(
+        format!("{base}/notifications/{id}/recipients"),
+        Who::Key(&care_key),
+    )
+    .await;
+    assert_eq!(status, 200);
+}
+
+/// Every rank writes to the ranks: the Master and every Smaster, nobody
+/// else. Before a recipient's client fetches it, it has not reached them.
+#[tokio::test]
+async fn a_smaster_writes_to_the_ranks_and_delivery_waits_for_the_fetch() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("ntf-ranks.db");
+    let (port, _guard) = building(&db).await;
+    let base = format!("http://127.0.0.1:{port}");
+    let master = master_session(&base).await;
+    let kaan = smaster(&base, "kaan").await;
+    let ayse = smaster(&base, "ayse").await;
+    let ali_key = member(&base, "ali", "user").await;
+    let bot_key = member(&base, "bot", "agent").await;
+
+    let (status, sent) = notify(
+        &base,
+        Who::Session(&kaan),
+        "Ranks meet at five",
+        serde_json::json!({ "ranks": true }),
+    )
+    .await;
+    assert_eq!(status, 201, "{sent}");
+    let id = sent["id"].as_i64().unwrap();
+    assert_eq!(sent["recipients"], 2, "the Master and ayse — not kaan");
+    // A Smaster does not write to every agent.
+    let (status, _) = notify(
+        &base,
+        Who::Session(&kaan),
+        "x",
+        serde_json::json!({ "agents": true }),
+    )
+    .await;
+    assert_eq!(status, 403);
+
+    let (_, who) = get(
+        format!("{base}/notifications/{id}/recipients"),
+        Who::Session(&kaan),
+    )
+    .await;
+    for r in who["recipients"].as_array().unwrap() {
+        assert!(r["delivered_at"].is_null(), "nobody fetched yet: {r}");
+    }
+    let (titles, _) = inbox(&base, Who::Session(&ayse)).await;
+    assert_eq!(titles, vec!["Ranks meet at five".to_string()]);
+    for who in [Who::Key(&ali_key), Who::Key(&bot_key)] {
+        let (titles, _) = inbox(&base, who).await;
+        assert!(titles.is_empty());
+    }
+    let (_, who) = get(
+        format!("{base}/notifications/{id}/recipients"),
+        Who::Session(&master),
+    )
+    .await;
+    let ayse_row = who["recipients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] == "ayse")
+        .unwrap()
+        .clone();
+    assert!(ayse_row["delivered_at"].is_u64(), "{ayse_row}");
+    let master_row = who["recipients"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["name"] != "ayse")
+        .unwrap()
+        .clone();
+    assert!(
+        master_row["delivered_at"].is_null(),
+        "the Master's own list was not fetched: {master_row}"
+    );
 }

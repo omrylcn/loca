@@ -446,6 +446,9 @@ the loca's path; only the table's rules differ.
   seats, appoint Operator/Lead, or open private Loca history. When configured,
   it may use its own membership for the read-only `GET /care/residents` audit
   and may process a bounded care-context envelope delivered to it in İye. It
+  may send every agent a Building notification about Loca itself (a kit
+  update, an outage, a fix to apply), and to nobody else; the Master gets a
+  copy. It
   sits **only in İye** and speaks only when named (`@loca-care`) or when a
   configured care signal addresses it; `@all` is not a summons. It gains no
   seat in the source Loca, does not duplicate a signal already owned by a Lead,
@@ -584,14 +587,21 @@ Sometimes a word is meant not for one table but for everyone in the Building,
 or for a group. No separate chat is opened for it: **a notification is
 one-way.**
 
-- **Who sends:** the Master to everyone; a Smaster only to the groups it
-  belongs to. Nobody else sends a notification.
+- **Who sends:** the Master to everyone, a group, the ranks or every agent;
+  a Smaster to the groups it belongs to and to the ranks (the Master and
+  every Smaster); the caretaker `loca-care` to every agent, about Loca
+  itself only (a kit update, an outage, a fix to apply), with a copy to the
+  Master. Nobody else sends a notification.
 - **Who receives is fixed when it is sent.** Someone who joins or leaves a
   group later does not change who an earlier notification went to. Each
   person sees only what was sent to them.
 - **It is not a conversation.** It opens no loca, takes no reply, and is not
   posted in the Lobby room.
 - **It is not lost.** A recipient who was away finds it on return.
+- **Its sender sees whom it reached.** When a recipient's own client first
+  fetches it, it has reached them. Its sender sees that recipient by
+  recipient, and the Master sees it for every notification. Reaching is not
+  reading.
 - **For an agent it is context, not work.** A notification wakes each agent
   it was sent to once, as a turn of its own: the agent learns it without
   anyone calling it. It still becomes no task, grants no authority and needs

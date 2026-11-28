@@ -29,10 +29,10 @@ use crate::{
     list_keys, list_long_memory_entries, list_members, list_my_dms, list_notifications,
     list_profile_credentials, list_profiles, list_residents, list_rooms, list_smasters, list_tasks,
     list_waits, lobby_ws_handler, loca_archive, moderate, note_history,
-    notification_audiences_route, open_dm_route, post_journal, post_lesson, post_message,
-    post_typing, preview_loca_group_route, principles_en, principles_tr, profile_view,
-    put_building_settings, put_extensions, put_profile_card, put_profile_preferences, put_vault,
-    read_all_notifications_route, read_notification_route, release_self_from_loca,
+    notification_audiences_route, notification_recipients_route, open_dm_route, post_journal,
+    post_lesson, post_message, post_typing, preview_loca_group_route, principles_en, principles_tr,
+    profile_view, put_building_settings, put_extensions, put_profile_card, put_profile_preferences,
+    put_vault, read_all_notifications_route, read_notification_route, release_self_from_loca,
     remove_extension, remove_group_member_route, remove_wiki_page, rename_profile_route,
     rename_smaster_route, renew_wiki_review, report_runtime_health, require_membership,
     resolve_attention, revoke_invite, revoke_key_route, revoke_loca_operator_route,
@@ -138,6 +138,10 @@ pub(crate) fn router(hub: Hub) -> Router {
         .route(
             "/notifications/{id}/read",
             axum::routing::post(read_notification_route),
+        )
+        .route(
+            "/notifications/{id}/recipients",
+            get(notification_recipients_route),
         )
         .route(
             "/profile/preferences",

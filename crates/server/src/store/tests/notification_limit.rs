@@ -296,12 +296,15 @@ fn every_key_a_sender_is_counted_over_shares_one_count() {
     )));
     // Each kept the key it was sent under.
     assert_eq!(
-        store.sent_notifications("master", None, 50).unwrap().len(),
+        store
+            .sent_notifications(Some("master"), None, 50)
+            .unwrap()
+            .len(),
         3
     );
     assert_eq!(
         store
-            .sent_notifications("pr_master", None, 50)
+            .sent_notifications(Some("pr_master"), None, 50)
             .unwrap()
             .len(),
         3

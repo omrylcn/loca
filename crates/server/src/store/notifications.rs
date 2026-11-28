@@ -62,6 +62,22 @@ pub struct SentNotificationRow {
     pub agents: u64,
     /// How many people read it. An agent's mark is not a read.
     pub read: u64,
+    /// How many recipients' own clients fetched it: it reached them.
+    pub delivered: u64,
+    /// Who sent it, as named then.
+    pub sender_name: String,
+}
+
+/// One recipient of a notification, as its sender (or the Master) sees it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct NotificationRecipientRow {
+    pub name: String,
+    /// `agent` or `human`.
+    pub kind: String,
+    /// When its own client first fetched the notification.
+    pub delivered_at: Option<u64>,
+    /// When a person marked it read; never set for an agent's list.
+    pub read_at: Option<u64>,
 }
 
 /// Which page of a person's notifications to read.
@@ -315,7 +331,7 @@ impl Store {
     /// counted as a person, the kind every principal has unless it says agent.
     pub fn sent_notifications(
         &self,
-        sender: &str,
+        sender: Option<&str>,
         before: Option<i64>,
         limit: u32,
     ) -> rusqlite::Result<Vec<SentNotificationRow>> {
@@ -332,9 +348,12 @@ impl Store {
                     (SELECT COUNT(*) FROM notification_receipts r
                        LEFT JOIN principals p ON p.id = r.principal_id
                       WHERE r.notification_id = n.id AND r.read_at IS NOT NULL
-                        AND COALESCE(p.kind, 'human') <> 'agent')
+                        AND COALESCE(p.kind, 'human') <> 'agent'),
+                    (SELECT COUNT(*) FROM notification_receipts r
+                      WHERE r.notification_id = n.id AND r.delivered_at IS NOT NULL),
+                    n.sender_name
              FROM notifications n
-             WHERE n.sender_principal = ?1 AND (?2 IS NULL OR n.id < ?2)
+             WHERE (?1 IS NULL OR n.sender_principal = ?1) AND (?2 IS NULL OR n.id < ?2)
              ORDER BY n.id DESC
              LIMIT ?3",
         )?;
@@ -348,8 +367,79 @@ impl Store {
                 recipients: r.get::<_, i64>(5)?.max(0) as u64,
                 agents: r.get::<_, i64>(6)?.max(0) as u64,
                 read: r.get::<_, i64>(7)?.max(0) as u64,
+                delivered: r.get::<_, i64>(8)?.max(0) as u64,
+                sender_name: r.get(9)?,
             })
         })?;
         rows.collect()
+    }
+
+    /// Who sent notification `id` (principal), or `None` when there is none.
+    pub fn notification_sender(&self, id: i64) -> rusqlite::Result<Option<String>> {
+        let Some(c) = self.conn() else {
+            return Ok(None);
+        };
+        c.query_row(
+            "SELECT sender_principal FROM notifications WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
+        .optional()
+    }
+
+    /// Every recipient of notification `id`: name, kind, and when it
+    /// reached them and (for a person) was read. Agents first, then people,
+    /// by name.
+    pub fn notification_recipients(
+        &self,
+        id: i64,
+    ) -> rusqlite::Result<Vec<NotificationRecipientRow>> {
+        let Some(c) = self.conn() else {
+            return Ok(Vec::new());
+        };
+        let mut st = c.prepare(
+            "SELECT COALESCE(p.display_name, r.principal_id), COALESCE(p.kind, 'human'),
+                    r.delivered_at, r.read_at
+             FROM notification_receipts r
+             LEFT JOIN principals p ON p.id = r.principal_id
+             WHERE r.notification_id = ?1
+             ORDER BY CASE COALESCE(p.kind, 'human') WHEN 'agent' THEN 0 ELSE 1 END,
+                      COALESCE(p.display_name, r.principal_id)",
+        )?;
+        let rows = st.query_map(params![id], |r| {
+            let kind: String = r.get(1)?;
+            Ok(NotificationRecipientRow {
+                name: r.get(0)?,
+                kind: if kind == "agent" {
+                    "agent".into()
+                } else {
+                    "human".into()
+                },
+                delivered_at: r.get::<_, Option<i64>>(2)?.map(|v| v as u64),
+                read_at: r.get::<_, Option<i64>>(3)?.map(|v| v as u64),
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// The recipient's own client fetched these notifications: they reached
+    /// it. Only the first fetch is kept.
+    pub fn mark_notifications_delivered(
+        &self,
+        principal: &str,
+        ids: &[i64],
+        at: u64,
+    ) -> rusqlite::Result<()> {
+        let Some(c) = self.conn() else {
+            return Ok(());
+        };
+        for id in ids {
+            c.execute(
+                "UPDATE notification_receipts SET delivered_at = ?3
+                 WHERE notification_id = ?1 AND principal_id = ?2 AND delivered_at IS NULL",
+                params![id, principal, at as i64],
+            )?;
+        }
+        Ok(())
     }
 }

@@ -1510,7 +1510,9 @@ fn sending_a_notification_counts_its_recipients_in_the_same_transaction() {
     };
     assert_eq!((created.recipients, created.agents), (3, 2));
     // The Sent list reads the same numbers later.
-    let sent = store.sent_notifications("pr_sender", None, 10).unwrap();
+    let sent = store
+        .sent_notifications(Some("pr_sender"), None, 10)
+        .unwrap();
     assert_eq!(
         (sent[0].id, sent[0].recipients, sent[0].agents, sent[0].read),
         (created.id, 3, 2, 0)
@@ -1537,7 +1539,9 @@ fn sending_a_notification_counts_its_recipients_in_the_same_transaction() {
             unlimited,
         )
         .is_err());
-    let sent = store.sent_notifications("pr_sender", None, 10).unwrap();
+    let sent = store
+        .sent_notifications(Some("pr_sender"), None, 10)
+        .unwrap();
     assert_eq!(
         sent.iter().map(|n| n.title.as_str()).collect::<Vec<_>>(),
         vec!["Kept"],

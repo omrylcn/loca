@@ -31,7 +31,7 @@ fn notification_error(error: hub::NotificationError) -> axum::response::Response
     }
     let status = match error {
         Unauthenticated => StatusCode::UNAUTHORIZED,
-        RankRequired | NoGroup | MasterOnly => StatusCode::FORBIDDEN,
+        RankRequired | NoGroup | MasterOnly | CaretakerAgentsOnly => StatusCode::FORBIDDEN,
         NoSuchGroup | NotFound => StatusCode::NOT_FOUND,
         ArchivedGroup | NoRecipients => StatusCode::CONFLICT,
         NoAudience | InvalidTitle | InvalidBody => StatusCode::BAD_REQUEST,
@@ -99,7 +99,9 @@ pub(crate) async fn list_notifications(
 }
 
 /// `POST /notifications {"title", "body", "audience": {"all": true} |
-/// {"groups": [ids]}}` — the Master, or a Smaster to its own groups.
+/// {"groups": [ids]} | {"ranks": true} | {"agents": true}}` — the Master to
+/// any; a Smaster to its own groups and the ranks; the caretaker to every
+/// agent only.
 pub(crate) async fn send_notification_route(
     State(hub): State<Hub>,
     headers: HeaderMap,
@@ -109,12 +111,14 @@ pub(crate) async fn send_notification_route(
     let title = body.get("title").and_then(|v| v.as_str()).unwrap_or("");
     let text = body.get("body").and_then(|v| v.as_str()).unwrap_or("");
     let audience = body.get("audience");
-    let audience = if audience
-        .and_then(|a| a.get("all"))
-        .and_then(|v| v.as_bool())
-        == Some(true)
-    {
+    let flag =
+        |key: &str| audience.and_then(|a| a.get(key)).and_then(|v| v.as_bool()) == Some(true);
+    let audience = if flag("all") {
         Some(hub::NotificationAudience::All)
+    } else if flag("agents") {
+        Some(hub::NotificationAudience::Agents)
+    } else if flag("ranks") {
+        Some(hub::NotificationAudience::Ranks)
     } else {
         audience
             .and_then(|a| a.get("groups"))
@@ -191,6 +195,21 @@ pub(crate) async fn sent_notifications_route(
         query_u32(&q, "limit"),
     ) {
         Ok(sent) => Json(sent).into_response(),
+        Err(error) => notification_error(error),
+    }
+}
+
+/// `GET /notifications/:id/recipients` — who it went to and who it reached:
+/// its sender's own, and every one for the Master.
+pub(crate) async fn notification_recipients_route(
+    State(hub): State<Hub>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    match hub.notification_recipients(&viewer(&hub, &headers), id) {
+        Ok(recipients) => {
+            Json(serde_json::json!({ "id": id, "recipients": recipients })).into_response()
+        }
         Err(error) => notification_error(error),
     }
 }

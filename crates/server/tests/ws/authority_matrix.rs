@@ -746,8 +746,9 @@ const ROWS: &[Row] = &[
     row("GET /rooms/:id/group/preview", Rule::MoveGroup, &[]).current(),
     // --- Notifications --------------------------------------------------
     // PRINCIPLES "Building notifications": "Each person sees only what was
-    // sent to them"; "Who sends: the Master to everyone; a Smaster only to
-    // the groups it belongs to. Nobody else sends a notification."
+    // sent to them"; "Who sends: the Master to everyone, a group, the ranks
+    // or every agent; a Smaster to the groups it belongs to and to the ranks;
+    // the caretaker loca-care to every agent ... Nobody else sends."
     row("GET /notifications", Rule::Profile, &[]),
     row("POST /notifications", Rule::MasterOnly, &[]),
     row(
@@ -761,7 +762,25 @@ const ROWS: &[Row] = &[
     ),
     // current behaviour, not stated in PRINCIPLES
     row("POST /notifications/read-all", Rule::Profile, &[]).current(),
-    row("GET /notifications/sent", Rule::Ranks, &[]).current(),
+    // Senders review what they sent: the ranks and the caretaker.
+    row(
+        "GET /notifications/sent",
+        Rule::Only(&[Who::Caretaker, Sm2, Sm, Ms]),
+        &[],
+    )
+    .current(),
+    // "Its sender sees whom it reached ... the Master sees it for every
+    // notification." This world's notification is the Master's: another
+    // sender is told it is not theirs, as if it were not there.
+    row(
+        "GET /notifications/:id/recipients",
+        Rule::Only(&[Ms]),
+        &[
+            cur(Who::Caretaker, None, Absent, "a sender sees only its own"),
+            cur(Sm, None, Absent, "a sender sees only its own"),
+            cur(Sm2, None, Absent, "a sender sees only its own"),
+        ],
+    ),
     row("GET /notifications/audiences", Rule::Holder, &[]).current(),
     // --- Locas: listing and creation ------------------------------------
     // DESIGN "Sidebar": "Your Locas — erişilebilen Localar"; the list is

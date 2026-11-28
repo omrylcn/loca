@@ -1,8 +1,17 @@
 //! Notifications: a Building-level announcement sent to people
 //! (docs/concepts.md "Notifications"). Not a chat message, not a loca message.
 //!
-//! Who sends: the Master, to everyone or to any group; a Smaster, only to
-//! groups it founded or belongs to. Members and agents never send.
+//! Who sends: the Master, to everyone, any group, the ranks or every agent;
+//! a Smaster, to groups it founded or belongs to and to the ranks (the
+//! Master and every Smaster); the configured caretaker (`loca-care`), only
+//! to every agent and only about Loca itself, with a copy to the Master so
+//! the Master sees what it said. Other members and agents never send.
+//!
+//! A recipient's own client fetching a notification records that it reached
+//! them (`delivered_at`). That is not a read: for an agent a notification is
+//! context, and reading is a person's mark (PRINCIPLES, "Building
+//! notifications"). The sender, and the Master for every notification, sees
+//! who it reached.
 //!
 //! The audience is resolved at send time and frozen as one receipt per
 //! recipient. Agents among the recipients also get a `notification` frame on
@@ -19,7 +28,8 @@ use protocol::SenderType;
 
 use super::{BuildingRole, Hub, LobbyEvent, RequestAuthority};
 use crate::store::{
-    NotificationPage, NotificationRow, NotificationSend, SendLimit, SentNotificationRow,
+    NotificationPage, NotificationRecipientRow, NotificationRow, NotificationSend, SendLimit,
+    SentNotificationRow,
 };
 
 pub const NOTIFICATION_TITLE_MAX: usize = 120;
@@ -50,6 +60,8 @@ const PAGE_MAX: u32 = 100;
 pub enum NotificationError {
     /// No signed-in person behind the request.
     Unauthenticated,
+    /// The caretaker notifies every agent, and nobody else.
+    CaretakerAgentsOnly,
     /// Members and agents never send.
     RankRequired,
     /// A Smaster with no group has nobody to notify.
@@ -84,9 +96,12 @@ impl NotificationError {
     pub fn message(self) -> &'static str {
         match self {
             Self::Unauthenticated => "sign in first",
-            Self::RankRequired => "only the Master or a Smaster sends notifications",
+            Self::CaretakerAgentsOnly => {
+                "the caretaker notifies every agent, and nobody else: send with {\"agents\": true}"
+            }
+            Self::RankRequired => "only the Master, a Smaster or the caretaker sends notifications",
             Self::NoGroup => "you belong to no group, so there is nobody to notify",
-            Self::MasterOnly => "only the Master notifies everyone",
+            Self::MasterOnly => "only the Master notifies everyone or every agent",
             Self::NoSuchGroup => "no such group",
             Self::ArchivedGroup => "this group is archived",
             Self::NoAudience => "choose who receives it: everyone or one or more groups",
@@ -108,6 +123,10 @@ impl NotificationError {
 pub enum NotificationAudience {
     All,
     Groups(Vec<String>),
+    /// The Master and every Smaster.
+    Ranks,
+    /// Every agent of the Building.
+    Agents,
 }
 
 /// One notification as its recipient reads it.
@@ -131,6 +150,10 @@ pub struct NotificationView {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SentNotificationView {
     pub id: i64,
+    /// Who sent it: the Master sees every notification, not only its own.
+    pub from: String,
+    /// How many recipients' own clients fetched it.
+    pub delivered: u64,
     pub title: String,
     pub body: String,
     pub audience: serde_json::Value,
@@ -145,6 +168,8 @@ impl SentNotificationView {
     fn from_row(row: SentNotificationRow) -> Self {
         Self {
             id: row.id,
+            from: row.sender_name,
+            delivered: row.delivered,
             title: row.title,
             body: row.body,
             audience: parse_audience(&row.audience),
@@ -171,6 +196,10 @@ pub struct AudienceOptions {
     pub can_send: bool,
     pub everyone: bool,
     pub groups: Vec<AudienceGroup>,
+    /// May send to the Master and every Smaster.
+    pub ranks: bool,
+    /// May send to every agent.
+    pub agents: bool,
 }
 
 fn valid_title(title: &str) -> Option<String> {
@@ -191,8 +220,23 @@ fn valid_body(body: &str) -> Option<String> {
     .then(|| body.to_string())
 }
 
-/// May this viewer send at all, and as whom?
-fn sender_of(viewer: &RequestAuthority) -> Result<(String, String), NotificationError> {
+/// May this viewer send at all, and as whom? `caretaker` says the viewer
+/// is the configured caretaker, verified by its principal.
+fn sender_of(
+    viewer: &RequestAuthority,
+    caretaker: bool,
+) -> Result<(String, String), NotificationError> {
+    if caretaker {
+        let id = viewer
+            .principal_id
+            .clone()
+            .ok_or(NotificationError::RankRequired)?;
+        let name = viewer
+            .display_name
+            .clone()
+            .unwrap_or_else(|| "loca-care".into());
+        return Ok((id, name));
+    }
     if viewer.kind == Some(SenderType::Agent) {
         return Err(NotificationError::RankRequired);
     }
@@ -227,6 +271,27 @@ fn parse_audience(text: &str) -> serde_json::Value {
 }
 
 impl Hub {
+    /// Is this viewer the configured caretaker, as the one active agent
+    /// principal wearing that name? A display name alone is a label.
+    fn is_verified_caretaker(&self, viewer: &RequestAuthority) -> bool {
+        if viewer.kind != Some(SenderType::Agent) {
+            return false;
+        }
+        let (Some(name), Some(principal)) = (
+            viewer.display_name.as_deref(),
+            viewer.principal_id.as_deref(),
+        ) else {
+            return false;
+        };
+        if !self.is_caretaker(name) {
+            return false;
+        }
+        matches!(
+            self.store.active_principals_named(name).as_deref(),
+            Ok([one]) if one.id == principal && one.kind == SenderType::Agent
+        )
+    }
+
     /// The groups this viewer may address: every live group for the Master,
     /// the ones a Smaster founded or belongs to. Archived groups are left out.
     fn addressable_groups(&self, viewer: &RequestAuthority) -> Vec<super::GroupView> {
@@ -238,13 +303,26 @@ impl Hub {
 
     /// `GET /notifications/audiences`: what the composer offers.
     pub fn notification_audiences(&self, viewer: &RequestAuthority) -> AudienceOptions {
-        let Ok(_) = sender_of(viewer) else {
+        let caretaker = self.is_verified_caretaker(viewer);
+        let persistent = self.store.is_persistent();
+        if sender_of(viewer, caretaker).is_err() {
             return AudienceOptions {
                 can_send: false,
                 everyone: false,
                 groups: Vec::new(),
+                ranks: false,
+                agents: false,
             };
-        };
+        }
+        if caretaker {
+            return AudienceOptions {
+                can_send: persistent,
+                everyone: false,
+                groups: Vec::new(),
+                ranks: false,
+                agents: true,
+            };
+        }
         let everyone = viewer.is_master();
         let me = viewer.principal_id.as_deref();
         let groups: Vec<AudienceGroup> = self
@@ -262,9 +340,12 @@ impl Hub {
             })
             .collect();
         AudienceOptions {
-            can_send: self.store.is_persistent() && (everyone || !groups.is_empty()),
+            // Every rank may write to the ranks, so a rank can always send.
+            can_send: persistent,
             everyone,
             groups,
+            ranks: true,
+            agents: everyone,
         }
     }
 
@@ -276,7 +357,11 @@ impl Hub {
         body: &str,
         audience: NotificationAudience,
     ) -> Result<SentNotificationView, NotificationError> {
-        let (sender_id, sender_name) = sender_of(viewer)?;
+        let caretaker = self.is_verified_caretaker(viewer);
+        let (sender_id, sender_name) = sender_of(viewer, caretaker)?;
+        if caretaker && !matches!(audience, NotificationAudience::Agents) {
+            return Err(NotificationError::CaretakerAgentsOnly);
+        }
         let title = valid_title(title).ok_or(NotificationError::InvalidTitle)?;
         let body = valid_body(body).ok_or(NotificationError::InvalidBody)?;
         if !self.store.is_persistent() {
@@ -323,6 +408,39 @@ impl Hub {
                 }
                 (people, serde_json::json!({ "groups": named }))
             }
+            NotificationAudience::Ranks => {
+                let ranks = self
+                    .store
+                    .active_principals()
+                    .into_iter()
+                    .filter(|p| matches!(p.role, BuildingRole::Master | BuildingRole::Smaster))
+                    .map(|p| p.id)
+                    .collect();
+                (ranks, serde_json::json!({ "ranks": true }))
+            }
+            NotificationAudience::Agents => {
+                if !viewer.is_master() && !caretaker {
+                    return Err(NotificationError::MasterOnly);
+                }
+                let mut agents: BTreeSet<String> = self
+                    .store
+                    .active_principals()
+                    .into_iter()
+                    .filter(|p| p.kind == SenderType::Agent)
+                    .map(|p| p.id)
+                    .collect();
+                // What the caretaker tells the agents, the Master sees too.
+                if caretaker {
+                    agents.extend(
+                        self.store
+                            .active_principals()
+                            .into_iter()
+                            .filter(|p| p.role == BuildingRole::Master)
+                            .map(|p| p.id),
+                    );
+                }
+                (agents, serde_json::json!({ "agents": true }))
+            }
         };
         let recipients: Vec<String> = recipients.into_iter().filter(|p| p != &sender_id).collect();
         if recipients.is_empty() {
@@ -361,10 +479,10 @@ impl Hub {
         let id = created.id;
         // Agents hear it on their Lobby line. The frame carries no credential
         // and no group name: one frame goes to every recipient's socket.
-        let scope = if stored_audience.get("all").is_some() {
-            "building"
-        } else {
+        let scope = if stored_audience.get("groups").is_some() {
             "group"
+        } else {
+            "building"
         };
         let frame = serde_json::json!({
             "t": "notification",
@@ -384,6 +502,8 @@ impl Hub {
         // transaction that stored it.
         Ok(SentNotificationView {
             id,
+            from: sender_name,
+            delivered: 0,
             title,
             body,
             audience: stored_audience,
@@ -427,6 +547,11 @@ impl Hub {
         let audience = parse_audience(stored);
         if audience.get("all").is_some() {
             return serde_json::json!({ "all": true });
+        }
+        for whole in ["agents", "ranks"] {
+            if audience.get(whole).is_some() {
+                return serde_json::json!({ whole: true });
+            }
         }
         let names: Vec<serde_json::Value> = audience
             .get("groups")
@@ -472,6 +597,14 @@ impl Hub {
             )
             .map_err(|_| NotificationError::Storage)?;
         let more = rows.len() > limit as usize;
+        // This recipient's own client fetched them: they reached it.
+        let fetched: Vec<i64> = rows.iter().take(limit as usize).map(|row| row.id).collect();
+        if let Err(error) = self
+            .store
+            .mark_notifications_delivered(&me, &fetched, self.now())
+        {
+            tracing::warn!(%error, "could not record notification delivery");
+        }
         let visible: HashSet<String> = self.groups_for(viewer).into_iter().map(|g| g.id).collect();
         let list = rows
             .into_iter()
@@ -519,15 +652,38 @@ impl Hub {
         before: Option<i64>,
         limit: Option<u32>,
     ) -> Result<Vec<SentNotificationView>, NotificationError> {
-        let (sender, _) = sender_of(viewer)?;
+        let (sender, _) = sender_of(viewer, self.is_verified_caretaker(viewer))?;
         let limit = limit.unwrap_or(PAGE_DEFAULT).clamp(1, PAGE_MAX);
+        // The Master sees every notification sent in the Building.
+        let only = (!viewer.is_master()).then_some(sender.as_str());
         let rows = self
             .store
-            .sent_notifications(&sender, before, limit)
+            .sent_notifications(only, before, limit)
             .map_err(|_| NotificationError::Storage)?;
         Ok(rows
             .into_iter()
             .map(SentNotificationView::from_row)
             .collect())
+    }
+
+    /// `GET /notifications/:id/recipients`: who a notification went to and
+    /// who it reached. Its sender sees its own; the Master sees every one.
+    pub fn notification_recipients(
+        &self,
+        viewer: &RequestAuthority,
+        id: i64,
+    ) -> Result<Vec<NotificationRecipientRow>, NotificationError> {
+        let (sender, _) = sender_of(viewer, self.is_verified_caretaker(viewer))?;
+        let owner = self
+            .store
+            .notification_sender(id)
+            .map_err(|_| NotificationError::Storage)?
+            .ok_or(NotificationError::NotFound)?;
+        if owner != sender && !viewer.is_master() {
+            return Err(NotificationError::NotFound);
+        }
+        self.store
+            .notification_recipients(id)
+            .map_err(|_| NotificationError::Storage)
     }
 }

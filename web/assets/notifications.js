@@ -1,6 +1,7 @@
 "use strict";
 // Notifications (docs/concepts.md "Notifications"): Building announcements
-// from the Master to everyone, or from a Smaster to its own groups. A bell in
+// from the Master to everyone, a floor, the ranks or every agent; from a
+// Smaster to its own groups or the ranks; from the caretaker to every agent. A bell in
 // the sidebar header carries the unread count; its panel lists them, marks
 // them read and — for a sender — offers a New notification form.
 //
@@ -134,6 +135,8 @@ function notifWhen(ts) {
 function notifAudienceLabel(a) {
   if (!a) return "";
   if (a.all) return "everyone";
+  if (a.agents) return "every agent";
+  if (a.ranks) return "the Master and the Smasters";
   const groups = (a.groups || []).map(g => typeof g === "string" ? g : g.name).filter(Boolean);
   return groups.length ? groups.join(", ") : "your floor";
 }
@@ -276,25 +279,63 @@ function notifCountsText(x) {
   const parts = [];
   if (people || !agents) parts.push(`${Number(x.read || 0)} of ${people} read`);
   if (agents) parts.push(`sent to ${notifCountWord(agents, "agent", "agents")}`);
+  // Reached: the recipient's own client fetched it. Not a read.
+  if (x.delivered !== undefined) parts.push(`reached ${Number(x.delivered || 0)} of ${Number(x.recipients || 0)}`);
   return parts.join(" · ");
+}
+
+// Who a sent notification went to and whom it reached, fetched when asked.
+const notifRecipients = new Map();
+function notifRecipientsHtml(id) {
+  const list = notifRecipients.get(id);
+  if (!list) return "";
+  if (list === "loading") return `<div class="notifwho">Loading…</div>`;
+  if (list === "error") return `<div class="notifwho">Could not load who it reached.</div>`;
+  return `<ul class="notifwho">` + list.map(r =>
+    `<li><span>${esc(r.name)}</span><small>${r.kind === "agent" ? "agent" : "person"}</small>` +
+    (r.delivered_at
+      ? `<span class="notifreached" title="${esc(fmtFull(r.delivered_at))}">reached ${esc(notifWhen(r.delivered_at))}</span>`
+      : `<span class="notifwaiting">not yet</span>`) +
+    (r.read_at ? `<span>read</span>` : "") + `</li>`).join("") + `</ul>`;
+}
+async function toggleNotifRecipients(id) {
+  if (notifRecipients.has(id)) { notifRecipients.delete(id); renderNotifPanel(); return; }
+  notifRecipients.set(id, "loading");
+  renderNotifPanel();
+  try {
+    const r = await fetch(`${serverBase()}/notifications/${encodeURIComponent(id)}/recipients`, { headers: adminHeaders({}) });
+    notifRecipients.set(id, r.ok ? (await r.json()).recipients || [] : "error");
+  } catch (e) { notifRecipients.set(id, "error"); }
+  renderNotifPanel();
 }
 
 function notifSentHtml(x) {
   return `<li class="notifitem sent" data-notif-sent="${x.id}">` + NOTIF_ANNOUNCE_ICON +
     `<div class="notifmain"><div class="notifitemhead"><b class="notiftitle">${esc(x.title)}</b></div>` +
     (x.body ? `<p class="notifbody">${esc(x.body)}</p>` : "") +
-    `<div class="notifmeta"><span class="notiffrom">to ${esc(notifAudienceLabel(x.audience))}</span><span aria-hidden="true">·</span>` +
+    `<div class="notifmeta">${x.from ? `<span class="notiffrom">from ${esc(x.from)}</span><span aria-hidden="true">·</span>` : ""}` +
+      `<span class="notiffrom">to ${esc(notifAudienceLabel(x.audience))}</span><span aria-hidden="true">·</span>` +
       `<time datetime="${new Date(x.created_at).toISOString()}" title="${esc(fmtFull(x.created_at))}">${esc(notifWhen(x.created_at))}</time></div>` +
-    `<div class="notifcounts">${esc(notifCountsText(x))}</div>` +
+    `<div class="notifcounts">${esc(notifCountsText(x))} ` +
+      `<button type="button" class="linkbtn" data-notif-who="${x.id}" aria-expanded="${notifRecipients.has(x.id)}">${notifRecipients.has(x.id) ? "hide who" : "who it reached"}</button></div>` +
+    notifRecipientsHtml(x.id) +
     `</div></li>`;
 }
 
 function notifComposerHtml(a) {
-  const everyone = a.everyone
-    ? `<label class="notifaud"><input type="checkbox" name="all" checked> <span>Everyone in the Building</span></label>`
-    : "";
+  // Whole audiences, one at a time: everyone (the Master), every agent (the
+  // Master, the caretaker), the ranks (every rank). Groups are the other way.
+  const wholes = [];
+  if (a.everyone) wholes.push(["all", "Everyone in the Building"]);
+  if (a.agents) wholes.push(["agents", "Every agent"]);
+  if (a.ranks) wholes.push(["ranks", "The Master and the Smasters"]);
+  const groupsHere = (a.groups || []).length > 0;
+  // Ticked to start with: everyone for the Master; the only choice there is.
+  const preset = a.everyone ? "all" : (!groupsHere && wholes.length === 1 ? wholes[0][0] : "");
+  const everyone = wholes.map(([value, label]) =>
+    `<label class="notifaud"><input type="checkbox" name="whole" value="${value}"${value === preset ? " checked" : ""}> <span>${label}</span></label>`).join("");
   const groups = (a.groups || []).map(g =>
-    `<label class="notifaud"><input type="checkbox" name="group" value="${esc(g.id)}"${a.everyone ? " disabled" : ""}> ` +
+    `<label class="notifaud"><input type="checkbox" name="group" value="${esc(g.id)}"${preset ? " disabled" : ""}> ` +
     `<span>${esc(g.name)}</span><small>${g.members} ${g.members === 1 ? "person" : "people"}</small></label>`).join("");
   return `<details class="notifcompose"${state.notif.composeOpen ? " open" : ""}>` +
     `<summary>New notification</summary>` +
@@ -315,7 +356,7 @@ function renderNotifPanel() {
   // Keep a half-written notification across re-renders (the poll ticks).
   const draft = panel.querySelector("#notifForm") ? {
     title: $("notifTitle").value, body: $("notifText").value,
-    all: panel.querySelector("input[name=all]")?.checked,
+    whole: panel.querySelector("input[name=whole]:checked")?.value || "",
     groups: [...panel.querySelectorAll("input[name=group]:checked")].map(i => i.value),
     err: $("notifErr").textContent,
   } : null;
@@ -361,11 +402,10 @@ function renderNotifPanel() {
   if (draft) {
     $("notifTitle").value = draft.title;
     $("notifText").value = draft.body;
-    const all = panel.querySelector("input[name=all]");
-    if (all) all.checked = !!draft.all;
+    for (const box of panel.querySelectorAll("input[name=whole]")) box.checked = box.value === draft.whole;
     for (const box of panel.querySelectorAll("input[name=group]")) {
       box.checked = draft.groups.includes(box.value);
-      box.disabled = !!(all && all.checked);
+      box.disabled = !!draft.whole;
     }
     $("notifErr").textContent = draft.err;
     updateNotifCount();
@@ -426,11 +466,11 @@ async function sendNotif() {
   const err = $("notifErr");
   const title = $("notifTitle").value.trim();
   const body = $("notifText").value;
-  const all = !!panel.querySelector("input[name=all]")?.checked;
+  const whole = panel.querySelector("input[name=whole]:checked")?.value || "";
   const groups = [...panel.querySelectorAll("input[name=group]:checked")].map(i => i.value);
   err.textContent = "";
   if (!title) { err.textContent = "Give it a title."; $("notifTitle").focus(); return; }
-  if (!all && !groups.length) { err.textContent = "Choose who receives it."; return; }
+  if (!whole && !groups.length) { err.textContent = "Choose who receives it."; return; }
   const button = $("notifSend");
   button.disabled = true;
   const gen = state.buildingGen;
@@ -438,7 +478,7 @@ async function sendNotif() {
     const r = await fetch(`${serverBase()}/notifications`, {
       method: "POST",
       headers: adminHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify({ title, body, audience: all ? { all: true } : { groups } }),
+      body: JSON.stringify({ title, body, audience: whole ? { [whole]: true } : { groups } }),
     });
     if (buildingStale(gen)) return;
     if (!r.ok) {
@@ -489,6 +529,7 @@ function onNotifPanelClick(e) {
   if (t.dataset.notifReadall !== undefined) { markAllNotifRead(); return; }
   if (t.dataset.notifRead) { markNotifRead(Number(t.dataset.notifRead)); return; }
   if (t.dataset.notifOlder !== undefined) { loadOlderNotifs(); return; }
+  if (t.dataset.notifWho) { toggleNotifRecipients(Number(t.dataset.notifWho)); return; }
   if (t.dataset.notifView) {
     state.notif.view = t.dataset.notifView;
     if (state.notif.view === "sent") {
@@ -508,10 +549,15 @@ function onNotifSubmit(e) {
 }
 
 function onNotifChange(e) {
-  if (e.target.name !== "all") return;
-  for (const box of $("notifPanel").querySelectorAll("input[name=group]")) {
-    box.disabled = e.target.checked;
-    if (e.target.checked) box.checked = false;
+  if (e.target.name !== "whole") return;
+  const panel = $("notifPanel");
+  if (e.target.checked) {
+    for (const other of panel.querySelectorAll("input[name=whole]")) if (other !== e.target) other.checked = false;
+  }
+  const whole = !!panel.querySelector("input[name=whole]:checked");
+  for (const box of panel.querySelectorAll("input[name=group]")) {
+    box.disabled = whole;
+    if (whole) box.checked = false;
   }
 }
 

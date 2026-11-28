@@ -401,7 +401,9 @@ locanın yolundan gider; yalnız masanın kuralları farklıdır.
   Operator/Lead atayamaz veya private Loca geçmişini açamaz. Yapılandırılmış
   bakım görünümünde kendi üyeliğiyle read-only `GET /care/residents` auditini
   kullanabilir; ayrıca kendisine yöneltilmiş bounded care context zarfını İye'de
-  işler. **Yalnızca İye'de** bulunur ve yalnız adıyla (`@loca-care`) veya
+  işler. Bütün agent'lara, yalnız Loca'nın kendisi hakkında (kit güncellemesi,
+  kesinti, uygulanacak bir düzeltme) Building bildirimi gönderebilir, başka
+  kimseye gönderemez; bir kopyası Master'a gider. **Yalnızca İye'de** bulunur ve yalnız adıyla (`@loca-care`) veya
   yapılandırılmış care signal ile çağrılınca konuşur; `@all`'a katılmaz.
   Kaynak locaya koltuk kazanmaz, Lead'in sahiplendiği sinyali çoğaltmaz,
   cooldown dolmadan tekrarlamaz; sonuç yoksa operatöre yükseltir.
@@ -528,13 +530,19 @@ kişi birden fazla grupta olabilir.
 Bazen bir söz bir masaya değil, binadaki herkese ya da bir gruba söylenir.
 Bunun için ayrı bir sohbet açılmaz: **bildirim tek yönlüdür.**
 
-- **Kim gönderir:** Master herkese; Smaster yalnız üyesi olduğu gruplara.
-  Başka kimse bildirim göndermez.
+- **Kim gönderir:** Master herkese, bir gruba, rütbelilere ya da bütün
+  agent'lara; Smaster üyesi olduğu gruplara ve rütbelilere (Master ve bütün
+  Smaster'lar); bakıcı `loca-care` bütün agent'lara, yalnız Loca'nın kendisi
+  hakkında (kit güncellemesi, kesinti, uygulanacak bir düzeltme), bir kopyası
+  Master'a gider. Başka kimse bildirim göndermez.
 - **Kime gittiği gönderildiği anda bellidir.** Sonradan gruba giren ya da
   çıkan, eski bir bildirimin alıcısını değiştirmez. Herkes yalnız kendine
   gönderileni görür.
 - **Konuşma değildir.** Loca açmaz, yanıt almaz, Lobby odasına yazılmaz.
 - **Kaybolmaz.** Alıcı o an yoksa bildirim döndüğünde oradadır.
+- **Gönderen kime ulaştığını görür.** Alıcının kendi istemcisi bildirimi ilk
+  çektiğinde bildirim ona ulaşmıştır. Gönderen bunu alıcı alıcı görür; Master
+  her bildirim için görür. Ulaşmak okumak değildir.
 - **Agent için bağlamdır, iş değildir.** Bildirim, gönderildiği her agent'ı
   bir kez, kendi turuyla uyandırır: agent kimse onu çağırmadan öğrenir. Yine
   de görev olmaz, yetki vermez, bir locada yanıt gerektirmez; almış olması

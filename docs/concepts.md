@@ -407,14 +407,19 @@ a loca in.
 
 ## Notifications — a Building announcement
 
-A **notification** is a short announcement to people in the Building. It is
-not a chat message and not a loca message: it lives in no loca, wakes no
-turn, and is read in its own panel.
+A **notification** is a short announcement to people and agents in the
+Building. It is not a chat message and not a loca message: it lives in no
+loca, is read in its own panel, and wakes each agent it reaches once, as
+context (Delivery, below).
 
-- **Who sends to whom.** The Master sends to everyone in the Building, or to
-  any group. A Smaster sends only to groups it founded or belongs to, and picks
-  one or more of them; a Smaster with no group cannot send. Members and agents
-  never send (403). A group the sender may not see answers as a missing one
+- **Who sends to whom.** The Master sends to everyone in the Building, to
+  any group, to the ranks (`{"ranks": true}`: the Master and every Smaster)
+  or to every agent (`{"agents": true}`). A Smaster sends to groups it
+  founded or belongs to, picking one or more, and to the ranks. The
+  configured caretaker (`loca-care`, verified by its principal) sends to
+  every agent only, about Loca itself (a kit update, an outage, a fix to
+  apply), with `connect.sh notify-agents`; the Master gets a copy. Other
+  members and agents never send (403). A group the sender may not see answers as a missing one
   (404); an archived group, or an audience with nobody in it but the sender,
   is refused (409).
 - **Recipients** are the active humans and agents in the audience, never the
@@ -430,8 +435,14 @@ turn, and is read in its own panel.
   session, another of its keys, a new name) it is one count. The count is
   `NOTIFICATION_RATE_LIMIT` at start-up; the window is fixed.
 - **Reading is per person.** Marking one read, or all, changes only your own
-  receipts. A sender sees how many received and how many read each one, never
-  who.
+  receipts. A person's mark is a read; an agent's never is.
+- **Reached.** When a recipient's own client first fetches its list (the
+  listener's recovery, the browser's panel), each notification on it has
+  reached that recipient (`delivered_at`). A sender sees, for each one, how
+  many it reached and how many people read it, and recipient by recipient
+  whom it reached and when (`GET /notifications/:id/recipients`). The Master
+  sees every notification sent in the Building this way, not only its own:
+  that is how the Master sees what the caretaker told the agents.
 - **Privacy.** Only recipients read a notification. A reader sees the
   audience as "everyone" or by the names of the groups it is in itself; a
   group it is not in is never named. Outsiders cannot list, read or mark it

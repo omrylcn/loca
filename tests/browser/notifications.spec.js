@@ -148,11 +148,15 @@ test("a Smaster's composer offers only its own groups; the Master's offers every
   const panel = kaan.locator("#notifPanel");
   await expect(panel.locator(".notifcompose summary")).toHaveText("New notification");
   await panel.locator(".notifcompose summary").click();
+  // A Smaster: the ranks, and its own group; never everyone or every agent.
   const auds = panel.locator(".notifaud");
-  await expect(auds).toHaveCount(1);
-  await expect(auds.first()).toContainText("ntf-team");
+  await expect(auds).toHaveCount(2);
+  await expect(auds.first()).toContainText("The Master and the Smasters");
+  await expect(panel.locator("input[name=whole][value=ranks]")).not.toBeChecked();
+  await expect(panel.locator(".notifauds")).toContainText("ntf-team");
   await expect(panel.locator(".notifauds")).not.toContainText("ntf-design");
-  await expect(panel.locator("input[name=all]")).toHaveCount(0);
+  await expect(panel.locator("input[name=whole][value=all]")).toHaveCount(0);
+  await expect(panel.locator("input[name=whole][value=agents]")).toHaveCount(0);
 
   // Inline errors, then a send.
   await panel.locator("#notifSend").click();
@@ -160,27 +164,33 @@ test("a Smaster's composer offers only its own groups; the Master's offers every
   await panel.locator("#notifTitle").fill("Deploy friday");
   await panel.locator("#notifSend").click();
   await expect(panel.locator("#notifErr")).toHaveText("Choose who receives it.");
-  await auds.first().locator("input").check();
+  await panel.locator(".notifaud", { hasText: "ntf-team" }).locator("input").check();
   await panel.locator("#notifText").fill("Freeze at 15:00.");
   await panel.locator("#notifSend").click();
   await expect(panel.locator(".notifstatus")).toHaveText("Sent to 1 person.");
   await expect(panel.locator(".notifitem", { hasText: "Deploy friday" })).toContainText("0 of 1 read");
   await kaan.context().close();
 
-  // A Smaster with no group gets no composer at all.
+  // A Smaster with no group writes to the ranks, the one choice it has.
   const lone = await openAs(browser, loneInfo, "ntf-lone");
   await lone.locator("#notifBell").click();
   await expect(lone.locator("#notifPanel .notifhead")).toBeVisible();
-  await expect.poll(() => lone.evaluate(() => state.notif.audiences && state.notif.audiences.can_send)).toBe(false);
-  await expect(lone.locator("#notifPanel .notifcompose")).toHaveCount(0);
+  await expect.poll(() => lone.evaluate(() => state.notif.audiences && state.notif.audiences.can_send)).toBe(true);
+  await lone.locator("#notifPanel .notifcompose summary").click();
+  await expect(lone.locator("#notifPanel .notifaud")).toHaveCount(1);
+  await expect(lone.locator("#notifPanel input[name=whole][value=ranks]")).toBeChecked();
   await lone.context().close();
 
-  // The Master: everyone, and every group (disabled while Everyone is on).
+  // The Master: everyone, every agent, the ranks, and every group (groups
+  // disabled while a whole audience is on; one whole audience at a time).
   const master = await openAs(browser, await rankSession(request, "MASTER"), "Master");
   await master.locator("#notifBell").click();
   const mpanel = master.locator("#notifPanel");
   await mpanel.locator(".notifcompose summary").click();
-  await expect(mpanel.locator("input[name=all]")).toBeChecked();
+  await expect(mpanel.locator("input[name=whole][value=all]")).toBeChecked();
+  await mpanel.locator("input[name=whole][value=agents]").check();
+  await expect(mpanel.locator("input[name=whole][value=all]")).not.toBeChecked();
+  await expect(mpanel.locator(".notifauds")).toContainText("The Master and the Smasters");
   await expect(mpanel.locator(".notifaud", { hasText: "ntf-team" }).locator("input")).toBeDisabled();
   await expect(mpanel.locator(".notifauds")).toContainText("ntf-design");
   await master.context().close();
@@ -222,22 +232,31 @@ test("the Sent view counts people who read it and lists agents apart", async ({ 
   // One person and two agents: the read count is out of one.
   await sendTo("ntfc-team", "Freeze friday");
   await expect(panel.locator(".notifstatus")).toHaveText("Sent to 1 person and 2 agents.");
-  await expect(counts("Freeze friday")).toHaveText("0 of 1 read · sent to 2 agents");
+  await expect(counts("Freeze friday")).toContainText("0 of 1 read · sent to 2 agents");
+  // Nobody's own client has fetched it yet; the bot's does now.
+  await expect(counts("Freeze friday")).toContainText("reached 0 of 3");
+  expect((await request.get("/notifications", { headers: { "x-room-token": botKey } })).ok()).toBeTruthy();
+  await reloadSent();
+  await expect(counts("Freeze friday")).toContainText("reached 1 of 3");
+  await counts("Freeze friday").locator("[data-notif-who]").click();
+  const who = panel.locator(".notifitem", { hasText: "Freeze friday" }).locator(".notifwho");
+  await expect(who.locator("li", { hasText: "ntfc-bot" })).toContainText("reached");
+  await expect(who.locator("li", { hasText: "ntfc-scribe" })).toContainText("not yet");
 
   // An agent clearing its own list is not a read.
   expect((await request.post("/notifications/read-all", { headers: { "x-room-token": botKey } })).ok()).toBeTruthy();
   await reloadSent();
-  await expect(counts("Freeze friday")).toHaveText("0 of 1 read · sent to 2 agents");
+  await expect(counts("Freeze friday")).toContainText("0 of 1 read · sent to 2 agents");
 
   // The person reading it is.
   expect((await request.post("/notifications/read-all", { headers: { "x-room-token": personKey } })).ok()).toBeTruthy();
   await reloadSent();
-  await expect(counts("Freeze friday")).toHaveText("1 of 1 read · sent to 2 agents");
+  await expect(counts("Freeze friday")).toContainText("1 of 1 read · sent to 2 agents");
 
   // Agents only: nobody to read it, so no "0 of 0 read".
   await sendTo("ntfc-bots", "Context only");
   await expect(panel.locator(".notifstatus")).toHaveText("Sent to 1 agent.");
-  await expect(counts("Context only")).toHaveText("sent to 1 agent");
+  await expect(counts("Context only")).toContainText("sent to 1 agent");
   await kaan.context().close();
 });
 
@@ -257,7 +276,7 @@ test("a refused send shows the server's sentence and keeps what was typed", asyn
   await master.locator("#notifBell").click();
   const panel = master.locator("#notifPanel");
   await panel.locator(".notifcompose summary").click();
-  await expect(panel.locator("input[name=all]")).toBeChecked();
+  await expect(panel.locator("input[name=whole][value=all]")).toBeChecked();
   await panel.locator("#notifTitle").fill("Lift out of order");
   await panel.locator("#notifText").fill("Use the stairs\nuntil Monday.");
   await panel.locator("#notifSend").click();
