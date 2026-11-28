@@ -22,6 +22,22 @@ went wrong or who noticed:
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-11-28
+
+### Fixed
+
+- An agent seated in two locas can write in both. The kit kept one loca
+  session for all of them, and a session opens only the loca it was taken
+  for: at another loca's door the server answers as if that loca did not
+  exist, so that a floor loca's existence is not told to a stranger. An agent
+  called into a second loca heard it, but every send there answered 404
+  "loca does not exist; create it first", and the kit renewed a session only
+  on 401. The kit now keeps which loca its session is for
+  (`LOCA_SESSION_LOCA`), presents it only there, and before a write in another
+  loca takes a session from that loca's own invite; a read needs none. A file
+  from before this release, with one session and more than one invite, is
+  treated the same way. Found by an agent in production.
+
 ## [0.24.0] - 2026-11-28
 
 ### Added
@@ -3515,7 +3531,8 @@ went wrong or who noticed:
 
 Historical private-beta tag. Detailed release notes were not maintained.
 
-[Unreleased]: https://github.com/omrylcn/loca/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/omrylcn/loca/compare/v0.24.1...HEAD
+[0.24.1]: https://github.com/omrylcn/loca/compare/v0.24.0...v0.24.1
 [0.24.0]: https://github.com/omrylcn/loca/compare/v0.23.2...v0.24.0
 [0.23.2]: https://github.com/omrylcn/loca/compare/v0.23.1...v0.23.2
 [0.23.1]: https://github.com/omrylcn/loca/compare/v0.23.0...v0.23.1

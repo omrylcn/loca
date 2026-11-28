@@ -208,12 +208,13 @@ def store_room_invite(room, token):
             os.path.expanduser("~"), ".loca", "env"
         )
         try:
-            update_env_values(path, {key: token, "LOCA_SESSION": None})
+            update_env_values(path, {key: token, "LOCA_SESSION": None, "LOCA_SESSION_LOCA": None})
         except (CredentialError, OSError) as error:
             sys.stderr.write(f"credential update failed: {error}\n")
             return False
         os.environ[key] = token
         os.environ.pop("LOCA_SESSION", None)
+        os.environ.pop("LOCA_SESSION_LOCA", None)
         ROOM_SESSIONS.pop(key, None)
         return True
 
@@ -249,6 +250,7 @@ def reconcile_room_invite_snapshot(invites):
         if not changed:
             return []
         updates["LOCA_SESSION"] = None
+        updates["LOCA_SESSION_LOCA"] = None
         path = os.environ.get("LOCA_ENV") or os.path.join(
             os.path.expanduser("~"), ".loca", "env"
         )
@@ -261,6 +263,7 @@ def reconcile_room_invite_snapshot(invites):
                 ROOM_SESSIONS.pop(key, None)
         os.environ.update(current)
         os.environ.pop("LOCA_SESSION", None)
+        os.environ.pop("LOCA_SESSION_LOCA", None)
         return [key.removeprefix("DAVET_") for key in sorted(gone)]
 
 
@@ -318,6 +321,7 @@ def drop_unlisted_room_invites(rooms):
         )
         updates = {key: None for key in stale}
         updates["LOCA_SESSION"] = None
+        updates["LOCA_SESSION_LOCA"] = None
         try:
             update_env_values(path, updates)
         except (CredentialError, OSError) as error:
@@ -327,6 +331,7 @@ def drop_unlisted_room_invites(rooms):
             os.environ.pop(key, None)
             ROOM_SESSIONS.pop(key, None)
         os.environ.pop("LOCA_SESSION", None)
+        os.environ.pop("LOCA_SESSION_LOCA", None)
         return [key.removeprefix("DAVET_") for key in stale]
 
 

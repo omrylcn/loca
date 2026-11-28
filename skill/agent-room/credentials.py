@@ -26,6 +26,8 @@ class CredentialError(RuntimeError):
 _BOUND_KEYS = {
     "LOCA_NAME",
     "LOCA_SESSION",
+    # The loca LOCA_SESSION was taken for: a session opens only that loca.
+    "LOCA_SESSION_LOCA",
     "LOCA_LOBBY_SESSION",
     "LOCA_MEMBERSHIP",
     "ROOM_SERVER_URL",
